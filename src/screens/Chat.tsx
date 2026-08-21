@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
@@ -103,35 +103,60 @@ export function Chat() {
      * 되찾고, iOS가 밀어 올린 페이지는 되돌려 놓는다.
      * 키보드가 아닌 잔잔한 높이 변화(주소 막대가 접히는 것 등)에 걸리지
      * 않도록 120px 넘게 가릴 때만 키보드로 친다.
+     *
+     * **입력칸을 누른 것 자체도 신호로 쓴다.** `visualViewport`가 언제
+     * 알려 줄지는 기기마다 다르고, iOS는 키보드가 다 올라온 뒤에야
+     * 알려 주기도 한다. 누르는 순간 탭바부터 감춰 두면 그 사이에도
+     * 대화가 가려지지 않는다. 높이는 알려 줄 때 채워 넣는다.
      */
+    const kbRef = useRef({ typing: false, hidden: 0 });
+
+    const syncKeyboard = useCallback(() => {
+        const vv = window.visualViewport;
+        const hidden = vv
+            ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+            : 0;
+        const s = kbRef.current;
+        s.hidden = hidden;
+
+        const open = s.typing || hidden > 120;
+        document.documentElement.style.setProperty('--kb', `${hidden > 120 ? hidden : 0}px`);
+        document.body.classList.toggle('kb-open', open);
+
+        if (open) {
+            // iOS가 페이지를 밀어 올린 것을 되돌린다. 이걸 안 하면
+            // 고정된 것들이 화면 밖으로 나간다.
+            window.scrollTo(0, 0);
+            const el = listRef.current;
+            if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+        }
+    }, []);
+
     useEffect(() => {
         const vv = window.visualViewport;
-        if (!vv) return;
-
-        const apply = () => {
-            const hidden = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-            const open = hidden > 120;
-            document.documentElement.style.setProperty('--kb', `${open ? hidden : 0}px`);
-            document.body.classList.toggle('kb-open', open);
-            if (open) {
-                // iOS가 페이지를 밀어 올린 것을 되돌린다. 이걸 안 하면
-                // 고정된 것들이 화면 밖으로 나간다.
-                window.scrollTo(0, 0);
-                const el = listRef.current;
-                if (el && atBottom.current) el.scrollTop = el.scrollHeight;
-            }
-        };
-
-        apply();
-        vv.addEventListener('resize', apply);
-        vv.addEventListener('scroll', apply);
+        syncKeyboard();
+        vv?.addEventListener('resize', syncKeyboard);
+        vv?.addEventListener('scroll', syncKeyboard);
         return () => {
-            vv.removeEventListener('resize', apply);
-            vv.removeEventListener('scroll', apply);
+            vv?.removeEventListener('resize', syncKeyboard);
+            vv?.removeEventListener('scroll', syncKeyboard);
             document.documentElement.style.removeProperty('--kb');
             document.body.classList.remove('kb-open');
         };
-    }, []);
+    }, [syncKeyboard]);
+
+    const onComposerFocus = () => {
+        kbRef.current.typing = true;
+        syncKeyboard();
+        // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다.
+        setTimeout(syncKeyboard, 120);
+        setTimeout(syncKeyboard, 400);
+    };
+
+    const onComposerBlur = () => {
+        kbRef.current.typing = false;
+        syncKeyboard();
+    };
 
     const onScroll = () => {
         const el = listRef.current;
@@ -242,6 +267,8 @@ export function Chat() {
                     className="textarea grow" value={draft}
                     onChange={e => setDraft(e.target.value)}
                     onKeyDown={onKeyDown}
+                    onFocus={onComposerFocus}
+                    onBlur={onComposerBlur}
                     placeholder="메시지" rows={1} maxLength={1000}
                     aria-label="메시지 입력"
                 />
