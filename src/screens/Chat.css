@@ -136,4 +136,9 @@
    키보드 위에 탭바까지 겹치면 대화가 설 자리가 없다. 감춘 만큼 입력칸의
    아래 여백도 뺀다 — 그 여백은 탭바를 피하려고 둔 것이기 때문이다. */
 body.kb-open .tabbar { display: none; }
-body.kb-open .chat-input { padding-bottom: calc(var(--safe-b) + var(--gap-sm)); }
+/* 키보드가 올라와 있으면 홈 인디케이터가 없다. 그 자리(--safe-b)를 계속
+   비워 두면 입력칸과 키보드 사이에 빈 띠가 남는다 — 카톡은 딱 붙는다. */
+body.kb-open .chat-input { padding-bottom: var(--gap-sm); }
+
+/* 글을 쓰는 동안에는 머리말의 설명 줄을 접는다. 그만큼 대화가 더 보인다. */
+body.kb-open .chat-sub { display: none; }

@@ -229,7 +229,7 @@ export function Chat() {
         <div className="chat">
             <div className="chat-head">
                 <h1 className="chat-title">{data.room.name}</h1>
-                <span className="xs faint">라운드·투표·공지는 각 탭에 남습니다</span>
+                <span className="xs faint chat-sub">라운드·투표·공지는 각 탭에 남습니다</span>
             </div>
 
             <div className="chat-list" ref={listRef} onScroll={onScroll}>
