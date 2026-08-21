@@ -1,0 +1,20 @@
+node_modules
+dist
+dist-ssr
+.env
+.env.local
+.env.*.local
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.log
+npm-debug.log*
+
+# Capacitor (나중에 붙일 때 생기는 것들)
+/android
+/ios
+
+# 헤드리스 확인용 출력물 — 돌릴 때마다 다시 만들어진다
+.dev/shots/
+.dev/vite.log

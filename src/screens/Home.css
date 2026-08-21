@@ -1,0 +1,58 @@
+.home-row,
+.home-alert {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 13px var(--gap);
+    text-decoration: none;
+    color: inherit;
+}
+
+.home-alert { border-color: rgba(251, 191, 36, 0.4); }
+
+/* ── 내 정보 ─────────────────────────────────────────────── */
+
+.me-head {
+    display: flex;
+    align-items: center;
+    gap: var(--gap);
+    padding: var(--gap-sm) 0;
+}
+
+.menu-list {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 15px var(--gap);
+    text-align: left;
+    width: 100%;
+    font-weight: 700;
+    color: inherit;
+    text-decoration: none;
+}
+.menu-item + .menu-item { border-top: 1px solid var(--line); }
+.menu-item:active { background: var(--surface-2); }
+.menu-item .chev { color: var(--text-faint); }
+
+/* ── 명단 ────────────────────────────────────────────────── */
+
+.member-row {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 11px var(--gap);
+}
+.member-row + .member-row { border-top: 1px solid var(--line); }
+
+.role-tag { font-size: var(--fs-xs); font-weight: 800; }
+.role-admin { color: var(--brand); }
+.role-pending { color: var(--warn); }

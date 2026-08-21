@@ -1,0 +1,63 @@
+/*  teetime · 디자인 토큰
+ *
+ *  색·간격·글꼴 크기를 여기 한 곳에만 적는다. 화면 파일에서 색을
+ *  직접 쓰지 말 것 — 나중에 밝은 테마를 붙일 때 여기만 고치면 되게.
+ */
+
+:root {
+    /* 바탕 ─ 뒤로 갈수록 밝아진다 */
+    --bg:            #0b1220;   /* 화면 바닥 */
+    --surface:       #131c2e;   /* 카드 */
+    --surface-2:     #1b2740;   /* 카드 안의 칸 */
+    --surface-3:     #24324f;   /* 눌린 칸 · 입력창 */
+    --line:          #2b3a58;
+
+    /* 글자 */
+    --text:          #eef3fb;
+    --text-dim:      #a8b6cf;
+    --text-faint:    #6b7c99;
+
+    /* 강조 ─ 페어웨이 초록 */
+    --brand:         #35d07f;
+    --brand-deep:    #16a35c;
+    --brand-soft:    rgba(53, 208, 127, 0.14);
+
+    /* 뜻이 있는 색 */
+    --warn:          #fbbf24;
+    --danger:        #f4645f;
+    --info:          #4aa8ff;
+    --wait:          #a78bfa;   /* 대기자 */
+
+    /* 모서리 */
+    --r-sm: 8px;
+    --r:    14px;
+    --r-lg: 20px;
+    --r-pill: 999px;
+
+    /* 간격 */
+    --gap-xs: 6px;
+    --gap-sm: 10px;
+    --gap:    16px;
+    --gap-lg: 24px;
+
+    /* 글자 크기 */
+    --fs-xs:  0.72rem;
+    --fs-sm:  0.82rem;
+    --fs:     0.92rem;
+    --fs-md:  1.02rem;
+    --fs-lg:  1.2rem;
+    --fs-xl:  1.5rem;
+
+    /* 그림자 — 무한 애니메이션이나 blur 필터는 쓰지 않는다.
+       안드로이드에서 늘 켜져 있는 그리기 비용이 화면을 끊기게 한다. */
+    --shadow:    0 6px 20px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 16px 44px rgba(0, 0, 0, 0.5);
+
+    /* 하단 탭바 높이 + 아이폰 홈바 여백 */
+    --tabbar-h: 58px;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-t: env(safe-area-inset-top, 0px);
+
+    /* 본문 최대 너비 — 태블릿·PC에서 글자가 가로로 늘어지지 않게 */
+    --page-w: 560px;
+}

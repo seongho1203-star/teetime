@@ -1,0 +1,132 @@
+/* 대화는 다른 화면과 달리 **자기 안에서만 스크롤한다**.
+   입력칸이 바닥에 붙어 있어야 하기 때문이다. */
+.chat {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    width: 100%;
+    max-width: var(--page-w);
+    margin: 0 auto;
+    padding-top: var(--safe-t);
+}
+
+.chat-head {
+    flex: 0 0 auto;
+    padding: var(--gap-sm) var(--gap);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.chat-title {
+    font-size: var(--fs-md);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.chat-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* 왼쪽 끝에서 브라우저 '뒤로 가기'가 먹지 않게. */
+    overscroll-behavior: contain;
+    padding: var(--gap) var(--gap) var(--gap-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.chat-more { align-self: center; margin-bottom: var(--gap-sm); }
+
+.chat-day {
+    align-self: center;
+    margin: var(--gap) auto var(--gap-sm);
+    padding: 3px 12px;
+    border-radius: var(--r-pill);
+    background: var(--surface-2);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    width: fit-content;
+}
+
+.chat-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-top: var(--gap-xs);
+}
+.chat-row.grouped { margin-top: 2px; }
+.chat-row.mine { justify-content: flex-end; }
+
+.chat-avatar { width: 26px; flex: 0 0 auto; }
+
+.chat-col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 78%;
+    min-width: 0;
+}
+.chat-row.mine .chat-col { align-items: flex-end; }
+
+.chat-who { padding-left: 2px; }
+
+.chat-line {
+    display: flex;
+    align-items: flex-end;
+    gap: 5px;
+}
+.chat-row.mine .chat-line { flex-direction: row-reverse; }
+
+.chat-bubble {
+    padding: 9px 13px;
+    border-radius: 16px;
+    background: var(--surface-2);
+    font-size: var(--fs);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.chat-row.mine .chat-bubble {
+    background: var(--brand-deep);
+    color: #04140b;
+    font-weight: 600;
+}
+
+.chat-time {
+    flex: 0 0 auto;
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    padding-bottom: 2px;
+    white-space: nowrap;
+}
+
+.chat-input {
+    flex: 0 0 auto;
+    display: flex;
+    gap: var(--gap-sm);
+    align-items: flex-end;
+    padding: var(--gap-sm) var(--gap)
+             calc(var(--tabbar-h) + var(--safe-b) + var(--gap-sm));
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+}
+.chat-input .textarea {
+    min-height: 44px;
+    max-height: 120px;
+    padding: 11px 14px;
+    border-radius: var(--r-pill);
+}
+
+.chat-send {
+    width: 44px; height: 44px;
+    flex: 0 0 auto;
+    padding: 0;
+    border-radius: 50%;
+}
+.chat-send svg { width: 20px; height: 20px; stroke: currentColor; }
+
+/* 알약 모양 입력칸 안에서는 크기 조절 손잡이가 어색하다.
+   높이는 max-height까지 저절로 늘어난다. */
+.chat-input .textarea { resize: none; }

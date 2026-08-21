@@ -1,0 +1,128 @@
+.round-card { gap: var(--gap-xs); text-decoration: none; color: inherit; }
+.round-card.past { opacity: 0.62; }
+
+.round-course {
+    font-size: var(--fs-lg);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.round-foot { margin-top: var(--gap-xs); }
+
+.capacity {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    min-width: 0;
+}
+
+.capacity-bar {
+    width: 76px;
+    height: 6px;
+    flex: 0 0 auto;
+    border-radius: var(--r-pill);
+    background: var(--surface-3);
+    overflow: hidden;
+}
+.capacity-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--brand);
+    border-radius: inherit;
+    /* 남이 신청하면 실시간으로 늘어난다. 폭만 움직이므로 값이 싸다. */
+    transition: width 0.3s ease;
+}
+
+.wait-count { color: var(--wait); font-weight: 700; }
+
+/* ── 상세 ──────────────────────────────────────────────── */
+
+.round-hero {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+}
+.round-hero h2 {
+    font-size: var(--fs-xl);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    word-break: keep-all;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+}
+.info-cell {
+    background: var(--surface);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.info-cell dt { font-size: var(--fs-xs); color: var(--text-faint); font-weight: 700; }
+.info-cell dd { margin: 0; font-size: var(--fs); font-weight: 700; word-break: keep-all; }
+
+.signup-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.signup-row {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 9px 10px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+}
+.signup-row.is-me { background: var(--brand-soft); }
+.signup-row.is-wait { background: transparent; border: 1px dashed var(--line); }
+
+.signup-seq {
+    width: 20px;
+    flex: 0 0 auto;
+    text-align: center;
+    font-size: var(--fs-xs);
+    font-weight: 800;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.signup-name { font-weight: 700; }
+
+/* 정원만큼 빈 자리를 미리 그려 둔다 — 몇 자리 남았는지 눈으로 보인다. */
+.signup-row.empty-slot {
+    background: transparent;
+    border: 1px dashed var(--line);
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+}
+
+/* 신청 버튼은 아래에 붙어 따라다닌다 — 명단이 길어도 손이 닿아야 한다.
+ * **바탕색을 꼭 깔 것.** 투명하게 두면 밑에 있는 글이 버튼을 뚫고 지나간다.
+ * 위쪽은 그러데이션으로 흐려 잘린 느낌을 없앤다. */
+.round-actions {
+    position: sticky;
+    bottom: calc(var(--tabbar-h) + var(--safe-b));
+    z-index: 5;
+    display: flex;
+    gap: var(--gap-sm);
+    padding: var(--gap) 0 var(--gap-sm);
+    margin-top: calc(var(--gap-sm) * -1);
+    background:
+        linear-gradient(to bottom, transparent, var(--bg) 22px);
+}
+
+/* 바탕이 비치지 않게 버튼 자체도 채운다. */
+.round-actions .btn.danger {
+    background: var(--surface);
+}
+
+.brand-tag { color: var(--brand); font-weight: 800; }

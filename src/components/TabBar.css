@@ -1,0 +1,35 @@
+.tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 800;
+    height: calc(var(--tabbar-h) + var(--safe-b));
+    padding-bottom: var(--safe-b);
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+}
+
+.tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-decoration: none;
+    /* 색만 바뀐다. 레이아웃을 건드리는 전환은 넣지 않는다. */
+    transition: color 0.12s ease;
+}
+
+.tab svg {
+    width: 23px;
+    height: 23px;
+    stroke: currentColor;
+}
+
+.tab.active { color: var(--brand); }
+.tab:active { color: var(--text-dim); }
+.tab.active:active { color: var(--brand); }

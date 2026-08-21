@@ -1,0 +1,64 @@
+name: 배포
+
+# main에 푸시하면 빌드해서 GitHub Pages에 올린다.
+# Settings → Pages → Source 를 "GitHub Actions" 로 바꿔 두어야 동작한다.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포가 겹치면 나중 것만 남긴다. 앞선 것을 취소하지는 않는다
+# (반쯤 올라간 채로 끊기면 사이트가 깨진다).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: 빌드
+        env:
+          # anon 키는 어차피 빌드 결과에 들어가는 공개 값이다.
+          # 그래도 저장소에 직접 적어 두지 않으려고 Secrets에 둔다.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 시크릿이 없습니다. docs/설치.md 6번 참고."
+            exit 1
+          fi
+          npm run build
+
+      # 새로고침해도 404가 나지 않게 한다. 해시 라우팅이라 대개 괜찮지만,
+      # 하위 경로로 직접 들어오는 경우를 위해 같은 파일을 404로도 둔다.
+      - run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
