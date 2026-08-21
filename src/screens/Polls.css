@@ -76,7 +76,14 @@
     align-items: center;
     gap: var(--gap-sm);
 }
-.option-row .btn { flex: 0 0 auto; }
+/* 지우기 버튼은 칸과 같은 높이의 정사각형이다. 글자 길이로 폭이 정해지면
+   줄마다 오른쪽 끝이 어긋난다 — 아래 `+ 항목 추가`와도 맞지 않는다. */
+.option-row .btn {
+    flex: 0 0 auto;
+    width: var(--field-h);
+    height: var(--field-h);
+    padding: 0;
+}
 
 .switch-row {
     display: flex;

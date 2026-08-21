@@ -168,6 +168,29 @@ h1, h2, h3, h4, p { margin: 0; }
 .input:focus, .textarea:focus, .select:focus { border-color: var(--brand-deep); }
 .textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 
+/* **한 줄짜리 칸은 높이를 못박는다.**
+   내버려 두면 종류마다 높이가 달라진다 — 특히 iOS 사파리는 날짜·시각 칸을
+   제 방식대로 그려서 글자 칸보다 높게 나오고, 비어 있으면 속이 텅 빈 채로
+   더 커 보인다. 나란히 놓인 `정원`·`참가비`나 항목 줄의 지우기 버튼과
+   눈에 띄게 어긋나므로, 같은 상자에 맞춰 둔다.
+   여러 줄인 `.textarea`는 제외다. */
+.input, .select { height: var(--field-h); }
+
+.input[type="datetime-local"],
+.input[type="date"],
+.input[type="time"] {
+    appearance: none;
+    -webkit-appearance: none;
+    /* iOS가 내용을 가운데로 밀지 않게 한다. */
+    text-align: left;
+    line-height: normal;
+}
+
+/* 숫자 칸의 증감 화살표는 폭을 잡아먹기만 한다. 값은 키패드로 넣는다. */
+.input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.input[type="number"]::-webkit-outer-spin-button,
+.input[type="number"]::-webkit-inner-spin-button { appearance: none; margin: 0; }
+
 .select {
     appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%23a8b6cf' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
