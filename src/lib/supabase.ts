@@ -39,11 +39,20 @@ export const supabase = createClient<Database>(
  *
  * 돌아올 곳을 현재 주소로 잡는다. 해시 라우팅(`/#/...`)을 쓰므로
  * 어느 화면에서 눌러도 origin + pathname 이면 충분하다.
+ *
+ * **`scopes`를 반드시 적어 보낸다.** 비워 두면 Supabase가 카카오에
+ * `account_email`(이메일)까지 함께 요구하는데, 비즈 앱이 아니면 그 항목을
+ * 쓸 수 없어 카카오가 `KOE205 잘못된 요청`으로 막아 버린다 — 로그인 화면이
+ * 아예 안 뜬다. 우리가 쓰는 건 닉네임과 프로필 사진 둘뿐이므로 그 둘만 적는다.
+ * (카카오 콘솔의 동의항목에서도 이 둘이 사용 설정되어 있어야 한다.)
  */
 export async function signInWithKakao() {
     const { error } = await supabase.auth.signInWithOAuth({
         provider: 'kakao',
-        options: { redirectTo: window.location.origin + window.location.pathname },
+        options: {
+            redirectTo: window.location.origin + window.location.pathname,
+            scopes: 'profile_nickname profile_image',
+        },
     });
     if (error) throw error;
 }

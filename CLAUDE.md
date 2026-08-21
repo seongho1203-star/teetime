@@ -125,6 +125,12 @@ DB에는 UTC(`timestamptz`)로 넣고 `lib/format.ts`에서만 `Asia/Seoul`로 �
 
 ## 주의사항
 
+- **`.env` 없이 빌드한 결과로 판단하지 말 것.** `isConfigured`가
+  `import.meta.env.VITE_*`로 정해지는데 Vite는 이 값을 **빌드 시점에 박아 넣는다.**
+  `.env`가 없으면 `false`가 상수로 굳어 `Gate()`가 늘 `<Setup/>`을 반환하고,
+  **화면 전체가 트리셰이킹으로 사라진 번들(441KB)** 이 나온다. 제대로 든 번들은
+  497KB다. 번들 내용을 확인할 땐 값을 아무거나 넣어서 빌드할 것
+  (`VITE_SUPABASE_URL=https://x.supabase.co VITE_SUPABASE_ANON_KEY=dummy npm run build`).
 - **`.env`를 커밋하지 말 것.** `anon` 키는 공개돼도 되는 값이지만
   **`service_role` 키는 클라이언트 코드나 저장소에 절대 들어가면 안 된다** —
   그건 RLS를 통째로 건너뛴다.
