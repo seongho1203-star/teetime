@@ -39,6 +39,20 @@ h1, h2, h3, h4, p { margin: 0; }
     flex-direction: column;
 }
 
+/* 상태바 뒤에 바탕색을 깔아 둔다.
+   비워 두면 스크롤한 글이 상태바 아래로 지나가고, iOS가 그 위에 반투명
+   막을 씌워 **위쪽만 뿌옇게** 보인다. 평평한 색 한 겹이면 그 얼룩이 없어진다.
+   창(모달·확인창)은 z-index가 더 높아 이 띠를 덮는다. */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--safe-t);
+    background: var(--bg);
+    z-index: 700;
+    pointer-events: none;
+}
+
 .page {
     flex: 1;
     width: 100%;

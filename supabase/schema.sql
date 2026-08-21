@@ -516,8 +516,23 @@ begin
     end if;
 end $$;
 
-alter publication supabase_realtime add table messages;
-alter publication supabase_realtime add table signups;
-alter publication supabase_realtime add table rounds;
-alter publication supabase_realtime add table poll_votes;
-alter publication supabase_realtime add table posts;
+-- 화면이 구독하는 표는 **빠짐없이** 여기 있어야 한다. 빠지면 조용히
+-- 실시간만 안 먹는다 — 오류도 안 나서 알아채기 어렵다.
+-- (polls·profiles가 빠져 있어 투표를 지워도 탭의 숫자가 그대로였고,
+--  총무가 승인해도 대기 화면이 새로고침 전에는 안 바뀌었다.)
+-- add table은 이미 들어 있으면 오류가 나므로 없는 것만 넣는다.
+do $$
+declare t text;
+begin
+    foreach t in array array[
+        'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
+        'posts', 'post_comments', 'profiles'
+    ] loop
+        if not exists (
+            select 1 from pg_publication_tables
+            where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+        ) then
+            execute format('alter publication supabase_realtime add table public.%I', t);
+        end if;
+    end loop;
+end $$;

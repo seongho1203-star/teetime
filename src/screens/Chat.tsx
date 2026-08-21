@@ -90,6 +90,49 @@ export function Chat() {
         if (el && atBottom.current) el.scrollTop = el.scrollHeight;
     }, [messages]);
 
+    /**
+     * 키보드가 올라온 만큼 화면을 줄인다.
+     *
+     * 이 화면만 `100dvh`로 제 안에서 스크롤하는데, `dvh`는 브라우저 막대는
+     * 세어도 **키보드는 세지 않는다.** 그래서 키보드가 뜨면 iOS가 페이지를
+     * 통째로 밀어 올리고, 바닥에 붙어 있던 탭바와 입력칸이 키보드 위에
+     * 겹겹이 쌓여 **대화가 한 줄도 안 보였다.**
+     *
+     * `visualViewport`가 실제로 보이는 높이를 알려 주므로 그만큼을 `--kb`에
+     * 담아 화면 높이에서 뺀다. 겹친 동안에는 탭바를 감춰(`kb-open`) 자리를
+     * 되찾고, iOS가 밀어 올린 페이지는 되돌려 놓는다.
+     * 키보드가 아닌 잔잔한 높이 변화(주소 막대가 접히는 것 등)에 걸리지
+     * 않도록 120px 넘게 가릴 때만 키보드로 친다.
+     */
+    useEffect(() => {
+        const vv = window.visualViewport;
+        if (!vv) return;
+
+        const apply = () => {
+            const hidden = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+            const open = hidden > 120;
+            document.documentElement.style.setProperty('--kb', `${open ? hidden : 0}px`);
+            document.body.classList.toggle('kb-open', open);
+            if (open) {
+                // iOS가 페이지를 밀어 올린 것을 되돌린다. 이걸 안 하면
+                // 고정된 것들이 화면 밖으로 나간다.
+                window.scrollTo(0, 0);
+                const el = listRef.current;
+                if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+            }
+        };
+
+        apply();
+        vv.addEventListener('resize', apply);
+        vv.addEventListener('scroll', apply);
+        return () => {
+            vv.removeEventListener('resize', apply);
+            vv.removeEventListener('scroll', apply);
+            document.documentElement.style.removeProperty('--kb');
+            document.body.classList.remove('kb-open');
+        };
+    }, []);
+
     const onScroll = () => {
         const el = listRef.current;
         if (!el) return;

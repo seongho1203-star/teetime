@@ -3,7 +3,8 @@
 .chat {
     display: flex;
     flex-direction: column;
-    height: 100dvh;
+    /* 키보드가 가린 높이(--kb)만큼 줄인다. 없을 때는 0이라 100dvh 그대로다. */
+    height: calc(100dvh - var(--kb, 0px));
     width: 100%;
     max-width: var(--page-w);
     margin: 0 auto;
@@ -130,3 +131,9 @@
 /* 알약 모양 입력칸 안에서는 크기 조절 손잡이가 어색하다.
    높이는 max-height까지 저절로 늘어난다. */
 .chat-input .textarea { resize: none; }
+
+/* 키보드가 올라와 있는 동안에는 탭바를 감춘다.
+   키보드 위에 탭바까지 겹치면 대화가 설 자리가 없다. 감춘 만큼 입력칸의
+   아래 여백도 뺀다 — 그 여백은 탭바를 피하려고 둔 것이기 때문이다. */
+body.kb-open .tabbar { display: none; }
+body.kb-open .chat-input { padding-bottom: calc(var(--safe-b) + var(--gap-sm)); }

@@ -38,6 +38,9 @@ node .dev/shots.mjs                     # 12개 화면을 .dev/shots/ 에
 node .dev/scroll.mjs '/#/rounds/r1' rd  # 한 화면을 위·가운데·아래로
 ```
 
+키보드가 올라온 대화 화면은 `node .dev/kb-check.mjs`로 본다 — 헤드리스에는
+키보드가 없어 가린 높이를 직접 넣어 흉내 낸다.
+
 **`shots.mjs`의 `fullPage: true`는 sticky·fixed 요소를 엉뚱한 자리에 그린다.**
 붙어 있는 것(신청 버튼, 탭바)을 판단할 때는 반드시 `scroll.mjs`를 쓸 것.
 브라우저는 이미 있다 (`/opt/pw-browsers/chromium-1194/...`). `playwright install`을 실행하지 말 것.
@@ -60,6 +63,10 @@ docs/설치.md   Supabase·카카오를 처음 붙이는 절차
 권한도, 경합 처리도 Postgres가 한다. 화면은 요청만 한다.
 
 - **`supabase/schema.sql`과 `src/lib/types.ts`는 짝이다.** 한쪽만 고치지 말 것.
+- **`useRealtime`으로 구독하는 표는 `schema.sql` 맨 아래 발행 목록에도 있어야 한다.**
+  빠져도 오류가 안 난다 — 그 표만 조용히 실시간이 안 먹는다. `polls`와
+  `profiles`가 빠져 있어 투표를 지워도 탭 숫자가 그대로였고 승인해도 대기
+  화면이 안 바뀌었다. 표를 새로 구독하면 그 목록에 넣을 것.
 - 스키마를 고쳤으면 `schema.sql`을 고쳐서 **통째로 다시 실행**한다.
   여러 번 실행해도 안전하게 써 두었다(`create if not exists` / `drop policy if exists`).
 

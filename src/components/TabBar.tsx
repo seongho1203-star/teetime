@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
 import { daysUntil } from '../lib/format';
@@ -15,35 +16,49 @@ const icons = {
 };
 
 /**
- * 지금 몇 건이 진행중인지 센다.
+ * 지금 몇 건이 열려 있는지 센다.
  *
  * 홈에서 라운드·투표를 걷어내면서 이 숫자가 그 자리를 대신한다 —
  * 무엇이 열려 있는지는 탭 위의 숫자로 알고, 내용은 눌러서 본다.
- * 세기만 하므로 `head: true`로 행을 받아 오지 않는다.
  *
- * '진행중'의 뜻은 각 탭의 목록과 같아야 한다:
- *   라운드 — 모집중(`open`)이면서 아직 지나지 않은 것
- *   투표   — 닫히지 않았고 마감 시각이 지나지 않은 것
- * 지난 것을 서버에서 거르려면 시각 비교가 필요한데, 기기 시간대에 따라
- * 하루가 어긋날 수 있어 **받아 와서 `daysUntil`로 센다** (한국 날짜 기준).
- * 열려 있는 것만 받으므로 양이 적다.
+ * **숫자는 각 탭의 목록과 뜻이 같아야 한다.** 눌러서 들어갔는데 그만큼이
+ * 없으면 숫자를 믿을 수 없게 된다. 그래서 `Rounds`·`Polls`가 목록을
+ * 가르는 기준을 그대로 쓴다:
+ *   라운드 — 아직 지나지 않았고 취소되지 않은 것 (= '예정' 칸에 있는 것)
+ *   투표   — 닫히지 않았고 마감 시각도 지나지 않은 것 (= '진행중' 칸)
+ * 지난 것을 서버에서 거르려면 시각 비교가 필요한데 기기 시간대에 따라
+ * 하루가 어긋나므로, 받아 와서 한국 날짜로 센다.
+ *
+ * **실시간만 믿지 않는다.** 이 막대는 화면이 바뀌어도 살아 있어서, 알림을
+ * 한 번 놓치면 틀린 숫자가 계속 남는다(실제로 라운드를 지웠는데 1이 남았다).
+ * 그래서 화면을 옮길 때와 앱으로 돌아왔을 때 다시 센다 — 작은 조회 둘이다.
  */
 function useLiveCounts() {
+    const { pathname } = useLocation();
+
     const { data, reload } = useAsync(async () => {
         const [rounds, polls] = await Promise.all([
-            supabase.from('rounds').select('tee_at').eq('status', 'open'),
+            supabase.from('rounds').select('tee_at, status').neq('status', 'cancelled'),
             supabase.from('polls').select('closes_at').eq('closed', false),
         ]);
         const now = Date.now();
-        const r = (unwrap(rounds) ?? []) as Pick<Round, 'tee_at'>[];
+        const r = (unwrap(rounds) ?? []) as Pick<Round, 'tee_at' | 'status'>[];
         const p = (unwrap(polls) ?? []) as Pick<Poll, 'closes_at'>[];
         return {
             rounds: r.filter(x => daysUntil(x.tee_at) >= 0).length,
             polls: p.filter(x => !x.closes_at || new Date(x.closes_at).getTime() > now).length,
         };
-    }, []);
+    }, [pathname]);
 
     useRealtime(['rounds', 'polls'], reload);
+
+    // 홈 화면에 띄워 두고 한참 뒤에 돌아오면 그 사이 것을 놓친다.
+    useEffect(() => {
+        const onShow = () => { if (!document.hidden) reload(); };
+        document.addEventListener('visibilitychange', onShow);
+        return () => document.removeEventListener('visibilitychange', onShow);
+    }, [reload]);
+
     return data;
 }
 
