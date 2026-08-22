@@ -31,6 +31,7 @@ export function Chat() {
     const fileRef = useRef<HTMLInputElement>(null);
 
     const chatRef = useRef<HTMLDivElement>(null);
+    const barRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const taRef = useRef<HTMLTextAreaElement>(null);
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
@@ -337,6 +338,34 @@ export function Chat() {
 
     useEffect(() => () => clearTimeout(blurTimer.current), []);
 
+    /**
+     * 입력칸 높이를 `--composer`에 적어 둔다.
+     *
+     * 키보드가 올라오면 입력칸이 흐름에서 빠져 화면에 직접 붙으므로
+     * (Chat.css 참고), 목록이 그 아래로 숨지 않게 그만큼 자리를 비워야
+     * 한다. 여러 줄을 적으면 높이가 늘어나니 재서 넣는다.
+     */
+    useEffect(() => {
+        const el = barRef.current;
+        if (!el) return;
+        const write = () => {
+            const h = Math.round(el.getBoundingClientRect().height);
+            if (h) document.documentElement.style.setProperty('--composer', `${h}px`);
+        };
+        write();
+        const ro = new ResizeObserver(write);
+        // **`border-box`로 봐야 한다.** 키보드가 올라오면 이 칸은 아래
+        // 여백만 68px에서 10px로 줄어드는데, 기본값(`content-box`)으로는
+        // 안쪽 글자 칸이 그대로라 관찰자가 깨어나지 않는다 — 옛 높이가
+        // 그대로 남아 목록이 필요 이상으로 잘렸다.
+        ro.observe(el, { box: 'border-box' });
+        return () => {
+            ro.disconnect();
+            document.documentElement.style.removeProperty('--composer');
+        };
+        // 키보드가 오르내릴 때도 다시 잰다.
+    }, [roomId, focused]);
+
     /** 진단 전용. 손짓이 우리에게 오는지 보려고 남겨 둔 자리다. */
     useEffect(() => {
         const chat = chatRef.current;
@@ -586,7 +615,7 @@ export function Chat() {
                 })}
             </div>
 
-            <div className="chat-input">
+            <div className="chat-input" ref={barRef}>
                 <input
                     ref={fileRef} type="file" accept="image/*"
                     onChange={onPickPhoto} hidden

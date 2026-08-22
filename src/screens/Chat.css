@@ -264,3 +264,20 @@ html.kb-open, body.kb-open { overflow: hidden; overscroll-behavior: none; }
 /* 키보드가 올라와 있으면 홈 인디케이터가 없다. 그 자리(--safe-b)를 계속
    비워 두면 입력칸과 키보드 사이에 빈 띠가 남는다 — 카톡은 딱 붙는다. */
 body.kb-open .chat-input { padding-bottom: var(--gap-sm); }
+
+/* **입력칸을 대화 화면에서 꺼내 화면에 직접 붙인다.**
+   지금까지 입력칸은 `.chat` 안에 얹혀 있었다. `.chat`이 `fixed`여도
+   그 안의 입력칸은 평범한 흐름이라, iOS가 화면을 밀면 통째로 따라간다.
+   스스로 `fixed`인 요소는 iOS가 따로 다루므로 마지막으로 이걸 해 본다.
+   `bottom`을 키보드 높이(--kb)로 두면 자리는 예전과 똑같다. */
+body.kb-open .chat-input {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--kb, 0px);
+    margin-inline: auto;
+    max-width: var(--page-w);
+    z-index: 2;
+}
+/* 입력칸이 흐름에서 빠졌으니 목록이 그 아래로 숨지 않게 자리를 비운다. */
+body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap-sm)); }
