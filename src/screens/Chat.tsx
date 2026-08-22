@@ -147,9 +147,12 @@ export function Chat() {
         const vv = window.visualViewport;
         const s = kbRef.current;
         const vh = Math.round(vv ? vv.height : window.innerHeight);
-        // 초점이 곧 신호다. 남은 뺄셈은 키보드가 화면을 줄이지 않는
-        // 브라우저(안드로이드 크롬 등)를 위한 예비다.
-        const open = s.typing || window.innerHeight - vh > 120;
+        // **키보드 높이는 `documentElement.clientHeight`에서 잰다.** 이 값은
+        // 문서가 놓인 자리(707)라 키보드가 떠도 안 줄어든다 —
+        // `window.innerHeight`는 iOS 홈 화면 앱에서 함께 줄어들어 못 쓴다.
+        // 초점은 그보다 먼저 오는 신호라 함께 본다.
+        const gap = document.documentElement.clientHeight - vh;
+        const open = s.typing || gap > 120;
         document.body.classList.toggle('kb-open', open);
         // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
         document.documentElement.classList.toggle('kb-open', open);
@@ -164,10 +167,7 @@ export function Chat() {
         const root = document.documentElement.style;
         if (open) {
             root.setProperty('--vvh', `${vh}px`);
-            // **키보드 높이는 `documentElement.clientHeight`에서 뺀다.**
-            // 이것이 문서가 놓인 자리(707)이고 키보드가 떠도 안 줄어든다 —
-            // `window.innerHeight`는 iOS 홈 화면 앱에서 함께 줄어든다.
-            root.setProperty('--kb', `${Math.max(0, document.documentElement.clientHeight - vh)}px`);
+            root.setProperty('--kb', `${Math.max(0, gap)}px`);
             // 대화 화면이 보이는 높이에 딱 맞으면 페이지는 굴러갈 데가 없다.
             // 그 전에 iOS가 밀어 둔 것만 한 번 되돌려 놓는다.
             if (window.scrollY) window.scrollTo(0, 0);
@@ -241,27 +241,21 @@ export function Chat() {
     const settleTimer = useRef(0);
 
     /**
-     * **iOS가 미는 만큼 대화 화면이 따라 내려간다** — 화면 기준으로는
-     * 제자리에 서 있게 되어 카톡처럼 입력칸이 꿈쩍하지 않는다.
+     * **밀린 만큼 따라 내려가던 것을 뺐다.**
      *
-     * 한 번 넣었다가 더 나빠져서 뺀 적이 있는데, 그때는 **화면 크기가
-     * 틀려 있었다.** 대화 화면이 707이라 iOS가 입력칸을 보이게 하려고
-     * 이미 374를 밀어 둔 상태였고, 거기에 우리가 374를 더 내리니 입력칸이
-     * 화면 밖으로 나가 iOS가 또 밀고… 하는 되먹임이 생겨 양쪽으로 떨었다.
-     * 지금은 대화 화면이 보이는 높이(333)에 맞아 iOS가 밀 이유가 없다 —
-     * 손으로 민 만큼만 상쇄하면 되므로 되먹임이 없다.
+     * 폰에서 `따라 0~374`로 값이 제대로 발리는 것까지 확인했는데도 입력칸이
+     * 그대로 움직였다. 키보드가 올라와 있을 때 iOS는 `position: fixed`를
+     * 이미 **보이는 화면**에 붙여 놓는다 — 거기에 우리가 밀린 양을 또
+     * 더하고 있었으니, 상쇄가 아니라 두 번 움직이게 만든 셈이다.
+     * `.chat`은 `fixed`로만 두고 손대지 않는 것이 맞다.
      */
-    const followViewport = () => {
-        const vv = window.visualViewport;
+    const clearFollow = () => {
         const el = chatRef.current;
-        if (!vv || !el) return;
-        const y = document.body.classList.contains('kb-open') ? Math.round(vv.offsetTop) : 0;
-        const next = y ? `translateY(${y}px)` : '';
-        if (el.style.transform !== next) el.style.transform = next;
+        if (el && el.style.transform) el.style.transform = '';
     };
 
     const watchViewport = useCallback(() => {
-        followViewport();
+        clearFollow();
         noteDiag();
         if (!document.body.classList.contains('kb-open')) return;
         clearTimeout(settleTimer.current);
@@ -329,13 +323,15 @@ export function Chat() {
      */
     const onComposerBlur = () => {
         clearTimeout(blurTimer.current);
+        // **붙박기는 곧바로 푼다.** 키보드는 0.25초쯤 미끄러져 내려가는데,
+        // 그동안 보이는 높이가 333에서 707로 조금씩 커진다. 붙박아 둔 채로
+        // 두면 그 끝에서 화면이 한 번에 툭 늘어나 뚝뚝 끊겨 보인다.
+        // 풀어 두면 매 단계 따라 늘어나 카톡처럼 함께 내려간다.
+        kbRef.current.locked = false;
         blurTimer.current = window.setTimeout(() => {
             kbRef.current.typing = false;
-            kbRef.current.locked = false;
             setFocused(false);
             applyKeyboard(true);
-            // 키보드가 내려갔으니 따라 내려가 있던 것도 푼다.
-            if (chatRef.current) chatRef.current.style.transform = '';
         }, 150);
     };
 
