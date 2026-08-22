@@ -43,7 +43,8 @@ export function Members() {
 
     const all = data ?? [];
     const pending = all.filter(p => p.role === 'pending');
-    const members = all.filter(p => p.role !== 'pending');
+    const members = all.filter(p => p.role !== 'pending' && p.role !== 'banned');
+    const banned = all.filter(p => p.role === 'banned');
 
     const setRole = async (p: Profile, role: Role) => {
         const { error: err } = await supabase.from('profiles')
@@ -54,6 +55,7 @@ export function Members() {
             : role === 'staff' ? `${p.name}님을 부운영자로 임명했습니다.`
             : role === 'member' ? `${p.name}님의 부운영자를 풀었습니다.`
             : role === 'admin' ? `${p.name}님을 운영자로 올렸습니다.`
+            : role === 'banned' ? `${p.name}님을 추방했습니다.`
             : `${p.name}님을 대기로 되돌렸습니다.`,
             'ok'
         );
@@ -72,6 +74,21 @@ export function Members() {
         if (err) { toast(readableError(err), 'error'); return; }
         toast('거절했습니다.');
         reload();
+    };
+
+    /**
+     * 추방. **행을 지우지 않고 `banned`로 남겨 둔다** — 지우면 그 사람이
+     * 다시 로그인할 때 앱이 대기 상태로 되살려 신청이 또 들어온다.
+     */
+    const ban = async (p: Profile) => {
+        const ok = await confirm({
+            title: `${p.name || '이 분'}을 추방할까요?`,
+            detail: '앱을 볼 수 없게 되고, 다시 로그인해도 가입 신청이 되지 않습니다. '
+                  + '나중에 명단 아래쪽에서 되돌릴 수 있습니다.',
+            confirmLabel: '추방',
+            danger: true,
+        });
+        if (ok) setRole(p, 'banned');
     };
 
     const demote = async (p: Profile) => {
@@ -133,25 +150,58 @@ export function Members() {
                                 {isAdmin && p.phone ? ` · ${p.phone}` : ''}
                             </div>
                         </div>
-                        {/* 부운영자 임명은 운영자만. 운영자 행은 아무도 못 건드린다. */}
-                        {isOwner && p.id !== me && p.role !== 'admin' && (
-                            <button
-                                className="btn ghost sm"
-                                onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}
-                            >
-                                {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
-                            </button>
-                        )}
+                        {/* 버튼이 셋이라 좁은 화면에서는 아랫줄로 내려간다.
+                            이름과 핸디캡이 접히는 것보다 그편이 낫다. */}
                         {isAdmin && p.id !== me && p.role !== 'admin' && (
-                            <button className="btn ghost sm" onClick={() => demote(p)}
-                                    aria-label="내보내기">✕</button>
+                            <span className="member-actions">
+                                {/* 부운영자 임명은 운영자만. 운영자 행은 아무도 못 건드린다. */}
+                                {isOwner && (
+                                    <button
+                                        className="btn ghost sm"
+                                        onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}
+                                    >
+                                        {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                                    </button>
+                                )}
+                                <button className="btn ghost sm" onClick={() => demote(p)}>
+                                    내보내기
+                                </button>
+                                <button className="btn danger sm" onClick={() => ban(p)}>
+                                    추방
+                                </button>
+                            </span>
                         )}
                     </div>
                 ))}
             </div>
 
+            {isAdmin && banned.length > 0 && (
+                <>
+                    <div className="section-title">추방 {banned.length}명</div>
+                    <div className="card" style={{ padding: 0, gap: 0 }}>
+                        {banned.map(p => (
+                            <div className="member-row" key={p.id}>
+                                <Avatar name={p.name} url={p.avatar_url} />
+                                <div className="grow" style={{ minWidth: 0 }}>
+                                    <div className="row" style={{ gap: 6 }}>
+                                        <span className="b truncate">{p.name || '이름 없음'}</span>
+                                        <span className="role-tag role-banned">추방</span>
+                                    </div>
+                                    <div className="xs faint">다시 신청할 수 없습니다</div>
+                                </div>
+                                <button className="btn ghost sm" onClick={() => setRole(p, 'pending')}>
+                                    되돌리기
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+
             {isAdmin && (
                 <p className="xs faint" style={{ lineHeight: 1.7 }}>
+                    <b>내보내기</b>는 대기 상태로 되돌립니다 — 바로 다시 승인할 수
+                    있습니다. <b>추방</b>은 다시 신청조차 못 하게 막습니다.
                     카카오로 로그인한 사람은 승인 전까지 아무것도 볼 수 없습니다.
                     {isOwner
                         ? ' 부운영자는 가입 승인과 공지 쓰기를 함께 맡습니다. 임명은 운영자만 할 수 있습니다.'

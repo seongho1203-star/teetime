@@ -16,6 +16,7 @@ import { readableError } from '../lib/errors';
  */
 export function Pending() {
     const { profile, session, refresh } = useAuth();
+    const banned = profile?.role === 'banned';
     const [name, setName] = useState(profile?.name ?? '');
     const [phone, setPhone] = useState(profile?.phone ?? '');
     const [saving, setSaving] = useState(false);
@@ -50,10 +51,14 @@ export function Pending() {
             </div>
 
             <div className="notice warn">
-                아직 <b>가입 승인 대기중</b>입니다.<br />
-                운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.
+                {banned
+                    ? <>이 계정은 <b>이용이 제한</b>되었습니다.<br />
+                       궁금한 점은 운영진에게 물어봐 주세요.</>
+                    : <>아직 <b>가입 승인 대기중</b>입니다.<br />
+                       운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.</>}
             </div>
 
+            {!banned && (
             <div className="card">
                 <div className="section-title">운영진이 알아볼 수 있게 적어 주세요</div>
                 <div className="field">
@@ -76,6 +81,7 @@ export function Pending() {
                     {saving ? '저장 중…' : '저장'}
                 </button>
             </div>
+            )}
 
             <button className="btn ghost block" onClick={signOut}>로그아웃</button>
         </div>

@@ -28,8 +28,10 @@ create table if not exists profiles (
     name        text        not null default '',
     avatar_url  text,
     -- pending 승인 대기 · member 회원 · staff 부운영자 · admin 운영자
+    -- banned 추방 — 행을 남겨 두는 것이 곧 막는 방법이다. 지우면 다시
+    --               로그인할 때 앱이 대기 상태로 되살려 버린다.
     role        text        not null default 'pending'
-                            check (role in ('pending', 'member', 'staff', 'admin')),
+                            check (role in ('pending', 'member', 'staff', 'admin', 'banned')),
     handicap    numeric(4,1),
     phone       text,
     memo        text        not null default '',   -- 관리자 메모
@@ -455,6 +457,11 @@ drop policy if exists profiles_staff_upd on profiles;
 create policy profiles_read on profiles for select
     using (id = auth.uid() or is_member());
 
+-- **추방은 행을 남겨 두는 것으로 한다.** 지우면 다음 로그인 때 아래
+-- profiles_self_add로 되살아나 다시 신청이 들어온다. `banned` 행이 남아
+-- 있으면 is_member()가 false라 아무것도 못 보고, 스스로 등급도 못 바꾼다
+-- (profiles_self_upd의 with check가 role = my_role()을 본다).
+
 -- **본인 행은 스스로 만들 수 있다 — 단 대기 상태로만.**
 -- 로그인 트리거는 auth.users가 새로 생길 때만 돈다. 그래서 운영진이
 -- 명단에서 지운 사람이 다시 로그인하면, 계정은 남아 있는데 프로필이 없어
@@ -477,8 +484,8 @@ create policy profiles_owner on profiles for all
 -- using이 고치기 전 행을 보므로 운영자·부운영자 행은 손댈 수 없고,
 -- with check가 고친 뒤를 보므로 남을 운영진으로 올릴 수도 없다.
 create policy profiles_staff_upd on profiles for update
-    using (is_admin() and role in ('pending', 'member'))
-    with check (is_admin() and role in ('pending', 'member'));
+    using (is_admin() and role in ('pending', 'member', 'banned'))
+    with check (is_admin() and role in ('pending', 'member', 'banned'));
 
 -- rounds -----------------------------------------------------
 -- **라운드는 누구나 연다.** 이 앱을 만든 까닭이 그것이다 — 총무 한 사람이

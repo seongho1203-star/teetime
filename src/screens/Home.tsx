@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
@@ -5,6 +6,7 @@ import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import type { Post, Profile } from '../lib/types';
 import { Avatar } from '../components/Avatar';
+import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import './Home.css';
 
 interface Loaded {
@@ -22,6 +24,11 @@ interface Loaded {
  */
 export function Home() {
     const { profile, isAdmin } = useAuth();
+
+    // 설치 안내는 홈에 띄운다. 내 정보 안에 두었더니 아무도 못 찾았다.
+    // 크롬이 설치할 만하다고 판단했을 때만 나타나고, 설치하면 사라진다.
+    const [installable, setInstallable] = useState(canInstall());
+    useEffect(() => onInstallChange(() => setInstallable(canInstall())), []);
 
     const { data, loading, reload } = useAsync<Loaded>(async () => {
         const [posts, people] = await Promise.all([
@@ -56,6 +63,19 @@ export function Home() {
                     <Avatar name={profile?.name} url={profile?.avatar_url} />
                 </Link>
             </div>
+
+            {installable && (
+                <button className="card tappable home-install" onClick={() => promptInstall()}>
+                    <span className="grow">
+                        <span className="b">앱으로 설치하기</span>
+                        <br />
+                        <span className="xs faint">
+                            홈 화면에 놓고 알림도 받으세요
+                        </span>
+                    </span>
+                    <span className="badge brand">설치</span>
+                </button>
+            )}
 
             {isAdmin && (data?.pendingCount ?? 0) > 0 && (
                 <Link to="/members" className="card tappable home-alert">

@@ -8,6 +8,7 @@ import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { ROLE_LABEL } from '../lib/types';
+import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { disablePush, enablePush, pushState, type PushState } from '../lib/push';
 import './Home.css';
 
@@ -45,28 +46,9 @@ export function Me() {
         toast('저장했습니다.', 'ok');
     };
 
-    /* ── 앱 설치 (안드로이드·PC 크롬) ─────────────────────────
-       크롬은 '설치할 만한 페이지'라고 판단하면 beforeinstallprompt를 준다.
-       그 순간을 붙잡아 두었다가 눌렀을 때 띄운다 — 브라우저가 알아서
-       띄우는 배너는 잘 안 뜨고, 뜨더라도 놓치기 쉽다.
-       iOS는 이 이벤트가 없다. 거기는 공유 → 홈 화면에 추가뿐이다. */
-    const [installer, setInstaller] = useState<{ prompt: () => Promise<void> } | null>(null);
-
-    useEffect(() => {
-        const onPrompt = (e: Event) => {
-            e.preventDefault();
-            setInstaller(e as unknown as { prompt: () => Promise<void> });
-        };
-        window.addEventListener('beforeinstallprompt', onPrompt);
-        window.addEventListener('appinstalled', () => setInstaller(null));
-        return () => window.removeEventListener('beforeinstallprompt', onPrompt);
-    }, []);
-
-    const install = async () => {
-        if (!installer) return;
-        await installer.prompt();
-        setInstaller(null);
-    };
+    /* 설치 신호는 lib/install이 앱 시작 때부터 붙잡아 둔다. */
+    const [installable, setInstallable] = useState(canInstall());
+    useEffect(() => onInstallChange(() => setInstallable(canInstall())), []);
 
     /* ── 알림 ────────────────────────────────────────────────
        기기마다 따로 켠다. 폰에서 켜도 PC는 안 켜진다 — 알림을 받을 곳이
@@ -168,8 +150,8 @@ export function Me() {
                         <span className="grow">회원 명단</span>
                         <span className="chev">›</span>
                     </Link>
-                    {installer && (
-                        <button className="menu-item" onClick={install}>
+                    {installable && (
+                        <button className="menu-item" onClick={() => promptInstall()}>
                             <span className="grow">
                                 <span className="b">앱으로 설치</span>
                                 <br /><span className="xs faint">

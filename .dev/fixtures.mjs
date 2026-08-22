@@ -20,6 +20,8 @@ export const profiles = [
     { id: uid(5), name: '정우성', avatar_url: null, role: 'member',  handicap: null, phone: null, memo: '', created_at: iso(-40) },
     { id: uid(6), name: '한도현', avatar_url: null, role: 'pending', handicap: null, phone: '010-9999-1111', memo: '', created_at: iso(-1) },
     { id: uid(7), name: '조민석', avatar_url: null, role: 'pending', handicap: null, phone: null, memo: '', created_at: iso(0) },
+    { id: uid(6), name: '한도현', role: 'banned', handicap: null, phone: null,
+      avatar_url: null, memo: '', created_at: iso(-40) },
 ];
 
 export const rounds = [
