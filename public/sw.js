@@ -15,11 +15,15 @@ self.addEventListener('fetch', event => {
     if (event.request.mode === 'navigate') event.respondWith(fetch(event.request));
 });
 
+/* 알림창 맨 윗줄(`Teetime`)은 **우리가 넣는 게 아니다.** 폰이 앱 이름을
+   붙인다 — 홈 화면 앱이면 manifest의 name, 브라우저 탭이면 사이트 주소다.
+   주소가 뜨는 건 브라우저가 '어디서 온 알림인지' 밝히는 것이라 끌 수 없다.
+   설치해서 쓰면 이름으로 바뀐다. 우리가 정할 수 있는 건 그 이름뿐이다. */
 self.addEventListener('push', event => {
     let data = {};
     try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
 
-    const title = data.title || 'teetime';
+    const title = data.title || 'Teetime';
     const options = {
         body: data.body || '',
         icon: './icon-192.png',

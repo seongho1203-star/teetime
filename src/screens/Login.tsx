@@ -28,7 +28,7 @@ export function Login() {
                         <path d="M12 3v13M12 3l7 3-7 3M6.5 21h11" />
                     </svg>
                 </div>
-                <h1>teetime</h1>
+                <h1>Teetime</h1>
                 <p className="dim">
                     라운드 모집과 투표가<br />채팅에 묻히지 않는 곳
                 </p>
