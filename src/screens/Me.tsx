@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -7,6 +7,7 @@ import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { disablePush, enablePush, pushState, type PushState } from '../lib/push';
 import './Home.css';
 
 export function Me() {
@@ -41,6 +42,46 @@ export function Me() {
         await refresh();
         setEditing(false);
         toast('저장했습니다.', 'ok');
+    };
+
+    /* ── 알림 ────────────────────────────────────────────────
+       기기마다 따로 켠다. 폰에서 켜도 PC는 안 켜진다 — 알림을 받을 곳이
+       기기이기 때문이다. iOS는 홈 화면에 추가한 앱에서만 켤 수 있다. */
+    const [push, setPush] = useState<PushState | null>(null);
+    const [pushBusy, setPushBusy] = useState(false);
+
+    useEffect(() => { pushState().then(setPush); }, []);
+
+    const togglePush = async () => {
+        setPushBusy(true);
+        try {
+            const next = push === 'on'
+                ? await disablePush()
+                : await enablePush(session!.user.id);
+            setPush(next);
+            if (next === 'on') toast('이 기기로 알림을 보냅니다.', 'ok');
+            else if (next === 'denied') toast('폰 설정에서 이 앱의 알림을 켜 주세요.', 'error');
+            else if (next === 'off' && push !== 'on') toast('알림을 켜지 않았습니다.', 'info');
+        } catch (e) {
+            toast(readableError(e), 'error');
+        } finally {
+            setPushBusy(false);
+        }
+    };
+
+    const pushLine = (): { text: string; hint?: string; can: boolean } => {
+        switch (push) {
+            case 'on':   return { text: '알림 끄기', hint: '이 기기로 오고 있습니다', can: true };
+            case 'off':  return { text: '알림 켜기', hint: '새 대화 · 모집 · 공지를 폰으로 받습니다', can: true };
+            case 'denied': return {
+                text: '알림이 막혀 있습니다',
+                hint: '폰 설정 → 알림에서 teetime을 켜 주세요', can: false };
+            case 'standalone-required': return {
+                text: '알림을 받으려면 홈 화면에 추가하세요',
+                hint: '공유 → 홈 화면에 추가 → 그 아이콘으로 열면 켤 수 있습니다', can: false };
+            case 'unsupported': return { text: '이 브라우저는 알림을 못 받습니다', can: false };
+            default: return { text: '알림', hint: '확인 중…', can: false };
+        }
     };
 
     const logout = async () => {
@@ -103,6 +144,16 @@ export function Me() {
                         <span className="grow">회원 명단</span>
                         <span className="chev">›</span>
                     </Link>
+                    <button className="menu-item" onClick={togglePush}
+                            disabled={!pushLine().can || pushBusy}>
+                        <span className="grow">
+                            <span className="b">{pushLine().text}</span>
+                            {pushLine().hint && (
+                                <><br /><span className="xs faint">{pushLine().hint}</span></>
+                            )}
+                        </span>
+                        {push === 'on' && <span className="badge brand">켜짐</span>}
+                    </button>
                 </div>
             )}
 

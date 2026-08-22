@@ -108,6 +108,16 @@ export type Message = {
     created_at: string;
 };
 
+/** 알림을 받을 기기 한 대. 사람이 아니라 **기기** 단위다. */
+export type PushSubscriptionRow = {
+    endpoint: string;
+    user_id: string;
+    p256dh: string;
+    auth: string;
+    ua: string;
+    created_at: string;
+};
+
 /** supabase-js 제네릭에 넣을 최소한의 형태. */
 type Table<Row> = {
     Row: Row;
@@ -129,6 +139,7 @@ export interface Database {
             post_comments: Table<PostComment>;
             rooms: Table<Room>;
             messages: Table<Message>;
+            push_subscriptions: Table<PushSubscriptionRow>;
         };
         Views: Record<string, never>;
         Functions: {

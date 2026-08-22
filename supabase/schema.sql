@@ -537,6 +537,35 @@ create policy messages_own   on messages for delete using (user_id = auth.uid())
 create policy messages_admin on messages for all    using (is_admin()) with check (is_admin());
 
 
+-- ═══ 7-1. 알림 받을 기기 ═══════════════════════════════════════
+--
+-- 앱을 안 보고 있을 때 폰으로 밀어 줄 곳. **사람이 아니라 기기 단위다** —
+-- 한 사람이 폰과 PC로 따로 켜면 두 줄이 된다.
+-- `endpoint`가 그 기기의 주소이자 열쇠라 여기에 unique를 건다.
+
+create table if not exists push_subscriptions (
+    endpoint   text primary key,
+    user_id    uuid not null references profiles on delete cascade,
+    p256dh     text not null,
+    auth       text not null,
+    ua         text not null default '',
+    created_at timestamptz not null default now()
+);
+
+create index if not exists push_subs_user_idx on push_subscriptions (user_id);
+
+alter table push_subscriptions enable row level security;
+
+drop policy if exists push_subs_own   on push_subscriptions;
+drop policy if exists push_subs_admin on push_subscriptions;
+-- 자기 구독만 보고 넣고 지운다. 발송기는 service_role로 읽으므로
+-- 여기 정책과 상관없이 전체를 본다.
+create policy push_subs_own on push_subscriptions for all
+    using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy push_subs_admin on push_subscriptions for all
+    using (is_admin()) with check (is_admin());
+
+
 -- ═══ 7-2. 사진 저장소 ══════════════════════════════════════════
 --
 -- 대화에 올리는 사진은 `chat-photos` 통에 넣는다. 공개 통이라 주소를 아는
