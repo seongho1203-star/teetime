@@ -178,6 +178,9 @@ export function Me() {
 
             <p className="xs faint" style={{ textAlign: 'center' }}>
                 Teetime · {session?.user?.email ?? '카카오 계정'}
+                <br />
+                {/* 지금 떠 있는 판. 고친 게 안 먹을 때 여기부터 본다. */}
+                <span className="xs faint">화면 판 {__BUILD__}</span>
             </p>
         </div>
     );

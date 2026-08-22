@@ -10,9 +10,20 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
 /* **크롬이 '앱 설치'를 띄우는 조건**이라 있는 것이다(안드로이드).
    일부러 캐시를 두지 않는다 — 캐시하면 코드를 고쳐도 예전 화면이 남는다.
-   그냥 통과시키기만 한다. */
+
+   `cache: 'no-store'`가 붙은 이유가 따로 있다. 우리가 캐시를 안 둬도
+   **브라우저의 HTTP 캐시**가 index.html을 10분쯤 들고 있다(GitHub Pages가
+   그렇게 보낸다). 그 문서가 옛 파일 이름을 가리키고 있으면 새로 배포해도
+   폰에는 예전 화면이 그대로 뜬다 — 고친 게 안 먹는다고 여러 번 헤맸다.
+   문서만은 늘 새로 받아 온다. 나머지 파일은 이름에 해시가 붙어 있어
+   캐시돼도 문제가 없다. */
 self.addEventListener('fetch', event => {
-    if (event.request.mode === 'navigate') event.respondWith(fetch(event.request));
+    if (event.request.mode !== 'navigate') return;
+    event.respondWith(
+        fetch(event.request, { cache: 'no-store' })
+            // 통신이 안 될 때는 캐시라도 있는 편이 아무것도 없는 것보다 낫다.
+            .catch(() => fetch(event.request)),
+    );
 });
 
 /* 알림창 맨 윗줄(`Teetime`)은 **우리가 넣는 게 아니다.** 폰이 앱 이름을

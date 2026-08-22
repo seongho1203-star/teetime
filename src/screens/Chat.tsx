@@ -218,6 +218,30 @@ export function Chat() {
 
     useEffect(() => () => clearTimeout(blurTimer.current), []);
 
+    /**
+     * 키보드가 올라와 있는 동안 **입력칸 위에서 미는 손짓을 삼킨다.**
+     *
+     * 그때는 보이는 화면이 문서보다 336px쯤 작아서, 여기를 잡고 위로 끌면
+     * iOS가 키보드 뒤쪽을 보여 주려고 화면을 통째로 밀었다가 도로 놓는다 —
+     * 그게 떨림이다. 아래로 끄는 쪽은 이미 맨 위라 밀 자리가 없어 멀쩡했다.
+     *
+     * CSS의 `touch-action: none`을 먼저 걸어 뒀지만 iOS가 그걸 늘 지키지는
+     * 않는다. `passive: false`로 붙여 `preventDefault()`하는 쪽이 확실하다.
+     * React의 onTouchMove는 passive로 붙어 preventDefault가 안 먹으므로
+     * 여기서 직접 단다.
+     */
+    const barRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const el = barRef.current;
+        if (!el) return;
+        const swallow = (e: TouchEvent) => {
+            if (document.body.classList.contains('kb-open')) e.preventDefault();
+        };
+        el.addEventListener('touchmove', swallow, { passive: false });
+        return () => el.removeEventListener('touchmove', swallow);
+    }, []);
+
     const onScroll = () => {
         const el = listRef.current;
         if (!el) return;
@@ -406,7 +430,7 @@ export function Chat() {
                 })}
             </div>
 
-            <div className="chat-input">
+            <div className="chat-input" ref={barRef}>
                 <input
                     ref={fileRef} type="file" accept="image/*"
                     onChange={onPickPhoto} hidden
