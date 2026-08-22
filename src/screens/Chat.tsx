@@ -189,11 +189,11 @@ export function Chat() {
      * **떨림을 잡으면 이 블록과 `.chat-diag`를 지울 것.**
      */
     const diagRef = useRef<HTMLDivElement>(null);
-    const diag = useRef({ oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], n: 0, mv: 0, tm: '-', first: true });
+    const diag = useRef({ oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], cH: [0, 0], n: 0, mv: 0, tm: '-', first: true });
 
     /** 손을 대는 순간부터 다시 잰다 — 그래야 **끄는 동안**만 남는다. */
     const resetDiag = useCallback(() => {
-        diag.current = { oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], n: 0, mv: 0, tm: '-', first: true };
+        diag.current = { oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], cH: [0, 0], n: 0, mv: 0, tm: '-', first: true };
     }, []);
 
     const noteDiag = useCallback(() => {
@@ -208,6 +208,8 @@ export function Chat() {
         put(d.vH, Math.round(vv.height));
         put(d.sY, Math.round(window.scrollY));
         put(d.iH, window.innerHeight);
+        // 문서가 놓인 자리. 이게 안 줄어들면 그 차이만큼 iOS가 화면을 밀 수 있다.
+        put(d.cH, document.documentElement.clientHeight);
         d.first = false;
         d.n++;
         const el = diagRef.current;
@@ -217,7 +219,8 @@ export function Chat() {
             const chat = Math.round(chatRef.current?.getBoundingClientRect().height ?? 0);
             el.textContent =
                 `밀림 ${span(d.oT)} · 높이 ${span(d.vH)} · 스크롤 ${span(d.sY)}`
-                + ` · 창 ${span(d.iH)} · 맞춤 ${vvh} · 대화 ${chat} · 신호 ${d.n}`;
+                + ` · 창 ${span(d.iH)} · 문서 ${span(d.cH)}`
+                + ` · 맞춤 ${vvh} · 대화 ${chat} · 신호 ${d.n}`;
         }
     }, []);
 
@@ -357,6 +360,37 @@ export function Chat() {
             chat.removeEventListener('touchmove', moved, true);
         };
     }, [noteDiag, resetDiag]);
+
+    /**
+     * **대화를 아래로 끌면 키보드가 함께 내려간다** — 카톡이 그렇다.
+     *
+     * 목록 위의 손짓은 우리에게 온다(입력칸 위의 것만 iOS가 가져간다).
+     * 손가락이 40px 넘게 내려오면 초점을 놓아 키보드를 내린다. 카톡처럼
+     * 대화를 훑어 내리는 동작이 곧 키보드를 치우는 동작이 된다.
+     */
+    useEffect(() => {
+        const el = listRef.current;
+        if (!el) return;
+        let y0 = 0;
+        let x0 = 0;
+        const start = (e: TouchEvent) => {
+            y0 = e.touches[0].clientY;
+            x0 = e.touches[0].clientX;
+        };
+        const move = (e: TouchEvent) => {
+            if (!kbRef.current.typing) return;
+            const dy = e.touches[0].clientY - y0;
+            const dx = Math.abs(e.touches[0].clientX - x0);
+            // 세로로 내려가는 손짓일 때만. 좌우로 그은 것은 아니다.
+            if (dy > 40 && dy > dx) taRef.current?.blur();
+        };
+        el.addEventListener('touchstart', start, { passive: true });
+        el.addEventListener('touchmove', move, { passive: true });
+        return () => {
+            el.removeEventListener('touchstart', start);
+            el.removeEventListener('touchmove', move);
+        };
+    }, []);
 
     const onScroll = () => {
         const el = listRef.current;
