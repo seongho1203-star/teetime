@@ -242,7 +242,28 @@ export function Chat() {
      */
     const settleTimer = useRef(0);
 
+    /**
+     * **iOS가 미는 만큼 대화 화면이 따라 내려간다** — 화면 기준으로는
+     * 제자리에 서 있게 되어 카톡처럼 입력칸이 꿈쩍하지 않는다.
+     *
+     * 한 번 넣었다가 더 나빠져서 뺀 적이 있는데, 그때는 **화면 크기가
+     * 틀려 있었다.** 대화 화면이 707이라 iOS가 입력칸을 보이게 하려고
+     * 이미 374를 밀어 둔 상태였고, 거기에 우리가 374를 더 내리니 입력칸이
+     * 화면 밖으로 나가 iOS가 또 밀고… 하는 되먹임이 생겨 양쪽으로 떨었다.
+     * 지금은 대화 화면이 보이는 높이(333)에 맞아 iOS가 밀 이유가 없다 —
+     * 손으로 민 만큼만 상쇄하면 되므로 되먹임이 없다.
+     */
+    const followViewport = () => {
+        const vv = window.visualViewport;
+        const el = chatRef.current;
+        if (!vv || !el) return;
+        const y = document.body.classList.contains('kb-open') ? Math.round(vv.offsetTop) : 0;
+        const next = y ? `translateY(${y}px)` : '';
+        if (el.style.transform !== next) el.style.transform = next;
+    };
+
     const watchViewport = useCallback(() => {
+        followViewport();
         noteDiag();
         if (!document.body.classList.contains('kb-open')) return;
         clearTimeout(settleTimer.current);
@@ -315,6 +336,8 @@ export function Chat() {
             kbRef.current.locked = false;
             setFocused(false);
             applyKeyboard(true);
+            // 키보드가 내려갔으니 따라 내려가 있던 것도 푼다.
+            if (chatRef.current) chatRef.current.style.transform = '';
         }, 150);
     };
 

@@ -241,7 +241,18 @@ body.kb-open .tabbar { display: none; }
    `dvh`까지 함께 움직여 화면이 떤다. --vvh는 키보드가 열리고 닫힐 때만
    바뀌므로 끄는 내내 붙박이다. (헤드리스 도구는 --vvh를 안 넣으므로
    예전 셈이 예비로 남아 있다.) */
-body.kb-open .chat { height: var(--vvh, calc(100dvh - var(--kb, 0px))); }
+body.kb-open .chat {
+    height: var(--vvh, calc(100dvh - var(--kb, 0px)));
+    /* 문서가 아니라 **화면**에 붙여 둔다. iOS가 미는 만큼 `translateY`로
+       따라 내려가는 자리다(Chat.tsx의 `followViewport`). `fixed`여야
+       문서 스크롤과 무관해져 밀린 양만 그대로 더할 수 있다. */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    margin-inline: auto;
+    will-change: transform;
+}
 
 /* 글을 쓰는 동안에는 페이지가 안 움직이게 잡아 둔다.
    굴리는 주체가 브라우저마다 달라 html·body 둘 다 준다.
