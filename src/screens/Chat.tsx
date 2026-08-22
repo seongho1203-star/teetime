@@ -168,6 +168,39 @@ export function Chat() {
         }
     }, []);
 
+    /* ── 진단 (임시) ────────────────────────────────────────────
+     *
+     * 끌 때 무엇이 움직이는지 폰에서 직접 재려고 둔 것이다. 헤드리스에는
+     * 키보드가 없어 이 손짓을 흉내 낼 수 없고, 짐작으로 세 번 고쳤다가
+     * 세 번 다 빗나갔다. 손을 뗀 뒤에도 남도록 **최솟값~최댓값**을 모은다
+     * (끄는 동안에는 iOS가 화면을 다시 그리지 않을 수 있다).
+     * **떨림을 잡으면 이 블록과 `.chat-diag`를 지울 것.**
+     */
+    const diagRef = useRef<HTMLDivElement>(null);
+    const diag = useRef({ oT: [0, 0], vH: [0, 0], sY: [0, 0], n: 0, tm: '-', first: true });
+
+    const noteDiag = useCallback(() => {
+        const vv = window.visualViewport;
+        if (!vv) return;
+        const d = diag.current;
+        const put = (a: number[], v: number, first: boolean) => {
+            if (first) { a[0] = v; a[1] = v; return; }
+            a[0] = Math.min(a[0], v); a[1] = Math.max(a[1], v);
+        };
+        put(d.oT, Math.round(vv.offsetTop), d.first);
+        put(d.vH, Math.round(vv.height), d.first);
+        put(d.sY, Math.round(window.scrollY), d.first);
+        d.first = false;
+        d.n++;
+        const el = diagRef.current;
+        if (el) {
+            el.textContent =
+                `밀림 ${d.oT[0]}~${d.oT[1]} · 높이 ${d.vH[0]}~${d.vH[1]}`
+                + ` · 스크롤 ${d.sY[0]}~${d.sY[1]} · 창 ${window.innerHeight}`
+                + ` · 신호 ${d.n} · 손짓 ${d.tm}`;
+        }
+    }, []);
+
     /** 한 프레임에 한 번만 재도록 모은다. 끄는 동안 이벤트가 쏟아진다. */
     const syncKeyboard = useCallback(() => {
         const s = kbRef.current;
@@ -196,7 +229,8 @@ export function Chat() {
         const y = document.body.classList.contains('kb-open') ? Math.round(vv.offsetTop) : 0;
         const next = y ? `translateY(${y}px)` : '';
         if (el.style.transform !== next) el.style.transform = next;
-    }, []);
+        noteDiag();
+    }, [noteDiag]);
 
     useEffect(() => {
         const vv = window.visualViewport;
@@ -225,10 +259,13 @@ export function Chat() {
         clearTimeout(blurTimer.current);
         kbRef.current.typing = true;
         setFocused(true);
+        // 진단은 키보드를 올릴 때마다 새로 잰다.
+        diag.current = { oT: [0, 0], vH: [0, 0], sY: [0, 0], n: 0, tm: '-', first: true };
         applyKeyboard(true);
+        noteDiag();
         // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다.
-        setTimeout(() => applyKeyboard(true), 120);
-        setTimeout(() => applyKeyboard(true), 400);
+        setTimeout(() => { applyKeyboard(true); noteDiag(); }, 120);
+        setTimeout(() => { applyKeyboard(true); noteDiag(); }, 400);
     };
 
     /**
@@ -268,11 +305,16 @@ export function Chat() {
         const el = barRef.current;
         if (!el) return;
         const swallow = (e: TouchEvent) => {
-            if (document.body.classList.contains('kb-open')) e.preventDefault();
+            if (!document.body.classList.contains('kb-open')) return;
+            // 이 손짓을 우리가 막을 수 있는 것인지가 핵심 단서다. iOS는
+            // 글자 칸 위의 손짓을 제 것으로 가져가 버리기도 한다.
+            diag.current.tm = e.cancelable ? '막힘' : '못막음';
+            if (e.cancelable) e.preventDefault();
+            noteDiag();
         };
         el.addEventListener('touchmove', swallow, { passive: false });
         return () => el.removeEventListener('touchmove', swallow);
-    }, []);
+    }, [noteDiag]);
 
     const onScroll = () => {
         const el = listRef.current;
@@ -422,6 +464,9 @@ export function Chat() {
             <div className="chat-head">
                 <h1 className="chat-title">{data.room.name}</h1>
             </div>
+
+            {/* 임시 진단 줄. 키보드가 올라와 있을 때만 보인다. 떨림을 잡으면 지운다. */}
+            <div className="chat-diag" ref={diagRef} />
 
             <div className="chat-list" ref={listRef} onScroll={onScroll}>
                 {hasMore && (
