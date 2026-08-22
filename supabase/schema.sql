@@ -396,6 +396,10 @@ create table if not exists messages (
     created_at timestamptz not null default now()
 );
 
+-- 사진 한 장을 함께 보낼 수 있다. 파일은 Storage에 있고 여기에는 주소만
+-- 남는다. 사진만 보내면 body는 빈 글자다 (not null이라 빈 글자로 넣는다).
+alter table messages add column if not exists image_url text;
+
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
 
 -- 전체 채팅방 하나는 항상 있어야 한다.
@@ -502,6 +506,28 @@ create policy messages_read  on messages for select using (is_member());
 create policy messages_add   on messages for insert with check (is_member() and user_id = auth.uid());
 create policy messages_own   on messages for delete using (user_id = auth.uid());
 create policy messages_admin on messages for all    using (is_admin()) with check (is_admin());
+
+
+-- ═══ 7-2. 사진 저장소 ══════════════════════════════════════════
+--
+-- 대화에 올리는 사진은 `chat-photos` 통에 넣는다. 공개 통이라 주소를 아는
+-- 사람은 볼 수 있다 — 우리 모임 사진첩 정도의 무게라 그렇게 두었다.
+-- 대신 **올리고 지우는 것은 승인된 회원만** 할 수 있게 막는다.
+
+insert into storage.buckets (id, name, public)
+values ('chat-photos', 'chat-photos', true)
+on conflict (id) do nothing;
+
+drop policy if exists chat_photos_read on storage.objects;
+drop policy if exists chat_photos_add  on storage.objects;
+drop policy if exists chat_photos_del  on storage.objects;
+
+create policy chat_photos_read on storage.objects for select
+    using (bucket_id = 'chat-photos');
+create policy chat_photos_add on storage.objects for insert to authenticated
+    with check (bucket_id = 'chat-photos' and is_member());
+create policy chat_photos_del on storage.objects for delete to authenticated
+    using (bucket_id = 'chat-photos' and (owner = auth.uid() or is_admin()));
 
 
 -- ═══ 8. 실시간 ═════════════════════════════════════════════════

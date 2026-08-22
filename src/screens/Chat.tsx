@@ -7,6 +7,7 @@ import type { Message, Profile, Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { shrinkImage } from '../lib/image';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -24,6 +25,8 @@ export function Chat() {
     const [sending, setSending] = useState(false);
     const [hasMore, setHasMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const fileRef = useRef<HTMLInputElement>(null);
 
     const listRef = useRef<HTMLDivElement>(null);
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
@@ -84,11 +87,14 @@ export function Chat() {
         return () => { supabase.removeChannel(channel); };
     }, [roomId]);
 
-    // 맨 아래에 붙여 둔다. 그리기가 끝난 프레임에 해야 높이가 확정된다.
-    useLayoutEffect(() => {
+    /** 맨 아래를 보고 있었으면 다시 맨 아래로 붙인다. */
+    const pinBottom = useCallback(() => {
         const el = listRef.current;
         if (el && atBottom.current) el.scrollTop = el.scrollHeight;
-    }, [messages]);
+    }, []);
+
+    // 그리기가 끝난 프레임에 해야 높이가 확정된다.
+    useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
 
     /**
      * 키보드가 올라온 만큼 화면을 줄인다.
@@ -187,21 +193,67 @@ export function Chat() {
         });
     };
 
-    const send = async () => {
-        const body = draft.trim();
-        if (!body || !roomId) return;
-        setSending(true);
+    /** 글 한 줄(또는 사진 한 장)을 보낸다. 보내기와 사진 올리기가 같이 쓴다. */
+    const push = async (body: string, imageUrl: string | null) => {
+        if (!roomId) return false;
         const { data: row, error: err } = await supabase
-            .from('messages').insert({ room_id: roomId, user_id: me, body })
+            .from('messages')
+            // **사진이 없으면 image_url을 아예 보내지 않는다.** DB에 그 칸을
+            // 아직 안 만들었어도(스키마를 다시 안 돌렸어도) 글은 그대로
+            // 오가게 하려는 것이다. 사진만 그때 실패한다.
+            .insert({ room_id: roomId, user_id: me, body, ...(imageUrl ? { image_url: imageUrl } : {}) })
             .select('*').single();
-        setSending(false);
-        if (err) { toast(readableError(err), 'error'); return; }
+        if (err) { toast(readableError(err), 'error'); return false; }
 
         setDraft('');
         atBottom.current = true;
         // 실시간 이벤트가 오기 전에 먼저 그린다. 내 글이 늦게 뜨면 답답하다.
         if (row) setMessages(prev =>
             prev.some(m => m.id === (row as Message).id) ? prev : [...prev, row as Message]);
+        return true;
+    };
+
+    const send = async () => {
+        const body = draft.trim();
+        if (!body || !roomId) return;
+        setSending(true);
+        await push(body, null);
+        setSending(false);
+    };
+
+    /**
+     * 사진을 골라 보낸다.
+     *
+     * 줄여서 Storage에 올린 뒤 **주소만** 글로 남긴다. 적어 둔 글이 있으면
+     * 사진에 같이 붙는다 (카톡처럼 사진 밑에 한 줄).
+     * 올리다 실패하면 글은 그대로 두어 다시 시도할 수 있게 한다.
+     */
+    const onPickPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        // 같은 사진을 연달아 고를 수 있게 비워 둔다.
+        e.target.value = '';
+        if (!file || !roomId) return;
+        if (!file.type.startsWith('image/')) {
+            toast('사진만 올릴 수 있습니다.', 'error');
+            return;
+        }
+
+        setUploading(true);
+        try {
+            const blob = await shrinkImage(file);
+            const path = `${roomId}/${crypto.randomUUID()}.jpg`;
+            const { error: upErr } = await supabase.storage
+                .from('chat-photos')
+                .upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+            if (upErr) throw upErr;
+
+            const { data: pub } = supabase.storage.from('chat-photos').getPublicUrl(path);
+            await push(draft.trim(), pub.publicUrl);
+        } catch (err) {
+            toast(readableError(err), 'error');
+        } finally {
+            setUploading(false);
+        }
     };
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -256,6 +308,7 @@ export function Chat() {
                                 who={names[m.user_id ?? '']}
                                 mine={m.user_id === me}
                                 grouped={grouped}
+                                onImageLoad={pinBottom}
                             />
                         </div>
                     );
@@ -263,6 +316,19 @@ export function Chat() {
             </div>
 
             <div className="chat-input">
+                <input
+                    ref={fileRef} type="file" accept="image/*"
+                    onChange={onPickPhoto} hidden
+                />
+                <button className="btn ghost chat-photo" onClick={() => fileRef.current?.click()}
+                        disabled={uploading} aria-label="사진 보내기">
+                    {uploading
+                        ? <span className="spinner sm" />
+                        : <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9"
+                               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 5.5v13M5.5 12h13" />
+                          </svg>}
+                </button>
                 <textarea
                     className="textarea grow" value={draft}
                     onChange={e => setDraft(e.target.value)}
@@ -285,18 +351,20 @@ export function Chat() {
 }
 
 function Bubble({
-    message, who, mine, grouped,
+    message, who, mine, grouped, onImageLoad,
 }: {
     message: Message;
     who?: Profile;
     mine: boolean;
     grouped: boolean;
+    /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 뜨면 다시 바닥에 붙이라고 알린다. */
+    onImageLoad: () => void;
 }) {
     return (
         <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}>
             {!mine && (
                 <div className="chat-avatar">
-                    {!grouped && <Avatar name={who?.name} url={who?.avatar_url} size="sm" />}
+                    {!grouped && <Avatar name={who?.name} url={who?.avatar_url} />}
                 </div>
             )}
             <div className="chat-col">
@@ -304,9 +372,21 @@ function Bubble({
                     <span className="xs faint chat-who">{who?.name ?? '알 수 없음'}</span>
                 )}
                 <div className="chat-line">
-                    <div className="chat-bubble">{message.body}</div>
+                    {message.image_url
+                        // 사진은 말풍선 없이 그 자체로 보여 준다. 눌러서 원본을
+                        // 새 창에 띄운다 — 저장은 거기서 길게 눌러 한다.
+                        ? <a className="chat-photo-link" href={message.image_url}
+                             target="_blank" rel="noreferrer">
+                              <img className="chat-image" src={message.image_url}
+                                   alt="보낸 사진" loading="lazy" onLoad={onImageLoad} />
+                          </a>
+                        : <div className="chat-bubble">{message.body}</div>}
                     <span className="chat-time">{formatTime(message.created_at)}</span>
                 </div>
+                {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다. */}
+                {message.image_url && message.body && (
+                    <div className="chat-bubble">{message.body}</div>
+                )}
             </div>
         </div>
     );

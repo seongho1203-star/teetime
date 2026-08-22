@@ -103,6 +103,8 @@ export type Message = {
     room_id: string;
     user_id: string | null;
     body: string;
+    /** 함께 보낸 사진의 공개 주소. 사진이 없으면 null. */
+    image_url: string | null;
     created_at: string;
 };
 

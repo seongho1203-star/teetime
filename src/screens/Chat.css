@@ -13,7 +13,7 @@
 
 .chat-head {
     flex: 0 0 auto;
-    padding: var(--gap-sm) var(--gap);
+    padding: 8px var(--gap);
     border-bottom: 1px solid var(--line);
     display: flex;
     flex-direction: column;
@@ -60,7 +60,7 @@
 .chat-row.grouped { margin-top: 2px; }
 .chat-row.mine { justify-content: flex-end; }
 
-.chat-avatar { width: 26px; flex: 0 0 auto; }
+.chat-avatar { width: 34px; flex: 0 0 auto; }
 
 .chat-col {
     display: flex;
@@ -80,12 +80,15 @@
 }
 .chat-row.mine .chat-line { flex-direction: row-reverse; }
 
+/* 글자 크기는 카톡에 맞췄다. 목록 글씨(--fs, 14.7px)를 그대로 쓰면
+   대화에서는 작아 보인다 — 카톡 말풍선이 15~16px이고, 이 화면은 오래
+   들여다보는 곳이라 여기만 키운다. 대신 시각은 더 줄여 말풍선을 받친다. */
 .chat-bubble {
-    padding: 9px 13px;
-    border-radius: 16px;
+    padding: 8px 12px;
+    border-radius: 18px;
     background: var(--surface-2);
-    font-size: var(--fs);
-    line-height: 1.55;
+    font-size: 15.5px;
+    line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
 }
@@ -97,7 +100,7 @@
 
 .chat-time {
     flex: 0 0 auto;
-    font-size: 0.66rem;
+    font-size: 0.6rem;
     color: var(--text-faint);
     padding-bottom: 2px;
     white-space: nowrap;
@@ -113,20 +116,48 @@
     border-top: 1px solid var(--line);
     background: var(--bg);
 }
+/* 입력칸은 낮게. 예전엔 44px + 여백이라 카톡(33px)보다 한참 높았고,
+   그만큼 대화가 줄었다. 글자는 16px 아래로 못 내린다 — 그보다 작으면
+   iOS 사파리가 입력할 때 화면을 확대한다. */
 .chat-input .textarea {
-    min-height: 44px;
+    min-height: 38px;
     max-height: 120px;
-    padding: 11px 14px;
+    padding: 7px 14px;
     border-radius: var(--r-pill);
+    line-height: 1.45;
+}
+
+/* 사진 버튼은 보내기 버튼과 같은 크기로 입력칸 양옆을 받친다. */
+.chat-photo {
+    width: 38px; height: 38px;
+    flex: 0 0 auto;
+    padding: 0;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+}
+.chat-photo svg { width: 20px; height: 20px; stroke: currentColor; }
+
+/* 보낸 사진. 말풍선을 두르지 않고 사진만 둥글게 보여 준다.
+   높이를 미리 잡아 두지 않으면 다 받은 뒤에 목록이 아래로 밀려
+   읽던 자리가 튄다 — 세로 사진을 넉넉히 담을 만큼만 허용한다. */
+.chat-photo-link { display: block; line-height: 0; }
+.chat-image {
+    max-width: 100%;
+    max-height: 320px;
+    width: auto;
+    border-radius: 14px;
+    background: var(--surface-2);
+    object-fit: cover;
 }
 
 .chat-send {
-    width: 44px; height: 44px;
+    width: 38px; height: 38px;
     flex: 0 0 auto;
     padding: 0;
     border-radius: 50%;
 }
-.chat-send svg { width: 20px; height: 20px; stroke: currentColor; }
+.chat-send svg { width: 19px; height: 19px; stroke: currentColor; }
 
 /* 알약 모양 입력칸 안에서는 크기 조절 손잡이가 어색하다.
    높이는 max-height까지 저절로 늘어난다. */
