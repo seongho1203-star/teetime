@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { toKstInput, fromKstInput } from '../lib/format';
+import { courseGeo, searchCourses } from '../lib/courses';
 import type { Round } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { useToast } from '../components/Toast';
@@ -63,6 +64,12 @@ function Form({
     const [note, setNote] = useState(round?.note ?? '');
     const [opensAt, setOpensAt] = useState(toKstInput(round?.opens_at));
     const [saving, setSaving] = useState(false);
+    const [picking, setPicking] = useState(false);
+
+    // 딱 맞는 이름을 이미 골랐으면 목록을 접는다 — 고르고 나서도
+    // 남아 있으면 다음 칸을 가린다.
+    const hits = courseGeo(course)?.name === course.trim()
+        ? [] : searchCourses(course);
 
     const save = async () => {
         const tee = fromKstInput(teeAt);
@@ -80,6 +87,11 @@ function Form({
             fee: parseInt(fee, 10) || 0,
             note: note.trim(),
             opens_at: fromKstInput(opensAt),
+            // **좌표는 이름에서 찾아 함께 넣는다.** 사람에게 위도·경도를
+            // 치라고 할 수는 없다. 목록에 없는 곳이면 비워 두고, 그때는
+            // 날씨칸만 빠진다.
+            lat: courseGeo(course)?.lat ?? null,
+            lon: courseGeo(course)?.lon ?? null,
         };
 
         setSaving(true);
@@ -102,8 +114,29 @@ function Form({
                 <div className="field">
                     <label htmlFor="f-course">골프장</label>
                     <input id="f-course" className="input" value={course}
-                           onChange={e => setCourse(e.target.value)}
-                           placeholder="예) 무등산CC" maxLength={40} />
+                           onChange={e => { setCourse(e.target.value); setPicking(true); }}
+                           onFocus={() => setPicking(true)}
+                           placeholder="예) 무등산CC" maxLength={40}
+                           autoComplete="off" />
+                    {/* 목록에서 고르면 좌표가 함께 붙어 날씨가 뜬다.
+                        목록에 없는 곳도 그냥 쳐 넣으면 되고, 그때는 날씨만 빠진다. */}
+                    {picking && hits.length > 0 && (
+                        <div className="course-hits">
+                            {hits.map(c => (
+                                <button key={c.name} type="button" className="course-hit"
+                                        onClick={() => { setCourse(c.name); setPicking(false); }}>
+                                    {c.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    <span className="xs faint">
+                        {courseGeo(course)
+                            ? '날씨가 함께 표시됩니다'
+                            : course.trim()
+                                ? '목록에 없는 곳입니다 — 날씨는 표시되지 않습니다'
+                                : '치면 목록에서 찾아 줍니다'}
+                    </span>
                 </div>
 
                 <div className="field">

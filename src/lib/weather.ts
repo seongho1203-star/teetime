@@ -9,6 +9,8 @@
  * 없는 값을 억지로 채우면 잘못된 예보를 보여 주게 된다.
  */
 
+import { courseGeo } from './courses';
+
 export interface Weather {
     /** 그 날 최저·최고 (℃, 반올림) */
     min: number;
@@ -56,10 +58,22 @@ function kstDay(iso: string): string {
     }).format(new Date(iso));
 }
 
+/**
+ * 라운드 날 날씨. 좌표가 없으면 **골프장 이름으로 찾아본다.**
+ *
+ * 좌표를 넣는 자리가 없던 시절에 만든 라운드는 `lat/lon`이 비어 있다.
+ * 그걸 옮겨 심는 대신 읽을 때 이름으로 붙인다 — 예전 라운드도 그대로
+ * 날씨가 뜨고, DB를 건드릴 일이 없다.
+ */
 export async function fetchWeather(
-    lat: number | null, lon: number | null, teeAt: string,
+    lat: number | null, lon: number | null, teeAt: string, course?: string | null,
 ): Promise<Weather | null> {
-    if (lat == null || lon == null) return null;
+    if (lat == null || lon == null) {
+        const found = courseGeo(course);
+        if (!found) return null;
+        lat = found.lat;
+        lon = found.lon;
+    }
 
     const day = kstDay(teeAt);
     const key = `${lat.toFixed(2)},${lon.toFixed(2)},${day}`;

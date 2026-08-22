@@ -203,9 +203,10 @@ function NextRound({
 
     useEffect(() => {
         let alive = true;
-        fetchWeather(r.lat, r.lon, r.tee_at).then(w => { if (alive) setWeather(w); });
+        fetchWeather(r.lat, r.lon, r.tee_at, r.course)
+            .then(w => { if (alive) setWeather(w); });
         return () => { alive = false; };
-    }, [r.lat, r.lon, r.tee_at]);
+    }, [r.lat, r.lon, r.tee_at, r.course]);
 
     const mine = signups.filter(s => s.round_id === r.id);
     const confirmed = mine.filter(s => s.state === 'confirmed');
