@@ -123,26 +123,33 @@ export function Chat() {
      * 알려 주기도 한다. 누르는 순간 탭바부터 감춰 두면 그 사이에도
      * 대화가 가려지지 않는다. 높이는 알려 줄 때 채워 넣는다.
      */
-    const kbRef = useRef({ typing: false, hidden: 0, frame: 0, locked: false, width: 0 });
+    const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0 });
 
     /**
-     * 지금 가려진 높이를 재서 화면에 반영한다.
+     * 대화 화면을 **지금 보이는 높이**에 맞춘다.
      *
-     * **`offsetTop`은 보지 않는다.** 예전엔 `innerHeight - height - offsetTop`
-     * 으로 쟀는데, `offsetTop`은 iOS가 화면을 미는 양이라 손짓마다 바뀐다.
+     * **가린 높이(`innerHeight - vv.height`)로 키보드를 알아채면 안 된다.**
+     * 아이폰 홈 화면 앱에서는 `window.innerHeight`까지 키보드만큼 줄어든다
+     * (폰에서 707 → 333으로 쟀다). 그러면 그 뺄셈이 늘 0이라 '키보드가
+     * 올라왔다'가 한 번도 참이 되지 않고, `--vvh`도 안 걸린다. 대화 화면이
+     * `100dvh`(707)로 남으니 보이는 화면(333)보다 커져 **페이지가 스크롤되고**,
+     * 그 스크롤을 iOS가 입력칸 쪽으로 도로 끌어당긴다 — 그 줄다리기가
+     * 입력칸을 잡고 위로 끌 때 떨리던 정체였다(아래로는 이미 끝이라 멀쩡했다).
      *
-     * **그리고 자리를 잡으면 더는 재지 않는다(`locked`).** 폰에서 재 보니
-     * 끄는 동안 `vv.height`가 333~707을 오가고 `window.innerHeight`마저
-     * 703과 693으로 흔들렸다. 그 값으로 화면을 다시 재면 대화 높이가
-     * 그때마다 바뀌어 **그것 자체가 떨림이 된다.** 키보드는 글을 쓰는 동안
-     * 크기가 바뀌지 않으므로 올라올 때 한 번 정하면 그만이다. 초점이
-     * 떠날 때(`onComposerBlur`) 풀고, 화면을 돌렸을 때만 다시 잰다.
+     * 그래서 **키보드가 올라왔는지는 초점으로 알고**(이 화면에서 키보드를
+     * 올리는 건 입력칸뿐이다), 높이는 `vv.height`를 그대로 쓴다.
+     *
+     * **자리를 잡으면 더는 재지 않는다(`locked`).** 끄는 동안 이 값들이
+     * 크게 흔들리는데, 그때마다 다시 재면 그것이 또 떨림이 된다. 키보드는
+     * 글을 쓰는 동안 크기가 바뀌지 않으므로 한 번 정하면 그만이다.
      */
     const applyKeyboard = useCallback((force = false) => {
         const vv = window.visualViewport;
-        const hidden = vv ? Math.max(0, Math.round(window.innerHeight - vv.height)) : 0;
         const s = kbRef.current;
-        const open = s.typing || hidden > 120;
+        const vh = Math.round(vv ? vv.height : window.innerHeight);
+        // 초점이 곧 신호다. 남은 뺄셈은 키보드가 화면을 줄이지 않는
+        // 브라우저(안드로이드 크롬 등)를 위한 예비다.
+        const open = s.typing || window.innerHeight - vh > 120;
         document.body.classList.toggle('kb-open', open);
         // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
         document.documentElement.classList.toggle('kb-open', open);
@@ -150,26 +157,23 @@ export function Chat() {
         // 붙박아 둔 동안에는 화면 크기를 건드리지 않는다. 가로세로를 돌리면
         // 그때는 다시 재야 하므로 폭이 바뀐 것은 예외로 둔다.
         if (s.locked && window.innerWidth === s.width) return;
-        if (!force && Math.abs(hidden - s.hidden) < 8) return;
-        s.hidden = hidden;
+        if (!force && Math.abs(vh - s.vh) < 8) return;
+        s.vh = vh;
         s.width = window.innerWidth;
 
         const root = document.documentElement.style;
-        root.setProperty('--kb', `${hidden > 120 ? hidden : 0}px`);
-        // 키보드가 올라온 동안에는 `dvh` 대신 **실제로 보이는 높이**를 쓴다.
-        // 사파리 탭에서는 끌 때 주소 막대가 접히며 `dvh`까지 움직인다.
-        // **키보드가 없을 때는 아예 지운다** — 남겨 두면 옛 높이가 굳는다.
-        if (vv && hidden > 120) root.setProperty('--vvh', `${Math.round(vv.height)}px`);
-        else root.removeProperty('--vvh');
-
         if (open) {
-            // iOS가 페이지를 밀어 올린 것을 되돌린다. 이걸 안 하면
-            // 고정된 것들이 화면 밖으로 나간다. **높이가 실제로 바뀐
-            // 때만** 손대야 한다 — 매 이벤트마다 되돌리면 끄는 손가락과
-            // 서로 밀치느라 그 자체가 떨림이 된다.
+            root.setProperty('--vvh', `${vh}px`);
+            root.setProperty('--kb', `${Math.max(0, window.innerHeight - vh)}px`);
+            // 대화 화면이 보이는 높이에 딱 맞으면 페이지는 굴러갈 데가 없다.
+            // 그 전에 iOS가 밀어 둔 것만 한 번 되돌려 놓는다.
             if (window.scrollY) window.scrollTo(0, 0);
             const el = listRef.current;
             if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+        } else {
+            // 키보드가 없을 때는 지운다 — 남겨 두면 옛 높이가 굳는다.
+            root.removeProperty('--vvh');
+            root.setProperty('--kb', '0px');
         }
     }, []);
 
@@ -206,9 +210,11 @@ export function Chat() {
         const el = diagRef.current;
         if (el) {
             const span = (a: number[]) => (a[0] === a[1] ? `${a[0]}` : `${a[0]}~${a[1]}`);
+            const vvh = document.documentElement.style.getPropertyValue('--vvh') || '없음';
+            const chat = Math.round(chatRef.current?.getBoundingClientRect().height ?? 0);
             el.textContent =
                 `밀림 ${span(d.oT)} · 높이 ${span(d.vH)} · 스크롤 ${span(d.sY)}`
-                + ` · 창 ${span(d.iH)} · 신호 ${d.n} · 이동 ${d.mv} · 막기 ${d.tm}`;
+                + ` · 창 ${span(d.iH)} · 맞춤 ${vvh} · 대화 ${chat} · 신호 ${d.n}`;
         }
     }, []);
 
