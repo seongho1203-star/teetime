@@ -34,7 +34,7 @@
     padding: var(--gap) var(--gap) var(--gap-sm);
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
 }
 
 .chat-more { align-self: center; margin-bottom: var(--gap-sm); }
@@ -51,27 +51,38 @@
     width: fit-content;
 }
 
+/* 줄 간격도 카톡을 재서 맞췄다. 말풍선이 끝나고 다음 사람의 아바타가
+   시작하기까지 카톡이 12px, 같은 사람이 이어 쓰면 4px이다. */
 .chat-row {
     display: flex;
-    gap: 8px;
+    gap: 7px;
     align-items: flex-start;
-    margin-top: var(--gap-xs);
+    margin-top: 10px;
 }
 .chat-row.grouped { margin-top: 2px; }
 .chat-row.mine { justify-content: flex-end; }
 
-.chat-avatar { width: 34px; flex: 0 0 auto; }
+/* 아바타는 카톡이 29px, 우리 기본값(.avatar 34px)보다 작다. */
+.chat-avatar { width: 29px; flex: 0 0 auto; }
+.chat-avatar .avatar {
+    width: 29px; height: 29px;
+    font-size: 11px;
+}
 
 .chat-col {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     max-width: 78%;
     min-width: 0;
 }
 .chat-row.mine .chat-col { align-items: flex-end; }
 
-.chat-who { padding-left: 2px; }
+/* 이름은 말풍선 글씨의 0.82배쯤 — 카톡과 같은 비율이다. */
+.chat-who {
+    padding-left: 2px;
+    font-size: 12.2px;
+}
 
 .chat-line {
     display: flex;
@@ -80,27 +91,30 @@
 }
 .chat-row.mine .chat-line { flex-direction: row-reverse; }
 
-/* 글자 크기는 카톡에 맞췄다. 목록 글씨(--fs, 14.7px)를 그대로 쓰면
-   대화에서는 작아 보인다 — 카톡 말풍선이 15~16px이고, 이 화면은 오래
-   들여다보는 곳이라 여기만 키운다. 대신 시각은 더 줄여 말풍선을 받친다. */
+/* 말풍선 크기는 **카톡 화면을 픽셀로 재서** 맞췄다. 같은 폰에서 카톡은
+   한 줄짜리 말풍선이 30px, 우리는 38.5px이라 눈에 띄게 굵어 보였다.
+   글자는 15px 그대로 두고 줄높이와 안쪽 여백을 조여 30px에 맞춘다
+   (15 × 1.34 + 5 + 5 = 30.1). **숫자를 올릴 땐 이 합을 다시 셀 것.** */
 .chat-bubble {
-    padding: 8px 12px;
-    border-radius: 18px;
+    padding: 5px 11px;
+    border-radius: 16px;
     background: var(--surface-2);
-    font-size: 15.5px;
-    line-height: 1.45;
+    font-size: 15px;
+    line-height: 1.34;
     white-space: pre-wrap;
     word-break: break-word;
 }
+/* 내 말풍선. 굵게 쓰면 같은 15px이라도 카톡보다 두툼해 보인다 —
+   카톡은 보낸 글도 굵게 하지 않는다. 바탕이 진해 500이면 충분히 읽힌다. */
 .chat-row.mine .chat-bubble {
     background: var(--brand-deep);
     color: #04140b;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .chat-time {
     flex: 0 0 auto;
-    font-size: 0.6rem;
+    font-size: 10.5px;
     color: var(--text-faint);
     padding-bottom: 2px;
     white-space: nowrap;

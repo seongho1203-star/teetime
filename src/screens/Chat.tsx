@@ -30,6 +30,7 @@ export function Chat() {
     const fileRef = useRef<HTMLInputElement>(null);
 
     const listRef = useRef<HTMLDivElement>(null);
+    const taRef = useRef<HTMLTextAreaElement>(null);
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
     // 도중에 남이 글을 쓰면 화면이 튀어서는 안 된다.
     const atBottom = useRef(true);
@@ -156,7 +157,10 @@ export function Chat() {
         };
     }, [syncKeyboard]);
 
+    const blurTimer = useRef(0);
+
     const onComposerFocus = () => {
+        clearTimeout(blurTimer.current);
         kbRef.current.typing = true;
         syncKeyboard();
         // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다.
@@ -164,10 +168,22 @@ export function Chat() {
         setTimeout(syncKeyboard, 400);
     };
 
+    /**
+     * 초점이 떠도 **곧바로 접지 않는다.**
+     *
+     * 보내기 버튼을 누를 때 잠깐 초점이 떴다가 돌아오는 기기가 있는데,
+     * 그때마다 화면을 접었다 폈다 하면 대화가 껑충 뛴다. 조금 기다렸다가
+     * 그래도 안 돌아오면 그때 접는다.
+     */
     const onComposerBlur = () => {
-        kbRef.current.typing = false;
-        syncKeyboard();
+        clearTimeout(blurTimer.current);
+        blurTimer.current = window.setTimeout(() => {
+            kbRef.current.typing = false;
+            syncKeyboard();
+        }, 150);
     };
+
+    useEffect(() => () => clearTimeout(blurTimer.current), []);
 
     const onScroll = () => {
         const el = listRef.current;
@@ -218,12 +234,25 @@ export function Chat() {
         return true;
     };
 
+    /**
+     * 보내고 나서도 **키보드를 내리지 않는다.**
+     *
+     * 버튼을 누르면 입력칸이 초점을 잃고, 그러면 키보드가 함께 내려간다 —
+     * 한 마디 보낼 때마다 다시 눌러야 해서 카톡처럼 이어 치기가 안 됐다.
+     * 막는 곳이 두 군데다: 버튼의 `onMouseDown`에서 기본 동작을 막아
+     * **초점이 애초에 넘어가지 않게** 하고(이게 본체다), 그래도 넘어가는
+     * 기기를 위해 여기서 손짓 안에서 **곧바로** 되돌린다.
+     * 되돌리기는 반드시 `await` 앞이어야 한다 — 응답을 기다린 뒤에
+     * `focus()`를 부르면 iOS가 사용자 손짓으로 안 쳐서 키보드가 안 올라온다.
+     */
     const send = async () => {
         const body = draft.trim();
         if (!body || !roomId) return;
+        taRef.current?.focus();
         setSending(true);
         await push(body, null);
         setSending(false);
+        taRef.current?.focus();
     };
 
     /**
@@ -335,6 +364,7 @@ export function Chat() {
                           </svg>}
                 </button>
                 <textarea
+                    ref={taRef}
                     className="textarea grow" value={draft}
                     onChange={e => setDraft(e.target.value)}
                     onKeyDown={onKeyDown}
@@ -343,7 +373,11 @@ export function Chat() {
                     placeholder="메시지" rows={1} maxLength={1000}
                     aria-label="메시지 입력"
                 />
+                {/* onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
+                    내려가지 않는 이유가 이 한 줄이다. 누르는 것 자체는 그대로
+                    onClick으로 온다. */}
                 <button className="btn primary chat-send" onClick={send}
+                        onMouseDown={e => e.preventDefault()}
                         disabled={sending || !draft.trim()} aria-label="보내기">
                     <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
                          strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
