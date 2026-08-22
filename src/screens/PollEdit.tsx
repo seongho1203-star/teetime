@@ -8,7 +8,7 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import './Polls.css';
 
-/** 투표 만들기. 총무만. */
+/** 투표 만들기. 회원 누구나. */
 export function PollEdit() {
     const { session } = useAuth();
     const nav = useNavigate();

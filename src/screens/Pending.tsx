@@ -8,10 +8,10 @@ import { readableError } from '../lib/errors';
 /**
  * 로그인은 됐지만 아직 회원이 아닌 사람이 보는 화면.
  *
- * 여기서 이름만 바로잡아 두면 총무가 명단에서 누군지 알아본다 —
+ * 여기서 이름만 바로잡아 두면 운영진이 명단에서 누군지 알아본다 —
  * 카카오 닉네임이 `골프왕`이면 승인할 수가 없다.
  *
- * 총무가 승인하면 auth.tsx의 실시간 구독이 profiles 변경을 받아
+ * 운영진이 승인하면 auth.tsx의 실시간 구독이 profiles 변경을 받아
  * 새로고침 없이 앱으로 들어간다.
  */
 export function Pending() {
@@ -34,7 +34,7 @@ export function Pending() {
 
         if (error) { toast(readableError(error), 'error'); return; }
         await refresh();
-        toast('저장했습니다. 총무가 확인하면 들어갈 수 있습니다.', 'ok');
+        toast('저장했습니다. 운영진이 확인하면 들어갈 수 있습니다.', 'ok');
     };
 
     return (
@@ -51,11 +51,11 @@ export function Pending() {
 
             <div className="notice warn">
                 아직 <b>가입 승인 대기중</b>입니다.<br />
-                총무가 명단에서 승인하면 바로 들어갈 수 있습니다.
+                운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.
             </div>
 
             <div className="card">
-                <div className="section-title">총무가 알아볼 수 있게 적어 주세요</div>
+                <div className="section-title">운영진이 알아볼 수 있게 적어 주세요</div>
                 <div className="field">
                     <label htmlFor="p-name">이름</label>
                     <input

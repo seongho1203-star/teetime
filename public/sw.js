@@ -8,6 +8,13 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
+/* **크롬이 '앱 설치'를 띄우는 조건**이라 있는 것이다(안드로이드).
+   일부러 캐시를 두지 않는다 — 캐시하면 코드를 고쳐도 예전 화면이 남는다.
+   그냥 통과시키기만 한다. */
+self.addEventListener('fetch', event => {
+    if (event.request.mode === 'navigate') event.respondWith(fetch(event.request));
+});
+
 self.addEventListener('push', event => {
     let data = {};
     try { data = event.data ? event.data.json() : {}; } catch { data = {}; }

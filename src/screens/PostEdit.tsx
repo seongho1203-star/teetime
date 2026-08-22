@@ -31,7 +31,7 @@ export function PostEdit() {
             <div className="page">
                 <TopBar title="공지" fallback="/board" />
                 <div className="notice danger">
-                    {id ? '내가 쓴 글만 고칠 수 있습니다.' : '총무만 공지를 쓸 수 있습니다.'}
+                    {id ? '내가 쓴 글만 고칠 수 있습니다.' : '운영진만 공지를 쓸 수 있습니다.'}
                 </div>
             </div>
         );

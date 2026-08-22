@@ -55,4 +55,5 @@
 
 .role-tag { font-size: var(--fs-xs); font-weight: 800; }
 .role-admin { color: var(--brand); }
+.role-staff { color: var(--info); }
 .role-pending { color: var(--warn); }

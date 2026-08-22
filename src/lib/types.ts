@@ -5,7 +5,22 @@
  * CLI 로그인과 프로젝트 연결이 필요하다. 테이블이 열 개뿐이라 손으로 적었다.
  */
 
-export type Role = 'pending' | 'member' | 'admin';
+/**
+ * 회원 등급.
+ *   pending 승인 대기 · member 회원 · staff 부운영자 · admin 운영자
+ *
+ * **운영자는 한 사람, 부운영자는 두엇**이라는 게 이 모임의 모양이다.
+ * 둘이 하는 일은 같고(가입 승인·공지·남의 글 정리), 부운영자를 임명하고
+ * 푸는 것만 운영자가 한다.
+ */
+export type Role = 'pending' | 'member' | 'staff' | 'admin';
+
+export const ROLE_LABEL: Record<Role, string> = {
+    pending: '대기',
+    member:  '회원',
+    staff:   '부운영자',
+    admin:   '운영자',
+};
 export type RoundStatus = 'open' | 'closed' | 'done' | 'cancelled';
 export type SignupState = 'confirmed' | 'waitlist';
 

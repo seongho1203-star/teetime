@@ -19,14 +19,17 @@ interface AuthValue {
     profile: Profile | null;
     loading: boolean;
     isMember: boolean;
+    /** 운영진 — 운영자와 부운영자. 하는 일이 같아 한 이름으로 묶는다. */
     isAdmin: boolean;
+    /** 운영자 한 사람. 부운영자를 임명·해임할 수 있다. */
+    isOwner: boolean;
     /** 프로필을 다시 읽는다 (승인 뒤 새로고침 없이 반영하려고). */
     refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue>({
     session: null, profile: null, loading: true,
-    isMember: false, isAdmin: false,
+    isMember: false, isAdmin: false, isOwner: false,
     refresh: async () => {},
 });
 
@@ -108,8 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         profile,
         loading: !sessionReady || !profileReady,
-        isMember: profile?.role === 'member' || profile?.role === 'admin',
-        isAdmin: profile?.role === 'admin',
+        isMember: profile?.role === 'member' || profile?.role === 'staff'
+                  || profile?.role === 'admin',
+        isAdmin: profile?.role === 'staff' || profile?.role === 'admin',
+        isOwner: profile?.role === 'admin',
         refresh,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [session, profile, sessionReady, profileReady]);

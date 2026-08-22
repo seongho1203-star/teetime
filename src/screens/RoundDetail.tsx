@@ -263,10 +263,10 @@ export function RoundDetail() {
                 </div>
             )}
 
-            {/* ── 모집을 연 사람과 총무만 ── */}
+            {/* ── 모집을 연 사람과 운영진만 ── */}
             {(isAdmin || r.created_by === me) && (
                 <div className="card">
-                    <div className="section-title">{isAdmin ? '총무' : '내가 연 모집'}</div>
+                    <div className="section-title">{isAdmin ? '운영' : '내가 연 모집'}</div>
                     <div className="row wrap" style={{ gap: 'var(--gap-sm)' }}>
                         {r.status === 'open' && (
                             <button className="btn ghost sm" onClick={() => setStatus('closed')}>

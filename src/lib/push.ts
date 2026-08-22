@@ -21,6 +21,20 @@ const SW_URL = new URL('sw.js', document.baseURI).href;
 
 export type PushState = 'unsupported' | 'standalone-required' | 'denied' | 'off' | 'on';
 
+/**
+ * 앱을 열 때 서비스워커를 등록해 둔다.
+ *
+ * 알림을 켤 때 등록해도 알림은 되지만, **안드로이드 크롬이 '앱 설치'를
+ * 띄우려면 처음부터 등록돼 있어야 한다.** 설치와 알림은 다른 이야기라
+ * 알림을 안 켜는 사람도 설치는 할 수 있어야 한다.
+ */
+export function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register(SW_URL).catch(() => {
+        // 등록이 안 돼도 앱은 그대로 돌아간다. 설치 배너만 안 뜬다.
+    });
+}
+
 /** 홈 화면에 추가해서 연 앱인가. iOS는 이때만 알림을 준다. */
 function isStandalone(): boolean {
     return window.matchMedia('(display-mode: standalone)').matches

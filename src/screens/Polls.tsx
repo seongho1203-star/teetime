@@ -186,7 +186,7 @@ function PollCard({
                         <> · {formatDateTime(poll.closes_at)} 마감</>
                     )}
                 </span>
-                {/* 마감·지우기는 만든 사람과 총무만. 남의 투표는 못 건드린다. */}
+                {/* 마감·지우기는 만든 사람과 운영진만. 남의 투표는 못 건드린다. */}
                 {(isAdmin || poll.created_by === me) && (
                     <span className="row" style={{ gap: 'var(--gap-xs)' }}>
                         {!closed && (

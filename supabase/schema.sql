@@ -27,8 +27,9 @@ create table if not exists profiles (
     id          uuid primary key references auth.users on delete cascade,
     name        text        not null default '',
     avatar_url  text,
+    -- pending 승인 대기 · member 회원 · staff 부운영자 · admin 운영자
     role        text        not null default 'pending'
-                            check (role in ('pending', 'member', 'admin')),
+                            check (role in ('pending', 'member', 'staff', 'admin')),
     handicap    numeric(4,1),
     phone       text,
     memo        text        not null default '',   -- 관리자 메모
@@ -75,11 +76,23 @@ create or replace function is_member() returns boolean
 language sql security definer stable set search_path = public as $$
     select exists (
         select 1 from profiles
-        where id = auth.uid() and role in ('member', 'admin')
+        where id = auth.uid() and role in ('member', 'staff', 'admin')
     );
 $$;
 
+-- **운영진**이다 — 운영자와 부운영자를 함께 가리킨다.
+-- 이름은 is_admin 그대로 두었다. 정책 스무 군데가 이 이름을 쓰고 있고,
+-- 부운영자가 하는 일이 운영자와 같기 때문이다(역할 임명만 빼고).
 create or replace function is_admin() returns boolean
+language sql security definer stable set search_path = public as $$
+    select exists (
+        select 1 from profiles
+        where id = auth.uid() and role in ('staff', 'admin')
+    );
+$$;
+
+-- **운영자 한 사람**. 부운영자를 임명하고 푸는 것은 이 사람만 한다.
+create or replace function is_owner() returns boolean
 language sql security definer stable set search_path = public as $$
     select exists (
         select 1 from profiles
@@ -431,9 +444,11 @@ alter table rooms         enable row level security;
 alter table messages      enable row level security;
 
 -- profiles ---------------------------------------------------
-drop policy if exists profiles_read     on profiles;
-drop policy if exists profiles_self_upd on profiles;
-drop policy if exists profiles_admin    on profiles;
+drop policy if exists profiles_read      on profiles;
+drop policy if exists profiles_self_upd  on profiles;
+drop policy if exists profiles_admin     on profiles;
+drop policy if exists profiles_owner     on profiles;
+drop policy if exists profiles_staff_upd on profiles;
 
 -- 본인 행은 언제나 읽을 수 있다(승인 대기 화면용). 회원이면 전체 명단도 본다.
 create policy profiles_read on profiles for select
@@ -445,8 +460,16 @@ create policy profiles_self_upd on profiles for update
     using (id = auth.uid())
     with check (id = auth.uid() and role = my_role());
 
-create policy profiles_admin on profiles for all
-    using (is_admin()) with check (is_admin());
+-- 운영자는 무엇이든 한다 — 부운영자 임명도 여기 들어간다.
+create policy profiles_owner on profiles for all
+    using (is_owner()) with check (is_owner());
+
+-- 부운영자는 **가입 승인까지만** 한다.
+-- using이 고치기 전 행을 보므로 운영자·부운영자 행은 손댈 수 없고,
+-- with check가 고친 뒤를 보므로 남을 운영진으로 올릴 수도 없다.
+create policy profiles_staff_upd on profiles for update
+    using (is_admin() and role in ('pending', 'member'))
+    with check (is_admin() and role in ('pending', 'member'));
 
 -- rounds -----------------------------------------------------
 -- **라운드는 누구나 연다.** 이 앱을 만든 까닭이 그것이다 — 총무 한 사람이

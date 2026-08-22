@@ -7,11 +7,12 @@ import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { ROLE_LABEL } from '../lib/types';
 import { disablePush, enablePush, pushState, type PushState } from '../lib/push';
 import './Home.css';
 
 export function Me() {
-    const { profile, isAdmin, session, refresh } = useAuth();
+    const { profile, session, refresh } = useAuth();
     const toast = useToast();
     const confirm = useConfirm();
 
@@ -42,6 +43,29 @@ export function Me() {
         await refresh();
         setEditing(false);
         toast('저장했습니다.', 'ok');
+    };
+
+    /* ── 앱 설치 (안드로이드·PC 크롬) ─────────────────────────
+       크롬은 '설치할 만한 페이지'라고 판단하면 beforeinstallprompt를 준다.
+       그 순간을 붙잡아 두었다가 눌렀을 때 띄운다 — 브라우저가 알아서
+       띄우는 배너는 잘 안 뜨고, 뜨더라도 놓치기 쉽다.
+       iOS는 이 이벤트가 없다. 거기는 공유 → 홈 화면에 추가뿐이다. */
+    const [installer, setInstaller] = useState<{ prompt: () => Promise<void> } | null>(null);
+
+    useEffect(() => {
+        const onPrompt = (e: Event) => {
+            e.preventDefault();
+            setInstaller(e as unknown as { prompt: () => Promise<void> });
+        };
+        window.addEventListener('beforeinstallprompt', onPrompt);
+        window.addEventListener('appinstalled', () => setInstaller(null));
+        return () => window.removeEventListener('beforeinstallprompt', onPrompt);
+    }, []);
+
+    const install = async () => {
+        if (!installer) return;
+        await installer.prompt();
+        setInstaller(null);
     };
 
     /* ── 알림 ────────────────────────────────────────────────
@@ -100,7 +124,7 @@ export function Me() {
                         {profile?.name || '이름 없음'}
                     </div>
                     <div className="sm faint">
-                        {isAdmin ? '총무' : '회원'}
+                        {profile ? ROLE_LABEL[profile.role] : '회원'}
                         {profile?.handicap != null && ` · 핸디캡 ${profile.handicap}`}
                     </div>
                 </div>
@@ -144,6 +168,17 @@ export function Me() {
                         <span className="grow">회원 명단</span>
                         <span className="chev">›</span>
                     </Link>
+                    {installer && (
+                        <button className="menu-item" onClick={install}>
+                            <span className="grow">
+                                <span className="b">앱으로 설치</span>
+                                <br /><span className="xs faint">
+                                    홈 화면에 놓고 앱처럼 씁니다
+                                </span>
+                            </span>
+                            <span className="chev">›</span>
+                        </button>
+                    )}
                     <button className="menu-item" onClick={togglePush}
                             disabled={!pushLine().can || pushBusy}>
                         <span className="grow">

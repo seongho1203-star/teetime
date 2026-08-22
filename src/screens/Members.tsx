@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, fetchProfiles } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate } from '../lib/format';
-import type { Profile, Role } from '../lib/types';
+import { ROLE_LABEL, type Profile, type Role } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -11,13 +11,17 @@ import { readableError } from '../lib/errors';
 import './Home.css';
 
 /**
- * 회원 명단. 총무에게는 여기가 **가입 승인 창구**다.
+ * 회원 명단. 운영진에게는 여기가 **가입 승인 창구**다.
  *
  * 카카오로 로그인만 하면 누구나 pending 상태로 들어오므로,
  * 승인하지 않으면 아무것도 볼 수 없다. 이게 이 앱의 문이다.
+ *
+ * 승인·거절은 운영진(운영자·부운영자)이 하고, **부운영자 임명은 운영자만**
+ * 한다. DB도 같게 막아 두었다(`profiles_staff_upd`) — 화면만 감추면
+ * 그만이 아니기 때문이다.
  */
 export function Members() {
-    const { isAdmin, session } = useAuth();
+    const { isAdmin, isOwner, session } = useAuth();
     const me = session!.user.id;
     const toast = useToast();
     const confirm = useConfirm();
@@ -46,8 +50,10 @@ export function Members() {
             .update({ role }).eq('id', p.id);
         if (err) { toast(readableError(err), 'error'); return; }
         toast(
-            role === 'member' ? `${p.name}님을 승인했습니다.`
-            : role === 'admin' ? `${p.name}님을 총무로 올렸습니다.`
+            role === 'member' && p.role === 'pending' ? `${p.name}님을 승인했습니다.`
+            : role === 'staff' ? `${p.name}님을 부운영자로 임명했습니다.`
+            : role === 'member' ? `${p.name}님의 부운영자를 풀었습니다.`
+            : role === 'admin' ? `${p.name}님을 운영자로 올렸습니다.`
             : `${p.name}님을 대기로 되돌렸습니다.`,
             'ok'
         );
@@ -115,8 +121,10 @@ export function Members() {
                         <div className="grow" style={{ minWidth: 0 }}>
                             <div className="row" style={{ gap: 6 }}>
                                 <span className="b truncate">{p.name || '이름 없음'}</span>
-                                {p.role === 'admin' && (
-                                    <span className="role-tag role-admin">총무</span>
+                                {(p.role === 'admin' || p.role === 'staff') && (
+                                    <span className={`role-tag ${p.role === 'admin' ? 'role-admin' : 'role-staff'}`}>
+                                        {ROLE_LABEL[p.role]}
+                                    </span>
                                 )}
                                 {p.id === me && <span className="xs faint">(나)</span>}
                             </div>
@@ -125,17 +133,18 @@ export function Members() {
                                 {isAdmin && p.phone ? ` · ${p.phone}` : ''}
                             </div>
                         </div>
-                        {isAdmin && p.id !== me && (
-                            <>
-                                <button
-                                    className="btn ghost sm"
-                                    onClick={() => setRole(p, p.role === 'admin' ? 'member' : 'admin')}
-                                >
-                                    {p.role === 'admin' ? '총무 해제' : '총무로'}
-                                </button>
-                                <button className="btn ghost sm" onClick={() => demote(p)}
-                                        aria-label="내보내기">✕</button>
-                            </>
+                        {/* 부운영자 임명은 운영자만. 운영자 행은 아무도 못 건드린다. */}
+                        {isOwner && p.id !== me && p.role !== 'admin' && (
+                            <button
+                                className="btn ghost sm"
+                                onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}
+                            >
+                                {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                            </button>
+                        )}
+                        {isAdmin && p.id !== me && p.role !== 'admin' && (
+                            <button className="btn ghost sm" onClick={() => demote(p)}
+                                    aria-label="내보내기">✕</button>
                         )}
                     </div>
                 ))}
@@ -144,8 +153,9 @@ export function Members() {
             {isAdmin && (
                 <p className="xs faint" style={{ lineHeight: 1.7 }}>
                     카카오로 로그인한 사람은 승인 전까지 아무것도 볼 수 없습니다.
-                    처음 한 명(자기 자신)은 Supabase에서 직접 <code>role='admin'</code>으로
-                    바꿔 줘야 합니다 — <code>docs/설치.md</code> 참고.
+                    {isOwner
+                        ? ' 부운영자는 가입 승인과 공지 쓰기를 함께 맡습니다. 임명은 운영자만 할 수 있습니다.'
+                        : ' 부운영자 임명은 운영자만 할 수 있습니다.'}
                 </p>
             )}
         </div>

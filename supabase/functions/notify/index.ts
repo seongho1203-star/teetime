@@ -5,7 +5,7 @@
  * 앱에는 서버가 없으므로 **밀어 주는 일은 여기 한 곳에서만** 한다.
  *
  *   messages  새 글  → 쓴 사람 빼고 회원 모두
- *   profiles  새 가입 → 총무 모두 ('pending'으로 들어온 행)
+ *   profiles  새 가입 → 운영진 모두 ('pending'으로 들어온 행)
  *   rounds    새 모집 → 연 사람 빼고 회원 모두
  *
  * 웹훅은 Supabase 화면(Database → Webhooks)에서 건다. 보낼 때
@@ -63,7 +63,10 @@ async function planFor(hook: Hook): Promise<Note | null> {
             ? r.body.trim()
             : (r.image_url ? '사진을 보냈습니다' : '');
         return {
-            title: who,
+            // **무엇에 대한 알림인지 제목 첫머리에 세운다.** 알림창에는 제목
+            // 한 줄만 보이는 때가 많아, 이름만 있으면 대화인지 모집인지
+            // 열어 봐야 안다.
+            title: `💬 대화 · ${who}`,
             body: text.slice(0, 120),
             // 대화는 한 덩어리로 묶어 알림창이 도배되지 않게 한다.
             tag: 'chat',
@@ -76,7 +79,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
         const who = await nameOf(r.created_by);
         const course = typeof r.course === 'string' && r.course ? r.course : '라운드';
         return {
-            title: '새 모집',
+            title: '⛳ 새 모집',
             body: `${who}님이 ${course} 모집을 열었습니다`,
             tag: `round-${r.id}`,
             url: `#/rounds/${r.id}`,
@@ -87,7 +90,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
     if (hook.table === 'polls' && hook.type === 'INSERT') {
         const who = await nameOf(r.created_by);
         return {
-            title: '새 투표',
+            title: '🗳 새 투표',
             body: `${who}님: ${String(r.title ?? '').slice(0, 80)}`,
             tag: `poll-${r.id}`,
             url: '#/polls',
@@ -97,7 +100,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
 
     if (hook.table === 'posts' && hook.type === 'INSERT') {
         return {
-            title: '새 공지',
+            title: '📢 새 공지',
             body: String(r.title ?? '').slice(0, 80),
             tag: `post-${r.id}`,
             url: `#/board/${r.id}`,
@@ -105,13 +108,14 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
-    // 가입 신청은 **총무에게만**. 트리거가 만든 pending 행이 들어온다.
+    // 가입 신청은 **운영진에게만**(운영자·부운영자). 트리거가 만든 pending 행이 들어온다.
     if (hook.table === 'profiles' && hook.type === 'INSERT' && r.role === 'pending') {
-        const { data: admins } = await db.from('profiles').select('id').eq('role', 'admin');
+        const { data: admins } = await db.from('profiles')
+            .select('id').in('role', ['admin', 'staff']);
         const only = (admins ?? []).map(a => a.id as string);
         if (!only.length) return null;
         return {
-            title: '가입 신청',
+            title: '🙋 가입 신청',
             body: `${String(r.name ?? '') || '새 회원'}님이 승인을 기다립니다`,
             tag: 'pending',
             url: '#/members',

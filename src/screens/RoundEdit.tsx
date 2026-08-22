@@ -9,7 +9,7 @@ import { TopBar } from '../components/TopBar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 
-/** 라운드 모집 열기 / 수정. 총무만 들어온다. */
+/** 라운드 모집 열기 / 수정. 회원 누구나 열고, 고치는 것은 연 사람과 운영진이다. */
 export function RoundEdit() {
     const { id } = useParams<{ id: string }>();
     const editing = Boolean(id);
