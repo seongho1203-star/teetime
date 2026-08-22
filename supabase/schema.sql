@@ -41,6 +41,14 @@ create table if not exists profiles (
     created_at  timestamptz not null default now()
 );
 
+-- ⚠️ **`create table if not exists`는 이미 있는 표를 고치지 않는다.**
+-- 위의 표 정의를 바꿔 봐야 처음 만드는 곳에만 먹는다. 이미 돌아가고 있는
+-- 저장소에는 아래처럼 `alter`를 따로 적어야 반영된다 — 등급을 넷에서
+-- 다섯으로 늘리고도 이걸 빠뜨려, 부운영자로 올리면 검사 규칙에 걸렸다.
+alter table profiles drop constraint if exists profiles_role_check;
+alter table profiles add constraint profiles_role_check
+    check (role in ('pending', 'member', 'staff', 'admin', 'banned'));
+
 alter table profiles add column if not exists joined_at timestamptz;
 
 -- 이미 있던 회원은 처음 들어온 때부터 본다.

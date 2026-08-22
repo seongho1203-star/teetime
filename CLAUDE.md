@@ -69,6 +69,11 @@ docs/설치.md   Supabase·카카오를 처음 붙이는 절차
   화면이 안 바뀌었다. 표를 새로 구독하면 그 목록에 넣을 것.
 - 스키마를 고쳤으면 `schema.sql`을 고쳐서 **통째로 다시 실행**한다.
   여러 번 실행해도 안전하게 써 두었다(`create if not exists` / `drop policy if exists`).
+- **`create table if not exists`는 이미 있는 표를 고치지 않는다.** 표 정의만
+  바꾸면 새로 만드는 곳에서만 먹고, 돌아가고 있는 저장소는 그대로다.
+  칸을 더하면 `alter table ... add column if not exists`를, **검사 규칙을
+  바꾸면 `drop constraint` + `add constraint`를** 함께 적을 것.
+  등급을 늘리고 이걸 빠뜨려 부운영자 임명이 `profiles_role_check`에 걸렸다.
 
 ### 신청은 반드시 `join_round`를 거친다
 
