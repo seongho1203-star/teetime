@@ -181,48 +181,6 @@ export function Chat() {
         }
     }, []);
 
-    /* ── 진단 (임시) ────────────────────────────────────────────
-     *
-     * 끌 때 무엇이 움직이는지 폰에서 직접 재려고 둔 것이다. 헤드리스에는
-     * 키보드가 없어 이 손짓을 흉내 낼 수 없고, 짐작으로 세 번 고쳤다가
-     * 세 번 다 빗나갔다. 손을 뗀 뒤에도 남도록 **최솟값~최댓값**을 모은다
-     * (끄는 동안에는 iOS가 화면을 다시 그리지 않을 수 있다).
-     * **떨림을 잡으면 이 블록과 `.chat-diag`를 지울 것.**
-     */
-    const diagRef = useRef<HTMLDivElement>(null);
-    const blank = () => ({ oT: [0, 0], fw: [0, 0], n: 0, ts: 0, tm: 0, first: true });
-    const diag = useRef(blank());
-
-    /** 손을 대는 순간부터 다시 잰다 — 그래야 **끄는 동안**만 남는다. */
-    const resetDiag = useCallback(() => { diag.current = blank(); }, []);
-
-    const noteDiag = useCallback(() => {
-        const vv = window.visualViewport;
-        if (!vv) return;
-        const d = diag.current;
-        const put = (a: number[], v: number) => {
-            if (d.first) { a[0] = v; a[1] = v; return; }
-            a[0] = Math.min(a[0], v); a[1] = Math.max(a[1], v);
-        };
-        // iOS가 민 양과, 우리가 상쇄하려고 실제로 발라 놓은 양. 이 둘이
-        // 같은데도 화면이 움직인다면, 손짓이 도는 동안 iOS가 우리 그림을
-        // 반영하지 않는다는 뜻이고 — 그건 웹앱이 손쓸 수 없는 자리다.
-        put(d.oT, Math.round(vv.offsetTop));
-        const t = chatRef.current?.style.transform ?? '';
-        put(d.fw, Number(/translateY\((-?\d+)px\)/.exec(t)?.[1] ?? 0));
-        d.first = false;
-        d.n++;
-        const el = diagRef.current;
-        if (el) {
-            const span = (a: number[]) => (a[0] === a[1] ? `${a[0]}` : `${a[0]}~${a[1]}`);
-            const chat = Math.round(chatRef.current?.getBoundingClientRect().height ?? 0);
-            el.textContent =
-                `밀림 ${span(d.oT)} · 따라 ${span(d.fw)} · 대화 ${chat}`
-                + ` · 목록손짓 ${d.ts}/${d.tm} · 초점 ${kbRef.current.typing ? 'O' : 'X'}`
-                + ` · 신호 ${d.n}`;
-        }
-    }, []);
-
     /** 한 프레임에 한 번만 재도록 모은다. 끄는 동안 이벤트가 쏟아진다. */
     const syncKeyboard = useCallback(() => {
         const s = kbRef.current;
@@ -241,23 +199,7 @@ export function Chat() {
      */
     const settleTimer = useRef(0);
 
-    /**
-     * **밀린 만큼 따라 내려가던 것을 뺐다.**
-     *
-     * 폰에서 `따라 0~374`로 값이 제대로 발리는 것까지 확인했는데도 입력칸이
-     * 그대로 움직였다. 키보드가 올라와 있을 때 iOS는 `position: fixed`를
-     * 이미 **보이는 화면**에 붙여 놓는다 — 거기에 우리가 밀린 양을 또
-     * 더하고 있었으니, 상쇄가 아니라 두 번 움직이게 만든 셈이다.
-     * `.chat`은 `fixed`로만 두고 손대지 않는 것이 맞다.
-     */
-    const clearFollow = () => {
-        const el = chatRef.current;
-        if (el && el.style.transform) el.style.transform = '';
-    };
-
     const watchViewport = useCallback(() => {
-        clearFollow();
-        noteDiag();
         if (!document.body.classList.contains('kb-open')) return;
         clearTimeout(settleTimer.current);
         settleTimer.current = window.setTimeout(() => {
@@ -266,7 +208,7 @@ export function Chat() {
             const doc = document.scrollingElement;
             if (doc && doc.scrollTop) doc.scrollTop = 0;
         }, 120);
-    }, [noteDiag]);
+    }, []);
 
     useEffect(() => {
         const vv = window.visualViewport;
@@ -303,15 +245,13 @@ export function Chat() {
         s.locked = false;
         setFocused(true);
         applyKeyboard(true);
-        noteDiag();
         // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다. 다 올라온 뒤에
         // **한 번 붙박아 두고** 그 뒤로는 다시 재지 않는다.
-        setTimeout(() => { applyKeyboard(true); noteDiag(); }, 120);
-        setTimeout(() => { applyKeyboard(true); noteDiag(); }, 400);
+        setTimeout(() => applyKeyboard(true), 120);
+        setTimeout(() => applyKeyboard(true), 400);
         setTimeout(() => {
             applyKeyboard(true);
             s.locked = true;
-            noteDiag();
         }, 650);
     };
 
@@ -366,25 +306,6 @@ export function Chat() {
         // 키보드가 오르내릴 때도 다시 잰다.
     }, [roomId, focused]);
 
-    /** 진단 전용. 손짓이 우리에게 오는지 보려고 남겨 둔 자리다. */
-    useEffect(() => {
-        const chat = chatRef.current;
-        if (!chat) return;
-
-        // 진단: 손을 대면 다시 잰다. 예전에는 여기서 `touchmove`를 삼켜
-        // 보려고도 했는데, 입력칸 위의 손짓은 iOS가 가져가 버려 이 핸들러가
-        // 한 번도 안 불렸다(폰에서 `이동 0`으로 확인). 그래서 뺐다.
-        const start = () => { resetDiag(); noteDiag(); };
-        const moved = () => { noteDiag(); };
-
-        chat.addEventListener('touchstart', start, { passive: true, capture: true });
-        chat.addEventListener('touchmove', moved, { passive: true, capture: true });
-        return () => {
-            chat.removeEventListener('touchstart', start, true);
-            chat.removeEventListener('touchmove', moved, true);
-        };
-    }, [roomId, noteDiag, resetDiag]);
-
     /**
      * **대화를 아래로 끌면 키보드가 함께 내려간다** — 카톡이 그렇다.
      *
@@ -400,12 +321,8 @@ export function Chat() {
         const start = (e: TouchEvent) => {
             y0 = e.touches[0].clientY;
             x0 = e.touches[0].clientX;
-            diag.current.ts++;
-            noteDiag();
         };
         const move = (e: TouchEvent) => {
-            diag.current.tm++;
-            noteDiag();
             if (!kbRef.current.typing) return;
             const dy = e.touches[0].clientY - y0;
             const dx = Math.abs(e.touches[0].clientX - x0);
@@ -422,7 +339,7 @@ export function Chat() {
         // 스피너만 있어 `.chat-list`가 없다. 그때 한 번 돌고 마는 효과는
         // ref가 비어 있어 그냥 돌아가고, 다시 돌 일이 없어 **손짓 듣기가
         // 영영 안 붙었다** (폰에서 `목록손짓 0/0`으로 드러났다).
-    }, [roomId, noteDiag]);
+    }, [roomId]);
 
     const onScroll = () => {
         const el = listRef.current;
@@ -572,9 +489,6 @@ export function Chat() {
             <div className="chat-head">
                 <h1 className="chat-title">{data.room.name}</h1>
             </div>
-
-            {/* 임시 진단 줄. 키보드가 올라와 있을 때만 보인다. 떨림을 잡으면 지운다. */}
-            <div className="chat-diag" ref={diagRef} />
 
             <div className="chat-list" ref={listRef} onScroll={onScroll}>
                 {hasMore && (
