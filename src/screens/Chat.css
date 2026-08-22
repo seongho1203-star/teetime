@@ -241,41 +241,16 @@ body.kb-open .tabbar { display: none; }
    `dvh`까지 함께 움직여 화면이 떤다. --vvh는 키보드가 열리고 닫힐 때만
    바뀌므로 끄는 내내 붙박이다. (헤드리스 도구는 --vvh를 안 넣으므로
    예전 셈이 예비로 남아 있다.) */
-body.kb-open .chat {
-    height: var(--vvh, calc(100dvh - var(--kb, 0px)));
-    /* 문서가 아니라 **화면**에 붙여 둔다. iOS가 화면을 밀 때 우리가 그만큼
-       따라 내려갈 수 있게 하는 자리다(Chat.tsx의 `followViewport`).
-       fixed는 문서 스크롤과 무관해서 밀린 양(offsetTop)만 그대로 더하면 된다. */
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    margin-inline: auto;
-    will-change: transform;
-}
+body.kb-open .chat { height: var(--vvh, calc(100dvh - var(--kb, 0px))); }
 
-/* 글을 쓰는 동안에는 페이지가 아예 안 움직이게 잡아 둔다.
-   굴리는 주체가 브라우저마다 달라 html·body 둘 다 잠근다.
-   **iOS에서는 `overflow: hidden`만으로 부족해 `position: fixed`까지 걸어야
-   문서가 진짜로 멈춘다** — 이게 아직 안 해 본 마지막 잠금이다.
-   `.chat`이 스스로 `position: fixed`에 `--vvh` 높이라, body를 붙박아도
-   화면 배치는 그대로다. */
-html.kb-open, body.kb-open {
-    overflow: hidden;
-    overscroll-behavior: none;
-    position: fixed;
-    inset: 0;
-    width: 100%;
-}
+/* 글을 쓰는 동안에는 페이지가 안 움직이게 잡아 둔다.
+   굴리는 주체가 브라우저마다 달라 html·body 둘 다 준다.
 
-/* **키보드가 올라와 있을 때, 입력칸 위에서는 미는 손짓을 브라우저에
-   넘기지 않는다.** 그때는 보이는 화면(visual viewport)이 문서보다 336px쯤
-   작아서, 여기를 잡고 **위로** 끌면 iOS가 키보드 뒤쪽을 보여 주려고 화면을
-   통째로 밀었다가 도로 놓는다 — 그게 떨림으로 보였다. 아래로 끄는 쪽은
-   이미 맨 위라 밀 자리가 없어 멀쩡했던 것이다.
-   키보드가 없을 때는 걸지 않는다 — 떨릴 일도 없고, 글자를 끌어 고르는
-   손짓까지 막을 이유가 없다. */
-body.kb-open .chat-input { touch-action: none; }
+   **`position: fixed`까지 걸어 보았지만 되돌렸다** — iOS에서 아래로 끌 때도
+   떨리기 시작했고 스크롤 막대가 위아래로 움직였다. `.chat`을 `transform`으로
+   화면에 따라붙게 한 것도 같은 이유로 되돌렸다. 이 화면에서 iOS가 미는 것을
+   상쇄하려 들면 손짓과 코드가 서로 밀치면서 오히려 나빠진다. */
+html.kb-open, body.kb-open { overflow: hidden; overscroll-behavior: none; }
 /* 키보드가 올라와 있으면 홈 인디케이터가 없다. 그 자리(--safe-b)를 계속
    비워 두면 입력칸과 키보드 사이에 빈 띠가 남는다 — 카톡은 딱 붙는다. */
 body.kb-open .chat-input { padding-bottom: var(--gap-sm); }

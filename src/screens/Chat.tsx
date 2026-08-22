@@ -220,28 +220,14 @@ export function Chat() {
     }, [applyKeyboard]);
 
     /**
-     * **iOS가 화면을 밀면 우리도 같이 움직인다.**
+     * 재기만 하고 화면은 건드리지 않는다.
      *
-     * 키보드가 올라와 있으면 보이는 화면(538px쯤)이 문서가 놓인 자리(874px)
-     * 보다 작아서, iOS는 그 안에서 화면을 위아래로 밀 수 있게 해 준다.
-     * 입력칸을 잡고 위로 끌면 그 밀기가 일어나고, 손을 떼면 되돌아온다 —
-     * 그게 떨림이다. **막을 수가 없다.** `touch-action`도 `overflow: hidden`도
-     * `touchmove`를 삼키는 것도 다 해 봤지만 iOS가 제 방식대로 민다.
-     *
-     * 그래서 막는 대신 **밀린 만큼 우리가 따라 내려간다.** 화면 기준으로는
-     * 제자리에 서 있게 되어 눈에는 아무 일도 안 일어난 것처럼 보인다.
-     * `transform`이라 다시 그리는 비용이 없고, 이벤트마다 곧바로 발라야
-     * 하므로 여기서는 `requestAnimationFrame`으로 미루지 않는다.
+     * 한때 `vv.offsetTop`만큼 `.chat`을 `translateY`로 따라 내려 iOS가 미는
+     * 것을 상쇄해 봤는데 **더 나빠졌다** — 아래로 끌 때까지 떨렸고 스크롤
+     * 막대가 위아래로 움직였다. iOS는 손짓이 도는 동안 화면을 제 방식으로
+     * 합성해서, 그때 얹은 `transform`은 한 박자 늦게 발린다. 되돌렸다.
      */
-    const followViewport = useCallback(() => {
-        const vv = window.visualViewport;
-        const el = chatRef.current;
-        if (!vv || !el) return;
-        const y = document.body.classList.contains('kb-open') ? Math.round(vv.offsetTop) : 0;
-        const next = y ? `translateY(${y}px)` : '';
-        if (el.style.transform !== next) el.style.transform = next;
-        noteDiag();
-    }, [noteDiag]);
+    const watchViewport = useCallback(() => { noteDiag(); }, [noteDiag]);
 
     useEffect(() => {
         const vv = window.visualViewport;
@@ -249,20 +235,20 @@ export function Chat() {
         applyKeyboard(true);
         vv?.addEventListener('resize', syncKeyboard);
         vv?.addEventListener('scroll', syncKeyboard);
-        vv?.addEventListener('resize', followViewport);
-        vv?.addEventListener('scroll', followViewport);
+        vv?.addEventListener('resize', watchViewport);
+        vv?.addEventListener('scroll', watchViewport);
         return () => {
             vv?.removeEventListener('resize', syncKeyboard);
             vv?.removeEventListener('scroll', syncKeyboard);
-            vv?.removeEventListener('resize', followViewport);
-            vv?.removeEventListener('scroll', followViewport);
+            vv?.removeEventListener('resize', watchViewport);
+            vv?.removeEventListener('scroll', watchViewport);
             cancelAnimationFrame(state.frame);
             document.documentElement.style.removeProperty('--kb');
             document.documentElement.style.removeProperty('--vvh');
             document.body.classList.remove('kb-open');
             document.documentElement.classList.remove('kb-open');
         };
-    }, [applyKeyboard, syncKeyboard, followViewport]);
+    }, [applyKeyboard, syncKeyboard, watchViewport]);
 
     const blurTimer = useRef(0);
 
@@ -299,7 +285,6 @@ export function Chat() {
             kbRef.current.locked = false;
             setFocused(false);
             applyKeyboard(true);
-            followViewport();
         }, 150);
     };
 
