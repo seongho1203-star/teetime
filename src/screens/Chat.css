@@ -42,11 +42,10 @@ body.kb-open .chat-diag {
     padding: 3px var(--gap);
     background: #3a2a00;
     color: #ffd166;
-    font-size: 10.5px;
+    font-size: 10px;
+    line-height: 1.35;
     font-variant-numeric: tabular-nums;
     text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
 }
 
 .chat-list {

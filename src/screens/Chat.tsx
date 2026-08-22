@@ -123,19 +123,20 @@ export function Chat() {
      * 알려 주기도 한다. 누르는 순간 탭바부터 감춰 두면 그 사이에도
      * 대화가 가려지지 않는다. 높이는 알려 줄 때 채워 넣는다.
      */
-    const kbRef = useRef({ typing: false, hidden: 0, frame: 0 });
+    const kbRef = useRef({ typing: false, hidden: 0, frame: 0, locked: false, width: 0 });
 
     /**
      * 지금 가려진 높이를 재서 화면에 반영한다.
      *
      * **`offsetTop`은 보지 않는다.** 예전엔 `innerHeight - height - offsetTop`
-     * 으로 쟀는데, 입력칸을 누른 채 위아래로 끌면 iOS가 화면을 고무줄처럼
-     * 당기면서 `offsetTop`이 매 프레임 바뀐다. 그 값이 높이에 들어가 있으면
-     * **입력칸이 손가락을 따라 부들부들 떨린다.** 키보드가 가린 높이는
-     * `vv.height` 하나로 정해지고, 이 값은 끄는 동안 움직이지 않는다.
+     * 으로 쟀는데, `offsetTop`은 iOS가 화면을 미는 양이라 손짓마다 바뀐다.
      *
-     * 그래도 남는 몇 px의 흔들림은 **8px 문턱**으로 걸러 낸다. 열고 닫힐
-     * 때만 값이 바뀌므로 끄는 동안에는 아무것도 다시 그리지 않는다.
+     * **그리고 자리를 잡으면 더는 재지 않는다(`locked`).** 폰에서 재 보니
+     * 끄는 동안 `vv.height`가 333~707을 오가고 `window.innerHeight`마저
+     * 703과 693으로 흔들렸다. 그 값으로 화면을 다시 재면 대화 높이가
+     * 그때마다 바뀌어 **그것 자체가 떨림이 된다.** 키보드는 글을 쓰는 동안
+     * 크기가 바뀌지 않으므로 올라올 때 한 번 정하면 그만이다. 초점이
+     * 떠날 때(`onComposerBlur`) 풀고, 화면을 돌렸을 때만 다시 잰다.
      */
     const applyKeyboard = useCallback((force = false) => {
         const vv = window.visualViewport;
@@ -146,8 +147,12 @@ export function Chat() {
         // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
         document.documentElement.classList.toggle('kb-open', open);
 
+        // 붙박아 둔 동안에는 화면 크기를 건드리지 않는다. 가로세로를 돌리면
+        // 그때는 다시 재야 하므로 폭이 바뀐 것은 예외로 둔다.
+        if (s.locked && window.innerWidth === s.width) return;
         if (!force && Math.abs(hidden - s.hidden) < 8) return;
         s.hidden = hidden;
+        s.width = window.innerWidth;
 
         const root = document.documentElement.style;
         root.setProperty('--kb', `${hidden > 120 ? hidden : 0}px`);
@@ -177,27 +182,33 @@ export function Chat() {
      * **떨림을 잡으면 이 블록과 `.chat-diag`를 지울 것.**
      */
     const diagRef = useRef<HTMLDivElement>(null);
-    const diag = useRef({ oT: [0, 0], vH: [0, 0], sY: [0, 0], n: 0, tm: '-', first: true });
+    const diag = useRef({ oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], n: 0, mv: 0, tm: '-', first: true });
+
+    /** 손을 대는 순간부터 다시 잰다 — 그래야 **끄는 동안**만 남는다. */
+    const resetDiag = useCallback(() => {
+        diag.current = { oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], n: 0, mv: 0, tm: '-', first: true };
+    }, []);
 
     const noteDiag = useCallback(() => {
         const vv = window.visualViewport;
         if (!vv) return;
         const d = diag.current;
-        const put = (a: number[], v: number, first: boolean) => {
-            if (first) { a[0] = v; a[1] = v; return; }
+        const put = (a: number[], v: number) => {
+            if (d.first) { a[0] = v; a[1] = v; return; }
             a[0] = Math.min(a[0], v); a[1] = Math.max(a[1], v);
         };
-        put(d.oT, Math.round(vv.offsetTop), d.first);
-        put(d.vH, Math.round(vv.height), d.first);
-        put(d.sY, Math.round(window.scrollY), d.first);
+        put(d.oT, Math.round(vv.offsetTop));
+        put(d.vH, Math.round(vv.height));
+        put(d.sY, Math.round(window.scrollY));
+        put(d.iH, window.innerHeight);
         d.first = false;
         d.n++;
         const el = diagRef.current;
         if (el) {
+            const span = (a: number[]) => (a[0] === a[1] ? `${a[0]}` : `${a[0]}~${a[1]}`);
             el.textContent =
-                `밀림 ${d.oT[0]}~${d.oT[1]} · 높이 ${d.vH[0]}~${d.vH[1]}`
-                + ` · 스크롤 ${d.sY[0]}~${d.sY[1]} · 창 ${window.innerHeight}`
-                + ` · 신호 ${d.n} · 손짓 ${d.tm}`;
+                `밀림 ${span(d.oT)} · 높이 ${span(d.vH)} · 스크롤 ${span(d.sY)}`
+                + ` · 창 ${span(d.iH)} · 신호 ${d.n} · 이동 ${d.mv} · 막기 ${d.tm}`;
         }
     }, []);
 
@@ -257,15 +268,21 @@ export function Chat() {
 
     const onComposerFocus = () => {
         clearTimeout(blurTimer.current);
-        kbRef.current.typing = true;
+        const s = kbRef.current;
+        s.typing = true;
+        s.locked = false;
         setFocused(true);
-        // 진단은 키보드를 올릴 때마다 새로 잰다.
-        diag.current = { oT: [0, 0], vH: [0, 0], sY: [0, 0], n: 0, tm: '-', first: true };
         applyKeyboard(true);
         noteDiag();
-        // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다.
+        // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다. 다 올라온 뒤에
+        // **한 번 붙박아 두고** 그 뒤로는 다시 재지 않는다.
         setTimeout(() => { applyKeyboard(true); noteDiag(); }, 120);
         setTimeout(() => { applyKeyboard(true); noteDiag(); }, 400);
+        setTimeout(() => {
+            applyKeyboard(true);
+            s.locked = true;
+            noteDiag();
+        }, 650);
     };
 
     /**
@@ -279,6 +296,7 @@ export function Chat() {
         clearTimeout(blurTimer.current);
         blurTimer.current = window.setTimeout(() => {
             kbRef.current.typing = false;
+            kbRef.current.locked = false;
             setFocused(false);
             applyKeyboard(true);
             followViewport();
@@ -302,19 +320,31 @@ export function Chat() {
     const barRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const el = barRef.current;
-        if (!el) return;
+        const bar = barRef.current;
+        const chat = chatRef.current;
+        if (!bar || !chat) return;
+
         const swallow = (e: TouchEvent) => {
             if (!document.body.classList.contains('kb-open')) return;
             // 이 손짓을 우리가 막을 수 있는 것인지가 핵심 단서다. iOS는
             // 글자 칸 위의 손짓을 제 것으로 가져가 버리기도 한다.
-            diag.current.tm = e.cancelable ? '막힘' : '못막음';
+            diag.current.tm = e.cancelable ? '됨' : '안됨';
             if (e.cancelable) e.preventDefault();
             noteDiag();
         };
-        el.addEventListener('touchmove', swallow, { passive: false });
-        return () => el.removeEventListener('touchmove', swallow);
-    }, [noteDiag]);
+        // 진단: 손을 대면 다시 재고, 움직임이 우리에게 오기는 하는지 센다.
+        const start = () => { resetDiag(); noteDiag(); };
+        const moved = () => { diag.current.mv++; noteDiag(); };
+
+        bar.addEventListener('touchmove', swallow, { passive: false });
+        chat.addEventListener('touchstart', start, { passive: true, capture: true });
+        chat.addEventListener('touchmove', moved, { passive: true, capture: true });
+        return () => {
+            bar.removeEventListener('touchmove', swallow);
+            chat.removeEventListener('touchstart', start, true);
+            chat.removeEventListener('touchmove', moved, true);
+        };
+    }, [noteDiag, resetDiag]);
 
     const onScroll = () => {
         const el = listRef.current;
