@@ -358,7 +358,7 @@ export function Chat() {
             chat.removeEventListener('touchstart', start, true);
             chat.removeEventListener('touchmove', moved, true);
         };
-    }, [noteDiag, resetDiag]);
+    }, [roomId, noteDiag, resetDiag]);
 
     /**
      * **대화를 아래로 끌면 키보드가 함께 내려간다** — 카톡이 그렇다.
@@ -393,7 +393,11 @@ export function Chat() {
             el.removeEventListener('touchstart', start);
             el.removeEventListener('touchmove', move);
         };
-    }, [noteDiag]);
+        // **`roomId`가 있어야 한다.** 대화를 불러오는 동안에는 화면에
+        // 스피너만 있어 `.chat-list`가 없다. 그때 한 번 돌고 마는 효과는
+        // ref가 비어 있어 그냥 돌아가고, 다시 돌 일이 없어 **손짓 듣기가
+        // 영영 안 붙었다** (폰에서 `목록손짓 0/0`으로 드러났다).
+    }, [roomId, noteDiag]);
 
     const onScroll = () => {
         const el = listRef.current;
