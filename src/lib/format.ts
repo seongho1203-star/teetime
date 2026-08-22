@@ -49,6 +49,12 @@ const ymdFmt = new Intl.DateTimeFormat('en-CA', {
 export const kstDate = (d: Date | string = new Date()) =>
     ymdFmt.format(typeof d === 'string' ? new Date(d) : d);
 
+/**
+ * `2026-08-21T09:11` — 한국 시각의 **분**까지. 같은 분인지 견주는 데 쓴다.
+ * 카톡이 대화를 묶는 단위가 '같은 사람 · 같은 분'이라 대화 화면이 이걸 본다.
+ */
+export const kstMinute = (iso: string) => toKstInput(iso);
+
 export function daysUntil(iso: string): number {
     const target = new Date(kstDate(iso) + 'T00:00:00Z').getTime();
     const today = new Date(kstDate() + 'T00:00:00Z').getTime();

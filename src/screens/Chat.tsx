@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDate, formatTime, kstDate } from '../lib/format';
+import { formatDate, formatTime, kstDate, kstMinute } from '../lib/format';
 import type { Message, Profile, Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
@@ -313,9 +313,10 @@ export function Chat() {
 
     return (
         <div className="chat">
+            {/* 카톡처럼 제목 한 줄만 가운데 세운다. 설명 줄을 두었더니
+                머리말이 두 겹이 되어 대화가 그만큼 내려앉았다. */}
             <div className="chat-head">
                 <h1 className="chat-title">{data.room.name}</h1>
-                <span className="xs faint chat-sub">라운드·투표·공지는 각 탭에 남습니다</span>
             </div>
 
             <div className="chat-list" ref={listRef} onScroll={onScroll}>
@@ -329,11 +330,18 @@ export function Chat() {
                 )}
                 {messages.map((m, i) => {
                     const prev = messages[i - 1];
+                    const next = messages[i + 1];
                     const newDay = !prev || kstDate(prev.created_at) !== kstDate(m.created_at);
-                    // 같은 사람이 5분 안에 이어 쓰면 이름과 사진을 다시 넣지 않는다.
-                    const grouped = !newDay && prev
-                        && prev.user_id === m.user_id
-                        && new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < 5 * 60_000;
+                    // 카톡이 대화를 묶는 단위는 **같은 사람 · 같은 분**이다.
+                    // 5분으로 묶어 봤는데 9시 09분과 9시 10분 글이 한 덩어리가
+                    // 되어, 카톡이라면 이름이 다시 붙을 자리가 비어 보였다.
+                    const sameBlock = (a?: Message, b?: Message) =>
+                        !!a && !!b && a.user_id === b.user_id
+                        && kstMinute(a.created_at) === kstMinute(b.created_at);
+                    const grouped = !newDay && sameBlock(prev, m);
+                    // **시각은 덩어리의 마지막 줄에만 적는다.** 카톡이 그렇다 —
+                    // 줄마다 붙이면 같은 시각이 서너 번 되풀이돼 지저분하다.
+                    const showTime = !sameBlock(m, next);
                     return (
                         <div key={m.id}>
                             {newDay && <div className="chat-day">{formatDate(m.created_at)}</div>}
@@ -342,6 +350,7 @@ export function Chat() {
                                 who={names[m.user_id ?? '']}
                                 mine={m.user_id === me}
                                 grouped={grouped}
+                                showTime={showTime}
                                 onImageLoad={pinBottom}
                             />
                         </div>
@@ -373,29 +382,35 @@ export function Chat() {
                     placeholder="메시지" rows={1} maxLength={1000}
                     aria-label="메시지 입력"
                 />
-                {/* onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
+                {/* 보내기 버튼은 **적은 게 있을 때만** 나온다 — 카톡이 그렇다.
+                    늘 놓아 두면 눌리지도 않는 버튼이 자리만 차지한다.
+                    onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
                     내려가지 않는 이유가 이 한 줄이다. 누르는 것 자체는 그대로
                     onClick으로 온다. */}
-                <button className="btn primary chat-send" onClick={send}
-                        onMouseDown={e => e.preventDefault()}
-                        disabled={sending || !draft.trim()} aria-label="보내기">
-                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
-                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M4 12h15M13 6l6 6-6 6" />
-                    </svg>
-                </button>
+                {draft.trim() && (
+                    <button className="btn primary chat-send" onClick={send}
+                            onMouseDown={e => e.preventDefault()}
+                            disabled={sending} aria-label="보내기">
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M4 12h15M13 6l6 6-6 6" />
+                        </svg>
+                    </button>
+                )}
             </div>
         </div>
     );
 }
 
 function Bubble({
-    message, who, mine, grouped, onImageLoad,
+    message, who, mine, grouped, showTime, onImageLoad,
 }: {
     message: Message;
     who?: Profile;
     mine: boolean;
     grouped: boolean;
+    /** 덩어리의 마지막 줄에만 시각을 적는다. */
+    showTime: boolean;
     /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 뜨면 다시 바닥에 붙이라고 알린다. */
     onImageLoad: () => void;
 }) {
@@ -420,7 +435,9 @@ function Bubble({
                                    alt="보낸 사진" loading="lazy" onLoad={onImageLoad} />
                           </a>
                         : <div className="chat-bubble">{message.body}</div>}
-                    <span className="chat-time">{formatTime(message.created_at)}</span>
+                    {showTime && (
+                        <span className="chat-time">{formatTime(message.created_at)}</span>
+                    )}
                 </div>
                 {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다. */}
                 {message.image_url && message.body && (
