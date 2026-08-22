@@ -141,6 +141,8 @@ export function Chat() {
         const s = kbRef.current;
         const open = s.typing || hidden > 120;
         document.body.classList.toggle('kb-open', open);
+        // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
+        document.documentElement.classList.toggle('kb-open', open);
 
         if (!force && Math.abs(hidden - s.hidden) < 8) return;
         s.hidden = hidden;
@@ -184,6 +186,7 @@ export function Chat() {
             document.documentElement.style.removeProperty('--kb');
             document.documentElement.style.removeProperty('--vvh');
             document.body.classList.remove('kb-open');
+            document.documentElement.classList.remove('kb-open');
         };
     }, [applyKeyboard, syncKeyboard]);
 
@@ -244,6 +247,21 @@ export function Chat() {
         });
     };
 
+    /**
+     * 입력칸을 비운다.
+     *
+     * **입력칸은 일부러 `value`로 묶지 않았다**(아래 textarea 주석 참고).
+     * 그래서 비울 때 칸의 값도 손으로 지워야 한다.
+     */
+    const clearDraft = () => {
+        if (taRef.current) taRef.current.value = '';
+        setDraft('');
+    };
+
+    /** 지금 칸에 적힌 글. 칸이 값의 주인이므로 보낼 때는 칸에서 직접 읽는다 —
+     *  한글 마지막 글자가 조합 중이면 `draft`에는 아직 안 와 있을 수 있다. */
+    const currentDraft = () => (taRef.current?.value ?? draft).trim();
+
     /** 글 한 줄(또는 사진 한 장)을 보낸다. 보내기와 사진 올리기가 같이 쓴다. */
     const push = async (body: string, imageUrl: string | null) => {
         if (!roomId) return false;
@@ -256,7 +274,7 @@ export function Chat() {
             .select('*').single();
         if (err) { toast(readableError(err), 'error'); return false; }
 
-        setDraft('');
+        clearDraft();
         atBottom.current = true;
         // 실시간 이벤트가 오기 전에 먼저 그린다. 내 글이 늦게 뜨면 답답하다.
         if (row) setMessages(prev =>
@@ -276,7 +294,7 @@ export function Chat() {
      * `focus()`를 부르면 iOS가 사용자 손짓으로 안 쳐서 키보드가 안 올라온다.
      */
     const send = async () => {
-        const body = draft.trim();
+        const body = currentDraft();
         if (!body || !roomId) return;
         taRef.current?.focus();
         setSending(true);
@@ -312,7 +330,7 @@ export function Chat() {
             if (upErr) throw upErr;
 
             const { data: pub } = supabase.storage.from('chat-photos').getPublicUrl(path);
-            await push(draft.trim(), pub.publicUrl);
+            await push(currentDraft(), pub.publicUrl);
         } catch (err) {
             toast(readableError(err), 'error');
         } finally {
@@ -402,9 +420,14 @@ export function Chat() {
                               <path d="M12 5.5v13M5.5 12h13" />
                           </svg>}
                 </button>
+                {/* **`value`로 묶지 않는다.** React가 값을 되돌려 쓰면 한글
+                    조합 중인 글자를 iOS가 놓쳐, 첫 글자를 칠 때 칸이 한 순간
+                    비면서 `메시지` 안내 글씨가 번쩍였다. 값은 칸이 스스로
+                    들고 있고, 우리는 보내기 단추를 띄우려고 따로 적어 둘 뿐이다
+                    (비울 때는 `clearDraft()`가 칸까지 지운다). */}
                 <textarea
                     ref={taRef}
-                    className="textarea grow" value={draft}
+                    className="textarea grow"
                     onChange={e => setDraft(e.target.value)}
                     onKeyDown={onKeyDown}
                     onFocus={onComposerFocus}
