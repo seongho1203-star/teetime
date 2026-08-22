@@ -445,6 +445,7 @@ alter table messages      enable row level security;
 
 -- profiles ---------------------------------------------------
 drop policy if exists profiles_read      on profiles;
+drop policy if exists profiles_self_add  on profiles;
 drop policy if exists profiles_self_upd  on profiles;
 drop policy if exists profiles_admin     on profiles;
 drop policy if exists profiles_owner     on profiles;
@@ -453,6 +454,14 @@ drop policy if exists profiles_staff_upd on profiles;
 -- 본인 행은 언제나 읽을 수 있다(승인 대기 화면용). 회원이면 전체 명단도 본다.
 create policy profiles_read on profiles for select
     using (id = auth.uid() or is_member());
+
+-- **본인 행은 스스로 만들 수 있다 — 단 대기 상태로만.**
+-- 로그인 트리거는 auth.users가 새로 생길 때만 돈다. 그래서 운영진이
+-- 명단에서 지운 사람이 다시 로그인하면, 계정은 남아 있는데 프로필이 없어
+-- 아무 화면에도 못 들어가는 상태가 됐다. 그때 앱이 이 정책으로 행을 다시
+-- 만들어 **가입 신청부터 다시** 하게 한다. role은 pending으로 못박는다.
+create policy profiles_self_add on profiles for insert
+    with check (id = auth.uid() and role = 'pending');
 
 -- 본인은 이름·핸디캡·전화만 고친다. role을 스스로 올리지 못하게
 -- with check에서 role이 그대로인지 본다.

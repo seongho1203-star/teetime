@@ -63,7 +63,7 @@ export function Members() {
     const reject = async (p: Profile) => {
         const ok = await confirm({
             title: `${p.name || '이 분'}의 가입을 거절할까요?`,
-            detail: '명단에서 사라집니다. 다시 로그인하면 또 신청할 수 있습니다.',
+            detail: '명단에서 사라집니다. 그 사람이 다시 로그인하면 가입 신청부터 다시 하게 됩니다.',
             confirmLabel: '거절',
             danger: true,
         });

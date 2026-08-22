@@ -104,6 +104,11 @@ docs/설치.md   Supabase·카카오를 처음 붙이는 절차
   그래서 `is_member()` · `is_admin()` · `my_role()`을 `security definer`로 두고
   정책은 그 함수만 부른다. 이 고리를 끊는 장치이므로 없애지 말 것.
 - 본인 행은 `pending`이어도 읽을 수 있어야 한다 — 그래야 `승인 대기중` 화면이 뜬다.
+- **행이 없으면 앱이 다시 만든다**(`createPending` in auth.tsx + `profiles_self_add`).
+  로그인 트리거는 `auth.users`가 처음 생길 때만 돈다. 운영진이 명단에서
+  지운 사람은 카카오 계정이 남아 있어 트리거가 안 돌고, 프로필도 없어
+  **어느 화면에도 못 들어가는 상태**가 됐다. 정책은 `role='pending'`만
+  허용하므로 이 길로 등급을 올릴 수는 없다.
 - 스스로 `role`을 올리지 못하게 `profiles_self_upd`의 `with check`가
   `role = my_role()`을 본다.
 - **첫 총무는 손으로 만들어야 한다** (`docs/설치.md` 5번). 이게 없으면 아무도 승인 못 한다.

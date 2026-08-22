@@ -33,6 +33,32 @@ const AuthContext = createContext<AuthValue>({
     refresh: async () => {},
 });
 
+/**
+ * 대기 상태의 프로필을 만든다.
+ *
+ * 이름은 카카오가 준 것을 그대로 쓴다 — 운영진이 명단에서 누군지
+ * 알아보려면 이름이 있어야 한다. 만들지 못하면 null을 돌려주고,
+ * 화면은 지금까지처럼 '승인 대기중'에 머문다.
+ */
+async function createPending(session: Session): Promise<Profile | null> {
+    const meta = (session.user.user_metadata ?? {}) as Record<string, unknown>;
+    const name = [meta.name, meta.full_name, meta.preferred_username]
+        .find(v => typeof v === 'string' && v) as string | undefined;
+
+    const { data, error } = await supabase.from('profiles').insert({
+        id: session.user.id,
+        name: name ?? '',
+        avatar_url: (meta.avatar_url as string) ?? null,
+        role: 'pending',
+    }).select('*').maybeSingle();
+
+    if (error) {
+        console.error('[teetime] 프로필 생성 실패', error.message);
+        return null;
+    }
+    return data ?? null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
@@ -76,11 +102,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 .from('profiles').select('*').eq('id', uid).maybeSingle();
             if (!alive) return;
             if (error) console.error('[teetime] 프로필 조회 실패', error.message);
-            setProfile(data ?? null);
+
+            // **행이 없으면 다시 만든다.** 로그인 트리거는 카카오 계정이
+            // 처음 생길 때만 돈다. 운영진이 명단에서 지운 사람은 계정이
+            // 남아 있어 트리거가 안 돌고, 프로필도 없어 어느 화면에도 못
+            // 들어가는 상태가 됐다. 여기서 대기 상태로 되살려 가입 신청부터
+            // 다시 하게 한다 (운영진에게 신청 알림도 그때 간다).
+            const row = data ?? await createPending(session!);
+            setProfile(row);
             setProfileReady(true);
         })();
 
         return () => { alive = false; };
+        // session 통째로가 아니라 **사람이 바뀔 때만** 다시 읽는다. 토큰이
+        // 조용히 갱신될 때마다 다시 읽으면 화면이 로딩으로 깜빡인다.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session?.user?.id, sessionReady]);
 
     // 승인은 관리자가 다른 기기에서 한다. 내 profiles 행이 바뀌면 바로 반영해
