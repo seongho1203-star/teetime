@@ -164,7 +164,10 @@ export function Chat() {
         const root = document.documentElement.style;
         if (open) {
             root.setProperty('--vvh', `${vh}px`);
-            root.setProperty('--kb', `${Math.max(0, window.innerHeight - vh)}px`);
+            // **키보드 높이는 `documentElement.clientHeight`에서 뺀다.**
+            // 이것이 문서가 놓인 자리(707)이고 키보드가 떠도 안 줄어든다 —
+            // `window.innerHeight`는 iOS 홈 화면 앱에서 함께 줄어든다.
+            root.setProperty('--kb', `${Math.max(0, document.documentElement.clientHeight - vh)}px`);
             // 대화 화면이 보이는 높이에 딱 맞으면 페이지는 굴러갈 데가 없다.
             // 그 전에 iOS가 밀어 둔 것만 한 번 되돌려 놓는다.
             if (window.scrollY) window.scrollTo(0, 0);
@@ -226,14 +229,27 @@ export function Chat() {
     }, [applyKeyboard]);
 
     /**
-     * 재기만 하고 화면은 건드리지 않는다.
+     * 밀려 올라간 화면을 **손을 뗀 뒤에** 제자리로 돌린다.
      *
-     * 한때 `vv.offsetTop`만큼 `.chat`을 `translateY`로 따라 내려 iOS가 미는
-     * 것을 상쇄해 봤는데 **더 나빠졌다** — 아래로 끌 때까지 떨렸고 스크롤
-     * 막대가 위아래로 움직였다. iOS는 손짓이 도는 동안 화면을 제 방식으로
-     * 합성해서, 그때 얹은 `transform`은 한 박자 늦게 발린다. 되돌렸다.
+     * 대화 화면을 보이는 높이에 맞추고 나니 떨림은 멎었는데, 이번에는
+     * iOS가 밀어 올린 화면이 그대로 남아 대화가 위로 사라졌다. 밀리는
+     * 도중에 되돌리면 손가락과 서로 밀쳐 그게 다시 떨림이 되므로
+     * (한때 `transform`으로 따라가 보았다가 더 나빠져 되돌렸다),
+     * **움직임이 멎고 120ms 뒤에** 한 번만 되돌린다.
      */
-    const watchViewport = useCallback(() => { noteDiag(); }, [noteDiag]);
+    const settleTimer = useRef(0);
+
+    const watchViewport = useCallback(() => {
+        noteDiag();
+        if (!document.body.classList.contains('kb-open')) return;
+        clearTimeout(settleTimer.current);
+        settleTimer.current = window.setTimeout(() => {
+            if (!document.body.classList.contains('kb-open')) return;
+            if (window.scrollY) window.scrollTo(0, 0);
+            const doc = document.scrollingElement;
+            if (doc && doc.scrollTop) doc.scrollTop = 0;
+        }, 120);
+    }, [noteDiag]);
 
     useEffect(() => {
         const vv = window.visualViewport;
@@ -243,7 +259,12 @@ export function Chat() {
         vv?.addEventListener('scroll', syncKeyboard);
         vv?.addEventListener('resize', watchViewport);
         vv?.addEventListener('scroll', watchViewport);
+        // 문서가 굴러간 것은 창의 scroll로도 온다. iOS는 둘 중 어느 쪽으로
+        // 밀지 정해져 있지 않아 양쪽을 다 듣는다.
+        window.addEventListener('scroll', watchViewport, { passive: true });
         return () => {
+            window.removeEventListener('scroll', watchViewport);
+            clearTimeout(settleTimer.current);
             vv?.removeEventListener('resize', syncKeyboard);
             vv?.removeEventListener('scroll', syncKeyboard);
             vv?.removeEventListener('resize', watchViewport);
