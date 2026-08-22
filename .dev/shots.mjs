@@ -120,6 +120,16 @@ for (const [name, path, opts = {}] of shots) {
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
     await page.route('**/realtime/v1/**', route => route.abort());
 
+    /* 날씨(Open-Meteo)도 흉내 낸다. 진짜로 부르면 화면마다 요청이 나가고,
+       망이 막힌 곳에서는 날씨칸이 통째로 빠져 확인이 안 된다. */
+    await page.route('**api.open-meteo.com/**', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ daily: {
+            weather_code: [1], temperature_2m_max: [31.4], temperature_2m_min: [21.8],
+            precipitation_probability_max: [10],
+        } }),
+    }));
+
     if (!opts.anon) {
         await page.addInitScript(s => {
             localStorage.setItem('sb-demo-auth-token', JSON.stringify(s));

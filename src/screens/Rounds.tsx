@@ -96,13 +96,16 @@ export function RoundCard({
                         ? <span className="badge danger">취소됨</span>
                         : past
                             ? <span className="badge dim">종료</span>
-                            : <span className={`badge ${daysUntil(r.tee_at) <= 3 ? 'warn' : 'brand'}`}>
+                            // 초록은 '지금 눌러야 할 것'에만 쓴다(이 화면에서는
+                            // `모집 열기` 단추). D-day는 알려 주는 값이라
+                            // 임박한 것만 노랑으로 세우고 나머지는 조용히 둔다.
+                            : <span className={`badge ${daysUntil(r.tee_at) <= 3 ? 'warn' : 'dim'}`}>
                                 {ddayLabel(r.tee_at)}
                               </span>}
                     {r.status === 'closed' && !past && <span className="badge dim">모집 마감</span>}
                 </div>
                 {my && (
-                    <span className={`badge ${my.state === 'confirmed' ? 'brand' : 'wait'}`}>
+                    <span className={`badge ${my.state === 'confirmed' ? 'dim' : 'wait'}`}>
                         {my.state === 'confirmed' ? '참가 확정' : '대기중'}
                     </span>
                 )}

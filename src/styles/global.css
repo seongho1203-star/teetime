@@ -62,7 +62,8 @@ body::before {
              calc(var(--tabbar-h) + var(--safe-b) + var(--gap-lg));
     display: flex;
     flex-direction: column;
-    gap: var(--gap);
+    /* 카드 사이 16px은 성겼다. 10px로 조이면 같은 화면에 한 덩이가 더 들어온다. */
+    gap: var(--gap-sm);
 }
 
 /* 탭바가 없는 화면(로그인 등) */
@@ -94,7 +95,8 @@ body::before {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    padding: var(--gap);
+    /* 안 여백도 16px에서 13px로. 글이 답답해지지 않는 선까지만 조였다. */
+    padding: 13px var(--gap);
     display: flex;
     flex-direction: column;
     gap: var(--gap-sm);

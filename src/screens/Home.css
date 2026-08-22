@@ -1,24 +1,131 @@
-.home-row,
-.home-alert {
+/* ── 홈 ──────────────────────────────────────────────────────
+ *
+ * **위계가 이 화면의 전부다.** 주인공(다음 라운드) 하나가 크고 색이
+ * 있고, 나머지는 작고 조용한 줄이다. 예전에는 모두가 같은 카드라
+ * 눈이 먼저 갈 곳이 없어 목록처럼 읽혔다.
+ */
+
+/* 묶음 하나 = 작은 제목 + 줄 몇 개. 줄 사이는 6px로 바짝 붙인다. */
+.home-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+}
+.home-block .section-title { margin-bottom: 2px; }
+
+.home-row {
+    display: flex;
     flex-direction: row;
     align-items: center;
     gap: var(--gap-sm);
-    padding: 13px var(--gap);
+    padding: 11px 13px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    text-align: left;
     text-decoration: none;
     color: inherit;
 }
+.home-row:active { background: var(--surface-2); }
 
-.home-alert { border-color: rgba(251, 191, 36, 0.4); }
+/* ── 다음 라운드 — 화면의 주인공 ─────────────────────────────
+ *
+ * **짙은 페어웨이 녹색을 이 카드에만** 깐다. 강조색(--brand)을 여기저기
+ * 늘리지 않고 주인공을 세우는 방법이다 — 초록은 아래 단추 하나에만 남는다.
+ */
+.next {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    padding: 15px;
+    border-radius: var(--r-lg);
+    background: linear-gradient(158deg, #143d2b 0%, #0f2a1e 58%, #0d1f18 100%);
+    border: 1px solid rgba(53, 208, 127, 0.22);
+    color: var(--text);
+    text-decoration: none;
+}
+.next:active { transform: scale(0.99); }
 
-/* 설치 안내. 초록 테두리로 한 번 눈에 걸리게 하되, 닫을 것도 없는
-   한 줄이라 크게 만들지 않는다. */
-.home-install {
-    flex-direction: row;
+.next-top { display: flex; align-items: center; justify-content: space-between; }
+.next-label {
+    font-size: var(--fs-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: rgba(140, 214, 178, 0.9);
+}
+.next-dday {
+    font-size: var(--fs-md);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--brand);
+}
+
+.next-when {
+    font-size: var(--fs-lg);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+.next-where {
+    font-size: var(--fs);
+    color: #b8d8c7;
+    margin-top: 1px;
+}
+
+/* 날씨는 좌표가 있고 예보가 잡힐 때만 붙는다. 없으면 이 줄이 통째로 없다. */
+.next-weather {
+    display: flex;
     align-items: center;
-    gap: var(--gap-sm);
-    padding: 13px var(--gap);
-    text-align: left;
-    border-color: var(--brand-deep);
+    gap: 6px;
+    width: fit-content;
+    padding: 5px 10px;
+    border-radius: var(--r-sm);
+    background: rgba(255, 255, 255, 0.06);
+    font-size: var(--fs-sm);
+    color: #cfe6da;
+}
+.next-weather b { color: #eaf6ef; font-weight: 700; }
+
+.next-who { display: flex; align-items: center; gap: var(--gap-sm); }
+/* 얼굴은 겹쳐 놓는다. 여덟 명이 한 줄에 들어가야 한다. */
+.next-faces { display: flex; }
+.next-faces .avatar {
+    margin-left: -8px;
+    border: 2px solid #12301f;
+    /* 테두리가 안쪽을 먹는다(border-box). 두 글자가 잘리지 않게 줄인다. */
+    font-size: 9.5px;
+}
+.next-faces .avatar:first-child { margin-left: 0; }
+.next-count { font-size: var(--fs-sm); color: #b8d8c7; }
+
+/* 내 상태가 곧 단추 자리다. 신청했는지 보려고 들어갈 일이 없어진다. */
+.next-go,
+.next-state {
+    display: block;
+    text-align: center;
+    padding: 10px;
+    border-radius: var(--r-sm);
+    font-weight: 800;
+    font-size: var(--fs);
+}
+.next-go { background: var(--brand); color: #04140b; }
+.next-state {
+    background: rgba(255, 255, 255, 0.08);
+    color: #cfe6da;
+}
+.next-state.wait { color: var(--wait); }
+
+/* 예정된 라운드가 없을 때. 빈칸 대신 초대장을 놓는다 —
+   누구나 모집을 열 수 있는 앱이라 그 자리가 곧 안내가 된다. */
+.next-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--gap-xs);
+    padding: var(--gap-lg) var(--gap);
+    border-radius: var(--r-lg);
+    border: 1px dashed var(--line);
+    color: inherit;
+    text-decoration: none;
 }
 
 /* ── 내 정보 ─────────────────────────────────────────────── */
