@@ -77,8 +77,11 @@ await page.goto('http://localhost:5199/#/chat', { waitUntil: 'networkidle' });
 await page.waitForTimeout(800);
 
 // 키보드가 336px 가린 상태를 흉내 낸다 (아이폰 한글 키보드 높이쯤).
+// `--vvh`(실제로 보이는 높이)도 함께 넣어야 한다 — 진짜 키보드가 올라오면
+// Chat.tsx가 둘 다 채우고, 화면 높이는 그중 --vvh를 본다.
 await page.evaluate(() => {
     document.documentElement.style.setProperty('--kb', '336px');
+    document.documentElement.style.setProperty('--vvh', `${window.innerHeight - 336}px`);
     document.body.classList.add('kb-open');
 });
 await page.waitForTimeout(300);

@@ -121,51 +121,81 @@ export function Chat() {
      * 알려 주기도 한다. 누르는 순간 탭바부터 감춰 두면 그 사이에도
      * 대화가 가려지지 않는다. 높이는 알려 줄 때 채워 넣는다.
      */
-    const kbRef = useRef({ typing: false, hidden: 0 });
+    const kbRef = useRef({ typing: false, hidden: 0, frame: 0 });
 
-    const syncKeyboard = useCallback(() => {
+    /**
+     * 지금 가려진 높이를 재서 화면에 반영한다.
+     *
+     * **`offsetTop`은 보지 않는다.** 예전엔 `innerHeight - height - offsetTop`
+     * 으로 쟀는데, 입력칸을 누른 채 위아래로 끌면 iOS가 화면을 고무줄처럼
+     * 당기면서 `offsetTop`이 매 프레임 바뀐다. 그 값이 높이에 들어가 있으면
+     * **입력칸이 손가락을 따라 부들부들 떨린다.** 키보드가 가린 높이는
+     * `vv.height` 하나로 정해지고, 이 값은 끄는 동안 움직이지 않는다.
+     *
+     * 그래도 남는 몇 px의 흔들림은 **8px 문턱**으로 걸러 낸다. 열고 닫힐
+     * 때만 값이 바뀌므로 끄는 동안에는 아무것도 다시 그리지 않는다.
+     */
+    const applyKeyboard = useCallback((force = false) => {
         const vv = window.visualViewport;
-        const hidden = vv
-            ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-            : 0;
+        const hidden = vv ? Math.max(0, Math.round(window.innerHeight - vv.height)) : 0;
         const s = kbRef.current;
+        const open = s.typing || hidden > 120;
+        document.body.classList.toggle('kb-open', open);
+
+        if (!force && Math.abs(hidden - s.hidden) < 8) return;
         s.hidden = hidden;
 
-        const open = s.typing || hidden > 120;
-        document.documentElement.style.setProperty('--kb', `${hidden > 120 ? hidden : 0}px`);
-        document.body.classList.toggle('kb-open', open);
+        const root = document.documentElement.style;
+        root.setProperty('--kb', `${hidden > 120 ? hidden : 0}px`);
+        // 키보드가 올라온 동안에는 `dvh` 대신 **실제로 보이는 높이**를 쓴다.
+        // 사파리 탭에서는 끌 때 주소 막대가 접히며 `dvh`까지 움직인다.
+        // **키보드가 없을 때는 아예 지운다** — 남겨 두면 옛 높이가 굳는다.
+        if (vv && hidden > 120) root.setProperty('--vvh', `${Math.round(vv.height)}px`);
+        else root.removeProperty('--vvh');
 
         if (open) {
             // iOS가 페이지를 밀어 올린 것을 되돌린다. 이걸 안 하면
-            // 고정된 것들이 화면 밖으로 나간다.
-            window.scrollTo(0, 0);
+            // 고정된 것들이 화면 밖으로 나간다. **높이가 실제로 바뀐
+            // 때만** 손대야 한다 — 매 이벤트마다 되돌리면 끄는 손가락과
+            // 서로 밀치느라 그 자체가 떨림이 된다.
+            if (window.scrollY) window.scrollTo(0, 0);
             const el = listRef.current;
             if (el && atBottom.current) el.scrollTop = el.scrollHeight;
         }
     }, []);
 
+    /** 한 프레임에 한 번만 재도록 모은다. 끄는 동안 이벤트가 쏟아진다. */
+    const syncKeyboard = useCallback(() => {
+        const s = kbRef.current;
+        if (s.frame) return;
+        s.frame = requestAnimationFrame(() => { s.frame = 0; applyKeyboard(); });
+    }, [applyKeyboard]);
+
     useEffect(() => {
         const vv = window.visualViewport;
-        syncKeyboard();
+        const state = kbRef.current;
+        applyKeyboard(true);
         vv?.addEventListener('resize', syncKeyboard);
         vv?.addEventListener('scroll', syncKeyboard);
         return () => {
             vv?.removeEventListener('resize', syncKeyboard);
             vv?.removeEventListener('scroll', syncKeyboard);
+            cancelAnimationFrame(state.frame);
             document.documentElement.style.removeProperty('--kb');
+            document.documentElement.style.removeProperty('--vvh');
             document.body.classList.remove('kb-open');
         };
-    }, [syncKeyboard]);
+    }, [applyKeyboard, syncKeyboard]);
 
     const blurTimer = useRef(0);
 
     const onComposerFocus = () => {
         clearTimeout(blurTimer.current);
         kbRef.current.typing = true;
-        syncKeyboard();
+        applyKeyboard(true);
         // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다.
-        setTimeout(syncKeyboard, 120);
-        setTimeout(syncKeyboard, 400);
+        setTimeout(() => applyKeyboard(true), 120);
+        setTimeout(() => applyKeyboard(true), 400);
     };
 
     /**
@@ -179,7 +209,7 @@ export function Chat() {
         clearTimeout(blurTimer.current);
         blurTimer.current = window.setTimeout(() => {
             kbRef.current.typing = false;
-            syncKeyboard();
+            applyKeyboard(true);
         }, 150);
     };
 

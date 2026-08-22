@@ -5,6 +5,9 @@
     flex-direction: column;
     /* 키보드가 가린 높이(--kb)만큼 줄인다. 없을 때는 0이라 100dvh 그대로다. */
     height: calc(100dvh - var(--kb, 0px));
+    /* 끌 때 화면이 고무줄처럼 딸려 오지 않게. 이게 없으면 입력칸 위에서
+       위아래로 미는 손짓이 페이지 전체를 당긴다. */
+    overscroll-behavior: none;
     width: 100%;
     max-width: var(--page-w);
     margin: 0 auto;
@@ -203,6 +206,16 @@
    키보드 위에 탭바까지 겹치면 대화가 설 자리가 없다. 감춘 만큼 입력칸의
    아래 여백도 뺀다 — 그 여백은 탭바를 피하려고 둔 것이기 때문이다. */
 body.kb-open .tabbar { display: none; }
+
+/* 키보드가 올라와 있을 때는 **실제로 보이는 높이**(--vvh)를 그대로 쓴다.
+   `100dvh - --kb`로 셈하면 사파리 탭에서 끄는 동안 주소 막대가 접히며
+   `dvh`까지 함께 움직여 화면이 떤다. --vvh는 키보드가 열리고 닫힐 때만
+   바뀌므로 끄는 내내 붙박이다. (헤드리스 도구는 --vvh를 안 넣으므로
+   예전 셈이 예비로 남아 있다.) */
+body.kb-open .chat { height: var(--vvh, calc(100dvh - var(--kb, 0px))); }
+
+/* 글을 쓰는 동안에는 페이지가 아예 안 움직이게 잡아 둔다. */
+body.kb-open { overflow: hidden; overscroll-behavior: none; }
 /* 키보드가 올라와 있으면 홈 인디케이터가 없다. 그 자리(--safe-b)를 계속
    비워 두면 입력칸과 키보드 사이에 빈 띠가 남는다 — 카톡은 딱 붙는다. */
 body.kb-open .chat-input { padding-bottom: var(--gap-sm); }
