@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, fetchProfiles } from '../lib/db';
 import { useAuth } from '../lib/auth';
@@ -28,6 +29,10 @@ export function Members() {
 
     const { data, loading, error, reload } = useAsync<Profile[]>(fetchProfiles, []);
     useRealtime('profiles', reload);
+
+    // 관리 버튼은 **누른 사람 것만** 펼친다. 줄마다 세 개씩 늘어놓으면
+    // 이름 칸이 밀려 잘리고, 아랫줄로 내리면 명단이 두 배로 길어진다.
+    const [openId, setOpenId] = useState<string | null>(null);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -132,47 +137,58 @@ export function Members() {
             <div className="section-title">회원 {members.length}명</div>
             <div className="card" style={{ padding: 0, gap: 0 }}>
                 {members.length === 0 && <div className="empty">아직 회원이 없습니다.</div>}
-                {members.map(p => (
-                    <div className="member-row" key={p.id}>
-                        <Avatar name={p.name} url={p.avatar_url} />
-                        <div className="grow" style={{ minWidth: 0 }}>
-                            <div className="row" style={{ gap: 6 }}>
-                                <span className="b truncate">{p.name || '이름 없음'}</span>
-                                {(p.role === 'admin' || p.role === 'staff') && (
-                                    <span className={`role-tag ${p.role === 'admin' ? 'role-admin' : 'role-staff'}`}>
-                                        {ROLE_LABEL[p.role]}
-                                    </span>
-                                )}
-                                {p.id === me && <span className="xs faint">(나)</span>}
-                            </div>
-                            <div className="xs faint">
-                                {p.handicap != null ? `핸디캡 ${p.handicap}` : '핸디캡 미등록'}
-                                {isAdmin && p.phone ? ` · ${p.phone}` : ''}
-                            </div>
-                        </div>
-                        {/* 버튼이 셋이라 좁은 화면에서는 아랫줄로 내려간다.
-                            이름과 핸디캡이 접히는 것보다 그편이 낫다. */}
-                        {isAdmin && p.id !== me && p.role !== 'admin' && (
-                            <span className="member-actions">
-                                {/* 부운영자 임명은 운영자만. 운영자 행은 아무도 못 건드린다. */}
-                                {isOwner && (
-                                    <button
-                                        className="btn ghost sm"
-                                        onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}
-                                    >
-                                        {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                {members.map(p => {
+                    const manageable = isAdmin && p.id !== me && p.role !== 'admin';
+                    const open = openId === p.id;
+                    return (
+                        <div key={p.id}>
+                            <div className="member-row">
+                                <Avatar name={p.name} url={p.avatar_url} />
+                                <div className="grow" style={{ minWidth: 0 }}>
+                                    <div className="row" style={{ gap: 6 }}>
+                                        <span className="b truncate">{p.name || '이름 없음'}</span>
+                                        {(p.role === 'admin' || p.role === 'staff') && (
+                                            <span className={`role-tag ${p.role === 'admin' ? 'role-admin' : 'role-staff'}`}>
+                                                {ROLE_LABEL[p.role]}
+                                            </span>
+                                        )}
+                                        {p.id === me && <span className="xs faint">(나)</span>}
+                                    </div>
+                                    <div className="xs faint">
+                                        {p.handicap != null ? `핸디캡 ${p.handicap}` : '핸디캡 미등록'}
+                                        {isAdmin && p.phone ? ` · ${p.phone}` : ''}
+                                    </div>
+                                </div>
+                                {manageable && (
+                                    <button className="btn ghost sm"
+                                            aria-expanded={open}
+                                            onClick={() => setOpenId(open ? null : p.id)}>
+                                        {open ? '닫기' : '관리'}
                                     </button>
                                 )}
-                                <button className="btn ghost sm" onClick={() => demote(p)}>
-                                    내보내기
-                                </button>
-                                <button className="btn danger sm" onClick={() => ban(p)}>
-                                    추방
-                                </button>
-                            </span>
-                        )}
-                    </div>
-                ))}
+                            </div>
+                            {manageable && open && (
+                                <div className="member-actions">
+                                    {/* 부운영자 임명은 운영자만. 운영자 행은 아무도 못 건드린다. */}
+                                    {isOwner && (
+                                        <button
+                                            className="btn ghost sm"
+                                            onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}
+                                        >
+                                            {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                                        </button>
+                                    )}
+                                    <button className="btn ghost sm" onClick={() => demote(p)}>
+                                        내보내기
+                                    </button>
+                                    <button className="btn danger sm" onClick={() => ban(p)}>
+                                        추방
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
             </div>
 
             {isAdmin && banned.length > 0 && (

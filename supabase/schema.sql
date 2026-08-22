@@ -32,11 +32,20 @@ create table if not exists profiles (
     --               로그인할 때 앱이 대기 상태로 되살려 버린다.
     role        text        not null default 'pending'
                             check (role in ('pending', 'member', 'staff', 'admin', 'banned')),
+    -- 대화를 언제부터 볼 수 있는가. 승인된 순간이 들어간다.
+    -- 카톡처럼 **들어오기 전 이야기는 안 보인다.**
+    joined_at   timestamptz,
     handicap    numeric(4,1),
     phone       text,
     memo        text        not null default '',   -- 관리자 메모
     created_at  timestamptz not null default now()
 );
+
+alter table profiles add column if not exists joined_at timestamptz;
+
+-- 이미 있던 회원은 처음 들어온 때부터 본다.
+update profiles set joined_at = created_at
+ where joined_at is null and role in ('member', 'staff', 'admin');
 
 -- 카카오 로그인 직후 프로필을 자동으로 만든다.
 -- security definer라 RLS를 통과한다 — 이때는 아직 profiles 행이 없어
@@ -104,6 +113,37 @@ $$;
 
 -- 내 등급. profiles의 정책 안에서 profiles를 다시 조회하면 무한 재귀가
 -- 나므로, 이 함수를 거쳐 읽는다.
+-- **승인되는 순간에 도장을 찍는다.** 화면이 넣어 주기를 기다리면 빠뜨리는
+-- 길이 생긴다(운영진이 SQL로 직접 올리는 경우 등).
+create or replace function stamp_joined_at()
+returns trigger language plpgsql as $$
+begin
+    if new.role in ('member', 'staff', 'admin')
+       and (old.role is null or old.role not in ('member', 'staff', 'admin'))
+       and new.joined_at is null
+    then
+        new.joined_at := now();
+    end if;
+    return new;
+end $$;
+
+drop trigger if exists profiles_stamp_joined on profiles;
+create trigger profiles_stamp_joined before update on profiles
+    for each row execute function stamp_joined_at();
+
+/**
+ * 내가 대화를 볼 수 있는 시작점.
+ *
+ * 도장이 없으면(옛 행 등) 아주 옛날을 돌려줘 전부 보이게 한다 — 못 보는
+ * 쪽으로 틀리면 대화가 통째로 사라진 것처럼 보이기 때문이다.
+ */
+create or replace function chat_since() returns timestamptz
+language sql security definer stable set search_path = public as $$
+    select coalesce(
+        (select joined_at from profiles where id = auth.uid()),
+        '-infinity'::timestamptz);
+$$;
+
 create or replace function my_role() returns text
 language sql security definer stable set search_path = public as $$
     select role from profiles where id = auth.uid();
@@ -570,7 +610,10 @@ drop policy if exists messages_own on messages;
 drop policy if exists messages_admin on messages;
 create policy rooms_read     on rooms    for select using (is_member());
 create policy rooms_write    on rooms    for all    using (is_admin()) with check (is_admin());
-create policy messages_read  on messages for select using (is_member());
+-- **들어오기 전 대화는 아예 읽히지 않는다.** 화면에서 거르면 통신에는
+-- 다 실려 오므로, 여기서 막는 것이 맞다.
+create policy messages_read  on messages for select
+    using (is_member() and created_at >= chat_since());
 create policy messages_add   on messages for insert with check (is_member() and user_id = auth.uid());
 create policy messages_own   on messages for delete using (user_id = auth.uid());
 create policy messages_admin on messages for all    using (is_admin()) with check (is_admin());

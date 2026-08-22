@@ -32,6 +32,8 @@ export type Profile = {
     name: string;
     avatar_url: string | null;
     role: Role;
+    /** 대화를 언제부터 볼 수 있는가. 승인된 순간이 찍힌다. */
+    joined_at: string | null;
     handicap: number | null;
     phone: string | null;
     memo: string;

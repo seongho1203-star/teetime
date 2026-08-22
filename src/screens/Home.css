@@ -61,18 +61,15 @@
     align-items: center;
     gap: var(--gap-sm);
     padding: 11px var(--gap);
-    flex-wrap: wrap;
 }
 
-/* 운영진 버튼은 셋까지 붙는다. 같은 줄에 두면 이름 칸이 먼저 줄어들어
-   `김…`처럼 잘린다 — 이름이 안 보이면 누구를 추방하는지 모른다.
-   그래서 **늘 아랫줄**에 오른쪽 정렬로 둔다. */
+/* 관리 버튼을 누른 줄에만 펼쳐지는 칸.
+   세 개를 늘 보이게 두면 이름이 밀려 잘리거나 명단이 두 배로 길어진다. */
 .member-actions {
-    flex: 0 0 100%;
     display: flex;
     justify-content: flex-end;
     gap: var(--gap-xs);
-    margin-top: 2px;
+    padding: 0 var(--gap) 11px;
 }
 .member-row + .member-row { border-top: 1px solid var(--line); }
 
