@@ -10,7 +10,7 @@ import './Polls.css';
 
 /** 투표 만들기. 총무만. */
 export function PollEdit() {
-    const { isAdmin, session } = useAuth();
+    const { session } = useAuth();
     const nav = useNavigate();
     const toast = useToast();
 
@@ -21,15 +21,6 @@ export function PollEdit() {
     const [anonymous, setAnonymous] = useState(false);
     const [closesAt, setClosesAt] = useState('');
     const [saving, setSaving] = useState(false);
-
-    if (!isAdmin) {
-        return (
-            <div className="page">
-                <TopBar title="투표" fallback="/polls" />
-                <div className="notice danger">총무만 만들 수 있습니다.</div>
-            </div>
-        );
-    }
 
     const setOption = (i: number, v: string) =>
         setOptions(prev => prev.map((o, j) => (j === i ? v : o)));

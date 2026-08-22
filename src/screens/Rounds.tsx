@@ -12,7 +12,7 @@ interface Loaded {
 }
 
 export function Rounds() {
-    const { isAdmin, session } = useAuth();
+    const { session } = useAuth();
     const me = session!.user.id;
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
@@ -46,15 +46,13 @@ export function Rounds() {
         <div className="page">
             <div className="page-head">
                 <h1 className="page-title">라운드</h1>
-                {isAdmin && (
-                    <Link to="/rounds/new" className="btn primary sm">+ 모집 열기</Link>
-                )}
+                <Link to="/rounds/new" className="btn primary sm">+ 모집 열기</Link>
             </div>
 
             {upcoming.length === 0 && (
                 <div className="empty">
                     예정된 라운드가 없습니다.
-                    {isAdmin && <><br />위의 <b>모집 열기</b>로 새 라운드를 올려 보세요.</>}
+                    <br />위의 <b>모집 열기</b>로 새 라운드를 올려 보세요.
                 </div>
             )}
 

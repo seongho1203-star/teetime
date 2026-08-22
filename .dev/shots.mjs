@@ -95,12 +95,25 @@ for (const [name, path, opts = {}] of shots) {
     });
 
     await page.route('**/rest/v1/**', async route => {
-        const url = new URL(route.request().url());
-        const body = handleRest(url, route.request());
+        const req = route.request();
+        const url = new URL(req.url());
+        const body = handleRest(url, req);
+
+        // 개수만 세는 조회(head:true, count:'exact')는 몸통이 아니라
+        // **content-range 헤더**로 답한다. 여기서 진짜 수를 넣어 주지 않으면
+        // 탭바의 안 읽음 숫자가 헤드리스에서만 0으로 보인다.
+        const n = Array.isArray(body) ? body.length : body ? 1 : 0;
+        const head = req.method() === 'HEAD';
         await route.fulfill({
             status: 200, contentType: 'application/json',
-            headers: { 'content-range': '0-0/*' },
-            body: JSON.stringify(body),
+            headers: {
+                'content-range': n ? `0-${n - 1}/${n}` : `*/0`,
+                // 다른 출처의 응답이라 이걸 안 붙이면 브라우저가 위 헤더를
+                // 자바스크립트에 안 보여 준다 — 개수가 늘 0으로 읽힌다.
+                // 진짜 Supabase는 이 헤더를 붙여서 보낸다.
+                'access-control-expose-headers': 'content-range',
+            },
+            body: head ? '' : JSON.stringify(body),
         });
     });
     await page.route('**/auth/v1/**', route =>

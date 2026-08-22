@@ -142,7 +142,7 @@ export function RoundDetail() {
             <TopBar
                 title="라운드"
                 fallback="/rounds"
-                right={isAdmin && (
+                right={(isAdmin || r.created_by === me) && (
                     <Link to={`/rounds/${r.id}/edit`} className="btn ghost sm">수정</Link>
                 )}
             />
@@ -263,10 +263,10 @@ export function RoundDetail() {
                 </div>
             )}
 
-            {/* ── 총무 ── */}
-            {isAdmin && (
+            {/* ── 모집을 연 사람과 총무만 ── */}
+            {(isAdmin || r.created_by === me) && (
                 <div className="card">
-                    <div className="section-title">총무</div>
+                    <div className="section-title">{isAdmin ? '총무' : '내가 연 모집'}</div>
                     <div className="row wrap" style={{ gap: 'var(--gap-sm)' }}>
                         {r.status === 'open' && (
                             <button className="btn ghost sm" onClick={() => setStatus('closed')}>

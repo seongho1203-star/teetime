@@ -1,15 +1,18 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import type { Post, Profile } from '../lib/types';
+import { markSeen } from '../lib/unread';
 import './Board.css';
 
 interface Loaded { posts: Post[]; people: Profile[]; }
 
 export function Board() {
-    const { isAdmin } = useAuth();
+    const { isAdmin, session } = useAuth();
+    const me = session!.user.id;
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         const [posts, people] = await Promise.all([
@@ -22,6 +25,9 @@ export function Board() {
     }, []);
 
     useRealtime('posts', reload);
+
+    // 목록을 열었으면 공지는 다 본 것으로 친다.
+    useEffect(() => { markSeen('board', me); }, [data, me]);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;

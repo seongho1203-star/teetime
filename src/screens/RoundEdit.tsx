@@ -22,16 +22,18 @@ export function RoundEdit() {
         return unwrap(await supabase.from('rounds').select('*').eq('id', id).maybeSingle());
     }, [id]);
 
-    if (!isAdmin) {
+    if (editing && loading) {
+        return <div className="page center-fill"><div className="spinner" /></div>;
+    }
+
+    // 모집은 회원 누구나 연다. 다만 남이 올린 것을 고치지는 못한다.
+    if (editing && data && data.created_by !== session!.user.id && !isAdmin) {
         return (
             <div className="page">
                 <TopBar title="라운드" fallback="/rounds" />
-                <div className="notice danger">총무만 열 수 있습니다.</div>
+                <div className="notice danger">올린 사람만 고칠 수 있습니다.</div>
             </div>
         );
-    }
-    if (editing && loading) {
-        return <div className="page center-fill"><div className="spinner" /></div>;
     }
 
     return (

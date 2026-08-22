@@ -8,6 +8,7 @@ import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
+import { markSeen } from '../lib/unread';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -95,6 +96,10 @@ export function Chat() {
 
     // 그리기가 끝난 프레임에 해야 높이가 확정된다.
     useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
+
+    // 이 화면을 보고 있으면 안 읽음이 쌓이지 않는다. 새 글이 들어올 때마다
+    // 다시 남겨 두어야 탭바의 빨간 숫자가 곧바로 사라진다.
+    useEffect(() => { markSeen('chat', me); }, [messages, me]);
 
     /**
      * 키보드가 올라온 만큼 화면을 줄인다.

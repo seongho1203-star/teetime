@@ -58,6 +58,11 @@
     box-shadow: 0 0 0 2px var(--surface);
 }
 
+/* 진행중 건수(초록)와 **안 본 것**(빨강)을 색으로 가른다.
+   초록은 '이만큼 열려 있다'는 알림 없는 정보고, 빨강은 '네가 봐야 한다'는
+   뜻이다 — 같은 색이면 대화가 와도 눈에 안 들어온다. */
+.tab-count.alert { background: var(--danger); color: #2a0806; }
+
 .tab.active { color: var(--brand); }
 .tab:active { color: var(--text-dim); }
 .tab.active:active { color: var(--brand); }

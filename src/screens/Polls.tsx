@@ -17,7 +17,6 @@ interface Loaded {
 }
 
 export function Polls() {
-    const { isAdmin } = useAuth();
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         const [polls, options, votes, people] = await Promise.all([
@@ -51,13 +50,13 @@ export function Polls() {
         <div className="page">
             <div className="page-head">
                 <h1 className="page-title">투표</h1>
-                {isAdmin && <Link to="/polls/new" className="btn primary sm">+ 투표 만들기</Link>}
+                <Link to="/polls/new" className="btn primary sm">+ 투표 만들기</Link>
             </div>
 
             {polls.length === 0 && (
                 <div className="empty">
                     아직 투표가 없습니다.
-                    {isAdmin && <><br />날짜 정하기, 골프장 고르기 같은 걸 올려 보세요.</>}
+                    <br />날짜 정하기, 골프장 고르기 같은 걸 올려 보세요.
                 </div>
             )}
 
@@ -187,7 +186,8 @@ function PollCard({
                         <> · {formatDateTime(poll.closes_at)} 마감</>
                     )}
                 </span>
-                {isAdmin && (
+                {/* 마감·지우기는 만든 사람과 총무만. 남의 투표는 못 건드린다. */}
+                {(isAdmin || poll.created_by === me) && (
                     <span className="row" style={{ gap: 'var(--gap-xs)' }}>
                         {!closed && (
                             <button className="btn ghost sm" onClick={close}>마감</button>

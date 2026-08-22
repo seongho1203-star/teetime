@@ -412,8 +412,9 @@ where not exists (select 1 from rooms where round_id is null);
 --
 -- 기본 원칙:
 --   · 읽기는 승인된 회원(is_member)만.
---   · 만들고 고치는 것은 관리자(is_admin)만. 단 신청·투표·글은 본인 것.
---   · 지우기는 관리자, 또는 본인이 쓴 것.
+--   · **라운드와 투표는 회원 누구나 만든다.** 남이 만든 것은 못 고친다.
+--   · 공지는 총무만 쓴다 — 모임의 결정을 알리는 자리라 그렇다.
+--   · 지우기는 관리자, 또는 본인이 만든 것.
 --
 -- profiles만 예외다 — 방금 로그인한 pending 사용자도 자기 행은 읽어야
 -- "승인 대기중" 화면을 띄울 수 있다.
@@ -448,10 +449,21 @@ create policy profiles_admin on profiles for all
     using (is_admin()) with check (is_admin());
 
 -- rounds -----------------------------------------------------
-drop policy if exists rounds_read on rounds;
+-- **라운드는 누구나 연다.** 이 앱을 만든 까닭이 그것이다 — 총무 한 사람이
+-- 다 짜는 게 아니라 서로 올리고 서로 모으는 것. 대신 남이 올린 것은 못
+-- 고치고 못 지운다 (총무는 예외).
+drop policy if exists rounds_read  on rounds;
 drop policy if exists rounds_write on rounds;
+drop policy if exists rounds_add   on rounds;
+drop policy if exists rounds_upd   on rounds;
+drop policy if exists rounds_del   on rounds;
+drop policy if exists rounds_admin on rounds;
 create policy rounds_read  on rounds for select using (is_member());
-create policy rounds_write on rounds for all    using (is_admin()) with check (is_admin());
+create policy rounds_add   on rounds for insert with check (is_member() and created_by = auth.uid());
+create policy rounds_upd   on rounds for update
+    using (created_by = auth.uid()) with check (created_by = auth.uid());
+create policy rounds_del   on rounds for delete using (created_by = auth.uid());
+create policy rounds_admin on rounds for all    using (is_admin()) with check (is_admin());
 
 -- signups ----------------------------------------------------
 -- 신청/취소는 RPC(join_round·leave_round)로만 한다. 여기서는 읽기만 연다.
@@ -464,14 +476,31 @@ create policy signups_admin on signups for all    using (is_admin()) with check 
 -- polls ------------------------------------------------------
 drop policy if exists polls_read on polls;
 drop policy if exists polls_write on polls;
+drop policy if exists polls_add on polls;
+drop policy if exists polls_upd on polls;
+drop policy if exists polls_del on polls;
+drop policy if exists polls_admin on polls;
 drop policy if exists poll_options_read on poll_options;
 drop policy if exists poll_options_write on poll_options;
+drop policy if exists poll_options_own on poll_options;
+drop policy if exists poll_options_admin on poll_options;
 drop policy if exists poll_votes_read on poll_votes;
 drop policy if exists poll_votes_admin on poll_votes;
+-- 투표도 라운드와 같다 — 누구나 만들고, 만든 사람과 총무가 고친다.
 create policy polls_read         on polls        for select using (is_member());
-create policy polls_write        on polls        for all    using (is_admin()) with check (is_admin());
+create policy polls_add          on polls        for insert with check (is_member() and created_by = auth.uid());
+create policy polls_upd          on polls        for update
+    using (created_by = auth.uid()) with check (created_by = auth.uid());
+create policy polls_del          on polls        for delete using (created_by = auth.uid());
+create policy polls_admin        on polls        for all    using (is_admin()) with check (is_admin());
+
+-- 항목은 그 투표를 만든 사람 것이다. polls를 들여다봐서 주인을 가린다
+-- (polls_read가 회원 전체에게 열려 있어 이 조회는 통한다).
 create policy poll_options_read  on poll_options for select using (is_member());
-create policy poll_options_write on poll_options for all    using (is_admin()) with check (is_admin());
+create policy poll_options_own   on poll_options for all
+    using (exists (select 1 from polls p where p.id = poll_id and p.created_by = auth.uid()))
+    with check (exists (select 1 from polls p where p.id = poll_id and p.created_by = auth.uid()));
+create policy poll_options_admin on poll_options for all    using (is_admin()) with check (is_admin());
 -- 표는 RPC로만 넣는다(cast_vote). 읽기는 회원 전체.
 create policy poll_votes_read    on poll_votes   for select using (is_member());
 create policy poll_votes_admin   on poll_votes   for all    using (is_admin()) with check (is_admin());
