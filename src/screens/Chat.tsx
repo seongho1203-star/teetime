@@ -27,8 +27,10 @@ export function Chat() {
     const [hasMore, setHasMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [focused, setFocused] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
 
+    const chatRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const taRef = useRef<HTMLTextAreaElement>(null);
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
@@ -173,28 +175,56 @@ export function Chat() {
         s.frame = requestAnimationFrame(() => { s.frame = 0; applyKeyboard(); });
     }, [applyKeyboard]);
 
+    /**
+     * **iOS가 화면을 밀면 우리도 같이 움직인다.**
+     *
+     * 키보드가 올라와 있으면 보이는 화면(538px쯤)이 문서가 놓인 자리(874px)
+     * 보다 작아서, iOS는 그 안에서 화면을 위아래로 밀 수 있게 해 준다.
+     * 입력칸을 잡고 위로 끌면 그 밀기가 일어나고, 손을 떼면 되돌아온다 —
+     * 그게 떨림이다. **막을 수가 없다.** `touch-action`도 `overflow: hidden`도
+     * `touchmove`를 삼키는 것도 다 해 봤지만 iOS가 제 방식대로 민다.
+     *
+     * 그래서 막는 대신 **밀린 만큼 우리가 따라 내려간다.** 화면 기준으로는
+     * 제자리에 서 있게 되어 눈에는 아무 일도 안 일어난 것처럼 보인다.
+     * `transform`이라 다시 그리는 비용이 없고, 이벤트마다 곧바로 발라야
+     * 하므로 여기서는 `requestAnimationFrame`으로 미루지 않는다.
+     */
+    const followViewport = useCallback(() => {
+        const vv = window.visualViewport;
+        const el = chatRef.current;
+        if (!vv || !el) return;
+        const y = document.body.classList.contains('kb-open') ? Math.round(vv.offsetTop) : 0;
+        const next = y ? `translateY(${y}px)` : '';
+        if (el.style.transform !== next) el.style.transform = next;
+    }, []);
+
     useEffect(() => {
         const vv = window.visualViewport;
         const state = kbRef.current;
         applyKeyboard(true);
         vv?.addEventListener('resize', syncKeyboard);
         vv?.addEventListener('scroll', syncKeyboard);
+        vv?.addEventListener('resize', followViewport);
+        vv?.addEventListener('scroll', followViewport);
         return () => {
             vv?.removeEventListener('resize', syncKeyboard);
             vv?.removeEventListener('scroll', syncKeyboard);
+            vv?.removeEventListener('resize', followViewport);
+            vv?.removeEventListener('scroll', followViewport);
             cancelAnimationFrame(state.frame);
             document.documentElement.style.removeProperty('--kb');
             document.documentElement.style.removeProperty('--vvh');
             document.body.classList.remove('kb-open');
             document.documentElement.classList.remove('kb-open');
         };
-    }, [applyKeyboard, syncKeyboard]);
+    }, [applyKeyboard, syncKeyboard, followViewport]);
 
     const blurTimer = useRef(0);
 
     const onComposerFocus = () => {
         clearTimeout(blurTimer.current);
         kbRef.current.typing = true;
+        setFocused(true);
         applyKeyboard(true);
         // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다.
         setTimeout(() => applyKeyboard(true), 120);
@@ -212,7 +242,9 @@ export function Chat() {
         clearTimeout(blurTimer.current);
         blurTimer.current = window.setTimeout(() => {
             kbRef.current.typing = false;
+            setFocused(false);
             applyKeyboard(true);
+            followViewport();
         }, 150);
     };
 
@@ -384,7 +416,7 @@ export function Chat() {
     }
 
     return (
-        <div className="chat">
+        <div className="chat" ref={chatRef}>
             {/* 카톡처럼 제목 한 줄만 가운데 세운다. 설명 줄을 두었더니
                 머리말이 두 겹이 되어 대화가 그만큼 내려앉았다. */}
             <div className="chat-head">
@@ -445,20 +477,28 @@ export function Chat() {
                           </svg>}
                 </button>
                 {/* **`value`로 묶지 않는다.** React가 값을 되돌려 쓰면 한글
-                    조합 중인 글자를 iOS가 놓쳐, 첫 글자를 칠 때 칸이 한 순간
-                    비면서 `메시지` 안내 글씨가 번쩍였다. 값은 칸이 스스로
-                    들고 있고, 우리는 보내기 단추를 띄우려고 따로 적어 둘 뿐이다
-                    (비울 때는 `clearDraft()`가 칸까지 지운다). */}
-                <textarea
-                    ref={taRef}
-                    className="textarea grow"
-                    onChange={e => setDraft(e.target.value)}
-                    onKeyDown={onKeyDown}
-                    onFocus={onComposerFocus}
-                    onBlur={onComposerBlur}
-                    placeholder="메시지" rows={1} maxLength={1000}
-                    aria-label="메시지 입력"
-                />
+                    조합 중인 글자를 iOS가 놓친다. 값은 칸이 스스로 들고 있고,
+                    우리는 보내기 단추를 띄우려고 따로 적어 둘 뿐이다
+                    (비울 때는 `clearDraft()`가 칸까지 지운다).
+
+                    **안내 글씨도 브라우저의 `placeholder`를 쓰지 않는다.**
+                    한글은 한 글자가 여러 번에 걸쳐 조합되는데, iOS는 그
+                    조합 중인 글자를 '내용 없음'으로 봐서 첫 글자를 칠 때
+                    `메시지`가 한 번 번쩍였다. 우리가 직접 그리고 **초점이
+                    가는 순간 치운다** — 그러면 번쩍일 틈 자체가 없다. */}
+                <div className="chat-field grow">
+                    <textarea
+                        ref={taRef}
+                        className="textarea"
+                        onChange={e => setDraft(e.target.value)}
+                        onKeyDown={onKeyDown}
+                        onFocus={onComposerFocus}
+                        onBlur={onComposerBlur}
+                        rows={1} maxLength={1000}
+                        aria-label="메시지 입력"
+                    />
+                    {!focused && !draft && <span className="chat-hint">메시지</span>}
+                </div>
                 {/* 보내기 버튼은 **적은 게 있을 때만** 나온다 — 카톡이 그렇다.
                     늘 놓아 두면 눌리지도 않는 버튼이 자리만 차지한다.
                     onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
