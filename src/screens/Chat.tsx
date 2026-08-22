@@ -189,12 +189,11 @@ export function Chat() {
      * **떨림을 잡으면 이 블록과 `.chat-diag`를 지울 것.**
      */
     const diagRef = useRef<HTMLDivElement>(null);
-    const diag = useRef({ oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], cH: [0, 0], n: 0, mv: 0, tm: '-', first: true });
+    const blank = () => ({ oT: [0, 0], fw: [0, 0], n: 0, ts: 0, tm: 0, first: true });
+    const diag = useRef(blank());
 
     /** 손을 대는 순간부터 다시 잰다 — 그래야 **끄는 동안**만 남는다. */
-    const resetDiag = useCallback(() => {
-        diag.current = { oT: [0, 0], vH: [0, 0], sY: [0, 0], iH: [0, 0], cH: [0, 0], n: 0, mv: 0, tm: '-', first: true };
-    }, []);
+    const resetDiag = useCallback(() => { diag.current = blank(); }, []);
 
     const noteDiag = useCallback(() => {
         const vv = window.visualViewport;
@@ -204,23 +203,22 @@ export function Chat() {
             if (d.first) { a[0] = v; a[1] = v; return; }
             a[0] = Math.min(a[0], v); a[1] = Math.max(a[1], v);
         };
+        // iOS가 민 양과, 우리가 상쇄하려고 실제로 발라 놓은 양. 이 둘이
+        // 같은데도 화면이 움직인다면, 손짓이 도는 동안 iOS가 우리 그림을
+        // 반영하지 않는다는 뜻이고 — 그건 웹앱이 손쓸 수 없는 자리다.
         put(d.oT, Math.round(vv.offsetTop));
-        put(d.vH, Math.round(vv.height));
-        put(d.sY, Math.round(window.scrollY));
-        put(d.iH, window.innerHeight);
-        // 문서가 놓인 자리. 이게 안 줄어들면 그 차이만큼 iOS가 화면을 밀 수 있다.
-        put(d.cH, document.documentElement.clientHeight);
+        const t = chatRef.current?.style.transform ?? '';
+        put(d.fw, Number(/translateY\((-?\d+)px\)/.exec(t)?.[1] ?? 0));
         d.first = false;
         d.n++;
         const el = diagRef.current;
         if (el) {
             const span = (a: number[]) => (a[0] === a[1] ? `${a[0]}` : `${a[0]}~${a[1]}`);
-            const vvh = document.documentElement.style.getPropertyValue('--vvh') || '없음';
             const chat = Math.round(chatRef.current?.getBoundingClientRect().height ?? 0);
             el.textContent =
-                `밀림 ${span(d.oT)} · 높이 ${span(d.vH)} · 스크롤 ${span(d.sY)}`
-                + ` · 창 ${span(d.iH)} · 문서 ${span(d.cH)}`
-                + ` · 맞춤 ${vvh} · 대화 ${chat} · 신호 ${d.n}`;
+                `밀림 ${span(d.oT)} · 따라 ${span(d.fw)} · 대화 ${chat}`
+                + ` · 목록손짓 ${d.ts}/${d.tm} · 초점 ${kbRef.current.typing ? 'O' : 'X'}`
+                + ` · 신호 ${d.n}`;
         }
     }, []);
 
@@ -343,42 +341,20 @@ export function Chat() {
 
     useEffect(() => () => clearTimeout(blurTimer.current), []);
 
-    /**
-     * 키보드가 올라와 있는 동안 **입력칸 위에서 미는 손짓을 삼킨다.**
-     *
-     * 그때는 보이는 화면이 문서보다 336px쯤 작아서, 여기를 잡고 위로 끌면
-     * iOS가 키보드 뒤쪽을 보여 주려고 화면을 통째로 밀었다가 도로 놓는다 —
-     * 그게 떨림이다. 아래로 끄는 쪽은 이미 맨 위라 밀 자리가 없어 멀쩡했다.
-     *
-     * CSS의 `touch-action: none`을 먼저 걸어 뒀지만 iOS가 그걸 늘 지키지는
-     * 않는다. `passive: false`로 붙여 `preventDefault()`하는 쪽이 확실하다.
-     * React의 onTouchMove는 passive로 붙어 preventDefault가 안 먹으므로
-     * 여기서 직접 단다.
-     */
-    const barRef = useRef<HTMLDivElement>(null);
-
+    /** 진단 전용. 손짓이 우리에게 오는지 보려고 남겨 둔 자리다. */
     useEffect(() => {
-        const bar = barRef.current;
         const chat = chatRef.current;
-        if (!bar || !chat) return;
+        if (!chat) return;
 
-        const swallow = (e: TouchEvent) => {
-            if (!document.body.classList.contains('kb-open')) return;
-            // 이 손짓을 우리가 막을 수 있는 것인지가 핵심 단서다. iOS는
-            // 글자 칸 위의 손짓을 제 것으로 가져가 버리기도 한다.
-            diag.current.tm = e.cancelable ? '됨' : '안됨';
-            if (e.cancelable) e.preventDefault();
-            noteDiag();
-        };
-        // 진단: 손을 대면 다시 재고, 움직임이 우리에게 오기는 하는지 센다.
+        // 진단: 손을 대면 다시 잰다. 예전에는 여기서 `touchmove`를 삼켜
+        // 보려고도 했는데, 입력칸 위의 손짓은 iOS가 가져가 버려 이 핸들러가
+        // 한 번도 안 불렸다(폰에서 `이동 0`으로 확인). 그래서 뺐다.
         const start = () => { resetDiag(); noteDiag(); };
-        const moved = () => { diag.current.mv++; noteDiag(); };
+        const moved = () => { noteDiag(); };
 
-        bar.addEventListener('touchmove', swallow, { passive: false });
         chat.addEventListener('touchstart', start, { passive: true, capture: true });
         chat.addEventListener('touchmove', moved, { passive: true, capture: true });
         return () => {
-            bar.removeEventListener('touchmove', swallow);
             chat.removeEventListener('touchstart', start, true);
             chat.removeEventListener('touchmove', moved, true);
         };
@@ -399,8 +375,12 @@ export function Chat() {
         const start = (e: TouchEvent) => {
             y0 = e.touches[0].clientY;
             x0 = e.touches[0].clientX;
+            diag.current.ts++;
+            noteDiag();
         };
         const move = (e: TouchEvent) => {
+            diag.current.tm++;
+            noteDiag();
             if (!kbRef.current.typing) return;
             const dy = e.touches[0].clientY - y0;
             const dx = Math.abs(e.touches[0].clientX - x0);
@@ -413,7 +393,7 @@ export function Chat() {
             el.removeEventListener('touchstart', start);
             el.removeEventListener('touchmove', move);
         };
-    }, []);
+    }, [noteDiag]);
 
     const onScroll = () => {
         const el = listRef.current;
@@ -606,7 +586,7 @@ export function Chat() {
                 })}
             </div>
 
-            <div className="chat-input" ref={barRef}>
+            <div className="chat-input">
                 <input
                     ref={fileRef} type="file" accept="image/*"
                     onChange={onPickPhoto} hidden
