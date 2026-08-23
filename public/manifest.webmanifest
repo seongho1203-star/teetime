@@ -1,7 +1,7 @@
 {
-  "name": "Teetime",
-  "short_name": "Teetime",
-  "description": "골프 모임 라운드 모집 · 투표 · 공지",
+  "name": "까꿍",
+  "short_name": "까꿍",
+  "description": "까꿍 골프 모임 — 라운드 모집 · 투표 · 공지",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",

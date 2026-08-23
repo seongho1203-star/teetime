@@ -62,6 +62,8 @@ function Form({
     const [capacity, setCapacity] = useState(String(round?.capacity ?? 4));
     const [fee, setFee] = useState(String(round?.fee ?? 0));
     const [note, setNote] = useState(round?.note ?? '');
+    const [caddie, setCaddie] = useState<Round['caddie']>(round?.caddie ?? null);
+    const [cart, setCart] = useState<Round['cart']>(round?.cart ?? null);
     const [opensAt, setOpensAt] = useState(toKstInput(round?.opens_at));
     const [saving, setSaving] = useState(false);
     const [picking, setPicking] = useState(false);
@@ -86,6 +88,8 @@ function Form({
             capacity: cap,
             fee: parseInt(fee, 10) || 0,
             note: note.trim(),
+            caddie,
+            cart,
             opens_at: fromKstInput(opensAt),
             // **좌표는 이름에서 찾아 함께 넣는다.** 사람에게 위도·경도를
             // 치라고 할 수는 없다. 목록에 없는 곳이면 비워 두고, 그때는
@@ -137,6 +141,26 @@ function Form({
                                 ? '목록에 없는 곳입니다 — 날씨는 표시되지 않습니다'
                                 : '치면 목록에서 찾아 줍니다'}
                     </span>
+                </div>
+
+                {/* **한 줄에 하나만 켜진다.** 캐디와 노캐디를 함께 켤 수는
+                    없으니, 같은 줄에서 하나를 누르면 다른 하나가 꺼진다.
+                    누른 것을 다시 누르면 '안 정함'으로 돌아간다 —
+                    예전 라운드처럼 비워 둘 수도 있어야 한다. */}
+                <div className="field">
+                    <label>라운드 조건 <span className="faint">(선택)</span></label>
+                    <div className="opt-row">
+                        <Opt on={caddie === 'caddie'} onClick={() =>
+                            setCaddie(caddie === 'caddie' ? null : 'caddie')}>캐디</Opt>
+                        <Opt on={caddie === 'none'} onClick={() =>
+                            setCaddie(caddie === 'none' ? null : 'none')}>노캐디</Opt>
+                    </div>
+                    <div className="opt-row">
+                        <Opt on={cart === 'included'} onClick={() =>
+                            setCart(cart === 'included' ? null : 'included')}>카포</Opt>
+                        <Opt on={cart === 'excluded'} onClick={() =>
+                            setCart(cart === 'excluded' ? null : 'excluded')}>카포 미포함</Opt>
+                    </div>
                 </div>
 
                 <div className="field">
@@ -194,5 +218,20 @@ function Form({
                 {saving ? '저장 중…' : round ? '수정 저장' : '모집 열기'}
             </button>
         </div>
+    );
+}
+
+/** 체크칸 하나. 켜지면 초록 체크가 들어온다. */
+function Opt({ on, onClick, children }: {
+    on: boolean;
+    onClick: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <button type="button" className={`opt${on ? ' on' : ''}`}
+                onClick={onClick} aria-pressed={on}>
+            <span className="opt-box" aria-hidden="true">{on ? '✓' : ''}</span>
+            {children}
+        </button>
     );
 }

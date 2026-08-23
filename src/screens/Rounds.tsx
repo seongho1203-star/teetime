@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, ddayLabel, daysUntil, formatWon } from '../lib/format';
-import type { Round, Signup } from '../lib/types';
+import { CADDIE_LABEL, CART_LABEL, type Round, type Signup } from '../lib/types';
 import './Rounds.css';
 
 interface Loaded {
@@ -112,7 +112,11 @@ export function RoundCard({
             </div>
 
             <div className="round-course truncate">{r.course || r.title || '골프장 미정'}</div>
-            <div className="sm dim">{formatDateTime(r.tee_at)}</div>
+            <div className="sm dim">
+                {formatDateTime(r.tee_at)}
+                {r.caddie && ` · ${CADDIE_LABEL[r.caddie]}`}
+                {r.cart && ` · ${CART_LABEL[r.cart]}`}
+            </div>
 
             <div className="row between round-foot">
                 <div className="capacity">

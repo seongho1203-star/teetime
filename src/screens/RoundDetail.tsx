@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
-import type { Round, Signup, Profile } from '../lib/types';
+import { CADDIE_LABEL, CART_LABEL, type Round, type Signup, type Profile } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -180,6 +180,15 @@ export function RoundDetail() {
                     <dt>참가비</dt>
                     <dd>{r.fee > 0 ? formatWon(r.fee) : '미정'}</dd>
                 </div>
+                {(r.caddie || r.cart) && (
+                    <div className="info-cell">
+                        <dt>조건</dt>
+                        <dd>
+                            {[r.caddie && CADDIE_LABEL[r.caddie], r.cart && CART_LABEL[r.cart]]
+                                .filter(Boolean).join(' · ')}
+                        </dd>
+                    </div>
+                )}
             </dl>
 
             {notYet && (

@@ -81,7 +81,7 @@ export function Me() {
             case 'off':  return { text: '알림 켜기', hint: '새 대화 · 모집 · 공지를 폰으로 받습니다', can: true };
             case 'denied': return {
                 text: '알림이 막혀 있습니다',
-                hint: '폰 설정 → 알림에서 Teetime을 켜 주세요', can: false };
+                hint: '폰 설정 → 알림에서 까꿍을 켜 주세요', can: false };
             case 'standalone-required': return {
                 text: '알림을 받으려면 홈 화면에 추가하세요',
                 hint: '공유 → 홈 화면에 추가 → 그 아이콘으로 열면 켤 수 있습니다', can: false };
@@ -177,7 +177,7 @@ export function Me() {
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
             <p className="xs faint" style={{ textAlign: 'center' }}>
-                Teetime · {session?.user?.email ?? '카카오 계정'}
+                까꿍 · {session?.user?.email ?? '카카오 계정'}
                 <br />
                 {/* 지금 떠 있는 판. 고친 게 안 먹을 때 여기부터 본다. */}
                 <span className="xs faint">화면 판 {__BUILD__}</span>

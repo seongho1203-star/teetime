@@ -322,3 +322,49 @@ body::before {
 }
 .course-hit + .course-hit { border-top: 1px solid var(--line); }
 .course-hit:active { background: var(--surface-3); }
+
+/* ── 체크칸 ──────────────────────────────────────────────────
+   라운드 조건(캐디·카트비)처럼 켜고 끄는 것. 한 줄 안에서는 하나만
+   켜진다 — 캐디와 노캐디를 함께 켤 수는 없기 때문이다. */
+
+.opt-row { display: flex; gap: var(--gap-sm); }
+
+.opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-size: var(--fs);
+    font-weight: 700;
+    white-space: nowrap;
+}
+.opt:active { transform: scale(0.985); }
+
+.opt-box {
+    width: 18px; height: 18px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border: 1.5px solid var(--line);
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.opt.on {
+    border-color: var(--brand-deep);
+    background: var(--brand-soft);
+    color: var(--text);
+}
+.opt.on .opt-box {
+    border-color: var(--brand);
+    background: var(--brand);
+    color: #04140b;
+}
