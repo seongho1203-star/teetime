@@ -159,7 +159,7 @@ function Form({
                         <Opt on={cart === 'included'} onClick={() =>
                             setCart(cart === 'included' ? null : 'included')}>카포</Opt>
                         <Opt on={cart === 'excluded'} onClick={() =>
-                            setCart(cart === 'excluded' ? null : 'excluded')}>카포 미포함</Opt>
+                            setCart(cart === 'excluded' ? null : 'excluded')}>카트 미포함</Opt>
                     </div>
                 </div>
 

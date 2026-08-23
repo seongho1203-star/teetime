@@ -28,7 +28,7 @@ export type RoundStatus = 'open' | 'closed' | 'done' | 'cancelled';
 
 /** 라운드 조건. 화면 여러 곳이 같은 말을 쓰도록 여기 모아 둔다. */
 export const CADDIE_LABEL = { caddie: '캐디', none: '노캐디' } as const;
-export const CART_LABEL = { included: '카포', excluded: '카포 미포함' } as const;
+export const CART_LABEL = { included: '카포', excluded: '카트 미포함' } as const;
 export type SignupState = 'confirmed' | 'waitlist';
 
 export type Profile = {
