@@ -33,6 +33,21 @@ export function registerServiceWorker() {
     navigator.serviceWorker.register(SW_URL).catch(() => {
         // 등록이 안 돼도 앱은 그대로 돌아간다. 설치 배너만 안 뜬다.
     });
+
+    /* 알림을 눌렀을 때 서비스워커가 "이 화면으로 가라"고 보내는 한 마디.
+       앱이 이미 열려 있으면 서비스워커의 `client.navigate()`로 옮기는 게
+       정석인데 **iOS는 그걸 지원하지 않기도 해서**, 그 경우 창만 앞으로
+       나오고 화면은 그대로였다. 그때를 위한 예비 길이다. */
+    navigator.serviceWorker.addEventListener('message', e => {
+        const msg = e.data as { type?: string; url?: string } | null;
+        if (msg?.type !== 'navigate' || !msg.url) return;
+        try {
+            const to = new URL(msg.url, location.href);
+            if (to.origin !== location.origin) return;
+            // 해시 라우팅이라 해시만 옮기면 화면이 바뀐다.
+            if (to.hash && to.hash !== location.hash) location.hash = to.hash;
+        } catch { /* 이상한 주소면 그냥 둔다 */ }
+    });
 }
 
 /** 홈 화면에 추가해서 연 앱인가. iOS는 이때만 알림을 준다. */

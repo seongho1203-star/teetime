@@ -50,18 +50,34 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
     event.notification.close();
-    const target = (event.notification.data && event.notification.data.url) || './';
+
+    /* **주소를 스코프에 붙여 절대 주소로 만든다.**
+       발송기가 보내는 것은 `#/chat` 같은 상대 주소인데, 이걸 그대로
+       `openWindow`에 넘기면 **서비스워커 파일 기준**으로 풀린다 —
+       `/teetime/sw.js#/chat`, 즉 알림을 눌렀더니 코드가 뜨는 것이다.
+       `registration.scope`가 앱이 놓인 자리(`/teetime/`)이므로 거기에 붙인다. */
+    const scope = self.registration.scope;
+    const target = new URL(
+        (event.notification.data && event.notification.data.url) || './',
+        scope,
+    ).href;
+
     event.waitUntil((async () => {
         const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        // 이미 열려 있는 창이 있으면 그 창을 앞으로 가져온다.
+
         for (const client of list) {
-            if ('focus' in client) {
-                if ('navigate' in client && target) {
-                    try { await client.navigate(target); } catch { /* 다른 출처면 그냥 둔다 */ }
-                }
-                return client.focus();
-            }
+            // 우리 앱 창만 쓴다. 다른 탭을 알림 화면으로 끌고 가면 안 된다.
+            if (!client.url.startsWith(scope)) continue;
+            if (!('focus' in client)) continue;
+
+            // 해시만 바꾸는 이동이라 대개 navigate로 충분한데, iOS는 이걸
+            // 지원하지 않기도 한다. 그때를 위해 앱에도 한 마디 보낸다
+            // (`lib/push.ts`가 받아서 주소를 옮긴다).
+            try { if ('navigate' in client) await client.navigate(target); } catch { /* 무시 */ }
+            try { client.postMessage({ type: 'navigate', url: target }); } catch { /* 무시 */ }
+            return client.focus();
         }
+
         if (self.clients.openWindow) return self.clients.openWindow(target);
     })());
 });
