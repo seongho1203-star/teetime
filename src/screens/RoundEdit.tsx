@@ -157,7 +157,7 @@ function Form({
                     </div>
                     <div className="opt-row">
                         <Opt on={cart === 'included'} onClick={() =>
-                            setCart(cart === 'included' ? null : 'included')}>카포</Opt>
+                            setCart(cart === 'included' ? null : 'included')}>카트 포함</Opt>
                         <Opt on={cart === 'excluded'} onClick={() =>
                             setCart(cart === 'excluded' ? null : 'excluded')}>카트 미포함</Opt>
                     </div>
