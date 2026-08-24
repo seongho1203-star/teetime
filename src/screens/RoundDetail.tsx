@@ -4,7 +4,10 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
-import { CADDIE_LABEL, CART_LABEL, type Round, type Signup, type Profile } from '../lib/types';
+import {
+    CADDIE_LABEL, CART_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
+    type Round, type Signup, type Profile,
+} from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -51,6 +54,7 @@ export function RoundDetail() {
     }
 
     const r = data.round;
+    const kind = roundKind(r);
     const names = byId(data.people);
     const confirmed = data.signups.filter(s => s.state === 'confirmed');
     const waiting = data.signups.filter(s => s.state === 'waitlist');
@@ -149,6 +153,7 @@ export function RoundDetail() {
 
             <div className="round-hero">
                 <div className="row" style={{ gap: 'var(--gap-xs)' }}>
+                    <span className="badge kind">{KIND_ICON[kind]} {KIND_LABEL[kind]}</span>
                     {r.status === 'cancelled'
                         ? <span className="badge danger">취소됨</span>
                         : isPast
@@ -159,7 +164,7 @@ export function RoundDetail() {
                     {r.status === 'closed' && <span className="badge dim">모집 마감</span>}
                     {notYet && <span className="badge wait">신청 대기</span>}
                 </div>
-                <h2>{r.course || r.title || '골프장 미정'}</h2>
+                <h2>{r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}</h2>
                 {r.title && r.course && <div className="sm dim">{r.title}</div>}
             </div>
 
@@ -169,7 +174,7 @@ export function RoundDetail() {
                     <dd>{formatFullDate(r.tee_at)}</dd>
                 </div>
                 <div className="info-cell">
-                    <dt>티오프</dt>
+                    <dt>{TEE_LABEL[kind]}</dt>
                     <dd>{formatTime(r.tee_at)}</dd>
                 </div>
                 <div className="info-cell">
@@ -180,7 +185,7 @@ export function RoundDetail() {
                     <dt>참가비</dt>
                     <dd>{r.fee > 0 ? formatWon(r.fee) : '미정'}</dd>
                 </div>
-                {(r.caddie || r.cart) && (
+                {kind === 'field' && (r.caddie || r.cart) && (
                     <div className="info-cell">
                         <dt>조건</dt>
                         <dd>

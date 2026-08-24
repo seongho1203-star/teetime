@@ -1,3 +1,29 @@
+/* ── 종류 가리개 (전체 · ⛳ 필드 · 🎯 스크린) ──────────────────
+   목록에 둘이 섞여 있을 때만 나온다. 켜진 칸은 분홍으로 세운다 —
+   여기서는 이게 '지금 눌러 고르는 것'이기 때문이다. */
+.kind-filter {
+    display: flex;
+    gap: var(--gap-xs);
+    margin-bottom: var(--gap-sm);
+}
+.kind-chip {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    white-space: nowrap;
+}
+.kind-chip.on {
+    border-color: var(--brand-deep);
+    background: var(--brand-soft);
+    color: var(--brand-deep);
+}
+.kind-chip:active { transform: scale(0.985); }
+
 .round-card { gap: var(--gap-xs); text-decoration: none; color: inherit; }
 .round-card.past { opacity: 0.62; }
 

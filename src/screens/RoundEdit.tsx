@@ -5,7 +5,7 @@ import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { toKstInput, fromKstInput } from '../lib/format';
 import { courseGeo, searchCourses } from '../lib/courses';
-import type { Round } from '../lib/types';
+import { KIND_ICON, PLACE_LABEL, TEE_LABEL, roundKind, type Round, type RoundKind } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -56,6 +56,7 @@ function Form({
     authorId: string;
     toast: (t: string, k?: 'ok' | 'error' | 'info') => void;
 }) {
+    const [kind, setKind] = useState<RoundKind>(round ? roundKind(round) : 'field');
     const [course, setCourse] = useState(round?.course ?? '');
     const [title, setTitle] = useState(round?.title ?? '');
     const [teeAt, setTeeAt] = useState(toKstInput(round?.tee_at));
@@ -68,34 +69,42 @@ function Form({
     const [saving, setSaving] = useState(false);
     const [picking, setPicking] = useState(false);
 
+    const screen = kind === 'screen';
+
     // 딱 맞는 이름을 이미 골랐으면 목록을 접는다 — 고르고 나서도
     // 남아 있으면 다음 칸을 가린다.
-    const hits = courseGeo(course)?.name === course.trim()
+    // **스크린은 찾아 주지 않는다.** `courses.ts`는 필드 골프장 목록이고,
+    // 스크린골프방은 만들 때 일부러 걸러 낸 것들이라 쳐도 안 나온다.
+    const hits = screen || courseGeo(course)?.name === course.trim()
         ? [] : searchCourses(course);
 
     const save = async () => {
         const tee = fromKstInput(teeAt);
-        if (!tee) { toast('티오프 시각을 골라 주세요.', 'error'); return; }
-        if (!course.trim()) { toast('골프장 이름을 적어 주세요.', 'error'); return; }
+        if (!tee) { toast(`${TEE_LABEL[kind]} 시각을 골라 주세요.`, 'error'); return; }
+        if (!course.trim()) { toast(`${PLACE_LABEL[kind]} 이름을 적어 주세요.`, 'error'); return; }
 
         const cap = parseInt(capacity, 10);
         if (!cap || cap < 1) { toast('정원은 1명 이상이어야 합니다.', 'error'); return; }
 
         const payload = {
+            kind,
             course: course.trim(),
             title: title.trim(),
             tee_at: tee,
             capacity: cap,
             fee: parseInt(fee, 10) || 0,
             note: note.trim(),
-            caddie,
-            cart,
+            // 스크린에는 캐디도 카트도 없다. 필드로 열었다가 스크린으로
+            // 바꾼 경우까지 생각해 **저장할 때 지운다** — 화면에서 감추기만
+            // 하면 값이 남아 상세에 조건이 그대로 뜬다.
+            caddie: screen ? null : caddie,
+            cart:   screen ? null : cart,
             opens_at: fromKstInput(opensAt),
             // **좌표는 이름에서 찾아 함께 넣는다.** 사람에게 위도·경도를
             // 치라고 할 수는 없다. 목록에 없는 곳이면 비워 두고, 그때는
-            // 날씨칸만 빠진다.
-            lat: courseGeo(course)?.lat ?? null,
-            lon: courseGeo(course)?.lon ?? null,
+            // 날씨칸만 빠진다. 스크린은 실내라 아예 안 붙인다.
+            lat: screen ? null : courseGeo(course)?.lat ?? null,
+            lon: screen ? null : courseGeo(course)?.lon ?? null,
         };
 
         setSaving(true);
@@ -115,13 +124,29 @@ function Form({
             <TopBar title={round ? '라운드 수정' : '모집 열기'} fallback="/rounds" />
 
             <div className="card">
+                {/* **맨 위에서 종류부터 고른다.** 아래 칸들의 말과 있고 없음이
+                    여기서 갈리기 때문이다 — 골프장/매장, 티오프/시작,
+                    그리고 캐디·카트 줄이 통째로 붙었다 떨어진다.
+                    조건 체크칸과 달리 **비울 수 없다.** 둘 중 하나다. */}
                 <div className="field">
-                    <label htmlFor="f-course">골프장</label>
+                    <label>종류</label>
+                    <div className="opt-row">
+                        <Opt on={!screen} onClick={() => setKind('field')}>
+                            {KIND_ICON.field} 필드
+                        </Opt>
+                        <Opt on={screen} onClick={() => setKind('screen')}>
+                            {KIND_ICON.screen} 스크린
+                        </Opt>
+                    </div>
+                </div>
+
+                <div className="field">
+                    <label htmlFor="f-course">{PLACE_LABEL[kind]}</label>
                     <input id="f-course" className="input" value={course}
                            onChange={e => { setCourse(e.target.value); setPicking(true); }}
                            onFocus={() => setPicking(true)}
-                           placeholder="예) 무등산CC" maxLength={40}
-                           autoComplete="off" />
+                           placeholder={screen ? '예) 골프존파크 상무점' : '예) 무등산CC'}
+                           maxLength={40} autoComplete="off" />
                     {/* 목록에서 고르면 좌표가 함께 붙어 날씨가 뜬다.
                         목록에 없는 곳도 그냥 쳐 넣으면 되고, 그때는 날씨만 빠진다. */}
                     {picking && hits.length > 0 && (
@@ -135,43 +160,49 @@ function Form({
                         </div>
                     )}
                     <span className="xs faint">
-                        {courseGeo(course)
-                            ? '날씨가 함께 표시됩니다'
-                            : course.trim()
-                                ? '목록에 없는 곳입니다 — 날씨는 표시되지 않습니다'
-                                : '치면 목록에서 찾아 줍니다'}
+                        {screen
+                            ? '실내라 날씨는 표시되지 않습니다'
+                            : courseGeo(course)
+                                ? '날씨가 함께 표시됩니다'
+                                : course.trim()
+                                    ? '목록에 없는 곳입니다 — 날씨는 표시되지 않습니다'
+                                    : '치면 목록에서 찾아 줍니다'}
                     </span>
                 </div>
 
                 {/* **한 줄에 하나만 켜진다.** 캐디와 노캐디를 함께 켤 수는
                     없으니, 같은 줄에서 하나를 누르면 다른 하나가 꺼진다.
                     누른 것을 다시 누르면 '안 정함'으로 돌아간다 —
-                    예전 라운드처럼 비워 둘 수도 있어야 한다. */}
-                <div className="field">
-                    <label>라운드 조건 <span className="faint">(선택)</span></label>
-                    <div className="opt-row">
-                        <Opt on={caddie === 'caddie'} onClick={() =>
-                            setCaddie(caddie === 'caddie' ? null : 'caddie')}>캐디</Opt>
-                        <Opt on={caddie === 'none'} onClick={() =>
-                            setCaddie(caddie === 'none' ? null : 'none')}>노캐디</Opt>
+                    예전 라운드처럼 비워 둘 수도 있어야 한다.
+                    스크린에는 캐디도 카트도 없으므로 이 칸이 통째로 빠진다. */}
+                {!screen && (
+                    <div className="field">
+                        <label>라운드 조건 <span className="faint">(선택)</span></label>
+                        <div className="opt-row">
+                            <Opt on={caddie === 'caddie'} onClick={() =>
+                                setCaddie(caddie === 'caddie' ? null : 'caddie')}>캐디</Opt>
+                            <Opt on={caddie === 'none'} onClick={() =>
+                                setCaddie(caddie === 'none' ? null : 'none')}>노캐디</Opt>
+                        </div>
+                        <div className="opt-row">
+                            <Opt on={cart === 'included'} onClick={() =>
+                                setCart(cart === 'included' ? null : 'included')}>카트 포함</Opt>
+                            <Opt on={cart === 'excluded'} onClick={() =>
+                                setCart(cart === 'excluded' ? null : 'excluded')}>카트 미포함</Opt>
+                        </div>
                     </div>
-                    <div className="opt-row">
-                        <Opt on={cart === 'included'} onClick={() =>
-                            setCart(cart === 'included' ? null : 'included')}>카트 포함</Opt>
-                        <Opt on={cart === 'excluded'} onClick={() =>
-                            setCart(cart === 'excluded' ? null : 'excluded')}>카트 미포함</Opt>
-                    </div>
-                </div>
+                )}
 
                 <div className="field">
                     <label htmlFor="f-title">한 줄 설명 <span className="faint">(선택)</span></label>
                     <input id="f-title" className="input" value={title}
                            onChange={e => setTitle(e.target.value)}
-                           placeholder="예) 8월 정기 라운드" maxLength={60} />
+                           placeholder={screen ? '예) 금요일 저녁 스크린' : '예) 8월 정기 라운드'}
+                           maxLength={60} />
                 </div>
 
                 <div className="field">
-                    <label htmlFor="f-tee">티오프 (한국 시각)</label>
+                    <label htmlFor="f-tee">{TEE_LABEL[kind]} (한국 시각)</label>
                     <input id="f-tee" className="input" type="datetime-local"
                            value={teeAt} onChange={e => setTeeAt(e.target.value)} />
                 </div>
@@ -209,7 +240,9 @@ function Form({
                     <label htmlFor="f-note">안내 <span className="faint">(선택)</span></label>
                     <textarea id="f-note" className="textarea" value={note}
                               onChange={e => setNote(e.target.value)}
-                              placeholder={'모이는 곳, 카풀, 준비물 같은 것\n예) 6시 30분 동광주 IC 앞 집합'}
+                              placeholder={screen
+                                  ? '모이는 곳, 게임 방식, 내기 같은 것\n예) 7시까지 매장 앞, 신페리오'
+                                  : '모이는 곳, 카풀, 준비물 같은 것\n예) 6시 30분 동광주 IC 앞 집합'}
                               maxLength={1000} />
                 </div>
             </div>

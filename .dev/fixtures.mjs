@@ -27,16 +27,22 @@ export const profiles = [
 export const rounds = [
     { id: 'r1', title: '8월 정기 라운드', course: '무등산CC', lat: 35.134, lon: 126.988,
       tee_at: iso(3), capacity: 4, fee: 120000, status: 'open', opens_at: null,
-      caddie: 'caddie', cart: 'included',
+      kind: 'field', caddie: 'caddie', cart: 'included',
       note: '6시 30분 동광주 IC 앞 집합입니다.\n카풀 가능하신 분은 대화방에 남겨 주세요.',
       created_by: uid(1), created_at: iso(-10) },
+    // 스크린 한 건 — 목록에 가리개가 뜨는지, 날씨가 빠지는지 함께 본다.
+    { id: 'r4', title: '금요일 저녁 스크린', course: '골프존파크 상무점', lat: null, lon: null,
+      tee_at: iso(6), capacity: 6, fee: 25000, status: 'open', opens_at: null,
+      kind: 'screen', caddie: null, cart: null,
+      note: '7시까지 매장 앞으로 오세요. 신페리오로 돌립니다.',
+      created_by: uid(1), created_at: iso(-3) },
     { id: 'r2', title: '', course: '함평엘리체CC', lat: 35.066, lon: 126.517,
       tee_at: iso(12), capacity: 8, fee: 95000, status: 'open', opens_at: null,
-      caddie: 'none', cart: 'excluded',
+      kind: 'field', caddie: 'none', cart: 'excluded',
       note: '', created_by: uid(1), created_at: iso(-5) },
     { id: 'r3', title: '지난 라운드', course: '해피니스CC', lat: null, lon: null,
       tee_at: iso(-14), capacity: 4, fee: 110000, status: 'done', opens_at: null,
-      caddie: null, cart: null,
+      kind: 'field', caddie: null, cart: null,
       note: '', created_by: uid(1), created_at: iso(-30) },
 ];
 

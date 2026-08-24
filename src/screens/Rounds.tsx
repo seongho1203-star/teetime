@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, ddayLabel, daysUntil, formatWon } from '../lib/format';
-import { CADDIE_LABEL, CART_LABEL, type Round, type Signup } from '../lib/types';
+import {
+    CADDIE_LABEL, CART_LABEL, KIND_ICON, KIND_LABEL, roundKind,
+    type Round, type RoundKind, type Signup,
+} from '../lib/types';
 import './Rounds.css';
 
 interface Loaded {
@@ -14,6 +18,7 @@ interface Loaded {
 export function Rounds() {
     const { session } = useAuth();
     const me = session!.user.id;
+    const [only, setOnly] = useState<RoundKind | null>(null);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         const [rounds, signups] = await Promise.all([
@@ -33,8 +38,15 @@ export function Rounds() {
         return <div className="page"><div className="notice danger">{error}</div></div>;
     }
 
-    const rounds = data?.rounds ?? [];
+    const all = data?.rounds ?? [];
     const signups = data?.signups ?? [];
+
+    /* **가리개는 둘이 섞여 있을 때만 나온다.** 필드만 올리는 달에는
+       누를 일이 없는 단추 셋이 자리만 차지한다 — 이 앱은 해당 없는 칸을
+       통째로 지우는 쪽을 택해 왔다. */
+    const mixed = all.some(r => roundKind(r) === 'screen')
+               && all.some(r => roundKind(r) === 'field');
+    const rounds = only ? all.filter(r => roundKind(r) === only) : all;
 
     // 오늘(한국 날짜) 이후는 '예정', 그 전은 '지난'. 지난 것은 최근 순으로.
     const upcoming = rounds.filter(r => daysUntil(r.tee_at) >= 0 && r.status !== 'cancelled');
@@ -49,10 +61,27 @@ export function Rounds() {
                 <Link to="/rounds/new" className="btn primary sm">+ 모집 열기</Link>
             </div>
 
+            {mixed && (
+                <div className="kind-filter" role="group" aria-label="종류 가리기">
+                    <button type="button" className={`kind-chip${only === null ? ' on' : ''}`}
+                            onClick={() => setOnly(null)} aria-pressed={only === null}>
+                        전체
+                    </button>
+                    {(['field', 'screen'] as const).map(k => (
+                        <button key={k} type="button" className={`kind-chip${only === k ? ' on' : ''}`}
+                                onClick={() => setOnly(only === k ? null : k)} aria-pressed={only === k}>
+                            {KIND_ICON[k]} {KIND_LABEL[k]}
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {upcoming.length === 0 && (
                 <div className="empty">
-                    예정된 라운드가 없습니다.
-                    <br />위의 <b>모집 열기</b>로 새 라운드를 올려 보세요.
+                    {only
+                        ? <>예정된 {KIND_LABEL[only]} 라운드가 없습니다.</>
+                        : <>예정된 라운드가 없습니다.
+                           <br />위의 <b>모집 열기</b>로 새 라운드를 올려 보세요.</>}
                 </div>
             )}
 
@@ -87,11 +116,15 @@ export function RoundCard({
     const waiting = mine.filter(s => s.state === 'waitlist').length;
     const my = mine.find(s => s.user_id === me);
     const full = confirmed >= r.capacity;
+    const kind = roundKind(r);
 
     return (
         <Link to={`/rounds/${r.id}`} className={`card tappable round-card${past ? ' past' : ''}`}>
             <div className="row between">
                 <div className="row" style={{ gap: 'var(--gap-xs)' }}>
+                    {/* **둘 다 표시한다.** 스크린만 표를 달면 표가 없는 줄이
+                        '필드'인지 '종류가 생기기 전 것'인지 헷갈린다. */}
+                    <span className="badge kind">{KIND_ICON[kind]} {KIND_LABEL[kind]}</span>
                     {r.status === 'cancelled'
                         ? <span className="badge danger">취소됨</span>
                         : past
@@ -111,7 +144,9 @@ export function RoundCard({
                 )}
             </div>
 
-            <div className="round-course truncate">{r.course || r.title || '골프장 미정'}</div>
+            <div className="round-course truncate">
+                {r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}
+            </div>
             <div className="sm dim">
                 {formatDateTime(r.tee_at)}
                 {r.caddie && ` · ${CADDIE_LABEL[r.caddie]}`}

@@ -78,8 +78,11 @@ async function planFor(hook: Hook): Promise<Note | null> {
     if (hook.table === 'rounds' && hook.type === 'INSERT') {
         const who = await nameOf(r.created_by);
         const course = typeof r.course === 'string' && r.course ? r.course : '라운드';
+        // 스크린도 잦아서 알림창 한 줄만 봐도 어느 쪽인지 알아야 한다.
+        // 칸이 없는(스키마를 아직 안 돌린) 저장소에서는 필드로 본다.
+        const screen = r.kind === 'screen';
         return {
-            title: '⛳ 새 모집',
+            title: screen ? '🎯 새 스크린' : '⛳ 새 모집',
             body: `${who}님이 ${course} 모집을 열었습니다`,
             tag: `round-${r.id}`,
             url: `#/rounds/${r.id}`,

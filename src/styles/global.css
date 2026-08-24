@@ -162,6 +162,9 @@ body::before {
 .badge.danger { background: var(--danger-soft); color: var(--danger); }
 .badge.wait   { background: var(--wait-soft); color: var(--wait); }
 .badge.dim    { background: transparent; color: var(--text-faint); border: 1px solid var(--line); }
+/* 종류표(⛳ 필드 · 🎯 스크린)는 **상태가 아니라 이름표다.** 뜻이 있는 색을
+   쓰지 않는다 — 색은 D-day·확정 같은 상태 몫으로 남겨 둔다. */
+.badge.kind   { background: var(--surface-2); color: var(--text-dim); font-weight: 700; }
 
 /* ── 입력 ────────────────────────────────────────────────── */
 

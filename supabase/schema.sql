@@ -172,6 +172,10 @@ create table if not exists rounds (
     note        text        not null default '',
     status      text        not null default 'open'
                             check (status in ('open', 'closed', 'done', 'cancelled')),
+    -- 필드인가 스크린인가. **비울 수 없다** — 예전 행은 모두 필드였으므로
+    -- 기본값이 그대로 맞는 답이 된다. 스크린이면 캐디·카트·날씨가 없다.
+    kind        text        not null default 'field'
+                            check (kind in ('field', 'screen')),
     -- 캐디를 쓰는가 · 카트비가 참가비에 들어 있는가.
     -- 둘 다 안 정할 수 있어(null) 예전 라운드도 그대로 산다.
     caddie      text        check (caddie in ('caddie', 'none')),
@@ -185,10 +189,14 @@ create table if not exists rounds (
 -- 아래 alter가 있어야 칸이 생긴다 (CLAUDE.md의 '주의사항' 참고).
 alter table rounds add column if not exists caddie text;
 alter table rounds add column if not exists cart   text;
+-- 기본값을 함께 준 덕에 이미 쌓인 행이 전부 'field'로 채워진다.
+alter table rounds add column if not exists kind   text not null default 'field';
 alter table rounds drop constraint if exists rounds_caddie_check;
 alter table rounds add  constraint rounds_caddie_check check (caddie in ('caddie', 'none'));
 alter table rounds drop constraint if exists rounds_cart_check;
 alter table rounds add  constraint rounds_cart_check   check (cart in ('included', 'excluded'));
+alter table rounds drop constraint if exists rounds_kind_check;
+alter table rounds add  constraint rounds_kind_check   check (kind in ('field', 'screen'));
 
 create index if not exists rounds_tee_at_idx on rounds (tee_at desc);
 

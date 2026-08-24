@@ -26,9 +26,37 @@ export const ROLE_LABEL: Record<Role, string> = {
 };
 export type RoundStatus = 'open' | 'closed' | 'done' | 'cancelled';
 
+/**
+ * 필드인가 스크린인가.
+ *
+ * 겨울과 비 오는 날에는 스크린이 훨씬 잦아서, 목록에 섞여 있으면 어느
+ * 것인지 열어 봐야 안다. 그래서 **종류를 행에 못 박는다** — 이름만으로
+ * 가리려 들면 `골프존파크 상무점` 같은 것을 매번 사람이 알아봐야 한다.
+ *
+ * 스크린이면 실내라 **날씨가 없고, 캐디·카트도 없다.** 화면 세 곳
+ * (모집 열기 · 목록 카드 · 상세)이 이 값 하나를 보고 갈린다.
+ */
+export type RoundKind = 'field' | 'screen';
+
 /** 라운드 조건. 화면 여러 곳이 같은 말을 쓰도록 여기 모아 둔다. */
+export const KIND_LABEL: Record<RoundKind, string> = { field: '필드', screen: '스크린' };
+/** 글자를 안 늘리고 목록에서 한눈에 가르는 표식. */
+export const KIND_ICON: Record<RoundKind, string> = { field: '⛳', screen: '🎯' };
+/** 스크린은 골프장이 아니라 매장이고, 티오프가 아니라 시작 시각이다. */
+export const PLACE_LABEL: Record<RoundKind, string> = { field: '골프장', screen: '매장' };
+export const TEE_LABEL: Record<RoundKind, string> = { field: '티오프', screen: '시작' };
+
 export const CADDIE_LABEL = { caddie: '캐디', none: '노캐디' } as const;
 export const CART_LABEL = { included: '카트 포함', excluded: '카트 미포함' } as const;
+
+/**
+ * 행에서 종류를 읽는다. **`r.kind`를 직접 보지 말 것** — 스키마를 아직
+ * 다시 안 돌린 저장소에는 그 칸이 아예 없어 `undefined`가 온다. 종류가
+ * 생기기 전에 올린 라운드는 모두 필드였으므로 그쪽으로 기운다.
+ */
+export function roundKind(r: { kind?: RoundKind | null }): RoundKind {
+    return r.kind === 'screen' ? 'screen' : 'field';
+}
 export type SignupState = 'confirmed' | 'waitlist';
 
 export type Profile = {
@@ -55,6 +83,8 @@ export type Round = {
     fee: number;
     note: string;
     status: RoundStatus;
+    /** 필드인가 스크린인가. 예전 행은 DB 기본값으로 모두 'field'다. */
+    kind: RoundKind;
     /** 캐디를 쓰는가. 안 정했으면 null. */
     caddie: 'caddie' | 'none' | null;
     /** 카트비가 참가비에 들어 있는가. 안 정했으면 null. */

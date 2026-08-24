@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth';
 import { formatDateTime, ddayLabel, daysUntil, timeAgo } from '../lib/format';
 import { lastSeen } from '../lib/unread';
 import { fetchWeather, type Weather } from '../lib/weather';
-import type { Poll, PollVote, Post, Profile, Round, Signup } from '../lib/types';
+import { KIND_ICON, roundKind, type Poll, type PollVote, type Post, type Profile, type Round, type Signup } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import './Home.css';
@@ -200,13 +200,17 @@ function NextRound({
     me: string;
 }) {
     const [weather, setWeather] = useState<Weather | null>(null);
+    const kind = roundKind(r);
 
     useEffect(() => {
+        // 스크린은 실내다. 좌표를 안 넣었으니 이름으로 찾는 예비 길에
+        // 걸려 엉뚱한 골프장 날씨가 붙는 일이 없게 아예 부르지 않는다.
+        if (kind === 'screen') return;
         let alive = true;
         fetchWeather(r.lat, r.lon, r.tee_at, r.course)
             .then(w => { if (alive) setWeather(w); });
         return () => { alive = false; };
-    }, [r.lat, r.lon, r.tee_at, r.course]);
+    }, [kind, r.lat, r.lon, r.tee_at, r.course]);
 
     const mine = signups.filter(s => s.round_id === r.id);
     const confirmed = mine.filter(s => s.state === 'confirmed');
@@ -217,7 +221,11 @@ function NextRound({
     return (
         <Link to={`/rounds/${r.id}`} className="next">
             <div className="next-top">
-                <span className="next-label">다음 라운드</span>
+                {/* 스크린이면 날씨줄이 없어 카드가 조용해진다 — 무엇인지
+                    여기서 밝혀 두지 않으면 필드와 구별할 데가 없다. */}
+                <span className="next-label">
+                    {kind === 'screen' ? '다음 스크린' : '다음 라운드'}
+                </span>
                 <span className="next-dday">{ddayLabel(r.tee_at)}</span>
             </div>
 
@@ -226,7 +234,7 @@ function NextRound({
                 <div className="next-where">{r.course || r.title}</div>
             </div>
 
-            {weather && (
+            {kind === 'field' && weather && (
                 <div className="next-weather">
                     <span aria-hidden="true">{weather.icon}</span>
                     <b>{weather.min}° / {weather.max}°</b>
@@ -273,6 +281,7 @@ function OtherRound({ round: r, signups, me }: { round: Round; signups: Signup[]
     return (
         <Link to={`/rounds/${r.id}`} className="home-row">
             <span className="grow b truncate">
+                <span aria-hidden="true">{KIND_ICON[roundKind(r)]} </span>
                 {formatDateTime(r.tee_at).replace(/\s\(.\)/, '')} {r.course || r.title}
             </span>
             {my
