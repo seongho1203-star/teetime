@@ -22,12 +22,9 @@ export function Login() {
     return (
         <div className="page bare login">
             <div className="login-brand">
-                <div className="login-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8"
-                         strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 3v13M12 3l7 3-7 3M6.5 21h11" />
-                    </svg>
-                </div>
+                {/* 앱 아이콘 그대로. 홈 화면에서 누른 그림이 첫 화면에도
+                    있어야 '그 앱이 맞다'는 확인이 된다. */}
+                <img className="login-mark" src="./icon-192.png" alt="" aria-hidden="true" />
                 <h1>까꿍</h1>
                 <p className="dim">
                     라운드 모집과 투표가<br />채팅에 묻히지 않는 곳

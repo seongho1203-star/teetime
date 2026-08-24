@@ -69,10 +69,13 @@ body::before {
 /* 탭바가 없는 화면(로그인 등) */
 .page.bare { padding-bottom: calc(var(--safe-b) + var(--gap-lg)); }
 
+/* 화면 제목은 아이콘과 같은 통통한 글씨다. 글꼴이 늦게 와도 자리가
+   흔들리지 않게 시스템 글꼴을 예비로 둔다(`--font-display`). */
 .page-title {
-    font-size: var(--fs-xl);
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 400;
+    letter-spacing: 0;
 }
 
 .page-head {
@@ -133,7 +136,7 @@ body::before {
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
-.btn.primary { background: var(--brand-deep); color: #04140b; }
+.btn.primary { background: var(--brand); color: var(--on-brand); }
 .btn.primary:disabled { background: var(--surface-3); color: var(--text-faint); }
 .btn.danger  { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 .btn.ghost   { background: transparent; border: 1px solid var(--line); color: var(--text-dim); }
@@ -155,9 +158,9 @@ body::before {
     white-space: nowrap;
 }
 .badge.brand  { background: var(--brand-soft); color: var(--brand); }
-.badge.warn   { background: rgba(251, 191, 36, 0.15); color: var(--warn); }
-.badge.danger { background: rgba(244, 100, 95, 0.15); color: var(--danger); }
-.badge.wait   { background: rgba(167, 139, 250, 0.16); color: var(--wait); }
+.badge.warn   { background: var(--warn-soft); color: var(--warn); }
+.badge.danger { background: var(--danger-soft); color: var(--danger); }
+.badge.wait   { background: var(--wait-soft); color: var(--wait); }
 .badge.dim    { background: transparent; color: var(--text-faint); border: 1px solid var(--line); }
 
 /* ── 입력 ────────────────────────────────────────────────── */
@@ -366,5 +369,5 @@ body::before {
 .opt.on .opt-box {
     border-color: var(--brand);
     background: var(--brand);
-    color: #04140b;
+    color: var(--on-brand);
 }

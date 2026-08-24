@@ -39,9 +39,11 @@
     gap: 11px;
     padding: 15px;
     border-radius: var(--r-lg);
-    background: linear-gradient(158deg, #143d2b 0%, #0f2a1e 58%, #0d1f18 100%);
-    border: 1px solid rgba(53, 208, 127, 0.22);
-    color: var(--text);
+    /* 아이콘의 잔디밭. 스티커처럼 아래로 갈수록 짙어진다. */
+    background: linear-gradient(168deg, #8fc93a 0%, #6faa22 55%, #5b8d18 100%);
+    border: 1px solid var(--grass-deep);
+    box-shadow: var(--shadow);
+    color: #fff;
     text-decoration: none;
 }
 .next:active { transform: scale(0.99); }
@@ -51,23 +53,24 @@
     font-size: var(--fs-xs);
     font-weight: 800;
     letter-spacing: 0.08em;
-    color: rgba(140, 214, 178, 0.9);
+    color: rgba(255, 255, 255, 0.82);
 }
+/* 남은 날은 잔디 위에서 가장 먼저 읽혀야 한다. 아이콘의 노랑이다. */
 .next-dday {
-    font-size: var(--fs-md);
-    font-weight: 800;
-    letter-spacing: -0.01em;
-    color: var(--brand);
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    letter-spacing: 0;
+    color: #ffe14d;
 }
 
 .next-when {
-    font-size: var(--fs-lg);
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    letter-spacing: 0;
 }
 .next-where {
     font-size: var(--fs);
-    color: #b8d8c7;
+    color: rgba(255, 255, 255, 0.9);
     margin-top: 1px;
 }
 
@@ -79,23 +82,23 @@
     width: fit-content;
     padding: 5px 10px;
     border-radius: var(--r-sm);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.22);
     font-size: var(--fs-sm);
-    color: #cfe6da;
+    color: #fff;
 }
-.next-weather b { color: #eaf6ef; font-weight: 700; }
+.next-weather b { color: #fff; font-weight: 800; }
 
 .next-who { display: flex; align-items: center; gap: var(--gap-sm); }
 /* 얼굴은 겹쳐 놓는다. 여덟 명이 한 줄에 들어가야 한다. */
 .next-faces { display: flex; }
 .next-faces .avatar {
     margin-left: -8px;
-    border: 2px solid #12301f;
+    border: 2px solid #6faa22;
     /* 테두리가 안쪽을 먹는다(border-box). 두 글자가 잘리지 않게 줄인다. */
     font-size: 9.5px;
 }
 .next-faces .avatar:first-child { margin-left: 0; }
-.next-count { font-size: var(--fs-sm); color: #b8d8c7; }
+.next-count { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.9); }
 
 /* 내 상태가 곧 단추 자리다. 신청했는지 보려고 들어갈 일이 없어진다. */
 .next-go,
@@ -107,12 +110,13 @@
     font-weight: 800;
     font-size: var(--fs);
 }
-.next-go { background: var(--brand); color: #04140b; }
+/* 잔디 위의 분홍 단추 — 아이콘에서 초록 위에 분홍 글씨가 앉은 그대로다. */
+.next-go { background: var(--brand); color: var(--on-brand); }
 .next-state {
-    background: rgba(255, 255, 255, 0.08);
-    color: #cfe6da;
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
 }
-.next-state.wait { color: var(--wait); }
+.next-state.wait { background: rgba(255, 255, 255, 0.9); color: var(--wait); }
 
 /* 예정된 라운드가 없을 때. 빈칸 대신 초대장을 놓는다 —
    누구나 모집을 열 수 있는 앱이라 그 자리가 곧 안내가 된다. */

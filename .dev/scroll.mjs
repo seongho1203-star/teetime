@@ -56,6 +56,12 @@ await page.route('**/rest/v1/**', r => r.fulfill({
 await page.route('**/auth/v1/**', r => r.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
 await page.route('**/realtime/v1/**', r => r.abort());
+
+    /* 제목 글꼴(Jua)은 확인 도구에서 받지 않는다. 화면마다 구글에 다녀오면
+       열두 장을 찍는 데 몇 분이 걸린다. 실제 앱에서는 `display=swap`이라
+       글꼴이 늦게 와도 화면이 먼저 뜬다. */
+    await page.route('**fonts.googleapis.com/**', r => r.abort());
+    await page.route('**fonts.gstatic.com/**', r => r.abort());
 await page.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
 
 await page.goto(BASE + path, { waitUntil: 'networkidle' });

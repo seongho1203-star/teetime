@@ -39,6 +39,8 @@
     overflow-y: auto;
     /* 왼쪽 끝에서 브라우저 '뒤로 가기'가 먹지 않게. */
     overscroll-behavior: contain;
+    /* **카톡의 그 청회색.** 대화방만 다른 바탕을 쓰는 것도 카톡과 같다. */
+    background: #b2c7d9;
     padding: var(--gap) var(--gap) var(--gap-sm);
     display: flex;
     flex-direction: column;
@@ -52,8 +54,8 @@
     margin: var(--gap) auto var(--gap-sm);
     padding: 3px 12px;
     border-radius: var(--r-pill);
-    background: var(--surface-2);
-    color: var(--text-faint);
+    background: rgba(0, 0, 0, 0.14);
+    color: #f2f6fa;
     font-size: var(--fs-xs);
     font-weight: 700;
     width: fit-content;
@@ -89,10 +91,12 @@
 }
 .chat-row.mine .chat-col { align-items: flex-end; }
 
-/* 이름은 말풍선 글씨의 0.82배쯤 — 카톡과 같은 비율이다. */
+/* 이름은 말풍선 글씨의 0.82배쯤 — 카톡과 같은 비율이다.
+   청회색 바탕 위라 글자색을 여기서 따로 잡는다(`.faint`를 덮는다). */
 .chat-who {
     padding-left: 2px;
     font-size: 12.2px;
+    color: #4a5866;
 }
 
 .chat-line {
@@ -109,7 +113,8 @@
 .chat-bubble {
     padding: 5px 11px;
     border-radius: 14px;
-    background: var(--surface-2);
+    background: #ffffff;
+    color: #17191c;
     font-size: 15px;
     line-height: 1.34;
     white-space: pre-wrap;
@@ -127,7 +132,7 @@
 .chat-time {
     flex: 0 0 auto;
     font-size: 10.5px;
-    color: var(--text-faint);
+    color: #66768a;
     padding-bottom: 2px;
     white-space: nowrap;
 }
@@ -195,7 +200,7 @@
     max-height: 300px;
     width: auto;
     border-radius: 14px;
-    background: var(--surface-2);
+    background: rgba(255, 255, 255, 0.5);
     object-fit: cover;
 }
 

@@ -46,7 +46,7 @@
 
 .confirm-danger {
     background: var(--danger);
-    color: #200604;
+    color: #fff;
 }
 
 @keyframes confirm-fade { from { opacity: 0; } to { opacity: 1; } }

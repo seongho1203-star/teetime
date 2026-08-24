@@ -114,8 +114,8 @@
     background: var(--text-dim);
     transition: transform 0.15s ease, background-color 0.15s ease;
 }
-.switch.on { background: var(--brand-deep); }
-.switch.on::after { transform: translateX(19px); background: #04140b; }
+.switch.on { background: var(--brand); }
+.switch.on::after { transform: translateX(19px); background: #fff; }
 
 /* 참여 인원 글이 길어져도 버튼을 밀어내지 않게. */
 .poll-foot { align-items: flex-start; gap: var(--gap-sm); }

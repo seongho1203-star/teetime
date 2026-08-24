@@ -120,6 +120,12 @@ for (const [name, path, opts = {}] of shots) {
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
     await page.route('**/realtime/v1/**', route => route.abort());
 
+    /* 제목 글꼴(Jua)은 확인 도구에서 받지 않는다. 화면마다 구글에 다녀오면
+       열두 장을 찍는 데 몇 분이 걸린다. 실제 앱에서는 `display=swap`이라
+       글꼴이 늦게 와도 화면이 먼저 뜬다. */
+    await page.route('**fonts.googleapis.com/**', r => r.abort());
+    await page.route('**fonts.gstatic.com/**', r => r.abort());
+
     /* 날씨(Open-Meteo)도 흉내 낸다. 진짜로 부르면 화면마다 요청이 나가고,
        망이 막힌 곳에서는 날씨칸이 통째로 빠져 확인이 안 된다. */
     await page.route('**api.open-meteo.com/**', route => route.fulfill({

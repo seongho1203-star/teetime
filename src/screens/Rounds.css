@@ -27,7 +27,7 @@
 .capacity-bar > span {
     display: block;
     height: 100%;
-    background: var(--brand);
+    background: var(--grass);
     border-radius: inherit;
     /* 남이 신청하면 실시간으로 늘어난다. 폭만 움직이므로 값이 싸다. */
     transition: width 0.3s ease;
@@ -82,7 +82,7 @@
     border-radius: var(--r-sm);
     background: var(--surface-2);
 }
-.signup-row.is-me { background: var(--brand-soft); }
+.signup-row.is-me { background: var(--grass-soft); }
 .signup-row.is-wait { background: transparent; border: 1px dashed var(--line); }
 
 .signup-seq {
