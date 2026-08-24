@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDateTime, ddayLabel, daysUntil, timeAgo } from '../lib/format';
+import { formatDateTime, ddayLabel, daysUntil } from '../lib/format';
 import { lastSeen } from '../lib/unread';
 import { fetchWeather, type Weather } from '../lib/weather';
-import { KIND_ICON, roundKind, type Poll, type PollVote, type Post, type Profile, type Round, type Signup } from '../lib/types';
+import { KIND_ICON, roundKind, type Poll, type PollVote, type Profile, type Round, type Signup } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import './Home.css';
@@ -15,7 +15,6 @@ interface Loaded {
     rounds: Round[];
     signups: Signup[];
     people: Profile[];
-    posts: Post[];
     /** 내가 아직 표를 안 던진 투표 */
     openPolls: Poll[];
     pendingCount: number;
@@ -31,10 +30,13 @@ interface Loaded {
  *   1 다음 라운드   화면의 주인공. 언제·어디·날씨·자리, 그리고 **내 상태**
  *   2 내가 할 일     안 한 투표 · 안 읽은 대화 · (운영진) 승인 대기
  *   3 모집중         다음 것 말고 열려 있는 라운드
- *   4 고정 공지      흘러가지 않고 쌓이는 것이라 맨 아래
  *
  * 예전에는 공지만 두었는데, 정작 이 앱을 만든 이유인 라운드를 보려면
  * 탭을 하나 더 눌러야 했다.
+ *
+ * **고정 공지 칸은 걷어냈다**(사용자 요청). 공지 탭이 따로 있고 안 본
+ * 개수도 그 탭에 숫자로 뜨므로, 홈에 같은 것을 또 늘어놓을 이유가 없다.
+ * 되살리지 말 것.
  */
 export function Home() {
     const { session, profile, isAdmin } = useAuth();
@@ -46,13 +48,11 @@ export function Home() {
 
     const { data, loading, reload } = useAsync<Loaded>(async () => {
         const seenChat = lastSeen('chat', me);
-        const [rounds, signups, people, posts, polls, votes, pending, chat] = await Promise.all([
+        const [rounds, signups, people, polls, votes, pending, chat] = await Promise.all([
             supabase.from('rounds').select('*')
                     .neq('status', 'cancelled').order('tee_at', { ascending: true }),
             supabase.from('signups').select('*'),
             fetchProfiles(),
-            supabase.from('posts').select('*')
-                    .eq('pinned', true).order('created_at', { ascending: false }).limit(3),
             supabase.from('polls').select('*').eq('closed', false),
             supabase.from('poll_votes').select('poll_id').eq('user_id', me),
             isAdmin
@@ -74,14 +74,13 @@ export function Home() {
             rounds: unwrap(rounds) ?? [],
             signups: unwrap(signups) ?? [],
             people,
-            posts: unwrap(posts) ?? [],
             openPolls,
             pendingCount: pending.count ?? 0,
             unreadChat: chat.count ?? 0,
         };
     }, [me, isAdmin]);
 
-    useRealtime(['rounds', 'signups', 'posts', 'polls', 'poll_votes', 'profiles', 'messages'], reload);
+    useRealtime(['rounds', 'signups', 'polls', 'poll_votes', 'profiles', 'messages'], reload);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -89,7 +88,6 @@ export function Home() {
 
     const rounds = data?.rounds ?? [];
     const signups = data?.signups ?? [];
-    const posts = data?.posts ?? [];
     const polls = data?.openPolls ?? [];
     const pendingCount = data?.pendingCount ?? 0;
     const unreadChat = data?.unreadChat ?? 0;
@@ -154,19 +152,6 @@ export function Home() {
                     <div className="section-title">모집중</div>
                     {others.map(r => (
                         <OtherRound key={r.id} round={r} signups={signups} me={me} />
-                    ))}
-                </div>
-            )}
-
-            {posts.length > 0 && (
-                <div className="home-block">
-                    <div className="section-title">공지</div>
-                    {posts.map(p => (
-                        <Link key={p.id} to={`/board/${p.id}`} className="home-row">
-                            <span className="badge warn">고정</span>
-                            <span className="grow b truncate">{p.title}</span>
-                            <span className="xs faint">{timeAgo(p.created_at)}</span>
-                        </Link>
                     ))}
                 </div>
             )}

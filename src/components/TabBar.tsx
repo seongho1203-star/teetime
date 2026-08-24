@@ -96,11 +96,13 @@ function useLiveCounts() {
 export function TabBar() {
     const counts = useLiveCounts();
 
+    /* 순서는 사용자가 정한 것이다. 공지가 라운드 앞에 온다 —
+       홈에서 공지 칸을 걷어냈으므로 그 자리를 이 탭이 대신한다. */
     const tabs = [
         { to: '/',       label: '홈',     icon: icons.home,  end: true, count: counts?.pending, alert: true },
+        { to: '/board',  label: '공지',   icon: icons.board, count: counts?.board, alert: true },
         { to: '/rounds', label: '라운드', icon: icons.round, count: counts?.rounds },
         { to: '/polls',  label: '투표',   icon: icons.poll,  count: counts?.polls },
-        { to: '/board',  label: '공지',   icon: icons.board, count: counts?.board, alert: true },
         { to: '/chat',   label: '대화',   icon: icons.chat,  count: counts?.chat,  alert: true },
     ];
 
