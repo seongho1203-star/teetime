@@ -52,6 +52,12 @@ interface Note {
      * 기기 모두에게 간다.
      */
     channel?: 'chat';
+    /**
+     * 갈래를 껐어도 이 사람들에게는 보낸다. `@언급`이 그렇다 —
+     * 부르는 것은 '알아 두라'가 아니라 '지금 봐 달라'라서, 그것까지
+     * 막히면 부를 이유가 없어진다.
+     */
+    always?: string[];
 }
 
 /** 이름을 붙여 준다. 누가 썼는지가 알림에서 제일 중요하다. */
@@ -59,6 +65,34 @@ async function nameOf(id: unknown): Promise<string> {
     if (typeof id !== 'string') return '누군가';
     const { data } = await db.from('profiles').select('name').eq('id', id).maybeSingle();
     return (data?.name as string) || '누군가';
+}
+
+function escapeRe(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 글에서 `@이름`으로 부른 사람들.
+ *
+ * **대화 알림을 꺼 둔 기기에도 이건 간다.** 부르는 것은 '알아 두라'가
+ * 아니라 '지금 봐 달라'라서, 그것까지 막히면 부를 이유가 없어진다.
+ *
+ * 맞추는 규칙은 앱 화면(`src/lib/mention.ts`의 `splitMentions`)과 같아야
+ * 한다 — **긴 이름 먼저**(`김지`와 `김지명`이 함께 있으면 뒤엣것).
+ * 한쪽만 고치면 화면에는 도드라지는데 알림은 안 오는 일이 생긴다.
+ */
+async function mentionedIds(body: unknown): Promise<string[]> {
+    if (typeof body !== 'string' || !body.includes('@')) return [];
+    const { data } = await db.from('profiles')
+        .select('id, name').in('role', ['member', 'staff', 'admin']);
+    const list = (data ?? [])
+        .filter(p => typeof p.name === 'string' && p.name)
+        .sort((a, b) => String(b.name).length - String(a.name).length);
+    if (!list.length) return [];
+
+    const re = new RegExp(`@(${list.map(p => escapeRe(String(p.name))).join('|')})`, 'g');
+    const called = new Set([...body.matchAll(re)].map(m => m[1]));
+    return list.filter(p => called.has(String(p.name))).map(p => p.id as string);
 }
 
 async function planFor(hook: Hook): Promise<Note | null> {
@@ -80,6 +114,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
             url: '#/chat',
             except: typeof r.user_id === 'string' ? r.user_id : null,
             channel: 'chat',
+            always: await mentionedIds(r.body),
         };
     }
 
@@ -158,10 +193,15 @@ Deno.serve(async req => {
     let q = db.from('push_subscriptions').select('endpoint, p256dh, auth, user_id');
     if (note.only) q = q.in('user_id', note.only);
     else if (note.except) q = q.neq('user_id', note.except);
-    // 이 갈래를 끈 기기는 뺀다. `chat` 칸이 없는(스키마를 아직 안 돌린)
-    // 저장소에서는 이 조회가 오류로 돌아오고, 아래에서 500으로 끝난다 —
-    // 조용히 안 가는 것보다 낫다. 칸을 더하는 alter가 schema.sql에 있다.
-    if (note.channel === 'chat') q = q.eq('chat', true);
+    // 이 갈래를 끈 기기는 뺀다. **다만 이름이 불린 사람은 껐어도 받는다.**
+    // `chat` 칸이 없는(스키마를 아직 안 돌린) 저장소에서는 이 조회가 오류로
+    // 돌아오고 아래에서 500으로 끝난다 — 조용히 안 가는 것보다 낫다.
+    // 칸을 더하는 alter가 schema.sql에 있다.
+    if (note.channel) {
+        q = note.always?.length
+            ? q.or(`chat.eq.true,user_id.in.(${note.always.join(',')})`)
+            : q.eq('chat', true);
+    }
 
     const { data: subs, error } = await q;
     if (error) return new Response(error.message, { status: 500 });

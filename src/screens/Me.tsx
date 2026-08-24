@@ -216,10 +216,13 @@ export function Me() {
                         <div className="switch-row">
                             <div className="grow">
                                 <div className="switch-label">💬 대화 알림</div>
+                                {/* 꺼도 `@언급`은 온다는 것을 적어 둔다.
+                                    안 적으면 껐는데 왜 오냐가 되고, 부르는
+                                    쪽은 왜 안 보냐가 된다. */}
                                 <div className="switch-desc">
                                     {chat
                                         ? '새 메시지가 올 때마다 옵니다'
-                                        : '꺼짐 — 모집 · 공지 · 투표만 옵니다'}
+                                        : '꺼짐 — 나를 @언급한 글은 그래도 옵니다'}
                                 </div>
                             </div>
                             <Switch label="대화 알림"
