@@ -5,7 +5,7 @@ import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
-    CADDIE_LABEL, CART_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
+    CADDIE_SHORT, CART_SHORT, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
     type Round, type Signup, type Profile,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
@@ -185,14 +185,22 @@ export function RoundDetail() {
                     <dt>참가비</dt>
                     <dd>{r.fee > 0 ? formatWon(r.fee) : '미정'}</dd>
                 </div>
-                {kind === 'field' && (r.caddie || r.cart) && (
-                    <div className="info-cell">
-                        <dt>조건</dt>
-                        <dd>
-                            {[r.caddie && CADDIE_LABEL[r.caddie], r.cart && CART_LABEL[r.cart]]
-                                .filter(Boolean).join(' · ')}
-                        </dd>
-                    </div>
+                {/* **캐디와 카트를 따로 놓는다.** 한 칸에 묶으면 옆칸이
+                    비어 표가 이 빠진 것처럼 보인다. 필드면 둘 다 자리를
+                    지키고(안 정했으면 `미정`) 스크린이면 둘 다 없다 —
+                    그래야 칸 수가 늘 짝수라 빈자리가 안 생긴다.
+                    참가비도 예전부터 이렇게 `미정`을 적어 왔다. */}
+                {kind === 'field' && (
+                    <>
+                        <div className="info-cell">
+                            <dt>캐디</dt>
+                            <dd>{r.caddie ? CADDIE_SHORT[r.caddie] : '미정'}</dd>
+                        </div>
+                        <div className="info-cell">
+                            <dt>카트</dt>
+                            <dd>{r.cart ? CART_SHORT[r.cart] : '미정'}</dd>
+                        </div>
+                    </>
                 )}
             </dl>
 
@@ -202,12 +210,13 @@ export function RoundDetail() {
                 </div>
             )}
 
+            {/* 흰 카드가 이어지면 안내가 묻힌다. 모이는 곳·계좌처럼 **꼭
+                읽어야 할 줄**이라 노란 쪽지처럼 띄운다 — 공지가 노랑인 것과
+                같은 결이다(색 규칙은 CLAUDE.md 참고). */}
             {r.note && (
-                <div className="card">
+                <div className="card note-card">
                     <div className="section-title">안내</div>
-                    <p className="sm dim" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                        {r.note}
-                    </p>
+                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{r.note}</p>
                 </div>
             )}
 

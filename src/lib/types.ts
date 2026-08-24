@@ -50,6 +50,16 @@ export const CADDIE_LABEL = { caddie: '캐디', none: '노캐디' } as const;
 export const CART_LABEL = { included: '카트 포함', excluded: '카트 미포함' } as const;
 
 /**
+ * 라운드 상세의 표에 넣는 짧은 형태.
+ *
+ * 그 표는 이름과 값이 따로 있어(`캐디` / `카트`) 위의 긴 말을 그대로 쓰면
+ * `캐디: 캐디`, `카트: 카트 포함`처럼 되풀이된다. 이름이 이미 있는 자리에서는
+ * 값만 남긴다. 목록 카드와 모집 열기는 이름 없이 홀로 서므로 긴 쪽을 쓴다.
+ */
+export const CADDIE_SHORT = { caddie: '있음', none: '없음' } as const;
+export const CART_SHORT = { included: '포함', excluded: '미포함' } as const;
+
+/**
  * 행에서 종류를 읽는다. **`r.kind`를 직접 보지 말 것** — 스키마를 아직
  * 다시 안 돌린 저장소에는 그 칸이 아예 없어 `undefined`가 온다. 종류가
  * 생기기 전에 올린 라운드는 모두 필드였으므로 그쪽으로 기운다.
