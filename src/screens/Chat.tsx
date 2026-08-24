@@ -9,6 +9,7 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
 import { markSeen } from '../lib/unread';
+import { mentionQuery, splitMentions } from '../lib/mention';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -28,6 +29,10 @@ export function Chat() {
     const [loadingMore, setLoadingMore] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [focused, setFocused] = useState(false);
+    /** 지금 답장하려는 글. 입력칸 위에 인용으로 떠 있다. */
+    const [replyTo, setReplyTo] = useState<Message | null>(null);
+    /** 캐럿 앞에 `@무엇`을 치고 있으면 그 글자. 아니면 null. */
+    const [mention, setMention] = useState<string | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
 
     const chatRef = useRef<HTMLDivElement>(null);
@@ -49,6 +54,10 @@ export function Chat() {
 
     const roomId = data?.room?.id;
     const names = byId(data?.people ?? []);
+    const myName = names[me]?.name ?? '';
+    /** 언급에 쓸 이름들. 회원 이상만 — 대기·추방된 사람은 대화를 못 본다. */
+    const mentionable = (data?.people ?? [])
+        .filter(p => p.name && p.role !== 'pending' && p.role !== 'banned');
 
     // 첫 묶음을 불러온다. 최근 것부터 받아 뒤집는다.
     useEffect(() => {
@@ -272,6 +281,7 @@ export function Chat() {
         blurTimer.current = window.setTimeout(() => {
             kbRef.current.typing = false;
             setFocused(false);
+            setMention(null);
             applyKeyboard(true);
         }, 150);
     };
@@ -379,7 +389,62 @@ export function Chat() {
     const clearDraft = () => {
         if (taRef.current) taRef.current.value = '';
         setDraft('');
+        setMention(null);
     };
+
+    /**
+     * 캐럿 앞에 `@무엇`을 치고 있는지 본다.
+     *
+     * 입력칸이 값의 주인이라(uncontrolled) 칸에서 직접 읽는다. 글자를 칠
+     * 때뿐 아니라 **캐럿만 옮겨도** 다시 봐야 해서 `onSelect`에서도 부른다.
+     */
+    const syncMention = () => {
+        const el = taRef.current;
+        if (!el) return;
+        const found = mentionQuery(el.value, el.selectionStart ?? 0);
+        setMention(found ? found.q : null);
+    };
+
+    /** 언급 목록에서 고른 사람을 `@이름 `으로 끼워 넣는다. */
+    const insertMention = (name: string) => {
+        const el = taRef.current;
+        if (!el) return;
+        const caret = el.selectionStart ?? el.value.length;
+        const found = mentionQuery(el.value, caret);
+        if (!found) return;
+        const inserted = `@${name} `;
+        const head = el.value.slice(0, found.at) + inserted;
+        el.value = head + el.value.slice(caret);
+        el.setSelectionRange(head.length, head.length);
+        setDraft(el.value);
+        setMention(null);
+        // 고르고 나서도 키보드가 그대로 있어야 이어 칠 수 있다.
+        el.focus();
+    };
+
+    const mentionHits = mention === null ? [] : mentionable
+        .filter(p => p.id !== me && p.name.replace(/\s/g, '').includes(mention.replace(/\s/g, '')))
+        .slice(0, 6);
+
+    /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
+    const jumpTo = (id: string) => {
+        const el = listRef.current?.querySelector<HTMLElement>(`[data-mid="${id}"]`);
+        if (!el) { toast('지난 대화에 있습니다. 위로 올려 주세요.'); return; }
+        atBottom.current = false;
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 1300);
+    };
+
+    /** 답장을 시작한다. 밀어서든 눌러서든 여기로 온다. */
+    const startReply = useCallback((m: Message) => {
+        setReplyTo(m);
+        taRef.current?.focus();
+    }, []);
+
+    /** id → 글. 인용할 원본을 찾는다. 지난 묶음에 있으면 없을 수 있다. */
+    const byMid = new Map(messages.map(m => [m.id, m]));
+    const mentionNames = mentionable.map(p => p.name);
 
     /** 지금 칸에 적힌 글. 칸이 값의 주인이므로 보낼 때는 칸에서 직접 읽는다 —
      *  한글 마지막 글자가 조합 중이면 `draft`에는 아직 안 와 있을 수 있다. */
@@ -390,13 +455,18 @@ export function Chat() {
         if (!roomId) return false;
         const { data: row, error: err } = await supabase
             .from('messages')
-            // **사진이 없으면 image_url을 아예 보내지 않는다.** DB에 그 칸을
-            // 아직 안 만들었어도(스키마를 다시 안 돌렸어도) 글은 그대로
-            // 오가게 하려는 것이다. 사진만 그때 실패한다.
-            .insert({ room_id: roomId, user_id: me, body, ...(imageUrl ? { image_url: imageUrl } : {}) })
+            // **사진이 없으면 image_url을, 답장이 아니면 reply_to를 아예
+            // 보내지 않는다.** DB에 그 칸을 아직 안 만들었어도(스키마를
+            // 다시 안 돌렸어도) 글은 그대로 오가게 하려는 것이다.
+            .insert({
+                room_id: roomId, user_id: me, body,
+                ...(imageUrl ? { image_url: imageUrl } : {}),
+                ...(replyTo ? { reply_to: replyTo.id } : {}),
+            })
             .select('*').single();
         if (err) { toast(readableError(err), 'error'); return false; }
 
+        setReplyTo(null);
         clearDraft();
         atBottom.current = true;
         // 실시간 이벤트가 오기 전에 먼저 그린다. 내 글이 늦게 뜨면 답답하다.
@@ -513,8 +583,10 @@ export function Chat() {
                     // **시각은 덩어리의 마지막 줄에만 적는다.** 카톡이 그렇다 —
                     // 줄마다 붙이면 같은 시각이 서너 번 되풀이돼 지저분하다.
                     const showTime = !sameBlock(m, next);
+                    const quoted = m.reply_to ? byMid.get(m.reply_to) : undefined;
                     return (
-                        <div key={m.id}>
+                        // `data-mid`는 인용을 눌렀을 때 원본을 찾는 표다.
+                        <div key={m.id} data-mid={m.id}>
                             {newDay && <div className="chat-day">{formatDate(m.created_at)}</div>}
                             <Bubble
                                 message={m}
@@ -523,6 +595,13 @@ export function Chat() {
                                 grouped={grouped}
                                 showTime={showTime}
                                 onImageLoad={pinBottom}
+                                quoted={quoted}
+                                quotedWho={quoted ? names[quoted.user_id ?? '']?.name : undefined}
+                                lostQuote={!!m.reply_to && !quoted}
+                                onJump={jumpTo}
+                                onReply={startReply}
+                                mentionNames={mentionNames}
+                                myName={myName}
                             />
                         </div>
                     );
@@ -530,10 +609,46 @@ export function Chat() {
             </div>
 
             <div className="chat-input" ref={barRef}>
+                {/* 답장할 글을 입력칸 위에 물려 둔다. ✕로 뗀다.
+                    입력칸 안이라 키보드가 올라와도 함께 따라 올라간다. */}
+                {replyTo && (
+                    <div className="reply-bar">
+                        <div className="grow" style={{ minWidth: 0 }}>
+                            <div className="xs b">
+                                {(names[replyTo.user_id ?? '']?.name ?? '알 수 없음')}에게 답장
+                            </div>
+                            <div className="xs faint truncate">{preview(replyTo)}</div>
+                        </div>
+                        <button className="reply-x" onClick={() => setReplyTo(null)}
+                                onMouseDown={e => e.preventDefault()}
+                                aria-label="답장 그만두기">✕</button>
+                    </div>
+                )}
+
+                {/* `@`를 치는 동안만 나온다. 누를 때 입력칸이 초점을 놓으면
+                    키보드가 내려가므로 `onMouseDown`을 막는다 — 보내기
+                    단추와 같은 이유다. */}
+                {mentionHits.length > 0 && (
+                    <div className="mention-list">
+                        {mentionHits.map(p => (
+                            <button key={p.id} className="mention-item"
+                                    onMouseDown={e => e.preventDefault()}
+                                    onClick={() => insertMention(p.name)}>
+                                <Avatar name={p.name} url={p.avatar_url} size="sm" />
+                                <span className="truncate">{p.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 <input
                     ref={fileRef} type="file" accept="image/*"
                     onChange={onPickPhoto} hidden
                 />
+
+                {/* 사진 · 입력칸 · 보내기 한 줄. 위의 인용과 언급 목록이
+                    같은 상자 안에 쌓이므로 이 줄만 따로 묶는다. */}
+                <div className="chat-bar">
                 <button className="btn ghost chat-photo" onClick={() => fileRef.current?.click()}
                         disabled={uploading} aria-label="사진 보내기">
                     {uploading
@@ -557,7 +672,8 @@ export function Chat() {
                     <textarea
                         ref={taRef}
                         className="textarea"
-                        onChange={e => setDraft(e.target.value)}
+                        onChange={e => { setDraft(e.target.value); syncMention(); }}
+                        onSelect={syncMention}
                         onKeyDown={onKeyDown}
                         onFocus={onComposerFocus}
                         onBlur={onComposerBlur}
@@ -581,13 +697,26 @@ export function Chat() {
                         </svg>
                     </button>
                 )}
+                </div>
             </div>
         </div>
     );
 }
 
+/** 인용에 보일 한 줄. 사진만 보낸 글은 글자가 없다. */
+function preview(m: Message): string {
+    const text = m.body.trim();
+    if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
+    return m.image_url ? '사진' : '';
+}
+
+/** 왼쪽으로 이만큼 밀면 답장이 걸린다. 되돌아가는 최대 거리도 이 근처다. */
+const SWIPE_TRIGGER = 55;
+const SWIPE_MAX = 72;
+
 function Bubble({
     message, who, mine, grouped, showTime, onImageLoad,
+    quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName,
 }: {
     message: Message;
     who?: Profile;
@@ -597,9 +726,82 @@ function Bubble({
     showTime: boolean;
     /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 뜨면 다시 바닥에 붙이라고 알린다. */
     onImageLoad: () => void;
+    /** 답장이면 원본. 아직 안 불러온 지난 글이면 없다. */
+    quoted?: Message;
+    quotedWho?: string;
+    /** 답장이긴 한데 원본을 못 찾은 경우(지난 묶음이거나 지워졌다). */
+    lostQuote: boolean;
+    onJump: (id: string) => void;
+    onReply: (m: Message) => void;
+    mentionNames: string[];
+    myName: string;
 }) {
+    const rowRef = useRef<HTMLDivElement>(null);
+    /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
+       다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
+    const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
+
+    const paint = (dx: number) => {
+        const el = rowRef.current;
+        if (!el) return;
+        el.style.transform = dx ? `translateX(${dx}px)` : '';
+        // 화살표가 얼마나 짙어질지. 밀린 만큼 드러난다.
+        el.style.setProperty('--swipe', String(Math.min(1, Math.abs(dx) / SWIPE_TRIGGER)));
+    };
+
+    const onTouchStart = (e: React.TouchEvent) => {
+        const t = e.touches[0];
+        g.current = { x0: t.clientX, y0: t.clientY, dx: 0, decided: false, active: false };
+    };
+
+    /* `touch-action: pan-y`라 세로 스크롤은 브라우저가 그대로 가져간다.
+       우리는 가로로 그은 것만 집는다 — `preventDefault`는 부르지 않는다
+       (React의 touchmove는 passive라 어차피 안 먹는다). */
+    const onTouchMove = (e: React.TouchEvent) => {
+        const t = e.touches[0];
+        const dx = t.clientX - g.current.x0;
+        const dy = Math.abs(t.clientY - g.current.y0);
+        if (!g.current.decided) {
+            if (Math.abs(dx) < 8 && dy < 8) return;
+            g.current.decided = true;
+            // 왼쪽으로, 세로보다 가로로 더 많이 그었을 때만 답장 손짓이다.
+            g.current.active = dx < 0 && Math.abs(dx) > dy;
+        }
+        if (!g.current.active) return;
+        g.current.dx = Math.max(-SWIPE_MAX, Math.min(0, dx));
+        paint(g.current.dx);
+    };
+
+    const onTouchEnd = () => {
+        const el = rowRef.current;
+        const hit = g.current.active && g.current.dx <= -SWIPE_TRIGGER;
+        if (el && g.current.active) {
+            // 손을 떼면 제자리로. transform만 움직이므로 값이 싸다.
+            el.style.transition = 'transform 0.18s ease';
+            setTimeout(() => { if (el) el.style.transition = ''; }, 220);
+        }
+        g.current.dx = 0;
+        g.current.active = false;
+        paint(0);
+        if (hit) onReply(message);
+    };
+
+    const quote = (quoted || lostQuote) && (
+        <button className="chat-quote"
+                onClick={() => quoted && onJump(quoted.id)}
+                disabled={!quoted}>
+            <span className="chat-quote-who">{quoted ? (quotedWho ?? '알 수 없음') : '지난 대화'}</span>
+            <span className="chat-quote-text truncate">
+                {quoted ? preview(quoted) : '원본을 찾지 못했습니다'}
+            </span>
+        </button>
+    );
+
     return (
-        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}>
+        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}
+             ref={rowRef}
+             onTouchStart={onTouchStart} onTouchMove={onTouchMove}
+             onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
             {!mine && (
                 <div className="chat-avatar">
                     {!grouped && <Avatar name={who?.name} url={who?.avatar_url} />}
@@ -609,6 +811,7 @@ function Bubble({
                 {!mine && !grouped && (
                     <span className="xs faint chat-who">{who?.name ?? '알 수 없음'}</span>
                 )}
+                {quote}
                 <div className="chat-line">
                     {message.image_url
                         // 사진은 말풍선 없이 그 자체로 보여 준다. 눌러서 원본을
@@ -618,16 +821,46 @@ function Bubble({
                               <img className="chat-image" src={message.image_url}
                                    alt="보낸 사진" loading="lazy" onLoad={onImageLoad} />
                           </a>
-                        : <div className="chat-bubble">{message.body}</div>}
+                        : <div className="chat-bubble">
+                              <Body text={message.body} names={mentionNames} me={myName} />
+                          </div>}
                     {showTime && (
                         <span className="chat-time">{formatTime(message.created_at)}</span>
                     )}
                 </div>
                 {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다. */}
                 {message.image_url && message.body && (
-                    <div className="chat-bubble">{message.body}</div>
+                    <div className="chat-bubble">
+                        <Body text={message.body} names={mentionNames} me={myName} />
+                    </div>
                 )}
             </div>
+
+            {/* 밀면 드러나는 답장 표. 손가락이 없는 기기에서는 말풍선 위에
+                손을 얹으면 나온다 — PC로도 답장할 수 있어야 한다. */}
+            <button className="chat-reply-btn" aria-label="답장"
+                    onClick={() => onReply(message)}>
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10 9V5l-7 7 7 7v-4c5 0 8 1.5 10 5-1-5-4-10-10-11z" />
+                </svg>
+            </button>
         </div>
+    );
+}
+
+/** 글 한 덩어리. `@이름`만 도드라지게 그린다. */
+function Body({ text, names, me }: { text: string; names: string[]; me: string }) {
+    const pieces = splitMentions(text, names);
+    if (pieces.length === 1 && !pieces[0].name) return <>{text}</>;
+    return (
+        <>
+            {pieces.map((p, i) =>
+                p.name
+                    // 나를 부른 것은 더 눈에 띄어야 한다. 대화가 길어지면
+                    // 내 이름만 찾게 되기 때문이다.
+                    ? <span key={i} className={`mention${p.name === me ? ' me' : ''}`}>{p.text}</span>
+                    : <span key={i}>{p.text}</span>)}
+        </>
     );
 }

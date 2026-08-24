@@ -85,6 +85,10 @@
     gap: 7px;
     align-items: flex-start;
     margin-top: 10px;
+    /* 밀어서 답장. **세로 스크롤은 브라우저에 그대로 맡긴다** —
+       가로만 우리가 집는다(Chat.tsx의 손짓 코드 참고). */
+    touch-action: pan-y;
+    position: relative;
 }
 .chat-row.grouped { margin-top: 2px; }
 .chat-row.mine { justify-content: flex-end; }
@@ -161,15 +165,22 @@
     white-space: nowrap;
 }
 
+/* 입력칸 상자. 인용(답장)과 언급 목록이 그 줄 **위에** 쌓이므로
+   세로 상자이고, 사진·글칸·보내기는 `.chat-bar` 한 줄로 묶여 있다. */
 .chat-input {
     flex: 0 0 auto;
     display: flex;
-    gap: var(--gap-sm);
-    align-items: flex-end;
+    flex-direction: column;
+    gap: var(--gap-xs);
     padding: var(--gap-sm) var(--gap)
              calc(var(--tabbar-h) + var(--safe-b) + var(--gap-sm));
     border-top: 1px solid var(--line);
     background: var(--bg);
+}
+.chat-bar {
+    display: flex;
+    gap: var(--gap-sm);
+    align-items: flex-end;
 }
 /* 입력칸은 낮게. 예전엔 44px + 여백이라 카톡(33px)보다 한참 높았고,
    그만큼 대화가 줄었다. 글자는 16px 아래로 못 내린다 — 그보다 작으면
@@ -294,3 +305,115 @@ body.kb-open .chat-input {
 }
 /* 입력칸이 흐름에서 빠졌으니 목록이 그 아래로 숨지 않게 자리를 비운다. */
 body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap-sm)); }
+
+/* ── 답장 ────────────────────────────────────────────────────
+   카톡처럼 **말풍선을 왼쪽으로 밀면** 답장이 걸린다. 손짓은 Chat.tsx가
+   집고, 여기서는 밀린 만큼 드러나는 화살표만 그린다. */
+
+.chat-reply-btn {
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    width: 30px;
+    height: 30px;
+    margin-top: -15px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--surface-3);
+    color: var(--text-dim);
+    /* 평소에는 없는 것과 같다. 미는 만큼 --swipe가 오른다(Chat.tsx). */
+    opacity: var(--swipe, 0);
+    pointer-events: none;
+}
+.chat-reply-btn svg { width: 15px; height: 15px; stroke: currentColor; }
+
+/* **손가락이 없는 기기**에서는 말풍선에 손을 얹으면 나온다 —
+   미는 손짓이 없는 PC에서도 답장할 수 있어야 한다. */
+@media (hover: hover) {
+    .chat-row:hover .chat-reply-btn { opacity: 1; pointer-events: auto; }
+}
+
+/* 인용. 말풍선 위에 붙는 작은 조각이라 글자를 한 단계 낮춘다. */
+.chat-quote {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    align-items: flex-start;
+    /* 글 길이만큼만. 안 주면 `.chat-col`이 늘려서 짧은 인용도 통째로
+       한 줄을 차지한다. */
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 4px 9px;
+    border-radius: 11px;
+    border-left: 3px solid var(--line);
+    background: var(--surface-3);
+    text-align: left;
+    color: var(--text-dim);
+}
+.chat-row.mine .chat-quote {
+    align-items: flex-end;
+    align-self: flex-end;
+    border-left: 0;
+    border-right: 3px solid #edc82c;
+}
+.chat-quote-who { font-size: 11px; font-weight: 800; color: var(--text-dim); }
+.chat-quote-text { font-size: 12px; max-width: 100%; }
+.chat-quote:disabled { opacity: 0.7; }
+
+/* 인용을 눌러 원본으로 갔을 때 어디인지 알려 주는 한 번짜리 깜빡임.
+   무한 애니메이션이 아니라 1.3초에 한 번 돌고 끝난다. */
+@keyframes chat-flash {
+    0%, 100% { background: transparent; }
+    25%      { background: var(--warn-soft); }
+}
+.flash { animation: chat-flash 1.3s ease; border-radius: 12px; }
+
+/* 입력칸 위에 물려 두는 답장 인용. */
+.reply-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 6px 11px;
+    border-radius: var(--r-sm);
+    border-left: 3px solid var(--brand);
+    background: var(--surface-2);
+}
+.reply-x {
+    flex: 0 0 auto;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    color: var(--text-faint);
+    font-size: 13px;
+}
+
+/* ── 언급 ────────────────────────────────────────────────────
+   `@`를 치면 입력칸 위에 뜨는 명단. 여섯 명까지만 보이고 그 위는
+   굴려서 본다 — 모임이 서른 명이라 다 늘어놓으면 화면을 덮는다. */
+
+.mention-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 190px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+.mention-item {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 8px 11px;
+    text-align: left;
+    font-weight: 700;
+}
+.mention-item + .mention-item { border-top: 1px solid var(--line); }
+.mention-item:active { background: var(--surface-2); }
+
+/* 글 안의 `@이름`. 나를 부른 것은 분홍으로 더 세운다 —
+   대화가 길어지면 사람들이 자기 이름만 찾는다. */
+.mention { font-weight: 800; color: var(--info); }
+.mention.me { color: var(--brand); background: var(--brand-soft); border-radius: 5px; }

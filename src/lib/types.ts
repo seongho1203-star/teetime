@@ -163,6 +163,8 @@ export type Message = {
     body: string;
     /** 함께 보낸 사진의 공개 주소. 사진이 없으면 null. */
     image_url: string | null;
+    /** 답장이면 원본 글의 id. 원본이 지워지면 null이 된다. */
+    reply_to: string | null;
     created_at: string;
 };
 

@@ -477,12 +477,17 @@ create table if not exists messages (
     room_id    uuid not null references rooms on delete cascade,
     user_id    uuid references profiles on delete set null,
     body       text not null,
+    -- 어느 글에 답한 것인가. 카톡의 '답장'이다. 원본이 지워져도 답장은
+    -- 남아야 하므로 `set null`이다 — 인용만 '지워진 메시지'가 된다.
+    reply_to   uuid references messages on delete set null,
     created_at timestamptz not null default now()
 );
 
 -- 사진 한 장을 함께 보낼 수 있다. 파일은 Storage에 있고 여기에는 주소만
 -- 남는다. 사진만 보내면 body는 빈 글자다 (not null이라 빈 글자로 넣는다).
 alter table messages add column if not exists image_url text;
+-- ⚠️ 위 정의는 처음 만들 때만 먹는다. 이미 있는 표에는 이 줄이 있어야 한다.
+alter table messages add column if not exists reply_to uuid references messages on delete set null;
 
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
 

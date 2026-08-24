@@ -106,6 +106,11 @@ export const messages = [
     { id: 'm3', room_id: 'room1', user_id: uid(1), body: '좋습니다. 6시 30분 동광주 IC 앞에서 봬요', created_at: iso(0, 8, 5) },
     { id: 'm4', room_id: 'room1', user_id: uid(1), body: '카풀 필요하신 분 있으면 알려 주세요', created_at: iso(0, 8, 6) },
     { id: 'm5', room_id: 'room1', user_id: uid(4), body: '저 한 자리 부탁드립니다', created_at: iso(0, 9, 30) },
+    // 답장 한 건과 언급 한 건. 인용 조각과 `@이름` 색을 눈으로 보려고 둔다.
+    { id: 'm7', room_id: 'room1', user_id: ME, body: '@박승수 자리 있습니다. 오세요!',
+      reply_to: 'm5', created_at: iso(0, 9, 32) },
+    { id: 'm8', room_id: 'room1', user_id: uid(4), body: '@신성호 감사합니다 🙏',
+      reply_to: 'm7', created_at: iso(0, 9, 33) },
     // 사진 말풍선 확인용. 바깥으로 요청이 나가지 않게 data URI로 둔다.
     { id: 'm6', room_id: 'room1', user_id: uid(2), body: '어제 18번 홀',
       image_url: 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22640%22%20height=%22420%22%3E%3Crect%20width=%22640%22%20height=%22420%22%20fill=%22%232c7a52%22/%3E%3Ccircle%20cx=%22500%22%20cy=%2290%22%20r=%2245%22%20fill=%22%23f6e27a%22/%3E%3Cpath%20d=%22M0%20320%20L200%20220%20L380%20320%20L640%20200%20L640%20420%20L0%20420Z%22%20fill=%22%231d5a3a%22/%3E%3C/svg%3E', created_at: iso(0, 9, 40) },
