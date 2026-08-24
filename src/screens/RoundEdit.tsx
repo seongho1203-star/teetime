@@ -58,7 +58,6 @@ function Form({
 }) {
     const [kind, setKind] = useState<RoundKind>(round ? roundKind(round) : 'field');
     const [course, setCourse] = useState(round?.course ?? '');
-    const [title, setTitle] = useState(round?.title ?? '');
     const [teeAt, setTeeAt] = useState(toKstInput(round?.tee_at));
     const [capacity, setCapacity] = useState(String(round?.capacity ?? 4));
     const [fee, setFee] = useState(String(round?.fee ?? 0));
@@ -86,10 +85,13 @@ function Form({
         const cap = parseInt(capacity, 10);
         if (!cap || cap < 1) { toast('정원은 1명 이상이어야 합니다.', 'error'); return; }
 
+        /* **`title`은 보내지 않는다.** 적는 칸을 없앴기 때문이다 —
+           `안내`와 하는 일이 겹쳤다. 칸은 DB에 그대로 두고 화면도 계속
+           읽는다(`course || title`): 예전에 적어 둔 한 줄이 사라지면
+           안 되고, update에서 빼면 그 값이 그대로 살아남는다. */
         const payload = {
             kind,
             course: course.trim(),
-            title: title.trim(),
             tee_at: tee,
             capacity: cap,
             fee: parseInt(fee, 10) || 0,
@@ -192,14 +194,6 @@ function Form({
                         </div>
                     </div>
                 )}
-
-                <div className="field">
-                    <label htmlFor="f-title">한 줄 설명 <span className="faint">(선택)</span></label>
-                    <input id="f-title" className="input" value={title}
-                           onChange={e => setTitle(e.target.value)}
-                           placeholder={screen ? '예) 금요일 저녁 스크린' : '예) 8월 정기 라운드'}
-                           maxLength={60} />
-                </div>
 
                 <div className="field">
                     <label htmlFor="f-tee">{TEE_LABEL[kind]} (한국 시각)</label>
