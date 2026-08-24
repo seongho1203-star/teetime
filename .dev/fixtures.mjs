@@ -90,6 +90,11 @@ export const poll_votes = [
     { id: 'v6', poll_id: 'p2', option_id: 'o4', user_id: uid(2), created_at: iso(-29) },
 ];
 
+export const poll_comments = [
+    { id: 'pc1', poll_id: 'p1', author_id: uid(3), body: '13일이 제일 좋습니다', created_at: iso(-1) },
+    { id: 'pc2', poll_id: 'p1', author_id: uid(4), body: '저는 6일도 괜찮아요~', created_at: iso(-1) },
+];
+
 export const posts = [
     { id: 'b1', title: '9월 회비 안내', pinned: true, author_id: uid(1),
       body: '9월 회비는 8월 31일까지 입금 부탁드립니다.\n\n국민 123456-78-901234 (신성호)\n금액: 50,000원',
@@ -133,5 +138,5 @@ export const push_subscriptions = [
 
 export const tables = {
     profiles, rounds, signups, polls, poll_options, poll_votes,
-    posts, post_comments, rooms, messages, push_subscriptions,
+    poll_comments, posts, post_comments, rooms, messages, push_subscriptions,
 };

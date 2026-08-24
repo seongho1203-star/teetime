@@ -154,6 +154,15 @@ export type PollVote = {
     created_at: string;
 };
 
+/** 투표에 달린 댓글. `PostComment`와 같은 모양이다. */
+export type PollComment = {
+    id: string;
+    poll_id: string;
+    author_id: string | null;
+    body: string;
+    created_at: string;
+};
+
 export type Post = {
     id: string;
     title: string;
@@ -220,6 +229,7 @@ export interface Database {
             polls: Table<Poll>;
             poll_options: Table<PollOption>;
             poll_votes: Table<PollVote>;
+            poll_comments: Table<PollComment>;
             posts: Table<Post>;
             post_comments: Table<PostComment>;
             rooms: Table<Room>;

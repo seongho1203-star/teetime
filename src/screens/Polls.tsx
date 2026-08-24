@@ -103,7 +103,7 @@ function votersLine(list: string[]): string {
  * 생기므로 여기 하나로 둔다.
  */
 export function PollOptions({
-    poll, options, votes, names, me, onChange, full,
+    poll, options, votes, names, me, onChange, hideVoters,
 }: {
     poll: Poll;
     options: PollOption[];
@@ -111,7 +111,8 @@ export function PollOptions({
     names: Record<string, Profile>;
     me: string;
     onChange: () => void;
-    full?: boolean;
+    /** 상세에서는 이름을 여기 안 적는다 — 아래 `현황` 탭이 그 일을 한다. */
+    hideVoters?: boolean;
 }) {
     const toast = useToast();
     const closed = pollClosed(poll);
@@ -121,7 +122,7 @@ export function PollOptions({
        표를 받은 항목에만 붙이면 그 줄만 키가 커져 칸들이 들쭉날쭉해진다.
        한 표라도 들어온 뒤에 모든 항목에 자리를 잡아 준다 — 아무도 안
        골랐을 때까지 빈 줄을 깔면 새 투표가 괜히 길어진다. */
-    const showVoters = !poll.anonymous && votes.length > 0;
+    const showVoters = !poll.anonymous && votes.length > 0 && !hideVoters;
 
     const pick = async (optionId: string) => {
         if (closed) return;
@@ -150,13 +151,11 @@ export function PollOptions({
                         <span className="poll-bar" style={{ width: `${pct}%` }} aria-hidden="true" />
                         <span className="poll-option-body">
                             <span className="poll-check" aria-hidden="true">{chosen ? '✓' : ''}</span>
-                            <span className={`grow${full ? '' : ' truncate'}`}>{o.label}</span>
+                            <span className="grow truncate">{o.label}</span>
                             <span className="poll-count">{on.length}</span>
                         </span>
                         {showVoters && (
-                            <span className={`poll-voters${full ? ' all' : ' truncate'}`}>
-                                {full ? who.join(', ') : votersLine(who)}
-                            </span>
+                            <span className="poll-voters truncate">{votersLine(who)}</span>
                         )}
                     </button>
                 );

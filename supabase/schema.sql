@@ -460,6 +460,20 @@ create table if not exists post_comments (
 );
 
 
+-- 투표에도 댓글을 단다. `post_comments`와 같은 모양이다 — 하나로 합쳐
+-- `target_type` 같은 칸을 두는 길도 있지만, 그러면 외래키가 느슨해지고
+-- 정책이 복잡해진다. 표 하나가 더 생기는 편이 싸다.
+create table if not exists poll_comments (
+    id         uuid primary key default gen_random_uuid(),
+    poll_id    uuid not null references polls on delete cascade,
+    author_id  uuid references profiles on delete set null,
+    body       text not null,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists poll_comments_poll_idx on poll_comments (poll_id, created_at);
+
+
 -- ═══ 6. 채팅 ═══════════════════════════════════════════════════
 --
 -- 카톡 오픈톡을 대신하는 자리다. 다만 중요한 것(라운드·투표·공지)은
@@ -516,6 +530,7 @@ alter table poll_options  enable row level security;
 alter table poll_votes    enable row level security;
 alter table posts         enable row level security;
 alter table post_comments enable row level security;
+alter table poll_comments enable row level security;
 alter table rooms         enable row level security;
 alter table messages      enable row level security;
 
@@ -635,6 +650,16 @@ create policy comments_add   on post_comments for insert with check (is_member()
 create policy comments_own   on post_comments for delete using (author_id = auth.uid());
 create policy comments_admin on post_comments for all    using (is_admin()) with check (is_admin());
 
+-- poll_comments — 공지 댓글과 같은 규칙이다.
+drop policy if exists poll_comments_read on poll_comments;
+drop policy if exists poll_comments_add on poll_comments;
+drop policy if exists poll_comments_own on poll_comments;
+drop policy if exists poll_comments_admin on poll_comments;
+create policy poll_comments_read  on poll_comments for select using (is_member());
+create policy poll_comments_add   on poll_comments for insert with check (is_member() and author_id = auth.uid());
+create policy poll_comments_own   on poll_comments for delete using (author_id = auth.uid());
+create policy poll_comments_admin on poll_comments for all    using (is_admin()) with check (is_admin());
+
 -- chat -------------------------------------------------------
 drop policy if exists rooms_read on rooms;
 drop policy if exists rooms_write on rooms;
@@ -733,7 +758,7 @@ declare t text;
 begin
     foreach t in array array[
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
-        'posts', 'post_comments', 'profiles'
+        'posts', 'post_comments', 'poll_comments', 'profiles'
     ] loop
         if not exists (
             select 1 from pg_publication_tables

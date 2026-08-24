@@ -19,28 +19,53 @@
 .poll-title-link .chev { flex: 0 0 auto; color: var(--text-faint); }
 .poll-title-link:active .poll-title { color: var(--brand); }
 
-/* 상세에서는 이름을 한 줄로 접지 않고 다 편다. */
-.poll-voters.all { white-space: normal; line-height: 1.55; }
-
-/* 아직 표를 안 던진 사람. 이름표를 죽 늘어놓는다 —
-   서른 명이 되어도 줄바꿈으로 흘러가고 카드가 알아서 길어진다. */
-.yet-list {
+/* ── 투표 현황의 탭 (항목별 · 멤버별 · 미참여) ──────────────────
+   사람이 서른을 넘으면 한 가지 배열로는 못 본다. 켜진 탭은 아래 선으로
+   알린다 — 알약으로 칠하면 이 화면의 분홍(보내기·등록)과 부딪힌다. */
+.tabs {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--gap-xs);
+    border-bottom: 1px solid var(--line);
+    margin: -2px -14px 4px;
+    padding: 0 14px;
 }
-.yet-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    padding: 3px 10px 3px 3px;
-    border-radius: var(--r-pill);
-    background: var(--surface-2);
+.tab-btn {
+    flex: 1;
+    padding: 9px 4px;
     font-size: var(--fs-sm);
     font-weight: 700;
-    color: var(--text-dim);
+    color: var(--text-faint);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    white-space: nowrap;
 }
+.tab-btn.on { color: var(--text); border-bottom-color: var(--brand); }
+
+/* 항목 하나와 그걸 고른 사람들. */
+.tally + .tally { border-top: 1px solid var(--line); padding-top: 10px; }
+.tally-head { font-size: var(--fs); font-weight: 800; margin-bottom: 6px; }
+
+/* 얼굴+이름을 두 칸으로. 서른 명이 되어도 줄로 흘러간다. */
+.people-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px var(--gap-sm);
+}
+.people-cell {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+/* 멤버별 — 누가 무엇을 골랐나. 한 사람이 한 줄이다. */
+.member-pick {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 0;
+}
+.member-pick + .member-pick { border-top: 1px solid var(--line); }
+.member-pick .grow { text-align: right; }
 
 .poll-options {
     display: flex;
