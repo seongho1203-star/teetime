@@ -23,17 +23,4 @@
     word-break: break-word;
 }
 
-.comment {
-    display: flex;
-    gap: var(--gap-sm);
-    padding: 10px 0;
-}
-.comment + .comment { border-top: 1px solid var(--line); }
-.comment-body { white-space: pre-wrap; line-height: 1.6; word-break: break-word; }
-
-.comment-form {
-    display: flex;
-    gap: var(--gap-sm);
-    align-items: flex-end;
-}
-.comment-form .textarea { min-height: 44px; max-height: 140px; }
+/* 댓글 칸(`.comment*`)은 공지와 투표가 함께 쓰므로 global.css에 있다. */

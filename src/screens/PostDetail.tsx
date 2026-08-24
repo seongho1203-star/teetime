@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
@@ -9,6 +8,7 @@ import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
+import { CommentForm } from '../components/CommentForm';
 import { readableError } from '../lib/errors';
 import './Board.css';
 
@@ -25,8 +25,6 @@ export function PostDetail() {
     const nav = useNavigate();
     const toast = useToast();
     const confirm = useConfirm();
-    const [draft, setDraft] = useState('');
-    const [sending, setSending] = useState(false);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         const [post, comments, people] = await Promise.all([
@@ -56,16 +54,12 @@ export function PostDetail() {
     const names = byId(data.people);
     const canEdit = isAdmin || post.author_id === me;
 
-    const addComment = async () => {
-        const body = draft.trim();
-        if (!body) return;
-        setSending(true);
+    const addComment = async (body: string) => {
         const { error: err } = await supabase.from('post_comments')
             .insert({ post_id: post.id, author_id: me, body });
-        setSending(false);
-        if (err) { toast(readableError(err), 'error'); return; }
-        setDraft('');
+        if (err) { toast(readableError(err), 'error'); return false; }
         reload();
+        return true;
     };
 
     const removeComment = async (c: PostComment) => {
@@ -155,18 +149,7 @@ export function PostDetail() {
                     );
                 })}
 
-                <div className="comment-form">
-                    <textarea
-                        className="textarea grow" value={draft}
-                        onChange={e => setDraft(e.target.value)}
-                        placeholder="댓글 남기기" rows={1} maxLength={500}
-                        aria-label="댓글 입력"
-                    />
-                    <button className="btn primary" onClick={addComment}
-                            disabled={sending || !draft.trim()}>
-                        등록
-                    </button>
-                </div>
+                <CommentForm onSubmit={addComment} />
             </div>
         </div>
     );
