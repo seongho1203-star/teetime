@@ -53,9 +53,9 @@ interface Note {
      */
     channel?: 'chat';
     /**
-     * 갈래를 껐어도 이 사람들에게는 보낸다. `@언급`이 그렇다 —
-     * 부르는 것은 '알아 두라'가 아니라 '지금 봐 달라'라서, 그것까지
-     * 막히면 부를 이유가 없어진다.
+     * 갈래를 껐어도 이 사람들에게는 보낸다. `@언급`과 **내 글에 달린
+     * 답장**이 그렇다 — 한 사람을 콕 집은 글은 '알아 두라'가 아니라
+     * '지금 봐 달라'라서, 그것까지 막히면 부르거나 답할 이유가 없어진다.
      */
     always?: string[];
 }
@@ -95,6 +95,28 @@ async function mentionedIds(body: unknown): Promise<string[]> {
     return list.filter(p => called.has(String(p.name))).map(p => p.id as string);
 }
 
+/** 답장이면 원본을 쓴 사람. 답장이 아니거나 원본이 지워졌으면 null. */
+async function repliedAuthor(replyTo: unknown): Promise<string | null> {
+    if (typeof replyTo !== 'string' || !replyTo) return null;
+    const { data } = await db.from('messages')
+        .select('user_id').eq('id', replyTo).maybeSingle();
+    return (data?.user_id as string) ?? null;
+}
+
+/**
+ * 대화 알림을 꺼 두었어도 받아야 할 사람들.
+ *
+ * 둘 다 **한 사람을 콕 집은 글**이라 같이 다룬다 — 이름을 부른 것과
+ * 내 글에 답장이 달린 것. 나머지 잡담과 달리 '지금 봐 달라'는 신호라,
+ * 이것까지 막히면 부르거나 답할 이유가 없어진다.
+ */
+async function alwaysFor(r: Record<string, unknown>): Promise<string[]> {
+    const ids = new Set(await mentionedIds(r.body));
+    const replied = await repliedAuthor(r.reply_to);
+    if (replied) ids.add(replied);
+    return [...ids];
+}
+
 async function planFor(hook: Hook): Promise<Note | null> {
     const r = hook.record ?? {};
 
@@ -114,7 +136,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
             url: '#/chat',
             except: typeof r.user_id === 'string' ? r.user_id : null,
             channel: 'chat',
-            always: await mentionedIds(r.body),
+            always: await alwaysFor(r),
         };
     }
 
