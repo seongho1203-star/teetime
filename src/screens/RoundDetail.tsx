@@ -62,8 +62,10 @@ export function RoundDetail() {
     const openSlots = Math.max(0, r.capacity - confirmed.length);
 
     const isPast = daysUntil(r.tee_at) < 0;
-    const notYet = r.opens_at ? new Date(r.opens_at) > new Date() : false;
-    const canSignUp = r.status === 'open' && !isPast && !notYet;
+    /* **`opens_at`은 더 안 본다.** `신청 시작` 칸을 없앴으므로 새로 정할
+       길이 없는데, 예전에 적힌 값이 남아 있으면 풀 방법도 없이 신청이
+       잠긴 채로 굳는다. DB의 칸은 기록으로 남겨 두고 화면만 무시한다. */
+    const canSignUp = r.status === 'open' && !isPast;
 
     /* 신청 ─ 정원 계산은 DB(join_round)가 한다. 여기서 세지 않는다. */
     const join = async () => {
@@ -162,7 +164,6 @@ export function RoundDetail() {
                                 {ddayLabel(r.tee_at)}
                               </span>}
                     {r.status === 'closed' && <span className="badge dim">모집 마감</span>}
-                    {notYet && <span className="badge wait">신청 대기</span>}
                 </div>
                 <h2>{r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}</h2>
                 {r.title && r.course && <div className="sm dim">{r.title}</div>}
@@ -203,12 +204,6 @@ export function RoundDetail() {
                     </>
                 )}
             </dl>
-
-            {notYet && (
-                <div className="notice warn">
-                    {formatFullDate(r.opens_at!)} {formatTime(r.opens_at!)}부터 신청할 수 있습니다.
-                </div>
-            )}
 
             {/* 흰 카드가 이어지면 안내가 묻힌다. 모이는 곳·계좌처럼 **꼭
                 읽어야 할 줄**이라 노란 쪽지처럼 띄운다 — 공지가 노랑인 것과
@@ -279,7 +274,7 @@ export function RoundDetail() {
                             disabled={busy || !canSignUp}
                         >
                             {!canSignUp
-                                ? (notYet ? '아직 신청 전' : '신청 마감')
+                                ? '신청 마감'
                                 : openSlots > 0 ? '참가 신청' : '대기 신청'}
                         </button>
                     )}

@@ -168,7 +168,7 @@ body::before {
 
 /* ── 입력 ────────────────────────────────────────────────── */
 
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
 
 .field > label {
     font-size: var(--fs-sm);
@@ -178,7 +178,7 @@ body::before {
 
 .input, .textarea, .select {
     width: 100%;
-    padding: 12px 14px;
+    padding: 9px 13px;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
@@ -188,7 +188,7 @@ body::before {
     transition: border-color 0.12s ease;
 }
 .input:focus, .textarea:focus, .select:focus { border-color: var(--brand-deep); }
-.textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
+.textarea { resize: vertical; min-height: 74px; line-height: 1.5; }
 
 /* **한 줄짜리 칸은 높이를 못박는다.**
    내버려 두면 종류마다 높이가 달라진다 — 특히 iOS 사파리는 날짜·시각 칸을
@@ -341,7 +341,7 @@ body::before {
     align-items: center;
     justify-content: center;
     gap: 7px;
-    padding: 11px 10px;
+    padding: 9px 10px;
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
     background: var(--surface-2);

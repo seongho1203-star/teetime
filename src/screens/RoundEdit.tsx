@@ -64,7 +64,6 @@ function Form({
     const [note, setNote] = useState(round?.note ?? '');
     const [caddie, setCaddie] = useState<Round['caddie']>(round?.caddie ?? null);
     const [cart, setCart] = useState<Round['cart']>(round?.cart ?? null);
-    const [opensAt, setOpensAt] = useState(toKstInput(round?.opens_at));
     const [saving, setSaving] = useState(false);
     const [picking, setPicking] = useState(false);
 
@@ -85,10 +84,9 @@ function Form({
         const cap = parseInt(capacity, 10);
         if (!cap || cap < 1) { toast('정원은 1명 이상이어야 합니다.', 'error'); return; }
 
-        /* **`title`은 보내지 않는다.** 적는 칸을 없앴기 때문이다 —
-           `안내`와 하는 일이 겹쳤다. 칸은 DB에 그대로 두고 화면도 계속
-           읽는다(`course || title`): 예전에 적어 둔 한 줄이 사라지면
-           안 되고, update에서 빼면 그 값이 그대로 살아남는다. */
+        /* **`title`과 `opens_at`은 보내지 않는다.** 적는 칸을 없앴기
+           때문이다 — `title`은 `안내`와 하는 일이 겹쳤고, `신청 시작`은
+           우리 모임 규모에 쓸 일이 없었다. 칸은 DB에 그대로 둔다. */
         const payload = {
             kind,
             course: course.trim(),
@@ -101,7 +99,6 @@ function Form({
             // 하면 값이 남아 상세에 조건이 그대로 뜬다.
             caddie: screen ? null : caddie,
             cart:   screen ? null : cart,
-            opens_at: fromKstInput(opensAt),
             // **좌표는 이름에서 찾아 함께 넣는다.** 사람에게 위도·경도를
             // 치라고 할 수는 없다. 목록에 없는 곳이면 비워 두고, 그때는
             // 날씨칸만 빠진다. 스크린은 실내라 아예 안 붙인다.
@@ -215,21 +212,9 @@ function Form({
                                onChange={e => setFee(e.target.value)} />
                     </div>
                 </div>
-            </div>
 
-            <div className="card">
-                <div className="field">
-                    <label htmlFor="f-opens">
-                        신청 시작 <span className="faint">(선택)</span>
-                    </label>
-                    <input id="f-opens" className="input" type="datetime-local"
-                           value={opensAt} onChange={e => setOpensAt(e.target.value)} />
-                    <p className="xs faint" style={{ lineHeight: 1.6 }}>
-                        비워 두면 지금부터 바로 받습니다. 시각을 정해 두면 그때까지
-                        신청 버튼이 잠기므로, 인기 있는 라운드를 같은 출발선에서 받을 수 있습니다.
-                    </p>
-                </div>
-
+                {/* `신청 시작`을 없애면서 남은 `안내`를 이 카드로 합쳤다 —
+                    칸 하나만 든 카드는 여백만 차지한다. */}
                 <div className="field">
                     <label htmlFor="f-note">안내 <span className="faint">(선택)</span></label>
                     <textarea id="f-note" className="textarea" value={note}
