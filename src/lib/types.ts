@@ -116,6 +116,17 @@ export type Signup = {
     created_at: string;
 };
 
+/**
+ * 마감된 투표인가. 손으로 마감했거나 마감 시각이 지났으면 끝난 것이다.
+ * **목록·상세·탭 숫자가 같은 잣대를 써야 한다** — 한 곳만 고치면 목록에는
+ * 진행중인데 눌러 들어가면 마감인 일이 생긴다. (`roundKind`와 같은 이유로
+ * 화면이 아니라 여기 둔다 — 화면 파일에서 함수를 내보내면 fast refresh가
+ * 깨진다는 경고도 함께 붙었다.)
+ */
+export function pollClosed(p: Pick<Poll, 'closed' | 'closes_at'>): boolean {
+    return p.closed || (p.closes_at !== null && new Date(p.closes_at) < new Date());
+}
+
 export type Poll = {
     id: string;
     title: string;

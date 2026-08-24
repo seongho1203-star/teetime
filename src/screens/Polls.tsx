@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
-import type { Poll, PollOption, PollVote, Profile } from '../lib/types';
+import { pollClosed, type Poll, type PollOption, type PollVote, type Profile } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { useConfirm } from '../components/Confirm';
@@ -43,8 +43,8 @@ export function Polls() {
     }
 
     const polls = data?.polls ?? [];
-    const live = polls.filter(p => !isClosed(p));
-    const done = polls.filter(p => isClosed(p));
+    const live = polls.filter(p => !pollClosed(p));
+    const done = polls.filter(p => pollClosed(p));
 
     return (
         <div className="page">
@@ -78,10 +78,7 @@ export function Polls() {
     );
 }
 
-const isClosed = (p: Poll) =>
-    p.closed || (p.closes_at !== null && new Date(p.closes_at) < new Date());
-
-/** 이름을 몇까지 적고 나머지는 세어 줄지. 한 줄에 들어갈 만큼만. */
+/** 목록 카드에서 이름을 몇까지 적고 나머지는 세어 줄지. 한 줄에 들어갈 만큼만. */
 const NAMES_SHOWN = 3;
 
 /**
@@ -90,11 +87,82 @@ const NAMES_SHOWN = 3;
  * 이 줄은 한 줄로 잘리는데(`.truncate`), 그냥 두면 `정우…`에서 끝나
  * **몇 명인지도 모른다.** 우리 모임이 서른 명 남짓이라 실제로 그렇게 된다.
  * 앞의 몇만 적고 나머지는 수로 알려 준다.
+ * **전부 보고 싶으면 제목을 눌러 상세로 간다**(`PollDetail`).
  */
 function votersLine(list: string[]): string {
     return list.length <= NAMES_SHOWN
         ? list.join(', ')
         : `${list.slice(0, NAMES_SHOWN).join(', ')} 외 ${list.length - NAMES_SHOWN}명`;
+}
+
+/**
+ * 항목 목록 + 표 던지기. **목록 카드와 상세가 같이 쓴다.**
+ *
+ * 다른 것은 이름을 어디까지 적느냐뿐이다 — 카드는 한 줄로 접고(`외 N명`),
+ * 상세(`full`)는 다 편다. 투표하는 길이 두 벌이 되면 한쪽만 고치는 일이
+ * 생기므로 여기 하나로 둔다.
+ */
+export function PollOptions({
+    poll, options, votes, names, me, onChange, full,
+}: {
+    poll: Poll;
+    options: PollOption[];
+    votes: PollVote[];
+    names: Record<string, Profile>;
+    me: string;
+    onChange: () => void;
+    full?: boolean;
+}) {
+    const toast = useToast();
+    const closed = pollClosed(poll);
+    const voters = new Set(votes.map(v => v.user_id)).size;
+    const mine = new Set(votes.filter(v => v.user_id === me).map(v => v.option_id));
+    /* **누가 골랐는지 줄은 항목마다 다 있거나 다 없어야 한다.**
+       표를 받은 항목에만 붙이면 그 줄만 키가 커져 칸들이 들쭉날쭉해진다.
+       한 표라도 들어온 뒤에 모든 항목에 자리를 잡아 준다 — 아무도 안
+       골랐을 때까지 빈 줄을 깔면 새 투표가 괜히 길어진다. */
+    const showVoters = !poll.anonymous && votes.length > 0;
+
+    const pick = async (optionId: string) => {
+        if (closed) return;
+        const err = mine.has(optionId)
+            ? (await supabase.rpc('retract_vote', { p_option: optionId })).error
+            : (await supabase.rpc('cast_vote', { p_option: optionId })).error;
+        if (err) { toast(readableError(err), 'error'); return; }
+        onChange();
+    };
+
+    return (
+        <div className="poll-options">
+            {options.map(o => {
+                const on = votes.filter(v => v.option_id === o.id);
+                const pct = voters ? Math.round((on.length / voters) * 100) : 0;
+                const chosen = mine.has(o.id);
+                const who = on.map(v => names[v.user_id]?.name ?? '?');
+                return (
+                    <button
+                        key={o.id}
+                        className={`poll-option${chosen ? ' chosen' : ''}`}
+                        onClick={() => pick(o.id)}
+                        disabled={closed}
+                    >
+                        {/* 막대는 배경으로 깔린다 — 글자를 밀지 않는다. */}
+                        <span className="poll-bar" style={{ width: `${pct}%` }} aria-hidden="true" />
+                        <span className="poll-option-body">
+                            <span className="poll-check" aria-hidden="true">{chosen ? '✓' : ''}</span>
+                            <span className={`grow${full ? '' : ' truncate'}`}>{o.label}</span>
+                            <span className="poll-count">{on.length}</span>
+                        </span>
+                        {showVoters && (
+                            <span className={`poll-voters${full ? ' all' : ' truncate'}`}>
+                                {full ? who.join(', ') : votersLine(who)}
+                            </span>
+                        )}
+                    </button>
+                );
+            })}
+        </div>
+    );
 }
 
 function PollCard({
@@ -112,25 +180,10 @@ function PollCard({
     const options = data.options.filter(o => o.poll_id === poll.id);
     const votes = data.votes.filter(v => v.poll_id === poll.id);
     const names = byId(data.people);
-    const closed = isClosed(poll);
+    const closed = pollClosed(poll);
 
     // 투표한 사람 수 (복수 선택이면 표 수와 다르다)
     const voters = new Set(votes.map(v => v.user_id)).size;
-    /* **누가 골랐는지 줄은 항목마다 다 있거나 다 없어야 한다.**
-       표를 받은 항목에만 붙이면 그 줄만 키가 커져 칸들이 들쭉날쭉해진다.
-       한 표라도 들어온 뒤에 모든 항목에 자리를 잡아 준다 — 아무도 안
-       골랐을 때까지 빈 줄을 깔면 새 투표가 괜히 길어진다. */
-    const showVoters = !poll.anonymous && votes.length > 0;
-    const mine = new Set(votes.filter(v => v.user_id === me).map(v => v.option_id));
-
-    const pick = async (optionId: string) => {
-        if (closed) return;
-        const err = mine.has(optionId)
-            ? (await supabase.rpc('retract_vote', { p_option: optionId })).error
-            : (await supabase.rpc('cast_vote', { p_option: optionId })).error;
-        if (err) { toast(readableError(err), 'error'); return; }
-        onChange();
-    };
 
     const close = async () => {
         const { error } = await supabase.from('polls').update({ closed: true }).eq('id', poll.id);
@@ -167,39 +220,19 @@ function PollCard({
                 <span className="xs faint">{timeAgo(poll.created_at)}</span>
             </div>
 
-            <div className="poll-title">{poll.title}</div>
+            {/* 제목을 누르면 상세로 간다 — 표를 던진 사람 **전부**와
+                아직 안 한 사람은 거기서 본다. 항목 칸을 누르는 것은
+                곧 투표라 그 자리에 겹칠 수가 없다. */}
+            <Link to={`/polls/${poll.id}`} className="poll-title-link">
+                <span className="poll-title grow">{poll.title}</span>
+                <span className="chev" aria-hidden="true">›</span>
+            </Link>
             {poll.body && (
                 <p className="sm dim" style={{ whiteSpace: 'pre-wrap' }}>{poll.body}</p>
             )}
 
-            <div className="poll-options">
-                {options.map(o => {
-                    const on = votes.filter(v => v.option_id === o.id);
-                    const pct = voters ? Math.round((on.length / voters) * 100) : 0;
-                    const chosen = mine.has(o.id);
-                    return (
-                        <button
-                            key={o.id}
-                            className={`poll-option${chosen ? ' chosen' : ''}`}
-                            onClick={() => pick(o.id)}
-                            disabled={closed}
-                        >
-                            {/* 막대는 배경으로 깔린다 — 글자를 밀지 않는다. */}
-                            <span className="poll-bar" style={{ width: `${pct}%` }} aria-hidden="true" />
-                            <span className="poll-option-body">
-                                <span className="poll-check" aria-hidden="true">{chosen ? '✓' : ''}</span>
-                                <span className="grow truncate">{o.label}</span>
-                                <span className="poll-count">{on.length}</span>
-                            </span>
-                            {showVoters && (
-                                <span className="poll-voters truncate">
-                                    {votersLine(on.map(v => names[v.user_id]?.name ?? '?'))}
-                                </span>
-                            )}
-                        </button>
-                    );
-                })}
-            </div>
+            <PollOptions poll={poll} options={options} votes={votes}
+                         names={names} me={me} onChange={onChange} />
 
             <div className="row between poll-foot">
                 <span className="xs faint grow">

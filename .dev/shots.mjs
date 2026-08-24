@@ -71,6 +71,7 @@ const shots = [
     ['round-new',    '/#/rounds/new'                  ],
     ['polls',        '/#/polls'                       ],
     ['poll-new',     '/#/polls/new'                   ],
+    ['poll-detail',  '/#/polls/p1'                    ],
     ['board',        '/#/board'                       ],
     ['post',         '/#/board/b1'                    ],
     ['chat',         '/#/chat'                        ],

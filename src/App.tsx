@@ -12,6 +12,7 @@ import { Rounds } from './screens/Rounds';
 import { RoundDetail } from './screens/RoundDetail';
 import { RoundEdit } from './screens/RoundEdit';
 import { Polls } from './screens/Polls';
+import { PollDetail } from './screens/PollDetail';
 import { PollEdit } from './screens/PollEdit';
 import { Board } from './screens/Board';
 import { PostDetail } from './screens/PostDetail';
@@ -58,6 +59,7 @@ function Gate() {
                 <Route path="/rounds/:id/edit" element={<RoundEdit />} />
                 <Route path="/polls" element={<Polls />} />
                 <Route path="/polls/new" element={<PollEdit />} />
+                <Route path="/polls/:id" element={<PollDetail />} />
                 <Route path="/board" element={<Board />} />
                 <Route path="/board/new" element={<PostEdit />} />
                 <Route path="/board/:id" element={<PostDetail />} />

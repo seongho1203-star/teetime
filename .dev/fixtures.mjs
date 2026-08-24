@@ -83,12 +83,10 @@ export const poll_votes = [
     { id: 'v2', poll_id: 'p1', option_id: 'o2', user_id: uid(2), created_at: iso(-2) },
     { id: 'v3', poll_id: 'p1', option_id: 'o2', user_id: uid(3), created_at: iso(-1) },
     { id: 'v4', poll_id: 'p1', option_id: 'o2', user_id: uid(4), created_at: iso(-1) },
-    { id: 'v5', poll_id: 'p1', option_id: 'o3', user_id: uid(5), created_at: iso(-1) },
     // 이름이 길어질 때 `외 N명`으로 접히는지 보려고 o1에 표를 몰아 둔다.
     { id: 'v7', poll_id: 'p1', option_id: 'o1', user_id: uid(1), created_at: iso(-1) },
     { id: 'v8', poll_id: 'p1', option_id: 'o1', user_id: uid(3), created_at: iso(-1) },
     { id: 'v9', poll_id: 'p1', option_id: 'o1', user_id: uid(4), created_at: iso(-1) },
-    { id: 'v10', poll_id: 'p1', option_id: 'o1', user_id: uid(5), created_at: iso(-1) },
     { id: 'v6', poll_id: 'p2', option_id: 'o4', user_id: uid(2), created_at: iso(-29) },
 ];
 
