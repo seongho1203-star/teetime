@@ -63,10 +63,16 @@
     font-size: var(--fs-sm);
 }
 
+/* 표를 못 받은 항목에도 이 줄이 **빈 채로 남는다** — 그래야 항목들의
+   키가 같다(Polls.tsx의 `showVoters` 주석 참고). 빈 줄이 접히지 않게
+   높이를 못박아 둔다. */
 .poll-voters {
     position: relative;
+    display: block;
     padding-left: calc(15px + var(--gap-sm));
     font-size: var(--fs-xs);
+    line-height: 1.5;
+    min-height: 1.5em;
     color: var(--text-faint);
 }
 

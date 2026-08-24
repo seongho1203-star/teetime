@@ -100,6 +100,11 @@ function PollCard({
 
     // 투표한 사람 수 (복수 선택이면 표 수와 다르다)
     const voters = new Set(votes.map(v => v.user_id)).size;
+    /* **누가 골랐는지 줄은 항목마다 다 있거나 다 없어야 한다.**
+       표를 받은 항목에만 붙이면 그 줄만 키가 커져 칸들이 들쭉날쭉해진다.
+       한 표라도 들어온 뒤에 모든 항목에 자리를 잡아 준다 — 아무도 안
+       골랐을 때까지 빈 줄을 깔면 새 투표가 괜히 길어진다. */
+    const showVoters = !poll.anonymous && votes.length > 0;
     const mine = new Set(votes.filter(v => v.user_id === me).map(v => v.option_id));
 
     const pick = async (optionId: string) => {
@@ -170,7 +175,7 @@ function PollCard({
                                 <span className="grow truncate">{o.label}</span>
                                 <span className="poll-count">{on.length}</span>
                             </span>
-                            {!poll.anonymous && on.length > 0 && (
+                            {showVoters && (
                                 <span className="poll-voters truncate">
                                     {on.map(v => names[v.user_id]?.name ?? '?').join(', ')}
                                 </span>
