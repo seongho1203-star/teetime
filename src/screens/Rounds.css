@@ -84,15 +84,28 @@
     border-radius: var(--r-sm);
     overflow: hidden;
 }
+/* **줄높이까지 조여야 줄어든다.** 여백만 줄이면 글자 상자가 그대로라
+   한 칸이 70px 아래로 안 내려간다. 여섯 칸이면 그 차이가 화면 한 뼘이다. */
 .info-cell {
     background: var(--surface);
-    padding: 12px 14px;
+    padding: 8px 13px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 1px;
 }
-.info-cell dt { font-size: var(--fs-xs); color: var(--text-faint); font-weight: 700; }
-.info-cell dd { margin: 0; font-size: var(--fs); font-weight: 700; word-break: keep-all; }
+.info-cell dt {
+    font-size: var(--fs-xs);
+    line-height: 1.35;
+    color: var(--text-faint);
+    font-weight: 700;
+}
+.info-cell dd {
+    margin: 0;
+    font-size: var(--fs);
+    line-height: 1.35;
+    font-weight: 700;
+    word-break: keep-all;
+}
 
 /* 안내 쪽지. 흰 카드가 줄줄이 이어지는 화면이라 그대로 두면 묻힌다 —
    모이는 곳·계좌처럼 꼭 읽어야 할 줄이므로 노란 종이에 옮겨 붙인다.
@@ -133,6 +146,10 @@
 }
 
 .signup-name { font-weight: 700; }
+
+/* 줄 안의 `✕`. 기본 버튼 높이(35px)가 줄 전체를 끌어올린다 —
+   아바타(26px)보다 크지 않게 눌러 둔다. */
+.signup-row .btn { width: 30px; height: 30px; padding: 0; }
 
 /* 정원만큼 빈 자리를 미리 그려 둔다 — 몇 자리 남았는지 눈으로 보인다. */
 .signup-row.empty-slot {
