@@ -81,6 +81,22 @@ export function Polls() {
 const isClosed = (p: Poll) =>
     p.closed || (p.closes_at !== null && new Date(p.closes_at) < new Date());
 
+/** 이름을 몇까지 적고 나머지는 세어 줄지. 한 줄에 들어갈 만큼만. */
+const NAMES_SHOWN = 3;
+
+/**
+ * `이관교, 김지명, 박승수 외 12명`.
+ *
+ * 이 줄은 한 줄로 잘리는데(`.truncate`), 그냥 두면 `정우…`에서 끝나
+ * **몇 명인지도 모른다.** 우리 모임이 서른 명 남짓이라 실제로 그렇게 된다.
+ * 앞의 몇만 적고 나머지는 수로 알려 준다.
+ */
+function votersLine(list: string[]): string {
+    return list.length <= NAMES_SHOWN
+        ? list.join(', ')
+        : `${list.slice(0, NAMES_SHOWN).join(', ')} 외 ${list.length - NAMES_SHOWN}명`;
+}
+
 function PollCard({
     poll, data, onChange,
 }: {
@@ -177,7 +193,7 @@ function PollCard({
                             </span>
                             {showVoters && (
                                 <span className="poll-voters truncate">
-                                    {on.map(v => names[v.user_id]?.name ?? '?').join(', ')}
+                                    {votersLine(on.map(v => names[v.user_id]?.name ?? '?'))}
                                 </span>
                             )}
                         </button>
