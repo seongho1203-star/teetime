@@ -58,8 +58,8 @@ body::before {
     width: 100%;
     max-width: var(--page-w);
     margin: 0 auto;
-    padding: calc(var(--safe-t) + var(--gap)) var(--gap)
-             calc(var(--tabbar-h) + var(--safe-b) + var(--gap-lg));
+    padding: calc(var(--safe-t) + var(--gap-sm)) var(--gap)
+             calc(var(--tabbar-h) + var(--safe-b) + var(--gap));
     display: flex;
     flex-direction: column;
     /* 카드 사이 16px은 성겼다. 10px로 조이면 같은 화면에 한 덩이가 더 들어온다. */
@@ -98,11 +98,13 @@ body::before {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    /* 안 여백도 16px에서 13px로. 글이 답답해지지 않는 선까지만 조였다. */
-    padding: 13px var(--gap);
+    /* 안 여백도 16px에서 13px, 다시 11px로. 글이 답답해지지 않는 선까지만.
+       **화면 확대를 켠 아이폰(320×693)에서도 재 볼 것** — 보통 크기에서만
+       맞춰 두면 거기서는 한참 넘친다. */
+    padding: 11px 14px;
     display: flex;
     flex-direction: column;
-    gap: var(--gap-sm);
+    gap: 8px;
 }
 
 .card.tappable {
@@ -168,10 +170,12 @@ body::before {
 
 /* ── 입력 ────────────────────────────────────────────────── */
 
-.field { display: flex; flex-direction: column; gap: 4px; }
+.field { display: flex; flex-direction: column; gap: 3px; }
 
 .field > label {
     font-size: var(--fs-sm);
+    /* 이름 한 줄이 여섯 개면 줄높이 0.2가 곧 20px이다. */
+    line-height: 1.35;
     font-weight: 700;
     color: var(--text-dim);
 }
@@ -188,7 +192,7 @@ body::before {
     transition: border-color 0.12s ease;
 }
 .input:focus, .textarea:focus, .select:focus { border-color: var(--brand-deep); }
-.textarea { resize: vertical; min-height: 74px; line-height: 1.5; }
+.textarea { resize: vertical; min-height: 62px; line-height: 1.5; }
 
 /* **한 줄짜리 칸은 높이를 못박는다.**
    내버려 두면 종류마다 높이가 달라진다 — 특히 iOS 사파리는 날짜·시각 칸을
@@ -341,7 +345,7 @@ body::before {
     align-items: center;
     justify-content: center;
     gap: 7px;
-    padding: 9px 10px;
+    padding: 8px 10px;
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
     background: var(--surface-2);
