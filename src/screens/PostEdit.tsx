@@ -7,6 +7,7 @@ import type { Post } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { Switch } from '../components/Switch';
 import './Polls.css';
 
 export function PostEdit() {
@@ -100,9 +101,7 @@ function Form({
                             <div className="switch-label">맨 위에 고정</div>
                             <div className="switch-desc">새 글이 올라와도 목록 맨 위에 남습니다</div>
                         </div>
-                        <button className={`switch${pinned ? ' on' : ''}`}
-                                role="switch" aria-checked={pinned} aria-label="맨 위에 고정"
-                                onClick={() => setPinned(v => !v)} />
+                        <Switch label="맨 위에 고정" on={pinned} onChange={setPinned} />
                     </div>
                 </div>
             )}

@@ -173,6 +173,8 @@ export type PushSubscriptionRow = {
     p256dh: string;
     auth: string;
     ua: string;
+    /** 이 기기로 대화 알림을 받는가. 대화만 따로 끌 수 있다. */
+    chat: boolean;
     created_at: string;
 };
 

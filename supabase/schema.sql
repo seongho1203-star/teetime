@@ -660,8 +660,15 @@ create table if not exists push_subscriptions (
     p256dh     text not null,
     auth       text not null,
     ua         text not null default '',
+    -- 이 기기로 **대화** 알림을 받는가. 대화만 따로 끌 수 있게 둔 칸이다 —
+    -- 모집·공지·투표는 하루 몇 번이지만 대화는 종일 울려서, 그것 때문에
+    -- 알림을 통째로 꺼 버리면 정작 라운드 소식을 놓친다.
+    chat       boolean not null default true,
     created_at timestamptz not null default now()
 );
+
+-- ⚠️ 위 정의는 처음 만들 때만 먹는다. 이미 있는 표에는 이 줄이 있어야 한다.
+alter table push_subscriptions add column if not exists chat boolean not null default true;
 
 create index if not exists push_subs_user_idx on push_subscriptions (user_id);
 

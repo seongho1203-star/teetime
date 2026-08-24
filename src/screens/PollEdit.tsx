@@ -6,6 +6,7 @@ import { fromKstInput } from '../lib/format';
 import { TopBar } from '../components/TopBar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { Switch } from '../components/Switch';
 import './Polls.css';
 
 /** 투표 만들기. 회원 누구나. */
@@ -116,18 +117,14 @@ export function PollEdit() {
                         <div className="switch-label">복수 선택</div>
                         <div className="switch-desc">되는 날짜를 여러 개 고르게 할 때</div>
                     </div>
-                    <button className={`switch${multi ? ' on' : ''}`}
-                            role="switch" aria-checked={multi} aria-label="복수 선택"
-                            onClick={() => setMulti(v => !v)} />
+                    <Switch label="복수 선택" on={multi} onChange={setMulti} />
                 </div>
                 <div className="switch-row">
                     <div className="grow">
                         <div className="switch-label">익명</div>
                         <div className="switch-desc">누가 무엇을 골랐는지 숨깁니다</div>
                     </div>
-                    <button className={`switch${anonymous ? ' on' : ''}`}
-                            role="switch" aria-checked={anonymous} aria-label="익명"
-                            onClick={() => setAnonymous(v => !v)} />
+                    <Switch label="익명" on={anonymous} onChange={setAnonymous} />
                 </div>
                 <div className="field" style={{ marginTop: 'var(--gap-xs)' }}>
                     <label htmlFor="v-close">마감 시각 <span className="faint">(선택)</span></label>

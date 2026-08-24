@@ -45,6 +45,13 @@ interface Note {
     /** 이 사람들에게만. 비우면 (보낸 사람 빼고) 회원 모두. */
     only?: string[];
     except?: string | null;
+    /**
+     * 기기가 따로 끌 수 있는 갈래. 지금은 대화 하나뿐이다 —
+     * 종일 울리는 것이 그것뿐이라, 그것 때문에 알림을 통째로 끄는 일을
+     * 막으려고 두었다. 갈래가 없는 알림(모집·공지·투표·가입)은 켜 둔
+     * 기기 모두에게 간다.
+     */
+    channel?: 'chat';
 }
 
 /** 이름을 붙여 준다. 누가 썼는지가 알림에서 제일 중요하다. */
@@ -72,6 +79,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
             tag: 'chat',
             url: '#/chat',
             except: typeof r.user_id === 'string' ? r.user_id : null,
+            channel: 'chat',
         };
     }
 
@@ -150,6 +158,10 @@ Deno.serve(async req => {
     let q = db.from('push_subscriptions').select('endpoint, p256dh, auth, user_id');
     if (note.only) q = q.in('user_id', note.only);
     else if (note.except) q = q.neq('user_id', note.except);
+    // 이 갈래를 끈 기기는 뺀다. `chat` 칸이 없는(스키마를 아직 안 돌린)
+    // 저장소에서는 이 조회가 오류로 돌아오고, 아래에서 500으로 끝난다 —
+    // 조용히 안 가는 것보다 낫다. 칸을 더하는 alter가 schema.sql에 있다.
+    if (note.channel === 'chat') q = q.eq('chat', true);
 
     const { data: subs, error } = await q;
     if (error) return new Response(error.message, { status: 500 });

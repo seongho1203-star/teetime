@@ -111,7 +111,14 @@ export const messages = [
       image_url: 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22640%22%20height=%22420%22%3E%3Crect%20width=%22640%22%20height=%22420%22%20fill=%22%232c7a52%22/%3E%3Ccircle%20cx=%22500%22%20cy=%2290%22%20r=%2245%22%20fill=%22%23f6e27a%22/%3E%3Cpath%20d=%22M0%20320%20L200%20220%20L380%20320%20L640%20200%20L640%20420%20L0%20420Z%22%20fill=%22%231d5a3a%22/%3E%3C/svg%3E', created_at: iso(0, 9, 40) },
 ];
 
+/* 알림 받는 기기 한 대. `내 정보`의 대화 알림 스위치가 이 행의 `chat`을
+   읽는다 — 헤드리스에는 진짜 구독이 없으므로 확인 도구가 구독을 흉내 낸다. */
+export const push_subscriptions = [
+    { endpoint: 'https://example.test/fake-endpoint', user_id: ME,
+      p256dh: 'x', auth: 'y', ua: 'headless', chat: true, created_at: iso(-3) },
+];
+
 export const tables = {
     profiles, rounds, signups, polls, poll_options, poll_votes,
-    posts, post_comments, rooms, messages,
+    posts, post_comments, rooms, messages, push_subscriptions,
 };

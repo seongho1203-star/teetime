@@ -374,3 +374,44 @@ body::before {
     background: var(--brand);
     color: var(--on-brand);
 }
+
+/* ── 스위치 ──────────────────────────────────────────────────
+   켜고 끄는 것. **여기 한 곳에만 있다** — 투표 만들기·공지 고정·알림
+   설정이 같은 것을 쓴다. 한동안 Polls.css에 있었는데, 투표와 상관없는
+   화면까지 그 파일을 불러야 해서 옮겼다.
+   컴포넌트는 `components/Switch.tsx`다. 새로 만들지 말 것 —
+   같은 이름으로 하나 더 만들었다가 뒤에 실린 쪽이 이겨 손잡이가
+   회색으로 나왔다. */
+
+.switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--gap);
+    padding: 10px 0;
+}
+.switch-row + .switch-row { border-top: 1px solid var(--line); }
+.switch-row .switch-label { font-weight: 700; }
+.switch-row .switch-desc { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.5; }
+
+/* 체크박스를 스위치 모양으로. transform만 움직인다. */
+.switch {
+    position: relative;
+    width: 46px; height: 27px;
+    flex: 0 0 auto;
+    border-radius: var(--r-pill);
+    background: var(--surface-3);
+    transition: background-color 0.15s ease;
+}
+.switch::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 21px; height: 21px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.switch.on { background: var(--brand); }
+.switch.on::after { transform: translateX(19px); background: #fff; }
+.switch:disabled { opacity: 0.4; }

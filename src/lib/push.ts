@@ -67,9 +67,41 @@ export async function pushState(): Promise<PushState> {
     if (isIOS && !isStandalone()) return 'standalone-required';
     if (Notification.permission === 'denied') return 'denied';
 
+    return await currentEndpoint() ? 'on' : 'off';
+}
+
+/** 이 기기의 구독 주소. 알림이 꺼져 있으면 null. */
+async function currentEndpoint(): Promise<string | null> {
+    if (!('serviceWorker' in navigator)) return null;
     const reg = await navigator.serviceWorker.getRegistration(SW_URL);
     const sub = await reg?.pushManager.getSubscription();
-    return sub ? 'on' : 'off';
+    return sub?.endpoint ?? null;
+}
+
+/**
+ * 이 기기가 **대화** 알림을 받고 있는가.
+ *
+ * 대화만 따로 끄는 자리다. 모집·공지·투표는 하루 몇 번이지만 대화는 종일
+ * 울려서, 그것 때문에 알림을 통째로 꺼 버리면 라운드 소식까지 놓친다.
+ *
+ * 켜짐 쪽으로 틀리게 두었다 — 못 받는 쪽으로 틀리면 사람이 알아채지
+ * 못한 채 소식이 끊긴다. 칸이 없는(스키마를 아직 안 돌린) 저장소에서도
+ * 조회가 실패하고 그대로 켜짐이 된다.
+ */
+export async function chatPush(): Promise<boolean> {
+    const endpoint = await currentEndpoint();
+    if (!endpoint) return true;
+    const { data } = await supabase.from('push_subscriptions')
+        .select('chat').eq('endpoint', endpoint).maybeSingle();
+    return data?.chat !== false;
+}
+
+export async function setChatPush(on: boolean): Promise<void> {
+    const endpoint = await currentEndpoint();
+    if (!endpoint) throw new Error('이 기기는 알림이 꺼져 있습니다.');
+    const { error } = await supabase.from('push_subscriptions')
+        .update({ chat: on }).eq('endpoint', endpoint);
+    if (error) throw new Error(error.message);
 }
 
 /**
@@ -98,6 +130,9 @@ export async function enablePush(userId: string): Promise<PushState> {
         });
 
     const json = sub.toJSON();
+    // `chat`은 일부러 안 보낸다. upsert는 **보낸 칸만** 고치므로, 이미 있는
+    // 행이면 대화 알림을 꺼 둔 것이 그대로 살아남는다. 새 행이면 DB 기본값
+    // (켜짐)이 된다.
     const { error } = await supabase.from('push_subscriptions').upsert({
         endpoint: sub.endpoint,
         user_id: userId,
