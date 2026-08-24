@@ -230,9 +230,11 @@ function Form({
                 </div>
             </div>
 
-            <button className="btn primary block" onClick={save} disabled={saving}>
-                {saving ? '저장 중…' : round ? '수정 저장' : '모집 열기'}
-            </button>
+            <div className="form-actions">
+                <button className="btn primary block" onClick={save} disabled={saving}>
+                    {saving ? '저장 중…' : round ? '수정 저장' : '모집 열기'}
+                </button>
+            </div>
         </div>
     );
 }

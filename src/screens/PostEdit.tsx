@@ -106,9 +106,11 @@ function Form({
                 </div>
             )}
 
-            <button className="btn primary block" onClick={save} disabled={saving}>
-                {saving ? '저장 중…' : post ? '수정 저장' : '올리기'}
-            </button>
+            <div className="form-actions">
+                <button className="btn primary block" onClick={save} disabled={saving}>
+                    {saving ? '저장 중…' : post ? '수정 저장' : '올리기'}
+                </button>
+            </div>
         </div>
     );
 }

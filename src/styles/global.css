@@ -145,6 +145,28 @@ body::before {
 .btn.block   { width: 100%; }
 .btn.sm      { padding: 8px 12px; font-size: var(--fs-sm); border-radius: var(--r-sm); }
 
+/* ── 폼의 저장 단추 ──────────────────────────────────────────
+ *
+ * **화면 크기는 폰마다 다르다.** 아이폰만 해도 375×667부터 430×932까지
+ * 있고, iOS `화면 확대`를 켜면 390×844가 320×693으로 줄어든다. 어느 하나에
+ * '한 화면에 들어가게' 맞추면 다른 데서는 또 어긋난다 — 그래서 그걸
+ * 목표로 삼지 않는다. 대신 **어디까지 굴려도 저장이 손에 닿게** 한다.
+ * 라운드 상세의 `참가 신청`(.round-actions)이 같은 방식이다.
+ *
+ * **바탕색을 꼭 깔 것** — 투명하게 두면 밑에 있는 글이 단추를 뚫고 지나간다.
+ * 위쪽은 그러데이션으로 흐려 잘린 느낌을 없앤다.
+ */
+.form-actions {
+    position: sticky;
+    bottom: calc(var(--tabbar-h) + var(--safe-b));
+    z-index: 5;
+    /* 아래 여백은 안 준다 — `.page`의 아래 여백이 이미 탭바를 피해 둔다.
+       여기에 또 주면 폼이 그만큼 길어진다. */
+    padding: var(--gap-sm) 0 0;
+    margin-top: calc(var(--gap-sm) * -1);
+    background: linear-gradient(to bottom, transparent, var(--bg) 18px);
+}
+
 /* ── 뱃지 ────────────────────────────────────────────────── */
 
 .badge {

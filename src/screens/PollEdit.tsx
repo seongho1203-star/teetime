@@ -133,9 +133,11 @@ export function PollEdit() {
                 </div>
             </div>
 
-            <button className="btn primary block" onClick={save} disabled={saving}>
-                {saving ? '올리는 중…' : '투표 올리기'}
-            </button>
+            <div className="form-actions">
+                <button className="btn primary block" onClick={save} disabled={saving}>
+                    {saving ? '올리는 중…' : '투표 올리기'}
+                </button>
+            </div>
         </div>
     );
 }
