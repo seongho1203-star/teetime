@@ -45,6 +45,8 @@ export const KIND_ICON: Record<RoundKind, string> = { field: '⛳', screen: '�
 /** 스크린은 골프장이 아니라 매장이고, 티오프가 아니라 시작 시각이다. */
 export const PLACE_LABEL: Record<RoundKind, string> = { field: '골프장', screen: '매장' };
 export const TEE_LABEL: Record<RoundKind, string> = { field: '티오프', screen: '시작' };
+/** 필드에서 내는 돈은 그린피, 스크린에서는 게임비다. 앞에 `1인`을 붙여 쓴다. */
+export const FEE_LABEL: Record<RoundKind, string> = { field: '그린피', screen: '게임비' };
 
 export const CADDIE_LABEL = { caddie: '캐디', none: '노캐디' } as const;
 export const CART_LABEL = { included: '카트 포함', excluded: '카트 미포함' } as const;

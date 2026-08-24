@@ -5,7 +5,7 @@ import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { toKstInput, fromKstInput } from '../lib/format';
 import { courseGeo, searchCourses } from '../lib/courses';
-import { KIND_ICON, PLACE_LABEL, TEE_LABEL, roundKind, type Round, type RoundKind } from '../lib/types';
+import { FEE_LABEL, KIND_ICON, PLACE_LABEL, TEE_LABEL, roundKind, type Round, type RoundKind } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -144,7 +144,7 @@ function Form({
                     <input id="f-course" className="input" value={course}
                            onChange={e => { setCourse(e.target.value); setPicking(true); }}
                            onFocus={() => setPicking(true)}
-                           placeholder={screen ? '예) 골프존파크 상무점' : '예) 무등산CC'}
+                           placeholder={screen ? '예) 신용DS' : '예) 무등산CC'}
                            maxLength={40} autoComplete="off" />
                     {/* 목록에서 고르면 좌표가 함께 붙어 날씨가 뜬다.
                         목록에 없는 곳도 그냥 쳐 넣으면 되고, 그때는 날씨만 빠진다. */}
@@ -210,7 +210,7 @@ function Form({
                                onChange={e => setCapacity(e.target.value)} />
                     </div>
                     <div className="field grow">
-                        <label htmlFor="f-fee">1인 참가비</label>
+                        <label htmlFor="f-fee">1인 {FEE_LABEL[kind]}</label>
                         <input id="f-fee" className="input" type="number" min={0} step={1000}
                                inputMode="numeric" value={fee}
                                onChange={e => setFee(e.target.value)} />
@@ -220,12 +220,12 @@ function Form({
                 {/* `신청 시작`을 없애면서 남은 `안내`를 이 카드로 합쳤다 —
                     칸 하나만 든 카드는 여백만 차지한다. */}
                 <div className="field">
-                    <label htmlFor="f-note">안내 <span className="faint">(선택)</span></label>
+                    <label htmlFor="f-note">전달 내용 <span className="faint">(선택)</span></label>
                     <textarea id="f-note" className="textarea" value={note}
                               onChange={e => setNote(e.target.value)}
                               placeholder={screen
-                                  ? '모이는 곳, 게임 방식, 내기 같은 것\n예) 7시까지 매장 앞, 신페리오'
-                                  : '모이는 곳, 카풀, 준비물 같은 것\n예) 6시 30분 동광주 IC 앞 집합'}
+                                  ? '모이는 곳, 게임 방식, 내기 같은 것'
+                                  : '모이는 곳, 카풀, 준비물 같은 것'}
                               maxLength={1000} />
                 </div>
             </div>

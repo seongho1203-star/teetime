@@ -27,7 +27,7 @@ export function Login() {
                 <img className="login-mark" src="./icon-192.png" alt="" aria-hidden="true" />
                 <h1>까꿍</h1>
                 <p className="dim">
-                    라운드 모집과 투표가<br />채팅에 묻히지 않는 곳
+                    골프에 열정이 가득하신 여러분<br />환영합니다
                 </p>
             </div>
 

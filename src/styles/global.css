@@ -189,6 +189,10 @@ body::before {
 /* 종류표(⛳ 필드 · 🎯 스크린)는 **상태가 아니라 이름표다.** 뜻이 있는 색을
    쓰지 않는다 — 색은 D-day·확정 같은 상태 몫으로 남겨 둔다. */
 .badge.kind   { background: var(--surface-2); color: var(--text-dim); font-weight: 700; }
+/* 열려 있음 / 끝남. **목록에서 한눈에 갈려야 하는 한 쌍이라 같이 둔다.**
+   `dim`(테두리만)은 너무 조용해서 마감된 것이 진행중처럼 보였다. */
+.badge.live   { background: var(--grass-soft); color: var(--grass-deep); }
+.badge.done   { background: var(--surface-3); color: var(--text-faint); }
 
 /* ── 입력 ────────────────────────────────────────────────── */
 

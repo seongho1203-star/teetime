@@ -40,6 +40,11 @@ export const rounds = [
       tee_at: iso(12), capacity: 8, fee: 95000, status: 'open', opens_at: null,
       kind: 'field', caddie: 'none', cart: 'excluded',
       note: '', created_by: uid(1), created_at: iso(-5) },
+    // 아직 안 지났지만 모집을 닫은 것. 진행중과 갈리는지 보려고 둔다.
+    { id: 'r5', title: '', course: '광주CC', lat: null, lon: null,
+      tee_at: iso(9), capacity: 4, fee: 130000, status: 'closed', opens_at: null,
+      kind: 'field', caddie: 'caddie', cart: 'included',
+      note: '', created_by: uid(1), created_at: iso(-6) },
     { id: 'r3', title: '지난 라운드', course: '해피니스CC', lat: null, lon: null,
       tee_at: iso(-14), capacity: 4, fee: 110000, status: 'done', opens_at: null,
       kind: 'field', caddie: null, cart: null,

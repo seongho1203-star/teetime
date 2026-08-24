@@ -1,4 +1,5 @@
-.poll-card.closed { opacity: 0.72; }
+/* 라운드 카드와 같은 규칙 — 끝난 것은 바탕까지 바꾼다. */
+.poll-card.closed { opacity: 0.8; background: var(--surface-2); }
 
 .poll-title {
     font-size: var(--fs-md);

@@ -5,7 +5,7 @@ import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
-    CADDIE_SHORT, CART_SHORT, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
+    CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
     type Round, type Signup, type Profile,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
@@ -159,11 +159,15 @@ export function RoundDetail() {
                     {r.status === 'cancelled'
                         ? <span className="badge danger">취소됨</span>
                         : isPast
-                            ? <span className="badge dim">종료</span>
-                            : <span className={`badge ${daysUntil(r.tee_at) <= 3 ? 'warn' : 'brand'}`}>
-                                {ddayLabel(r.tee_at)}
-                              </span>}
-                    {r.status === 'closed' && <span className="badge dim">모집 마감</span>}
+                            ? <span className="badge done">종료</span>
+                            : r.status === 'closed'
+                                ? <span className="badge done">모집 마감</span>
+                                : <span className="badge live">모집중</span>}
+                    {!isPast && r.status !== 'cancelled' && (
+                        <span className={`badge ${daysUntil(r.tee_at) <= 3 ? 'warn' : 'dim'}`}>
+                            {ddayLabel(r.tee_at)}
+                        </span>
+                    )}
                 </div>
                 <h2>{r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}</h2>
                 {r.title && r.course && <div className="sm dim">{r.title}</div>}
@@ -183,7 +187,7 @@ export function RoundDetail() {
                     <dd>{r.capacity}명</dd>
                 </div>
                 <div className="info-cell">
-                    <dt>참가비</dt>
+                    <dt>{FEE_LABEL[kind]}</dt>
                     <dd>{r.fee > 0 ? formatWon(r.fee) : '미정'}</dd>
                 </div>
                 {/* **캐디와 카트를 따로 놓는다.** 한 칸에 묶으면 옆칸이
@@ -210,7 +214,7 @@ export function RoundDetail() {
                 같은 결이다(색 규칙은 CLAUDE.md 참고). */}
             {r.note && (
                 <div className="card note-card">
-                    <div className="section-title">안내</div>
+                    <div className="section-title">전달 내용</div>
                     <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{r.note}</p>
                 </div>
             )}

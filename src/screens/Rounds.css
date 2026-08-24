@@ -25,7 +25,11 @@
 .kind-chip:active { transform: scale(0.985); }
 
 .round-card { gap: var(--gap-xs); text-decoration: none; color: inherit; }
-.round-card.past { opacity: 0.62; }
+/* 끝났거나 마감된 것은 **바탕까지 바꾼다.** 투명도만 낮추면 목록을 훑을 때
+   여전히 흰 카드라 진행중인 것과 잘 안 갈렸다. `지난 라운드` 칸으로 내려간
+   것은 거기에 더해 흐리게 둔다. */
+.round-card.past { opacity: 0.62; background: var(--surface-2); }
+.round-card.shut { background: var(--surface-2); }
 
 .round-course {
     font-size: var(--fs-lg);

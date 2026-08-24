@@ -136,9 +136,10 @@ function PollCard({
         <div className={`card poll-card${closed ? ' closed' : ''}`}>
             <div className="row between">
                 <div className="row" style={{ gap: 'var(--gap-xs)' }}>
+                    {/* 라운드와 같은 한 쌍 — 잔디=열림, 회색=끝남. */}
                     {closed
-                        ? <span className="badge dim">마감</span>
-                        : <span className="badge brand">진행중</span>}
+                        ? <span className="badge done">마감</span>
+                        : <span className="badge live">진행중</span>}
                     {poll.multi && <span className="badge dim">복수 선택</span>}
                     {poll.anonymous && <span className="badge dim">익명</span>}
                 </div>
