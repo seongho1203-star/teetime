@@ -66,6 +66,28 @@
 
 .chat-more { align-self: center; margin-bottom: var(--gap-sm); }
 
+/* `여기까지 읽으셨습니다`. 못 읽은 동안 쌓인 글이 어디서부터인지 알려 준다.
+   날짜 칸과 같은 자리·같은 모양이되 **줄을 함께 긋는다** — 날짜는 흐름을
+   나누는 것이고 이건 '여기가 경계'라는 뜻이라, 눈에 더 걸려야 한다.
+   들어온 순간에 한 번 정하고 그 자리에 붙박는다(Chat.tsx 참고). */
+.chat-unread {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    margin: var(--gap) 0 var(--gap-sm);
+    color: var(--text-dim);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    white-space: nowrap;
+}
+.chat-unread::before,
+.chat-unread::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+}
+
 .chat-day {
     align-self: center;
     margin: var(--gap) auto var(--gap-sm);

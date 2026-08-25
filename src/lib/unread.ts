@@ -12,7 +12,7 @@
 const key = (name: string, me: string) => `teetime:seen:${name}:${me}`;
 
 /** 아주 옛날. 한 번도 안 봤으면 전부 안 읽음이 된다. */
-const NEVER = new Date(0).toISOString();
+export const NEVER = new Date(0).toISOString();
 
 export function lastSeen(name: string, me: string): string {
     try {

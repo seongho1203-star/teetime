@@ -8,7 +8,7 @@ import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
-import { markSeen } from '../lib/unread';
+import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { emojiOnly } from '../lib/emoji';
 import './Chat.css';
@@ -43,6 +43,17 @@ export function Chat() {
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
     // 도중에 남이 글을 쓰면 화면이 튀어서는 안 된다.
     const atBottom = useRef(true);
+
+    /* ── `여기까지 읽으셨습니다` ──
+       **들어온 순간의 '여기까지 봤다'를 얼려 둔다.** 아래 `markSeen`이 새 글이
+       올 때마다 그 값을 지금으로 밀어 버리므로, 그 뒤에 읽으면 늘 '안 읽음
+       없음'이 된다. 첫 렌더에서(효과보다 먼저) 한 번만 집는다. */
+    const enteredSeen = useRef<string | null>(null);
+    if (enteredSeen.current === null) enteredSeen.current = lastSeen('chat', me);
+    /** 줄을 그을 글. **한 번 정하면 안 바꾼다** — 보고 있는 동안 들어온 글이
+        '안 읽음'으로 잡혀 줄이 자꾸 내려가면 그게 더 성가시다. */
+    const [unreadFrom, setUnreadFrom] = useState<string | null>(null);
+    const unreadDone = useRef(false);
 
     const { data, loading, error } = useAsync<Loaded>(async () => {
         const [room, people] = await Promise.all([
@@ -114,6 +125,21 @@ export function Chat() {
 
     // 그리기가 끝난 프레임에 해야 높이가 확정된다.
     useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
+
+    /* 줄을 어디에 그을지 정한다. 첫 묶음이 들어온 뒤 딱 한 번.
+       **내가 쓴 글은 세지 않는다**(다른 기기에서 보낸 것) — 내 글 위에
+       '여기까지 읽었다'가 붙으면 말이 안 된다. */
+    useEffect(() => {
+        if (unreadDone.current || !messages.length) return;
+        unreadDone.current = true;
+        const at = enteredSeen.current;
+        // 이 기기로 처음 들어온 경우. 지난 대화 전부가 '안 읽음'이라 줄이
+        // 맨 위에 붙는데, 그건 알려 주는 게 없다.
+        if (!at || at === NEVER) return;
+        const i = messages.findIndex(m => m.created_at > at && m.user_id !== me);
+        // 맨 첫 줄이면 긋지 않는다. 위가 비어 있어 뜻이 없다.
+        if (i > 0) setUnreadFrom(messages[i].id);
+    }, [messages, me]);
 
     // 이 화면을 보고 있으면 안 읽음이 쌓이지 않는다. 새 글이 들어올 때마다
     // 다시 남겨 두어야 탭바의 빨간 숫자가 곧바로 사라진다.
@@ -601,6 +627,9 @@ export function Chat() {
                         // `data-mid`는 인용을 눌렀을 때 원본을 찾는 표다.
                         <div key={m.id} data-mid={m.id}>
                             {newDay && <div className="chat-day">{formatDate(m.created_at)}</div>}
+                            {m.id === unreadFrom && (
+                                <div className="chat-unread">여기까지 읽으셨습니다</div>
+                            )}
                             <Bubble
                                 message={m}
                                 who={names[m.user_id ?? '']}
