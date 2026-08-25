@@ -188,8 +188,8 @@ body::before {
 .badge.dim    { background: transparent; color: var(--text-faint); border: 1px solid var(--line); }
 /* 종류표(⛳ 필드 · 🎯 스크린)는 **상태가 아니라 이름표다.** 뜻이 있는 색을
    쓰지 않는다 — 색(분홍·잔디·노랑·빨강)은 D-day·확정 같은 상태 몫이다.
-   대신 **둘 다 채우고 무게로 가른다**: 필드는 잔디 연두(`--grass`)에 진한
-   글자, 스크린은 회녹색(`--text-dim`)에 흰 글자.
+   대신 **둘 다 채우고 무게로 가른다**: 필드는 잔디 연두(`--grass`),
+   스크린은 회녹색(`--text-dim`). 글자는 둘 다 흰색이다(사용자가 정했다).
    스크린을 먹색(`--text`)으로도 해 봤는데 목록에서 혼자 너무 무거웠다.
    필드는 옅은 바탕만으로는 카드에 묻혀서 채웠다 — **둘의 간격이 이 표의
    전부다.**
@@ -202,7 +202,7 @@ body::before {
    않는 유일한 방법이다. 둘 다 표를 다는 것은 그대로다 — 스크린에만 달면
    표가 없는 줄이 '필드'인지 '종류가 생기기 전 것'인지 헷갈린다. */
 .badge.kind        { font-weight: 700; }
-.badge.kind.field  { background: var(--grass); color: var(--text); }
+.badge.kind.field  { background: var(--grass); color: #fff; }
 .badge.kind.screen { background: var(--text-dim); color: var(--surface); }
 /* 열려 있음 / 끝남. **목록에서 한눈에 갈려야 하는 한 쌍이라 같이 둔다.**
    `dim`(테두리만)은 너무 조용해서 마감된 것이 진행중처럼 보였다. */
