@@ -31,9 +31,44 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="까꿍" />
     <title>까꿍</title>
+
+    <!-- 첫 화면(스플래시).
+         **여기 인라인으로 두는 이유가 있다.** 이 그림은 CSS 파일과
+         자바스크립트가 도착하기 **전에** 떠 있어야 한다 — 밖에 두면 그때까지
+         빈 화면이라, 없애려던 그 순간이 그대로 남는다.
+         React가 뜬 뒤의 로딩 화면(App.tsx의 Gate)도 **같은 `.boot`를 쓴다.**
+         `<style>`은 문서에 계속 남아 있으므로 규칙을 한 번만 적으면 된다 —
+         global.css에 또 만들지 말 것. 두 벌이 되면 한쪽만 고치게 된다.
+         바탕이 흰색인 것은 아이콘(스티커)의 바탕이 흰색이라 그렇다.
+         `--bg`(살짝 초록빛)로 두면 그림 둘레에 네모난 자국이 보인다. -->
+    <style>
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #fff;
+        z-index: 1;
+      }
+      .boot img {
+        width: 200px;
+        max-width: 52vw;
+        /* 아주 잠깐 뜨는 화면이라 첫 프레임부터 보이면 번쩍인다.
+           살짝 늦게 떠올라야 눈에 편하다. */
+        animation: boot-in 0.5s ease both;
+      }
+      @keyframes boot-in {
+        from { opacity: 0; transform: scale(0.94); }
+        to   { opacity: 1; transform: none; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- 자바스크립트가 도착하기 전까지 이게 보인다. React가 뜨면
+         `#root` 내용을 통째로 갈아 끼우므로 따로 지울 필요가 없다. -->
+    <div id="root">
+      <div class="boot"><img src="./icon-512.png" alt="까꿍" /></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

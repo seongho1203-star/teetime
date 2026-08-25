@@ -38,10 +38,13 @@ function Gate() {
 
     if (!isConfigured) return <Setup />;
 
+    /* 세션을 확인하는 동안. **index.html에 박아 둔 첫 화면과 같은 그림**이라,
+       자바스크립트가 도착하는 순간 화면이 바뀌지 않고 그대로 이어진다.
+       (규칙은 index.html의 `<style>`에 한 번만 적혀 있다.) */
     if (loading) {
         return (
-            <div className="page bare center-fill">
-                <div className="spinner" />
+            <div className="boot">
+                <img src="./icon-512.png" alt="까꿍" />
             </div>
         );
     }
