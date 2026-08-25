@@ -9,7 +9,7 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
 import { markSeen } from '../lib/unread';
-import { mentionQuery, splitMentions } from '../lib/mention';
+import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -18,7 +18,7 @@ const PAGE = 50;
 interface Loaded { room: Room | null; people: Profile[]; }
 
 export function Chat() {
-    const { session } = useAuth();
+    const { session, isAdmin } = useAuth();
     const me = session!.user.id;
     const toast = useToast();
 
@@ -58,6 +58,10 @@ export function Chat() {
     /** 언급에 쓸 이름들. 회원 이상만 — 대기·추방된 사람은 대화를 못 본다. */
     const mentionable = (data?.people ?? [])
         .filter(p => p.name && p.role !== 'pending' && p.role !== 'banned');
+    /* `@전체`는 운영진만 쓴다. **쓴 사람이 누구인지로 가른다** — 내가
+       운영진이라고 남이 친 `@전체`까지 도드라져서는 안 된다. */
+    const staffIds = new Set(
+        (data?.people ?? []).filter(p => p.role === 'admin' || p.role === 'staff').map(p => p.id));
 
     // 첫 묶음을 불러온다. 최근 것부터 받아 뒤집는다.
     useEffect(() => {
@@ -422,9 +426,17 @@ export function Chat() {
         el.focus();
     };
 
-    const mentionHits = mention === null ? [] : mentionable
-        .filter(p => p.id !== me && p.name.replace(/\s/g, '').includes(mention.replace(/\s/g, '')))
-        .slice(0, 6);
+    /* 목록. 운영진에게는 **맨 위에 `전체`**를 얹는다 — 서른 명에게 한
+       번에 알릴 일(모집 마감·집합 시각 바뀜)이 운영진 몫이라 제일 자주
+       고를 것이 그것이다. */
+    const norm = (s2: string) => s2.replace(/\s/g, '');
+    const mentionHits = mention === null ? [] : [
+        ...(isAdmin && norm(ALL_MENTION).includes(norm(mention))
+            ? [{ id: '__all__', name: ALL_MENTION, avatar_url: null, all: true }] : []),
+        ...mentionable
+            .filter(p => p.id !== me && norm(p.name).includes(norm(mention)))
+            .map(p => ({ id: p.id, name: p.name, avatar_url: p.avatar_url, all: false })),
+    ].slice(0, 6);
 
     /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
     const jumpTo = (id: string) => {
@@ -602,6 +614,7 @@ export function Chat() {
                                 onReply={startReply}
                                 mentionNames={mentionNames}
                                 myName={myName}
+                                allowAll={staffIds.has(m.user_id ?? '')}
                             />
                         </div>
                     );
@@ -631,11 +644,14 @@ export function Chat() {
                 {mentionHits.length > 0 && (
                     <div className="mention-list">
                         {mentionHits.map(p => (
-                            <button key={p.id} className="mention-item"
+                            <button key={p.id} className={`mention-item${p.all ? ' is-all' : ''}`}
                                     onMouseDown={e => e.preventDefault()}
                                     onClick={() => insertMention(p.name)}>
-                                <Avatar name={p.name} url={p.avatar_url} size="sm" />
+                                {p.all
+                                    ? <span className="mention-all-icon" aria-hidden="true">📢</span>
+                                    : <Avatar name={p.name} url={p.avatar_url} size="sm" />}
                                 <span className="truncate">{p.name}</span>
+                                {p.all && <span className="xs faint">모두에게 알림</span>}
                             </button>
                         ))}
                     </div>
@@ -716,7 +732,7 @@ const SWIPE_MAX = 72;
 
 function Bubble({
     message, who, mine, grouped, showTime, onImageLoad,
-    quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName,
+    quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName, allowAll,
 }: {
     message: Message;
     who?: Profile;
@@ -735,6 +751,8 @@ function Bubble({
     onReply: (m: Message) => void;
     mentionNames: string[];
     myName: string;
+    /** 쓴 사람이 운영진인가. `@전체`는 그때만 부른 것으로 본다. */
+    allowAll: boolean;
 }) {
     const rowRef = useRef<HTMLDivElement>(null);
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
@@ -822,7 +840,7 @@ function Bubble({
                                    alt="보낸 사진" loading="lazy" onLoad={onImageLoad} />
                           </a>
                         : <div className="chat-bubble">
-                              <Body text={message.body} names={mentionNames} me={myName} />
+                              <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                           </div>}
                     {showTime && (
                         <span className="chat-time">{formatTime(message.created_at)}</span>
@@ -831,7 +849,7 @@ function Bubble({
                 {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다. */}
                 {message.image_url && message.body && (
                     <div className="chat-bubble">
-                        <Body text={message.body} names={mentionNames} me={myName} />
+                        <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                     </div>
                 )}
             </div>
@@ -850,16 +868,22 @@ function Bubble({
 }
 
 /** 글 한 덩어리. `@이름`만 도드라지게 그린다. */
-function Body({ text, names, me }: { text: string; names: string[]; me: string }) {
-    const pieces = splitMentions(text, names);
+function Body({ text, names, me, allowAll }: {
+    text: string; names: string[]; me: string; allowAll: boolean;
+}) {
+    const pieces = splitMentions(text, names, allowAll);
     if (pieces.length === 1 && !pieces[0].name) return <>{text}</>;
     return (
         <>
             {pieces.map((p, i) =>
                 p.name
                     // 나를 부른 것은 더 눈에 띄어야 한다. 대화가 길어지면
-                    // 내 이름만 찾게 되기 때문이다.
-                    ? <span key={i} className={`mention${p.name === me ? ' me' : ''}`}>{p.text}</span>
+                    // 내 이름만 찾게 되기 때문이다. `@전체`는 나까지 부른
+                    // 것이므로 같은 대접을 한다.
+                    ? <span key={i}
+                            className={`mention${p.name === me || p.name === ALL_MENTION ? ' me' : ''}`}>
+                          {p.text}
+                      </span>
                     : <span key={i}>{p.text}</span>)}
         </>
     );

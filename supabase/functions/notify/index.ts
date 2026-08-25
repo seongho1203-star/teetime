@@ -72,26 +72,48 @@ function escapeRe(s: string): string {
 }
 
 /**
+ * 모두를 한 번에 부르는 이름. **`src/lib/mention.ts`의 `ALL_MENTION`과
+ * 같아야 한다** — 앱과 발송기는 따로 올라가므로 한쪽만 고치면 화면에는
+ * 도드라지는데 알림은 안 온다.
+ */
+const ALL_MENTION = '전체';
+
+/**
  * 글에서 `@이름`으로 부른 사람들.
  *
  * **대화 알림을 꺼 둔 기기에도 이건 간다.** 부르는 것은 '알아 두라'가
  * 아니라 '지금 봐 달라'라서, 그것까지 막히면 부를 이유가 없어진다.
  *
+ * `@전체`는 **운영진(운영자·부운영자)이 썼을 때만** 모두를 부른 것으로 본다.
+ * 서른 명의 폰을 한꺼번에 울리면서 대화 알림 스위치까지 뚫는 일이라,
+ * 아무나 쓰면 그 스위치가 있으나 마나가 된다. 화면에서 목록을 감추는
+ * 것만으로는 손으로 쳐 넣는 것을 못 막으므로 **여기서 다시 확인한다.**
+ *
  * 맞추는 규칙은 앱 화면(`src/lib/mention.ts`의 `splitMentions`)과 같아야
  * 한다 — **긴 이름 먼저**(`김지`와 `김지명`이 함께 있으면 뒤엣것).
  * 한쪽만 고치면 화면에는 도드라지는데 알림은 안 오는 일이 생긴다.
  */
-async function mentionedIds(body: unknown): Promise<string[]> {
+async function mentionedIds(body: unknown, authorId: unknown): Promise<string[]> {
     if (typeof body !== 'string' || !body.includes('@')) return [];
     const { data } = await db.from('profiles')
-        .select('id, name').in('role', ['member', 'staff', 'admin']);
+        .select('id, name, role').in('role', ['member', 'staff', 'admin']);
     const list = (data ?? [])
         .filter(p => typeof p.name === 'string' && p.name)
         .sort((a, b) => String(b.name).length - String(a.name).length);
     if (!list.length) return [];
 
-    const re = new RegExp(`@(${list.map(p => escapeRe(String(p.name))).join('|')})`, 'g');
+    // 쓴 사람이 운영진이면 `@전체`도 이름 하나처럼 맞춰 본다.
+    const staff = list.some(
+        p => p.id === authorId && (p.role === 'admin' || p.role === 'staff'));
+    const words = [...new Set([
+        ...(staff ? [ALL_MENTION] : []),
+        ...list.map(p => String(p.name)),
+    ])].sort((a, b) => b.length - a.length);
+
+    const re = new RegExp(`@(${words.map(escapeRe).join('|')})`, 'g');
     const called = new Set([...body.matchAll(re)].map(m => m[1]));
+    // `@전체` 한 번이면 나머지는 볼 것도 없다 — 어차피 다 부른 것이다.
+    if (called.has(ALL_MENTION)) return list.map(p => p.id as string);
     return list.filter(p => called.has(String(p.name))).map(p => p.id as string);
 }
 
@@ -111,7 +133,7 @@ async function repliedAuthor(replyTo: unknown): Promise<string | null> {
  * 이것까지 막히면 부르거나 답할 이유가 없어진다.
  */
 async function alwaysFor(r: Record<string, unknown>): Promise<string[]> {
-    const ids = new Set(await mentionedIds(r.body));
+    const ids = new Set(await mentionedIds(r.body, r.user_id));
     const replied = await repliedAuthor(r.reply_to);
     if (replied) ids.add(replied);
     return [...ids];

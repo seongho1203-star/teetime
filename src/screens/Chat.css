@@ -413,6 +413,19 @@ body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap
 .mention-item + .mention-item { border-top: 1px solid var(--line); }
 .mention-item:active { background: var(--surface-2); }
 
+/* `@전체`(운영진만). 사람 얼굴이 없는 자리라 아이콘을 아바타 크기로 맞춰
+   두 줄이 어긋나지 않게 한다. 무엇을 하는 것인지 옆에 적는다 —
+   서른 명의 폰을 한꺼번에 울리는 일이라 모르고 누르면 안 된다. */
+.mention-item.is-all { color: var(--brand); }
+.mention-all-icon {
+    width: 26px; height: 26px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    font-size: 15px;
+}
+.mention-item.is-all .xs { margin-left: auto; }
+
 /* 글 안의 `@이름`. 나를 부른 것은 분홍으로 더 세운다 —
    대화가 길어지면 사람들이 자기 이름만 찾는다. */
 .mention { font-weight: 800; color: var(--info); }

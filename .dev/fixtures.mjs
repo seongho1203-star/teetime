@@ -129,6 +129,12 @@ export const messages = [
       reply_to: 'm5', created_at: iso(0, 9, 32) },
     { id: 'm8', room_id: 'room1', user_id: uid(4), body: '@신성호 감사합니다 🙏',
       reply_to: 'm7', created_at: iso(0, 9, 33) },
+    // `@전체`는 **운영진이 썼을 때만** 도드라진다. 둘을 나란히 둬서
+    // 회원이 손으로 쳐 넣은 것이 그냥 글자로 남는지 함께 본다.
+    { id: 'm9', room_id: 'room1', user_id: ME,
+      body: '@전체 집합 시각이 6시 20분으로 바뀌었습니다', created_at: iso(0, 9, 35) },
+    { id: 'm10', room_id: 'room1', user_id: uid(2),
+      body: '@전체 저도 확인했습니다', created_at: iso(0, 9, 36) },
     // 사진 말풍선 확인용. 바깥으로 요청이 나가지 않게 data URI로 둔다.
     { id: 'm6', room_id: 'room1', user_id: uid(2), body: '어제 18번 홀',
       image_url: 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22640%22%20height=%22420%22%3E%3Crect%20width=%22640%22%20height=%22420%22%20fill=%22%232c7a52%22/%3E%3Ccircle%20cx=%22500%22%20cy=%2290%22%20r=%2245%22%20fill=%22%23f6e27a%22/%3E%3Cpath%20d=%22M0%20320%20L200%20220%20L380%20320%20L640%20200%20L640%20420%20L0%20420Z%22%20fill=%22%231d5a3a%22/%3E%3C/svg%3E', created_at: iso(0, 9, 40) },

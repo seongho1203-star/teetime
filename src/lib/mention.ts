@@ -24,6 +24,16 @@ export function mentionQuery(value: string, caret: number): { at: number; q: str
     return { at, q };
 }
 
+/**
+ * 모두를 한 번에 부르는 이름.
+ *
+ * **운영진(운영자·부운영자)만 쓴다.** 이걸로 부르면 대화 알림을 꺼 둔
+ * 기기에도 알림이 가므로, 아무나 쓰면 그 스위치가 있으나 마나가 된다.
+ * 누가 썼는지는 **발송기가 다시 확인한다**(`supabase/functions/notify`) —
+ * 화면에서 목록을 감추는 것만으로는 손으로 쳐 넣는 것을 못 막는다.
+ */
+export const ALL_MENTION = '전체';
+
 /** 정규식에 이름을 그대로 끼워 넣기 전에 특수문자를 막아 둔다. */
 function escapeRe(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -37,9 +47,14 @@ export interface Piece { text: string; name?: string }
  *
  * **긴 이름을 먼저 본다** — `김지`와 `김지명`이 함께 있을 때 뒤엣것이
  * 걸려야 한다. 명단에 없는 `@무엇`은 그냥 글자로 남는다.
+ *
+ * `allowAll`은 **쓴 사람이 운영진일 때만** 켠다. 회원이 손으로 `@전체`를
+ * 쳐 넣어도 도드라지지 않는다 — 알림도 안 가는데 화면에서만 부른 것처럼
+ * 보이면 불렀다고 여기게 된다.
  */
-export function splitMentions(body: string, names: string[]): Piece[] {
-    const list = names.filter(Boolean).sort((a, b) => b.length - a.length);
+export function splitMentions(body: string, names: string[], allowAll = false): Piece[] {
+    const list = [...new Set([...(allowAll ? [ALL_MENTION] : []), ...names])]
+        .filter(Boolean).sort((a, b) => b.length - a.length);
     if (!list.length || !body.includes('@')) return [{ text: body }];
 
     const re = new RegExp(`@(${list.map(escapeRe).join('|')})`, 'g');
