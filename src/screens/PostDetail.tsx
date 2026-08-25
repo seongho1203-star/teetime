@@ -2,13 +2,12 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatStamp, timeAgo } from '../lib/format';
+import { formatStamp } from '../lib/format';
 import type { Post, PostComment, Profile } from '../lib/types';
 import { TopBar } from '../components/TopBar';
-import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
-import { CommentForm } from '../components/CommentForm';
+import { Comments } from '../components/Comments';
 import { readableError } from '../lib/errors';
 import './Board.css';
 
@@ -36,7 +35,7 @@ export function PostDetail() {
         return { post: unwrap(post), comments: unwrap(comments) ?? [], people };
     }, [id]);
 
-    useRealtime('posts', reload);
+    useRealtime(['posts', 'post_comments'], reload);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -53,22 +52,6 @@ export function PostDetail() {
     const post = data.post;
     const names = byId(data.people);
     const canEdit = isAdmin || post.author_id === me;
-
-    const addComment = async (body: string) => {
-        const { error: err } = await supabase.from('post_comments')
-            .insert({ post_id: post.id, author_id: me, body });
-        if (err) { toast(readableError(err), 'error'); return false; }
-        reload();
-        return true;
-    };
-
-    const removeComment = async (c: PostComment) => {
-        const ok = await confirm({ title: '댓글을 지울까요?', confirmLabel: '지우기', danger: true });
-        if (!ok) return;
-        const { error: err } = await supabase.from('post_comments').delete().eq('id', c.id);
-        if (err) { toast(readableError(err), 'error'); return; }
-        reload();
-    };
 
     const removePost = async () => {
         const ok = await confirm({
@@ -122,35 +105,11 @@ export function PostDetail() {
                 </div>
             )}
 
-            <div className="card">
-                <div className="section-title">댓글 {data.comments.length}</div>
-
-                {data.comments.length === 0 && (
-                    <p className="xs faint">아직 댓글이 없습니다.</p>
-                )}
-
-                {data.comments.map(c => {
-                    const who = names[c.author_id ?? ''];
-                    return (
-                        <div className="comment" key={c.id}>
-                            <Avatar name={who?.name} url={who?.avatar_url} size="sm" />
-                            <div className="grow" style={{ minWidth: 0 }}>
-                                <div className="row" style={{ gap: 6 }}>
-                                    <span className="sm b">{who?.name ?? '알 수 없음'}</span>
-                                    <span className="xs faint">{timeAgo(c.created_at)}</span>
-                                </div>
-                                <div className="sm comment-body">{c.body}</div>
-                            </div>
-                            {(isAdmin || c.author_id === me) && (
-                                <button className="btn ghost sm" onClick={() => removeComment(c)}
-                                        aria-label="댓글 지우기">✕</button>
-                            )}
-                        </div>
-                    );
-                })}
-
-                <CommentForm onSubmit={addComment} />
-            </div>
+            <Comments
+                comments={data.comments} names={names}
+                target={{ table: 'post_comments', parent: { post_id: post.id } }}
+                onChange={reload}
+            />
         </div>
     );
 }

@@ -6,18 +6,20 @@ import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
     CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
-    type Round, type Signup, type Profile,
+    type Round, type RoundComment, type Signup, type Profile,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
+import { Comments } from '../components/Comments';
 import { readableError } from '../lib/errors';
 import './Rounds.css';
 
 interface Loaded {
     round: Round | null;
     signups: Signup[];
+    comments: RoundComment[];
     people: Profile[];
 }
 
@@ -31,15 +33,22 @@ export function RoundDetail() {
     const [busy, setBusy] = useState(false);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        const [round, signups, people] = await Promise.all([
+        const [round, signups, comments, people] = await Promise.all([
             supabase.from('rounds').select('*').eq('id', id!).maybeSingle(),
             supabase.from('signups').select('*').eq('round_id', id!).order('seq'),
+            supabase.from('round_comments').select('*').eq('round_id', id!)
+                    .order('created_at'),
             fetchProfiles(),
         ]);
-        return { round: unwrap(round), signups: unwrap(signups) ?? [], people };
+        return {
+            round: unwrap(round),
+            signups: unwrap(signups) ?? [],
+            comments: unwrap(comments) ?? [],
+            people,
+        };
     }, [id]);
 
-    useRealtime(['signups', 'rounds'], reload);
+    useRealtime(['signups', 'rounds', 'round_comments'], reload);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -123,7 +132,9 @@ export function RoundDetail() {
             detail: <>
                 {r.course || r.title}<br />
                 <b style={{ color: 'var(--danger)' }}>
-                    신청 {data.signups.length}건이 함께 사라집니다.
+                    신청 {data.signups.length}건
+                    {data.comments.length > 0 && `과 댓글 ${data.comments.length}개`}이
+                    함께 사라집니다.
                 </b><br />
                 되돌릴 수 없습니다. 모집만 멈추려면 <b>마감</b>을 쓰세요.
             </>,
@@ -313,6 +324,17 @@ export function RoundDetail() {
                     </div>
                 </div>
             )}
+
+            {/* ── 댓글 ──
+                **신청 버튼보다 아래**에 둔다. 그 버튼은 바닥에 붙어 있다가
+                (`position: sticky`) 제자리에 닿으면 물러나므로, 댓글을 읽으러
+                내려가면 저절로 비켜 준다. 위에 두면 적는 내내 버튼이 칸을
+                가린다. */}
+            <Comments
+                comments={data.comments} names={names}
+                target={{ table: 'round_comments', parent: { round_id: r.id } }}
+                onChange={reload}
+            />
         </div>
     );
 }

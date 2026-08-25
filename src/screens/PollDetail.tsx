@@ -12,7 +12,7 @@ import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
-import { CommentForm } from '../components/CommentForm';
+import { Comments } from '../components/Comments';
 import { readableError } from '../lib/errors';
 import { PollOptions } from './Polls';
 import './Polls.css';
@@ -93,22 +93,6 @@ export function PollDetail() {
     const members = data.people.filter(p => p.role !== 'pending' && p.role !== 'banned');
     const yet = members.filter(p => !voted.has(p.id));
     const done = members.filter(p => voted.has(p.id));
-
-    const addComment = async (body: string) => {
-        const { error: err } = await supabase.from('poll_comments')
-            .insert({ poll_id: poll.id, author_id: me, body });
-        if (err) { toast(readableError(err), 'error'); return false; }
-        reload();
-        return true;
-    };
-
-    const removeComment = async (c: PollComment) => {
-        const ok = await confirm({ title: '댓글을 지울까요?', confirmLabel: '지우기', danger: true });
-        if (!ok) return;
-        const { error: err } = await supabase.from('poll_comments').delete().eq('id', c.id);
-        if (err) { toast(readableError(err), 'error'); return; }
-        reload();
-    };
 
     const close = async () => {
         const { error: err } = await supabase.from('polls')
@@ -228,36 +212,11 @@ export function PollDetail() {
                 </div>
             )}
 
-            {/* ── 댓글 ── */}
-            <div className="card">
-                <div className="section-title">댓글 {data.comments.length}</div>
-
-                {data.comments.length === 0 && (
-                    <p className="xs faint">아직 댓글이 없습니다.</p>
-                )}
-
-                {data.comments.map(c => {
-                    const who = names[c.author_id ?? ''];
-                    return (
-                        <div className="comment" key={c.id}>
-                            <Avatar name={who?.name} url={who?.avatar_url} size="sm" />
-                            <div className="grow" style={{ minWidth: 0 }}>
-                                <div className="row" style={{ gap: 6 }}>
-                                    <span className="sm b">{who?.name ?? '알 수 없음'}</span>
-                                    <span className="xs faint">{timeAgo(c.created_at)}</span>
-                                </div>
-                                <div className="sm comment-body">{c.body}</div>
-                            </div>
-                            {(isAdmin || c.author_id === me) && (
-                                <button className="btn ghost sm" onClick={() => removeComment(c)}
-                                        aria-label="댓글 지우기">✕</button>
-                            )}
-                        </div>
-                    );
-                })}
-
-                <CommentForm onSubmit={addComment} />
-            </div>
+            <Comments
+                comments={data.comments} names={names}
+                target={{ table: 'poll_comments', parent: { poll_id: poll.id } }}
+                onChange={reload}
+            />
 
             {(isAdmin || poll.created_by === me) && (
                 <div className="card">

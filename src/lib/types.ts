@@ -163,6 +163,15 @@ export type PollComment = {
     created_at: string;
 };
 
+/** 라운드에 달린 댓글. `PostComment`와 같은 모양이다. */
+export type RoundComment = {
+    id: string;
+    round_id: string;
+    author_id: string | null;
+    body: string;
+    created_at: string;
+};
+
 export type Post = {
     id: string;
     title: string;
@@ -230,6 +239,7 @@ export interface Database {
             poll_options: Table<PollOption>;
             poll_votes: Table<PollVote>;
             poll_comments: Table<PollComment>;
+            round_comments: Table<RoundComment>;
             posts: Table<Post>;
             post_comments: Table<PostComment>;
             rooms: Table<Room>;

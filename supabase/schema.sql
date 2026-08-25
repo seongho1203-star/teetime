@@ -474,6 +474,21 @@ create table if not exists poll_comments (
 create index if not exists poll_comments_poll_idx on poll_comments (poll_id, created_at);
 
 
+-- 라운드에도 댓글을 단다. `카풀 자리 있나요`처럼 그 라운드에만 걸리는
+-- 말이 대화방으로 나가면 다른 사람들 사이에 묻힌다.
+-- 표는 라운드(3장)가 아니라 **댓글끼리** 모아 둔다 — 셋이 같은 모양·같은
+-- 정책이라 나란히 두면 한 곳만 고치는 일이 안 생긴다.
+create table if not exists round_comments (
+    id         uuid primary key default gen_random_uuid(),
+    round_id   uuid not null references rounds on delete cascade,
+    author_id  uuid references profiles on delete set null,
+    body       text not null,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists round_comments_round_idx on round_comments (round_id, created_at);
+
+
 -- ═══ 6. 채팅 ═══════════════════════════════════════════════════
 --
 -- 카톡 오픈톡을 대신하는 자리다. 다만 중요한 것(라운드·투표·공지)은
@@ -531,6 +546,7 @@ alter table poll_votes    enable row level security;
 alter table posts         enable row level security;
 alter table post_comments enable row level security;
 alter table poll_comments enable row level security;
+alter table round_comments enable row level security;
 alter table rooms         enable row level security;
 alter table messages      enable row level security;
 
@@ -660,6 +676,16 @@ create policy poll_comments_add   on poll_comments for insert with check (is_mem
 create policy poll_comments_own   on poll_comments for delete using (author_id = auth.uid());
 create policy poll_comments_admin on poll_comments for all    using (is_admin()) with check (is_admin());
 
+-- round_comments — 위 둘과 같은 규칙이다.
+drop policy if exists round_comments_read on round_comments;
+drop policy if exists round_comments_add on round_comments;
+drop policy if exists round_comments_own on round_comments;
+drop policy if exists round_comments_admin on round_comments;
+create policy round_comments_read  on round_comments for select using (is_member());
+create policy round_comments_add   on round_comments for insert with check (is_member() and author_id = auth.uid());
+create policy round_comments_own   on round_comments for delete using (author_id = auth.uid());
+create policy round_comments_admin on round_comments for all    using (is_admin()) with check (is_admin());
+
 -- chat -------------------------------------------------------
 drop policy if exists rooms_read on rooms;
 drop policy if exists rooms_write on rooms;
@@ -758,7 +784,7 @@ declare t text;
 begin
     foreach t in array array[
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
-        'posts', 'post_comments', 'poll_comments', 'profiles'
+        'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles'
     ] loop
         if not exists (
             select 1 from pg_publication_tables

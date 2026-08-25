@@ -95,6 +95,11 @@ export const poll_comments = [
     { id: 'pc2', poll_id: 'p1', author_id: uid(4), body: '저는 6일도 괜찮아요~', created_at: iso(-1) },
 ];
 
+export const round_comments = [
+    { id: 'rc1', round_id: 'r1', author_id: uid(4), body: '동광주 IC에서 카풀 한 자리 부탁드립니다', created_at: iso(-2) },
+    { id: 'rc2', round_id: 'r1', author_id: uid(1), body: '제 차에 자리 있습니다. 6시 20분까지 오세요', created_at: iso(-1) },
+];
+
 export const posts = [
     { id: 'b1', title: '9월 회비 안내', pinned: true, author_id: uid(1),
       body: '9월 회비는 8월 31일까지 입금 부탁드립니다.\n\n국민 123456-78-901234 (신성호)\n금액: 50,000원',
@@ -137,6 +142,6 @@ export const push_subscriptions = [
 ];
 
 export const tables = {
-    profiles, rounds, signups, polls, poll_options, poll_votes,
+    profiles, rounds, signups, round_comments, polls, poll_options, poll_votes,
     poll_comments, posts, post_comments, rooms, messages, push_subscriptions,
 };
