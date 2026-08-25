@@ -10,6 +10,7 @@ import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
 import { markSeen } from '../lib/unread';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
+import { emojiOnly } from '../lib/emoji';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -755,6 +756,10 @@ function Bubble({
     allowAll: boolean;
 }) {
     const rowRef = useRef<HTMLDivElement>(null);
+    /* 이모지만 보낸 짧은 글은 말풍선 없이 크게 그린다(카톡이 그렇다).
+       사진에 함께 적은 글은 그대로 둔다 — 사진 아래 붙는 한 줄이라
+       거기서만 글자가 커지면 짜임이 무너진다. */
+    const big = !message.image_url && emojiOnly(message.body);
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
@@ -839,7 +844,7 @@ function Bubble({
                               <img className="chat-image" src={message.image_url}
                                    alt="보낸 사진" loading="lazy" onLoad={onImageLoad} />
                           </a>
-                        : <div className="chat-bubble">
+                        : <div className={`chat-bubble${big ? ' emoji-only' : ''}`}>
                               <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                           </div>}
                     {showTime && (

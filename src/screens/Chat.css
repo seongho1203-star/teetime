@@ -157,6 +157,19 @@
     font-weight: 500;
 }
 
+/* 이모지만 보낸 짧은 글(세 개까지). **말풍선을 벗긴다** — 카톡이 그렇다.
+   작은 말풍선 안에 이모지 하나가 들어앉아 있으면 그것대로 초라하고,
+   벗겨 놓으면 한눈에 눈에 띈다. 내 글의 노란 바탕도 함께 사라진다.
+   가려내는 규칙은 `lib/emoji.ts`에 있다. */
+.chat-bubble.emoji-only,
+.chat-row.mine .chat-bubble.emoji-only {
+    padding: 1px 2px;
+    background: none;
+    border-color: transparent;
+    font-size: 40px;
+    line-height: 1.15;
+}
+
 .chat-time {
     flex: 0 0 auto;
     font-size: 10.5px;

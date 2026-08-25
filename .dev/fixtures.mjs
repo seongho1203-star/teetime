@@ -135,6 +135,11 @@ export const messages = [
       body: '@전체 집합 시각이 6시 20분으로 바뀌었습니다', created_at: iso(0, 9, 35) },
     { id: 'm10', room_id: 'room1', user_id: uid(2),
       body: '@전체 저도 확인했습니다', created_at: iso(0, 9, 36) },
+    // 이모지만 보낸 글은 말풍선 없이 크게 나온다. 남·나 양쪽과, 글자가
+    // 섞이면 평소대로 돌아오는 것까지 나란히 둔다.
+    { id: 'm11', room_id: 'room1', user_id: uid(3), body: '👍', created_at: iso(0, 9, 37) },
+    { id: 'm12', room_id: 'room1', user_id: ME, body: '⛳🔥👏', created_at: iso(0, 9, 38) },
+    { id: 'm13', room_id: 'room1', user_id: uid(3), body: '👍 좋습니다', created_at: iso(0, 9, 39) },
     // 사진 말풍선 확인용. 바깥으로 요청이 나가지 않게 data URI로 둔다.
     { id: 'm6', room_id: 'room1', user_id: uid(2), body: '어제 18번 홀',
       image_url: 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22640%22%20height=%22420%22%3E%3Crect%20width=%22640%22%20height=%22420%22%20fill=%22%232c7a52%22/%3E%3Ccircle%20cx=%22500%22%20cy=%2290%22%20r=%2245%22%20fill=%22%23f6e27a%22/%3E%3Cpath%20d=%22M0%20320%20L200%20220%20L380%20320%20L640%20200%20L640%20420%20L0%20420Z%22%20fill=%22%231d5a3a%22/%3E%3C/svg%3E', created_at: iso(0, 9, 40) },
