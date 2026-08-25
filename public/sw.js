@@ -26,6 +26,62 @@ self.addEventListener('fetch', event => {
     );
 });
 
+/* ── 아이콘 위의 빨간 숫자(뱃지) ──────────────────────────────
+ *
+ * 카톡처럼 안 본 개수를 아이콘에 얹는다. **여기가 세는 유일한 자리다** —
+ * 화면 쪽(`lib/badge.ts`)은 "봤다"고 알려 주기만 한다.
+ *
+ * **`registration.getNotifications()`로 세면 안 된다.** 대화 알림은 같은
+ * `tag`로 묶여 여러 줄이 와도 알림창에는 하나뿐이라, 여섯 개가 와도 1이 된다.
+ * 그래서 따로 센다.
+ *
+ * 서비스워커에는 localStorage가 없어 IndexedDB에 담는다. 값 하나뿐이라
+ * 손으로 열고 닫는다.
+ *
+ * 뱃지를 모르는 기기(브라우저 탭, 옛 iOS)에서는 조용히 지나간다 —
+ * **알림 자체는 그대로 떠야 한다.**
+ */
+function openDb() {
+    return new Promise((ok, no) => {
+        const req = indexedDB.open('teetime-badge', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('n');
+        req.onsuccess = () => ok(req.result);
+        req.onerror = () => no(req.error);
+    });
+}
+
+/** `by`만큼 올린다. 0을 주면 비운다. */
+async function bumpBadge(by) {
+    if (!('setAppBadge' in navigator)) return;
+    try {
+        const db = await openDb();
+        const next = await new Promise((ok, no) => {
+            const st = db.transaction('n', 'readwrite').objectStore('n');
+            const get = st.get('count');
+            get.onsuccess = () => {
+                const n = by === 0 ? 0 : (get.result || 0) + by;
+                st.put(n, 'count');
+                ok(n);
+            };
+            get.onerror = () => no(get.error);
+        });
+        if (next > 0) await navigator.setAppBadge(next);
+        else await navigator.clearAppBadge();
+    } catch { /* 뱃지가 안 붙어도 알림은 떠야 한다 */ }
+}
+
+/** 화면을 보고 있는 창이 있는가. 보고 있으면 숫자를 올릴 이유가 없다. */
+async function isWatching() {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    return list.some(c => c.visibilityState === 'visible');
+}
+
+/* 앱이 "봤다"고 알려 오면 비운다. **화면에서 직접 세지 않고 여기로 넘기는**
+   이유는 세는 곳을 하나로 두려는 것이다. */
+self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'badge-clear') event.waitUntil(bumpBadge(0));
+});
+
 /* 알림창 맨 윗줄(`까꿍`)은 **우리가 넣는 게 아니다.** 폰이 앱 이름을
    붙인다 — 홈 화면 앱이면 manifest의 name, 브라우저 탭이면 사이트 주소다.
    주소가 뜨는 건 브라우저가 '어디서 온 알림인지' 밝히는 것이라 끌 수 없다.
@@ -45,7 +101,13 @@ self.addEventListener('push', event => {
         renotify: true,
         data: { url: data.url || './' },
     };
-    event.waitUntil(self.registration.showNotification(title, options));
+    /* 보고 있는 동안 온 것은 세지 않는다 — 그 자리에서 읽는 것이라
+       숫자가 붙었다 바로 지워지는 깜빡임만 남는다. 겸사겸사 앱이 미처
+       못 지운 옛 숫자도 여기서 바로잡힌다. */
+    event.waitUntil(Promise.all([
+        self.registration.showNotification(title, options),
+        isWatching().then(seen => bumpBadge(seen ? 0 : 1)),
+    ]));
 });
 
 self.addEventListener('notificationclick', event => {

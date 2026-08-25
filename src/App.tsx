@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
+import { watchBadge } from './lib/badge';
 import { isConfigured } from './lib/supabase';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
@@ -89,6 +91,9 @@ function Setup() {
 }
 
 export default function App() {
+    // 앱을 보고 있는 동안에는 아이콘의 숫자를 비워 둔다.
+    useEffect(watchBadge, []);
+
     return (
         <HashRouter>
             <AuthProvider>
