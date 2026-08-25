@@ -119,6 +119,20 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
     const [focused, setFocused] = useState(false);
     const [sending, setSending] = useState(false);
 
+    /**
+     * 적은 글에 맞춰 칸을 늘린다. `textarea`는 스스로 안 늘어나서, 놔두면
+     * 여러 줄을 적을 때 앞줄이 위로 잘려 안 보인다. 높이를 `auto`로
+     * 되돌렸다가 내용 높이로 다시 준다(되돌리지 않으면 안 줄어든다).
+     * `box-sizing: border-box`라 테두리 두께를 더해 줘야 잔스크롤이 안 남는다.
+     * 위 한도는 CSS(`max-height`)가 잡는다.
+     */
+    const grow = () => {
+        const el = ref.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`;
+    };
+
     const submit = async () => {
         const body = (ref.current?.value ?? '').trim();
         if (!body || sending) return;
@@ -126,7 +140,10 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         const ok = await onSubmit(body);
         setSending(false);
         if (!ok) return;
-        if (ref.current) ref.current.value = '';
+        if (ref.current) {
+            ref.current.value = '';
+            ref.current.style.height = '';   // 한 줄로 돌아온다
+        }
         setDraft('');
     };
 
@@ -136,7 +153,7 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 <textarea
                     ref={ref}
                     className="textarea"
-                    onChange={e => setDraft(e.target.value)}
+                    onChange={e => { setDraft(e.target.value); grow(); }}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
                     rows={1} maxLength={500}

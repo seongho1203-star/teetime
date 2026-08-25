@@ -224,7 +224,10 @@
     min-height: 38px;
     max-height: 120px;
     padding: 7px 14px;
-    border-radius: var(--r-pill);
+    /* **한 줄 높이의 절반**(38/2). 한 줄일 때는 알약과 똑같이 보이고,
+       여러 줄로 늘어나면 저절로 둥근 네모가 된다 — `--r-pill`로 두면
+       키가 커질수록 옆구리가 과하게 둥글어진다. */
+    border-radius: 19px;
     line-height: 1.45;
     width: 100%;
 }

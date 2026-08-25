@@ -459,8 +459,34 @@ export function Chat() {
      * **입력칸은 일부러 `value`로 묶지 않았다**(아래 textarea 주석 참고).
      * 그래서 비울 때 칸의 값도 손으로 지워야 한다.
      */
+    /**
+     * 적은 글에 맞춰 입력칸을 늘린다.
+     *
+     * `textarea`는 스스로 안 늘어난다 — 놔두면 한 줄 높이에 갇혀 안에서
+     * 스크롤돼서, 여러 줄 적으면 **앞줄이 위로 잘려 안 보인다.**
+     * 높이를 `auto`로 되돌렸다가 내용 높이(`scrollHeight`)로 다시 준다.
+     * 되돌리지 않으면 한 번 커진 뒤로 줄어들지 않는다.
+     *
+     * 위 한도(`max-height` 120px)는 CSS가 잡고, 거기 닿으면 그때부터
+     * 안에서 스크롤된다. 늘어난 만큼 목록이 밀리므로 바닥에 다시 붙인다.
+     */
+    const growDraft = useCallback(() => {
+        const el = taRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        /* `box-sizing: border-box`라 height에 테두리가 포함된다. `scrollHeight`는
+           안 그래서 그냥 넣으면 2px이 모자라 잔스크롤이 남는다. 그 차이를 잰다. */
+        const border = el.offsetHeight - el.clientHeight;
+        el.style.height = `${el.scrollHeight + border}px`;
+        pinBottom();
+    }, [pinBottom]);
+
     const clearDraft = () => {
-        if (taRef.current) taRef.current.value = '';
+        if (taRef.current) {
+            taRef.current.value = '';
+            // 보내고 나면 한 줄로 돌아와야 한다.
+            taRef.current.style.height = '';
+        }
         setDraft('');
         setMention(null);
     };
@@ -491,6 +517,7 @@ export function Chat() {
         el.setSelectionRange(head.length, head.length);
         setDraft(el.value);
         setMention(null);
+        growDraft();
         // 고르고 나서도 키보드가 그대로 있어야 이어 칠 수 있다.
         el.focus();
     };
@@ -760,7 +787,7 @@ export function Chat() {
                     <textarea
                         ref={taRef}
                         className="textarea"
-                        onChange={e => { setDraft(e.target.value); syncMention(); }}
+                        onChange={e => { setDraft(e.target.value); syncMention(); growDraft(); }}
                         onSelect={syncMention}
                         onKeyDown={onKeyDown}
                         onFocus={onComposerFocus}
