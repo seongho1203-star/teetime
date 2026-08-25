@@ -79,7 +79,13 @@ async function isWatching() {
 /* 앱이 "봤다"고 알려 오면 비운다. **화면에서 직접 세지 않고 여기로 넘기는**
    이유는 세는 곳을 하나로 두려는 것이다. */
 self.addEventListener('message', event => {
-    if (event.data && event.data.type === 'badge-clear') event.waitUntil(bumpBadge(0));
+    const kind = event.data && event.data.type;
+    if (kind === 'badge-clear') event.waitUntil(bumpBadge(0));
+    // `내 정보`가 "여기서 뱃지가 되느냐"고 물어 온다. **알림이 올 때 도는
+    // 쪽이 여기라**, 화면에서 되는지 보는 것만으로는 알 수 없다.
+    if (kind === 'badge-support' && event.ports[0]) {
+        event.ports[0].postMessage({ badge: 'setAppBadge' in navigator });
+    }
 });
 
 /* 알림창 맨 윗줄(`까꿍`)은 **우리가 넣는 게 아니다.** 폰이 앱 이름을

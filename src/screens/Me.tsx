@@ -9,11 +9,17 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { ROLE_LABEL } from '../lib/types';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
+import { badgeSupport } from '../lib/badge';
 import {
     chatPush, disablePush, enablePush, pushState, setChatPush, type PushState,
 } from '../lib/push';
 import { Switch } from '../components/Switch';
 import './Home.css';
+
+/** `O` / `X` / `없음`. 서비스워커가 아직 안 올라왔으면 답이 없다. */
+function mark(v: boolean | null): string {
+    return v === null ? '없음' : v ? 'O' : 'X';
+}
 
 export function Me() {
     const { profile, session, refresh } = useAuth();
@@ -26,6 +32,10 @@ export function Me() {
     const [handicap, setHandicap] = useState(
         profile?.handicap != null ? String(profile.handicap) : '');
     const [saving, setSaving] = useState(false);
+    /* 뱃지가 이 기기에서 되는지. 서비스워커에 물어보므로 답이 늦게 온다. */
+    const [badge, setBadge] = useState<{ page: boolean; worker: boolean | null }>(
+        { page: false, worker: null });
+    useEffect(() => { badgeSupport().then(setBadge); }, []);
 
     const save = async () => {
         const trimmed = name.trim();
@@ -240,6 +250,12 @@ export function Me() {
                 <br />
                 {/* 지금 떠 있는 판. 고친 게 안 먹을 때 여기부터 본다. */}
                 <span className="xs faint">화면 판 {__BUILD__}</span>
+                {/* 아이콘의 빨간 숫자가 이 기기에서 되는지. 안 될 때
+                    어디가 막힌 것인지 밖에서는 알 길이 없어 적어 둔다. */}
+                <br />
+                <span className="xs faint">
+                    뱃지 화면 {mark(badge.page)} · 워커 {mark(badge.worker)}
+                </span>
             </p>
         </div>
     );

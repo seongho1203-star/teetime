@@ -11,6 +11,32 @@
  * 안 되는 기기에서도 알림 자체는 그대로 뜨므로 조용히 지나간다.
  */
 
+/**
+ * 이 기기에서 뱃지가 되는지 물어본다. `내 정보` 맨 아래에 적힌다.
+ *
+ * **짐작으로 고치지 말고 재서 고칠 것.** 뱃지는 안 되어도 조용히 지나가게
+ * 해 두어서, 안 뜰 때 어디가 막힌 것인지 밖에서는 알 길이 없다. 막히는
+ * 자리가 둘이라 둘 다 본다:
+ *   화면 — 이 브라우저가 뱃지를 아는가 (iOS 16.4 미만이면 없다)
+ *   워커 — **알림이 올 때 도는 쪽**에서도 되는가. 숫자를 얹는 건 이쪽이라
+ *          여기가 안 되면 화면이 되어도 소용이 없다. 서비스워커가 아직
+ *          안 올라왔으면 `없음`이 나온다 — 그때는 앱을 껐다 켜 본다.
+ */
+export async function badgeSupport(): Promise<{ page: boolean; worker: boolean | null }> {
+    const page = typeof navigator !== 'undefined' && 'setAppBadge' in navigator;
+    const sw = navigator.serviceWorker?.controller;
+    if (!sw) return { page, worker: null };
+    return {
+        page,
+        worker: await new Promise<boolean | null>(done => {
+            const ch = new MessageChannel();
+            const timer = setTimeout(() => done(null), 1500);
+            ch.port1.onmessage = e => { clearTimeout(timer); done(!!e.data?.badge); };
+            sw.postMessage({ type: 'badge-support' }, [ch.port2]);
+        }),
+    };
+}
+
 /** 앱을 봤으니 0으로. */
 export function clearBadge() {
     try {
