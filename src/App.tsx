@@ -42,11 +42,7 @@ function Gate() {
        자바스크립트가 도착하는 순간 화면이 바뀌지 않고 그대로 이어진다.
        (규칙은 index.html의 `<style>`에 한 번만 적혀 있다.) */
     if (loading) {
-        return (
-            <div className="boot">
-                <img src="./icon-512.png" alt="까꿍" />
-            </div>
-        );
+        return <div className="boot" role="img" aria-label="까꿍" />;
     }
 
     if (!session) return <Login />;
