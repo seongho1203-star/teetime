@@ -139,7 +139,13 @@ export function RoundCard({
                             ? <span className="badge done">종료</span>
                             : r.status === 'closed'
                                 ? <span className="badge done">모집 마감</span>
-                                : <span className="badge live">모집중</span>}
+                                /* **자리가 다 차도 마감으로 적는다.** 4/4인데
+                                   `모집중`이라고 붙어 있으면 아직 들어갈 수
+                                   있는 줄 알고 눌러 보게 된다. 대기 신청은
+                                   그대로 열려 있고, 그건 안에서 단추가 말해 준다. */
+                                : full
+                                    ? <span className="badge done">모집 마감</span>
+                                    : <span className="badge live">모집중</span>}
                     {!past && r.status !== 'cancelled' && (
                         <span className={`badge ${daysUntil(r.tee_at) <= 3 ? 'warn' : 'dim'}`}>
                             {ddayLabel(r.tee_at)}

@@ -175,7 +175,11 @@ export function RoundDetail() {
                             ? <span className="badge done">종료</span>
                             : r.status === 'closed'
                                 ? <span className="badge done">모집 마감</span>
-                                : <span className="badge live">모집중</span>}
+                                /* 자리가 다 차면 목록과 같은 말로 적는다.
+                                   대기 신청은 아래 단추가 따로 말해 준다. */
+                                : openSlots === 0
+                                    ? <span className="badge done">모집 마감</span>
+                                    : <span className="badge live">모집중</span>}
                     {!isPast && r.status !== 'cancelled' && (
                         <span className={`badge ${daysUntil(r.tee_at) <= 3 ? 'warn' : 'dim'}`}>
                             {ddayLabel(r.tee_at)}
