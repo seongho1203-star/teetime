@@ -16,6 +16,20 @@ import './Chat.css';
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
 const PAGE = 50;
 
+/**
+ * 안 읽은 게 많으면 **그만큼 더 받는다.**
+ *
+ * 쉰 명이 떠들면 하루에 100~200개가 쌓인다. 50개만 받으면 `여기까지
+ * 읽으셨습니다` 줄이 그 안에 없어 아예 안 뜬다 — 정작 필요할 때 안 나오는 셈이다.
+ * 그래서 안 읽은 개수를 먼저 세어 보고 그것보다 조금 더 받는다.
+ *
+ * 여기까지가 한 번에 받는 최대다. 이걸 넘도록 밀렸으면 어차피 다 읽지 않고
+ * 최근 것부터 볼 테니, 줄은 못 긋더라도 화면이 무거워지지 않는 편이 낫다.
+ */
+const MAX_CATCHUP = 300;
+/** 줄 위로 몇 개쯤 보이게 할지. 앞뒤 맥락 없이 줄부터 나오면 뚝 끊겨 보인다. */
+const CATCHUP_MARGIN = 10;
+
 interface Loaded { room: Room | null; people: Profile[]; }
 
 export function Chat() {
@@ -75,19 +89,46 @@ export function Chat() {
     const staffIds = new Set(
         (data?.people ?? []).filter(p => p.role === 'admin' || p.role === 'staff').map(p => p.id));
 
-    // 첫 묶음을 불러온다. 최근 것부터 받아 뒤집는다.
+    /* 첫 묶음을 불러온다. 최근 것부터 받아 뒤집는다.
+       **안 읽은 개수를 먼저 세어 그만큼 더 받는다** — 그러지 않으면 밀린
+       사람에게는 `여기까지 읽으셨습니다` 줄이 아예 안 뜬다.
+       줄 자리도 여기서 함께 정한다. 나중에 효과로 정하면 그 사이에
+       `pinBottom`이 화면을 맨 아래로 붙여 버려 한 번 튄다. */
     useEffect(() => {
         if (!roomId) return;
         let alive = true;
         (async () => {
+            const at = enteredSeen.current;
+            const fresh = !at || at === NEVER;
+
+            let limit = PAGE;
+            if (!fresh) {
+                const { count } = await supabase
+                    .from('messages').select('id', { count: 'exact', head: true })
+                    .eq('room_id', roomId).gt('created_at', at);
+                if (!alive) return;
+                limit = Math.min(MAX_CATCHUP, Math.max(PAGE, (count ?? 0) + CATCHUP_MARGIN));
+            }
+
             const { data: rows, error: err } = await supabase
                 .from('messages').select('*').eq('room_id', roomId)
-                .order('created_at', { ascending: false }).limit(PAGE);
+                .order('created_at', { ascending: false }).limit(limit);
             if (!alive) return;
             if (err) { toast(readableError(err), 'error'); return; }
             const list = (rows ?? []).slice().reverse();
+
+            /* 줄을 그을 글. **내가 쓴 글은 세지 않는다**(다른 기기에서 보낸 것) —
+               내 글 위에 '여기까지 읽었다'가 붙으면 말이 안 된다.
+               맨 첫 줄이면 긋지 않는다: 위가 비어 있어 뜻이 없고, 이 기기로
+               처음 들어온 경우도 여기서 함께 걸러진다. */
+            const i = fresh ? -1 : list.findIndex(m => m.created_at > at! && m.user_id !== me);
+            if (i > 0) {
+                // 아래로 붙이지 않는다. 줄 자리로 옮길 참이다.
+                atBottom.current = false;
+                setUnreadFrom(list[i].id);
+            }
             setMessages(list);
-            setHasMore((rows ?? []).length === PAGE);
+            setHasMore((rows ?? []).length === limit);
         })();
         return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,20 +167,21 @@ export function Chat() {
     // 그리기가 끝난 프레임에 해야 높이가 확정된다.
     useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
 
-    /* 줄을 어디에 그을지 정한다. 첫 묶음이 들어온 뒤 딱 한 번.
-       **내가 쓴 글은 세지 않는다**(다른 기기에서 보낸 것) — 내 글 위에
-       '여기까지 읽었다'가 붙으면 말이 안 된다. */
-    useEffect(() => {
-        if (unreadDone.current || !messages.length) return;
+    /* **줄이 그어진 자리로 옮겨 준다.** 100~200개가 밀린 사람을 맨 아래에
+       내려놓으면 어디부터 읽어야 할지 스스로 찾아 올라가야 한다.
+       줄을 화면 위쪽에 두어 거기서부터 아래로 읽게 한다.
+       `pinBottom`보다 **뒤에** 선언해야 이쪽이 나중에 돌아 이긴다. */
+    useLayoutEffect(() => {
+        const el = listRef.current;
+        if (!unreadFrom || unreadDone.current || !el) return;
+        const line = el.querySelector<HTMLElement>('.chat-unread');
+        if (!line) return;
         unreadDone.current = true;
-        const at = enteredSeen.current;
-        // 이 기기로 처음 들어온 경우. 지난 대화 전부가 '안 읽음'이라 줄이
-        // 맨 위에 붙는데, 그건 알려 주는 게 없다.
-        if (!at || at === NEVER) return;
-        const i = messages.findIndex(m => m.created_at > at && m.user_id !== me);
-        // 맨 첫 줄이면 긋지 않는다. 위가 비어 있어 뜻이 없다.
-        if (i > 0) setUnreadFrom(messages[i].id);
-    }, [messages, me]);
+        atBottom.current = false;
+        /* 줄 위로 한 뼘 남겨 둔다 — 마지막으로 읽은 글이 한 줄 보여야
+           '여기서부터'가 어디인지 눈에 들어온다. */
+        el.scrollTop = line.offsetTop - 100;
+    }, [unreadFrom, messages]);
 
     // 이 화면을 보고 있으면 안 읽음이 쌓이지 않는다. 새 글이 들어올 때마다
     // 다시 남겨 두어야 탭바의 빨간 숫자가 곧바로 사라진다.
