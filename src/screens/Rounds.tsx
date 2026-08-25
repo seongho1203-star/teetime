@@ -126,7 +126,9 @@ export function RoundCard({
                 <div className="row" style={{ gap: 'var(--gap-xs)' }}>
                     {/* **둘 다 표시한다.** 스크린만 표를 달면 표가 없는 줄이
                         '필드'인지 '종류가 생기기 전 것'인지 헷갈린다. */}
-                    <span className="badge kind">{KIND_ICON[kind]} {KIND_LABEL[kind]}</span>
+                    <span className={`badge kind ${kind}`}>
+                        {KIND_ICON[kind]} {KIND_LABEL[kind]}
+                    </span>
                     {/* **맨 앞은 늘 '지금 어떤 상태인가'다.** 끝난 것과
                         열려 있는 것이 목록에 섞이므로 색으로 가른다 —
                         잔디=열림, 회색=끝남, 빨강=취소. D-day는 그 뒤에
@@ -151,7 +153,11 @@ export function RoundCard({
                 )}
             </div>
 
+            {/* **제목 줄에도 종류를 세운다.** 위의 표는 작아서 다른 표들
+                (모집중·D-day·참가 확정)과 섞여 보인다. 목록을 훑을 때 눈이
+                가는 곳은 이름 줄이라, 거기서 갈려야 한 눈에 들어온다. */}
             <div className="round-course truncate">
+                <span className="round-kind-mark" aria-hidden="true">{KIND_ICON[kind]}</span>
                 {r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}
             </div>
             <div className="sm dim">

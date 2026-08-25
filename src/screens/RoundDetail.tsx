@@ -166,7 +166,9 @@ export function RoundDetail() {
 
             <div className="round-hero">
                 <div className="row" style={{ gap: 'var(--gap-xs)' }}>
-                    <span className="badge kind">{KIND_ICON[kind]} {KIND_LABEL[kind]}</span>
+                    <span className={`badge kind ${kind}`}>
+                        {KIND_ICON[kind]} {KIND_LABEL[kind]}
+                    </span>
                     {r.status === 'cancelled'
                         ? <span className="badge danger">취소됨</span>
                         : isPast
@@ -180,7 +182,10 @@ export function RoundDetail() {
                         </span>
                     )}
                 </div>
-                <h2>{r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}</h2>
+                <h2>
+                    <span className="round-kind-mark" aria-hidden="true">{KIND_ICON[kind]}</span>
+                    {r.course || r.title || (kind === 'screen' ? '매장 미정' : '골프장 미정')}
+                </h2>
                 {r.title && r.course && <div className="sm dim">{r.title}</div>}
             </div>
 

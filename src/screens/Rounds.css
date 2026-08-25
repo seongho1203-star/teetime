@@ -37,6 +37,14 @@
     letter-spacing: -0.02em;
 }
 
+/* 이름 앞의 ⛳ · 🎯. 글자보다 조금 작게 둬야 이름이 주인공으로 남는다.
+   `aria-hidden`이라 소리로 읽히지 않는다 — 종류는 옆의 표가 말해 준다. */
+.round-kind-mark {
+    font-size: 0.86em;
+    margin-right: 6px;
+    vertical-align: 1px;
+}
+
 .round-foot { margin-top: var(--gap-xs); }
 
 .capacity {
