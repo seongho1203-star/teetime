@@ -4,9 +4,11 @@
  * DB 웹훅이 새 행을 여기로 보내면, 받을 사람을 골라 폰으로 밀어 준다.
  * 앱에는 서버가 없으므로 **밀어 주는 일은 여기 한 곳에서만** 한다.
  *
- *   messages  새 글  → 쓴 사람 빼고 회원 모두
- *   profiles  새 가입 → 운영진 모두 ('pending'으로 들어온 행)
- *   rounds    새 모집 → 연 사람 빼고 회원 모두
+ *   messages           새 글  → 쓴 사람 빼고 회원 모두
+ *   profiles           새 가입 → 운영진 모두 ('pending'으로 들어온 행)
+ *   rounds             새 모집 → 연 사람 빼고 회원 모두
+ *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
+ *   settlement_shares  정산 → **그 몫의 주인 한 사람에게만** (금액이 사람마다 다르다)
  *
  * 웹훅은 Supabase 화면(Database → Webhooks)에서 건다. 보낼 때
  * `x-notify-secret` 헤더에 NOTIFY_SECRET을 넣게 해 두었다 — 이 함수는
@@ -79,6 +81,17 @@ function escapeRe(s: string): string {
 const ALL_MENTION = '전체';
 
 /**
+ * 직책 묶음. **`src/lib/types.ts`·`src/lib/auth.tsx`와 같아야 한다.**
+ *
+ * 직책을 넷으로 늘리면서 여기 목록을 빠뜨려 두 가지가 조용히 죽었다 —
+ * 총무·앱관리자는 `@언급`을 해도 알림이 안 갔고(명단에 없어 이름이
+ * 안 맞았다), 앱관리자가 쓴 `@전체`는 운영진으로 안 쳐서 안 뚫렸으며,
+ * 가입 신청도 앱관리자에게는 안 갔다. **직책을 늘리면 여기도 함께 고칠 것.**
+ */
+const MEMBERS = ['member', 'treasurer', 'staff', 'admin', 'superadmin'];
+const STAFF_UP = ['staff', 'admin', 'superadmin'];
+
+/**
  * 글에서 `@이름`으로 부른 사람들.
  *
  * **대화 알림을 꺼 둔 기기에도 이건 간다.** 부르는 것은 '알아 두라'가
@@ -96,7 +109,7 @@ const ALL_MENTION = '전체';
 async function mentionedIds(body: unknown, authorId: unknown): Promise<string[]> {
     if (typeof body !== 'string' || !body.includes('@')) return [];
     const { data } = await db.from('profiles')
-        .select('id, name, role').in('role', ['member', 'staff', 'admin']);
+        .select('id, name, role').in('role', MEMBERS);
     const list = (data ?? [])
         .filter(p => typeof p.name === 'string' && p.name)
         .sort((a, b) => String(b.name).length - String(a.name).length);
@@ -104,7 +117,7 @@ async function mentionedIds(body: unknown, authorId: unknown): Promise<string[]>
 
     // 쓴 사람이 운영진이면 `@전체`도 이름 하나처럼 맞춰 본다.
     const staff = list.some(
-        p => p.id === authorId && (p.role === 'admin' || p.role === 'staff'));
+        p => p.id === authorId && STAFF_UP.includes(String(p.role)));
     const words = [...new Set([
         ...(staff ? [ALL_MENTION] : []),
         ...list.map(p => String(p.name)),
@@ -227,10 +240,11 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
-    // 가입 신청은 **운영진에게만**(운영자·부운영자). 트리거가 만든 pending 행이 들어온다.
+    // 가입 신청은 **운영진에게만**(부운영자·운영자·앱관리자).
+    // 트리거가 만든 pending 행이 들어온다.
     if (hook.table === 'profiles' && hook.type === 'INSERT' && r.role === 'pending') {
         const { data: admins } = await db.from('profiles')
-            .select('id').in('role', ['admin', 'staff']);
+            .select('id').in('role', STAFF_UP);
         const only = (admins ?? []).map(a => a.id as string);
         if (!only.length) return null;
         return {
