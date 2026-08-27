@@ -13,12 +13,16 @@
 const MAX_EDGE = 1600;
 const QUALITY = 0.82;
 
-export async function shrinkImage(file: File): Promise<Blob> {
+/**
+ * `maxEdge`를 넘기면 그 크기로 줄인다. 프로필 사진은 아바타로만 쓰여
+ * 큰 것이 의미가 없다 — 400px이면 충분하고 그만큼 빨리 올라간다.
+ */
+export async function shrinkImage(file: File, maxEdge = MAX_EDGE): Promise<Blob> {
     try {
         // 아이폰 사진은 방향이 EXIF에만 적혀 있다. from-image를 줘야
         // 세로로 찍은 사진이 눕지 않는다.
         const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-        const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+        const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
         const w = Math.round(bitmap.width * scale);
         const h = Math.round(bitmap.height * scale);
 

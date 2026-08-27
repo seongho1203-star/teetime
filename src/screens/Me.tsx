@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -9,17 +9,12 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { ROLE_LABEL } from '../lib/types';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
-import { badgeSupport } from '../lib/badge';
+import { shrinkImage } from '../lib/image';
 import {
     chatPush, disablePush, enablePush, pushState, setChatPush, type PushState,
 } from '../lib/push';
 import { Switch } from '../components/Switch';
 import './Home.css';
-
-/** `O` / `X` / `없음`. 서비스워커가 아직 안 올라왔으면 답이 없다. */
-function mark(v: boolean | null): string {
-    return v === null ? '없음' : v ? 'O' : 'X';
-}
 
 export function Me() {
     const { profile, session, refresh } = useAuth();
@@ -29,27 +24,20 @@ export function Me() {
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(profile?.name ?? '');
     const [phone, setPhone] = useState(profile?.phone ?? '');
-    const [handicap, setHandicap] = useState(
-        profile?.handicap != null ? String(profile.handicap) : '');
+    const [car, setCar] = useState(profile?.car ?? '');
     const [saving, setSaving] = useState(false);
-    /* 뱃지가 이 기기에서 되는지. 서비스워커에 물어보므로 답이 늦게 온다. */
-    const [badge, setBadge] = useState<{ page: boolean; worker: boolean | null }>(
-        { page: false, worker: null });
-    useEffect(() => { badgeSupport().then(setBadge); }, []);
+    const [photoBusy, setPhotoBusy] = useState(false);
+    const photoRef = useRef<HTMLInputElement>(null);
 
     const save = async () => {
         const trimmed = name.trim();
-        if (!trimmed) { toast('이름을 적어 주세요.', 'error'); return; }
-
-        const hc = handicap.trim() === '' ? null : Number(handicap);
-        if (hc !== null && (isNaN(hc) || hc < 0 || hc > 54)) {
-            toast('핸디캡은 0에서 54 사이로 적어 주세요.', 'error');
-            return;
-        }
+        if (!trimmed) { toast('닉네임을 적어 주세요.', 'error'); return; }
+        if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
+        if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
 
         setSaving(true);
         const { error } = await supabase.from('profiles')
-            .update({ name: trimmed, phone: phone.trim() || null, handicap: hc })
+            .update({ name: trimmed, phone: phone.trim(), car: car.trim() })
             .eq('id', session!.user.id);
         setSaving(false);
 
@@ -57,6 +45,44 @@ export function Me() {
         await refresh();
         setEditing(false);
         toast('저장했습니다.', 'ok');
+    };
+
+    /**
+     * 프로필 사진 바꾸기.
+     *
+     * **자기 폴더(`<내 id>/…`)에만 올린다** — 저장소 정책이 그것만 허용한다.
+     * 파일 이름에 지금 시각을 넣어 **주소가 매번 달라지게** 한다: 같은 주소로
+     * 덮어쓰면 브라우저가 예전 사진을 캐시에서 꺼내 와 안 바뀐 것처럼 보인다.
+     * 아바타로만 쓰이므로 400px로 줄여 올린다.
+     */
+    const pickPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';          // 같은 파일을 다시 고를 수 있게
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            toast('사진만 올릴 수 있습니다.', 'error');
+            return;
+        }
+        setPhotoBusy(true);
+        try {
+            const blob = await shrinkImage(file, 400);
+            const path = `${session!.user.id}/${Date.now()}.jpg`;
+            const { error: upErr } = await supabase.storage.from('avatars')
+                .upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+            if (upErr) throw upErr;
+
+            const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+            const { error: dbErr } = await supabase.from('profiles')
+                .update({ avatar_url: pub.publicUrl }).eq('id', session!.user.id);
+            if (dbErr) throw dbErr;
+
+            await refresh();
+            toast('프로필 사진을 바꿨습니다.', 'ok');
+        } catch (err) {
+            toast(readableError(err), 'error');
+        } finally {
+            setPhotoBusy(false);
+        }
     };
 
     /* 설치 신호는 lib/install이 앱 시작 때부터 붙잡아 둔다. */
@@ -142,14 +168,23 @@ export function Me() {
             <TopBar title="내 정보" />
 
             <div className="me-head">
-                <Avatar name={profile?.name} url={profile?.avatar_url} size="lg" />
+                {/* 사진을 누르면 바로 바꾼다. 프로필 수정 안으로 넣으면
+                    거기까지 들어가야 해서, 제일 자주 바꿀 것을 밖에 둔다. */}
+                <button className="avatar-pick" onClick={() => photoRef.current?.click()}
+                        disabled={photoBusy} aria-label="프로필 사진 바꾸기">
+                    <Avatar name={profile?.name} url={profile?.avatar_url} size="lg" />
+                    <span className="avatar-pick-mark" aria-hidden="true">
+                        {photoBusy ? '…' : '＋'}
+                    </span>
+                </button>
+                <input ref={photoRef} type="file" accept="image/*" onChange={pickPhoto} hidden />
                 <div className="grow" style={{ minWidth: 0 }}>
                     <div className="b truncate" style={{ fontSize: 'var(--fs-lg)' }}>
-                        {profile?.name || '이름 없음'}
+                        {profile?.name || '닉네임 없음'}
                     </div>
                     <div className="sm faint">
-                        {profile ? ROLE_LABEL[profile.role] : '회원'}
-                        {profile?.handicap != null && ` · 핸디캡 ${profile.handicap}`}
+                        {profile ? ROLE_LABEL[profile.role] : '일반회원'}
+                        {profile?.car && ` · ${profile.car}`}
                     </div>
                 </div>
             </div>
@@ -157,21 +192,21 @@ export function Me() {
             {editing ? (
                 <div className="card">
                     <div className="field">
-                        <label htmlFor="m-name">이름</label>
+                        <label htmlFor="m-name">닉네임</label>
                         <input id="m-name" className="input" value={name}
                                onChange={e => setName(e.target.value)} maxLength={20} />
                     </div>
                     <div className="field">
-                        <label htmlFor="m-phone">연락처</label>
+                        <label htmlFor="m-phone">전화번호</label>
                         <input id="m-phone" className="input" value={phone}
                                onChange={e => setPhone(e.target.value)}
                                inputMode="tel" maxLength={20} placeholder="010-0000-0000" />
                     </div>
                     <div className="field">
-                        <label htmlFor="m-hc">핸디캡 <span className="faint">(선택)</span></label>
-                        <input id="m-hc" className="input" value={handicap}
-                               onChange={e => setHandicap(e.target.value)}
-                               inputMode="decimal" placeholder="예) 12.5" maxLength={5} />
+                        <label htmlFor="m-car">차량번호</label>
+                        <input id="m-car" className="input" value={car}
+                               onChange={e => setCar(e.target.value)}
+                               placeholder="12가 3456" maxLength={20} />
                     </div>
                     <div className="row" style={{ gap: 'var(--gap-sm)' }}>
                         <button className="btn ghost grow" onClick={() => setEditing(false)}>
@@ -245,18 +280,9 @@ export function Me() {
 
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
-            <p className="xs faint" style={{ textAlign: 'center' }}>
-                까꿍 · {session?.user?.email ?? '카카오 계정'}
-                <br />
-                {/* 지금 떠 있는 판. 고친 게 안 먹을 때 여기부터 본다. */}
-                <span className="xs faint">화면 판 {__BUILD__}</span>
-                {/* 아이콘의 빨간 숫자가 이 기기에서 되는지. 안 될 때
-                    어디가 막힌 것인지 밖에서는 알 길이 없어 적어 둔다. */}
-                <br />
-                <span className="xs faint">
-                    뱃지 화면 {mark(badge.page)} · 워커 {mark(badge.worker)}
-                </span>
-            </p>
+            {/* 빌드 시각·뱃지 진단 줄은 걷어냈다(사용자 요청). 그때그때
+                필요하면 다시 넣더라도, 평소에 회원이 볼 화면에는 두지 않는다. */}
+            <p className="xs faint me-foot">앱제작: 악마제리</p>
         </div>
     );
 }

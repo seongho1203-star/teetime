@@ -13,15 +13,15 @@ const iso = (dayOffset, h = 7, m = 30) => {
 export const ME = uid(1);
 
 export const profiles = [
-    { id: uid(1), name: '신성호', avatar_url: null, role: 'admin',   joined_at: iso(-120), handicap: 12.5, phone: '010-1234-5678', memo: '', created_at: iso(-120) },
-    { id: uid(2), name: '이관교', avatar_url: null, role: 'member',  joined_at: iso(-110), handicap: 18,   phone: null, memo: '', created_at: iso(-110) },
-    { id: uid(3), name: '김지명', avatar_url: null, role: 'member',  joined_at: iso(-100), handicap: 9.2,  phone: null, memo: '', created_at: iso(-100) },
-    { id: uid(4), name: '박승수', avatar_url: null, role: 'member',  joined_at: iso(-90),  handicap: 21,   phone: null, memo: '', created_at: iso(-90) },
-    { id: uid(5), name: '정우성', avatar_url: null, role: 'member',  joined_at: iso(-40),  handicap: null, phone: null, memo: '', created_at: iso(-40) },
-    { id: uid(6), name: '한도현', avatar_url: null, role: 'pending', joined_at: null, handicap: null, phone: '010-9999-1111', memo: '', created_at: iso(-1) },
-    { id: uid(7), name: '조민석', avatar_url: null, role: 'pending', joined_at: null, handicap: null, phone: null, memo: '', created_at: iso(0) },
+    { id: uid(1), name: '신성호', avatar_url: null, role: 'superadmin', joined_at: iso(-120), car: '12가 3456', phone: '010-1234-5678', memo: '', created_at: iso(-120) },
+    { id: uid(2), name: '이관교', avatar_url: null, role: 'admin', joined_at: iso(-110), car: '34나 5678',   phone: null, memo: '', created_at: iso(-110) },
+    { id: uid(3), name: '김지명', avatar_url: null, role: 'staff', joined_at: iso(-100), car: '56다 7890',  phone: null, memo: '', created_at: iso(-100) },
+    { id: uid(4), name: '박승수', avatar_url: null, role: 'treasurer', joined_at: iso(-90),  car: '78라 1234',   phone: null, memo: '', created_at: iso(-90) },
+    { id: uid(5), name: '정우성', avatar_url: null, role: 'member', joined_at: iso(-40),  car: null, phone: null, memo: '', created_at: iso(-40) },
+    { id: uid(6), name: '한도현', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: '010-9999-1111', memo: '', created_at: iso(-1) },
+    { id: uid(7), name: '조민석', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: null, memo: '', created_at: iso(0) },
     // 추방된 사람. 명단 아래 칸이 어떻게 보이는지 확인용.
-    { id: uid(8), name: '최민수', avatar_url: null, role: 'banned',  joined_at: iso(-60),  handicap: null, phone: null, memo: '', created_at: iso(-60) },
+    { id: uid(8), name: '최민수', avatar_url: null, role: 'banned',  joined_at: iso(-60),  car: null, phone: null, memo: '', created_at: iso(-60) },
 ];
 
 export const rounds = [

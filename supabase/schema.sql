@@ -27,11 +27,13 @@ create table if not exists profiles (
     id          uuid primary key references auth.users on delete cascade,
     name        text        not null default '',
     avatar_url  text,
-    -- pending 승인 대기 · member 회원 · staff 부운영자 · admin 운영자
+    -- pending 승인 대기 · member 일반회원 · treasurer 총무 · staff 부운영자
+    -- admin 운영자(방장) · superadmin 앱관리자
     -- banned 추방 — 행을 남겨 두는 것이 곧 막는 방법이다. 지우면 다시
     --               로그인할 때 앱이 대기 상태로 되살려 버린다.
     role        text        not null default 'pending'
-                            check (role in ('pending', 'member', 'staff', 'admin', 'banned')),
+                            check (role in ('pending', 'member', 'treasurer',
+                                            'staff', 'admin', 'superadmin', 'banned')),
     -- 대화를 언제부터 볼 수 있는가. 승인된 순간이 들어간다.
     -- 카톡처럼 **들어오기 전 이야기는 안 보인다.**
     joined_at   timestamptz,
@@ -47,13 +49,19 @@ create table if not exists profiles (
 -- 다섯으로 늘리고도 이걸 빠뜨려, 부운영자로 올리면 검사 규칙에 걸렸다.
 alter table profiles drop constraint if exists profiles_role_check;
 alter table profiles add constraint profiles_role_check
-    check (role in ('pending', 'member', 'staff', 'admin', 'banned'));
+    check (role in ('pending', 'member', 'treasurer',
+                    'staff', 'admin', 'superadmin', 'banned'));
 
 alter table profiles add column if not exists joined_at timestamptz;
+-- **핸디캡 대신 차량번호를 받는다**(사용자 요청). 골프장 입구에서 차를
+-- 확인하고 카풀을 맞추는 데 쓰인다. `handicap` 칸은 지우지 않고 남겨 둔다 —
+-- 예전에 적어 둔 값이 있고, 지워서 얻을 게 없다.
+alter table profiles add column if not exists car text;
 
 -- 이미 있던 회원은 처음 들어온 때부터 본다.
 update profiles set joined_at = created_at
- where joined_at is null and role in ('member', 'staff', 'admin');
+ where joined_at is null
+   and role in ('member', 'treasurer', 'staff', 'admin', 'superadmin');
 
 -- 카카오 로그인 직후 프로필을 자동으로 만든다.
 -- security definer라 RLS를 통과한다 — 이때는 아직 profiles 행이 없어
@@ -95,27 +103,52 @@ create or replace function is_member() returns boolean
 language sql security definer stable set search_path = public as $$
     select exists (
         select 1 from profiles
-        where id = auth.uid() and role in ('member', 'staff', 'admin')
+        where id = auth.uid()
+          and role in ('member', 'treasurer', 'staff', 'admin', 'superadmin')
     );
 $$;
 
--- **운영진**이다 — 운영자와 부운영자를 함께 가리킨다.
+-- **운영진**이다 — 앱관리자·운영자·부운영자를 함께 가리킨다.
 -- 이름은 is_admin 그대로 두었다. 정책 스무 군데가 이 이름을 쓰고 있고,
--- 부운영자가 하는 일이 운영자와 같기 때문이다(역할 임명만 빼고).
+-- 셋이 하는 일이 같기 때문이다(임명만 빼고).
+-- **총무는 여기 안 들어간다** — 총무는 정산만 맡는다(can_settle 참고).
 create or replace function is_admin() returns boolean
 language sql security definer stable set search_path = public as $$
     select exists (
         select 1 from profiles
-        where id = auth.uid() and role in ('staff', 'admin')
+        where id = auth.uid() and role in ('staff', 'admin', 'superadmin')
     );
 $$;
 
--- **운영자 한 사람**. 부운영자를 임명하고 푸는 것은 이 사람만 한다.
+-- **방장**. 부운영자와 총무를 임명하고 푸는 것은 이 사람들 몫이다.
+-- 앱관리자도 포함한다 — 위에 있는 사람이 아래 일을 못 할 이유가 없다.
 create or replace function is_owner() returns boolean
 language sql security definer stable set search_path = public as $$
     select exists (
         select 1 from profiles
-        where id = auth.uid() and role = 'admin'
+        where id = auth.uid() and role in ('admin', 'superadmin')
+    );
+$$;
+
+-- **앱관리자**. 운영자(방장)를 임명하고 푸는 것은 이 사람만 한다.
+-- 만드는 길은 하나뿐이다 — 아래 `claim_superadmin` 트리거(이름·전화번호).
+create or replace function is_super() returns boolean
+language sql security definer stable set search_path = public as $$
+    select exists (
+        select 1 from profiles
+        where id = auth.uid() and role = 'superadmin'
+    );
+$$;
+
+-- **정산을 다룰 수 있는가.** 총무와 운영진이다.
+-- 총무를 따로 둔 이유가 이것이라, 정산 정책은 `is_admin()`이 아니라
+-- 이 함수를 본다.
+create or replace function can_settle() returns boolean
+language sql security definer stable set search_path = public as $$
+    select exists (
+        select 1 from profiles
+        where id = auth.uid()
+          and role in ('treasurer', 'staff', 'admin', 'superadmin')
     );
 $$;
 
@@ -126,8 +159,9 @@ $$;
 create or replace function stamp_joined_at()
 returns trigger language plpgsql as $$
 begin
-    if new.role in ('member', 'staff', 'admin')
-       and (old.role is null or old.role not in ('member', 'staff', 'admin'))
+    if new.role in ('member', 'treasurer', 'staff', 'admin', 'superadmin')
+       and (old.role is null or old.role not in
+            ('member', 'treasurer', 'staff', 'admin', 'superadmin'))
        and new.joined_at is null
     then
         new.joined_at := now();
@@ -156,6 +190,47 @@ create or replace function my_role() returns text
 language sql security definer stable set search_path = public as $$
     select role from profiles where id = auth.uid();
 $$;
+
+
+/**
+ * 앱관리자 자동 부여.
+ *
+ * 승인해 줄 사람이 없는 맨 처음을 위한 문이다. 가입 신청 화면에서 아래
+ * 닉네임과 번호를 적으면 그 자리에서 **앱관리자**가 된다.
+ *
+ * **`before` 트리거로는 안 된다.** RLS의 `with check`(`profiles_self_upd`)가
+ * before 트리거가 고친 **뒤의** 행을 보기 때문에, 거기서 role을 올리면
+ * `role = my_role()`에 걸려 저장 자체가 막힌다. 그래서 `after`에서
+ * `security definer`로 한 번 더 고친다 — 표 주인 권한이라 RLS를 안 탄다.
+ * 안쪽 update가 트리거를 다시 부르지만 그때는 이미 superadmin이라
+ * 조건에 안 걸려 거기서 멈춘다.
+ *
+ * 번호는 숫자만 남겨 견주므로 하이픈이 있든 없든 맞는다.
+ */
+create or replace function claim_superadmin()
+returns trigger language plpgsql security definer
+set search_path = public as $$
+begin
+    if new.role <> 'superadmin'
+       and btrim(coalesce(new.name, '')) = '신성호'
+       and regexp_replace(coalesce(new.phone, ''), '[^0-9]', '', 'g') = '01075129333'
+    then
+        update profiles set role = 'superadmin' where id = new.id;
+    end if;
+    return null;
+end $$;
+
+drop trigger if exists claim_superadmin_ins on profiles;
+drop trigger if exists claim_superadmin_upd on profiles;
+create trigger claim_superadmin_ins after insert on profiles
+    for each row execute function claim_superadmin();
+create trigger claim_superadmin_upd after update on profiles
+    for each row execute function claim_superadmin();
+
+-- 예전에 쓰던 이름. 남아 있으면 같은 일을 두 번 하므로 걷어낸다.
+drop trigger if exists claim_owner_ins on profiles;
+drop trigger if exists claim_owner_upd on profiles;
+drop function if exists claim_owner();
 
 
 -- ═══ 3. 라운드 (모집) ══════════════════════════════════════════
@@ -489,6 +564,43 @@ create table if not exists round_comments (
 create index if not exists round_comments_round_idx on round_comments (round_id, created_at);
 
 
+-- ═══ 5-1. 정산 ═════════════════════════════════════════════════
+--
+-- 라운드 하나에 정산 여러 건이 달릴 수 있다(그린피 따로, 뒤풀이 따로).
+-- **총무와 운영진이 만든다**(`can_settle`) — 총무라는 자리를 둔 이유가
+-- 이것이다.
+--
+-- **1/N은 화면이 계산하고, DB에는 사람마다 낼 돈을 그대로 적는다.**
+-- 중간에 들어온 사람은 금액이 다르기 때문이다("신성호 1만원, 나머지
+-- 2만원씩"). 계산식을 DB에 두면 그런 예외를 담을 자리가 없어진다.
+
+create table if not exists settlements (
+    id         uuid primary key default gen_random_uuid(),
+    round_id   uuid not null references rounds on delete cascade,
+    title      text not null,
+    body       text not null default '',
+    bank       text not null default '',   -- 은행 이름
+    account    text not null default '',   -- 계좌번호
+    total      int  not null default 0,    -- 총금액(원)
+    created_by uuid references profiles on delete set null,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists settlements_round_idx on settlements (round_id, created_at);
+
+create table if not exists settlement_shares (
+    id            uuid primary key default gen_random_uuid(),
+    settlement_id uuid not null references settlements on delete cascade,
+    user_id       uuid not null references profiles on delete cascade,
+    amount        int  not null default 0,       -- 이 사람이 낼 돈
+    paid          boolean not null default false,
+    created_at    timestamptz not null default now(),
+    unique (settlement_id, user_id)
+);
+
+create index if not exists settlement_shares_user_idx on settlement_shares (user_id);
+
+
 -- ═══ 6. 채팅 ═══════════════════════════════════════════════════
 --
 -- 카톡 오픈톡을 대신하는 자리다. 다만 중요한 것(라운드·투표·공지)은
@@ -518,7 +630,57 @@ alter table messages add column if not exists image_url text;
 -- ⚠️ 위 정의는 처음 만들 때만 먹는다. 이미 있는 표에는 이 줄이 있어야 한다.
 alter table messages add column if not exists reply_to uuid references messages on delete set null;
 
+-- **앱이 스스로 남기는 줄.** 라운드·투표가 올라오면 대화방에도 한 줄
+-- 적어 둔다(아래 `announce_*` 트리거). 말풍선이 아니라 가운데 한 줄로
+-- 그리고, **알림은 안 보낸다** — 새 모집·새 투표 알림이 이미 갔는데
+-- 대화 알림까지 또 가면 두 번 울린다(`notify`의 planFor 참고).
+alter table messages add column if not exists system boolean not null default false;
+
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
+
+/**
+ * 라운드·투표가 올라오면 대화방에 한 줄 남긴다.
+ *
+ * 대화가 이 모임의 광장이라, 거기 안 남으면 모집이 열린 줄 모르고 지나간다.
+ * `security definer`라 RLS를 안 탄다 — 올린 사람 이름으로 적되 `system`을
+ * 세워 두어, 알림은 안 나가고 화면에서도 말풍선이 아닌 안내 줄로 그려진다.
+ *
+ * 방이 아직 없으면(설치 직후) 조용히 지나간다.
+ */
+create or replace function announce_to_chat()
+returns trigger language plpgsql security definer
+set search_path = public as $$
+declare
+    room uuid;
+    who  text;
+    line text;
+begin
+    select id into room from rooms where round_id is null order by created_at limit 1;
+    if room is null then return null; end if;
+
+    if tg_table_name = 'rounds' then
+        select name into who from profiles where id = new.created_by;
+        line := coalesce(nullif(who, ''), '누군가') || '님이 '
+             || case when new.kind = 'screen' then '스크린' else '라운드' end
+             || ' 모집을 열었습니다'
+             || case when coalesce(new.course, '') <> '' then ' · ' || new.course else '' end;
+    else
+        select name into who from profiles where id = new.created_by;
+        line := coalesce(nullif(who, ''), '누군가') || '님이 투표를 올렸습니다 · ' || new.title;
+    end if;
+
+    insert into messages (room_id, user_id, body, system)
+    values (room, new.created_by, line, true);
+    return null;
+end $$;
+
+drop trigger if exists rounds_announce on rounds;
+create trigger rounds_announce after insert on rounds
+    for each row execute function announce_to_chat();
+
+drop trigger if exists polls_announce on polls;
+create trigger polls_announce after insert on polls
+    for each row execute function announce_to_chat();
 
 -- 전체 채팅방 하나는 항상 있어야 한다.
 insert into rooms (name)
@@ -547,6 +709,8 @@ alter table posts         enable row level security;
 alter table post_comments enable row level security;
 alter table poll_comments enable row level security;
 alter table round_comments enable row level security;
+alter table settlements       enable row level security;
+alter table settlement_shares enable row level security;
 alter table rooms         enable row level security;
 alter table messages      enable row level security;
 
@@ -557,6 +721,7 @@ drop policy if exists profiles_self_upd  on profiles;
 drop policy if exists profiles_admin     on profiles;
 drop policy if exists profiles_owner     on profiles;
 drop policy if exists profiles_staff_upd on profiles;
+drop policy if exists profiles_super     on profiles;
 
 -- 본인 행은 언제나 읽을 수 있다(승인 대기 화면용). 회원이면 전체 명단도 본다.
 create policy profiles_read on profiles for select
@@ -581,13 +746,19 @@ create policy profiles_self_upd on profiles for update
     using (id = auth.uid())
     with check (id = auth.uid() and role = my_role());
 
--- 운영자는 무엇이든 한다 — 부운영자 임명도 여기 들어간다.
-create policy profiles_owner on profiles for all
-    using (is_owner()) with check (is_owner());
+-- **앱관리자는 무엇이든 한다** — 운영자(방장) 임명이 이 사람 몫이다.
+create policy profiles_super on profiles for all
+    using (is_super()) with check (is_super());
+
+-- **방장은 부운영자·총무까지 임명한다.** 인원 제한은 없다.
+-- `using`이 고치기 전 행을 보므로 **위쪽 사람(운영자·앱관리자) 행은 손을
+-- 못 대고**, `with check`가 고친 뒤를 보므로 **남을 자기 위로 올릴 수도
+-- 없다.** 화면에서 버튼을 감추는 것만으로는 부족하다.
+create policy profiles_owner on profiles for update
+    using (is_owner() and role not in ('admin', 'superadmin'))
+    with check (is_owner() and role not in ('admin', 'superadmin'));
 
 -- 부운영자는 **가입 승인까지만** 한다.
--- using이 고치기 전 행을 보므로 운영자·부운영자 행은 손댈 수 없고,
--- with check가 고친 뒤를 보므로 남을 운영진으로 올릴 수도 없다.
 create policy profiles_staff_upd on profiles for update
     using (is_admin() and role in ('pending', 'member', 'banned'))
     with check (is_admin() and role in ('pending', 'member', 'banned'));
@@ -686,6 +857,38 @@ create policy round_comments_add   on round_comments for insert with check (is_m
 create policy round_comments_own   on round_comments for delete using (author_id = auth.uid());
 create policy round_comments_admin on round_comments for all    using (is_admin()) with check (is_admin());
 
+-- settlements — **총무와 운영진이 만든다**(`can_settle`). 읽기는 회원 전체다.
+drop policy if exists settlements_read   on settlements;
+drop policy if exists settlements_write  on settlements;
+drop policy if exists shares_read        on settlement_shares;
+drop policy if exists shares_write       on settlement_shares;
+drop policy if exists shares_own_paid    on settlement_shares;
+create policy settlements_read  on settlements for select using (is_member());
+create policy settlements_write on settlements for all
+    using (can_settle()) with check (can_settle());
+create policy shares_read       on settlement_shares for select using (is_member());
+create policy shares_write      on settlement_shares for all
+    using (can_settle()) with check (can_settle());
+-- **본인 몫은 스스로 '보냈다'고 표시할 수 있다.** 금액은 못 고친다 —
+-- `with check`가 `user_id`가 그대로인지만 보고, 금액 변경은 아래
+-- 트리거가 막는다.
+create policy shares_own_paid on settlement_shares for update
+    using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create or replace function shares_amount_locked()
+returns trigger language plpgsql as $$
+begin
+    -- 총무·운영진이 아니면 금액은 못 고친다. 표시만 바꿀 수 있다.
+    if new.amount <> old.amount and not can_settle() then
+        raise exception '금액은 총무만 고칠 수 있습니다';
+    end if;
+    return new;
+end $$;
+
+drop trigger if exists shares_amount_guard on settlement_shares;
+create trigger shares_amount_guard before update on settlement_shares
+    for each row execute function shares_amount_locked();
+
 -- chat -------------------------------------------------------
 drop policy if exists rooms_read on rooms;
 drop policy if exists rooms_write on rooms;
@@ -761,6 +964,28 @@ create policy chat_photos_add on storage.objects for insert to authenticated
 create policy chat_photos_del on storage.objects for delete to authenticated
     using (bucket_id = 'chat-photos' and (owner = auth.uid() or is_admin()));
 
+-- 프로필 사진은 따로 둔다. 대화 사진과 수명이 달라서다 — 대화 사진은
+-- 쌓이기만 하지만 이건 사람마다 한 장씩 갈아 끼운다.
+-- **승인 전(pending)에도 올릴 수 있어야 한다** — 가입 화면에서 얼굴을
+-- 올려 두면 운영진이 알아보기 쉽다. 그래서 `is_member()`가 아니라
+-- 로그인한 사람이면 되고, **자기 폴더에만** 넣을 수 있게 막는다.
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists avatars_read on storage.objects;
+drop policy if exists avatars_add  on storage.objects;
+drop policy if exists avatars_del  on storage.objects;
+
+create policy avatars_read on storage.objects for select
+    using (bucket_id = 'avatars');
+create policy avatars_add on storage.objects for insert to authenticated
+    with check (bucket_id = 'avatars'
+                and (storage.foldername(name))[1] = auth.uid()::text);
+create policy avatars_del on storage.objects for delete to authenticated
+    using (bucket_id = 'avatars'
+           and ((storage.foldername(name))[1] = auth.uid()::text or is_admin()));
+
 
 -- ═══ 8. 실시간 ═════════════════════════════════════════════════
 --
@@ -784,7 +1009,8 @@ declare t text;
 begin
     foreach t in array array[
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
-        'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles'
+        'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles',
+        'settlements', 'settlement_shares'
     ] loop
         if not exists (
             select 1 from pg_publication_tables

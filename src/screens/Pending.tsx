@@ -8,8 +8,12 @@ import { readableError } from '../lib/errors';
 /**
  * 로그인은 됐지만 아직 회원이 아닌 사람이 보는 화면.
  *
- * 여기서 이름만 바로잡아 두면 운영진이 명단에서 누군지 알아본다 —
+ * 여기서 닉네임을 바로잡아 두면 운영진이 명단에서 누군지 알아본다 —
  * 카카오 닉네임이 `골프왕`이면 승인할 수가 없다.
+ *
+ * **셋 다 필수다**(닉네임·전화번호·차량번호). 전화는 카풀과 급한 연락에,
+ * 차량번호는 골프장 입구에서 차를 확인할 때 쓴다 — 나중에 물어보러
+ * 다니느니 처음에 받아 둔다.
  *
  * 운영진이 승인하면 auth.tsx의 실시간 구독이 profiles 변경을 받아
  * 새로고침 없이 앱으로 들어간다.
@@ -19,17 +23,20 @@ export function Pending() {
     const banned = profile?.role === 'banned';
     const [name, setName] = useState(profile?.name ?? '');
     const [phone, setPhone] = useState(profile?.phone ?? '');
+    const [car, setCar] = useState(profile?.car ?? '');
     const [saving, setSaving] = useState(false);
     const toast = useToast();
 
     const save = async () => {
         const trimmed = name.trim();
-        if (!trimmed) { toast('이름을 적어 주세요.', 'error'); return; }
+        if (!trimmed) { toast('닉네임을 적어 주세요.', 'error'); return; }
+        if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
+        if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
 
         setSaving(true);
         const { error } = await supabase
             .from('profiles')
-            .update({ name: trimmed, phone: phone.trim() || null })
+            .update({ name: trimmed, phone: phone.trim(), car: car.trim() })
             .eq('id', session!.user.id);
         setSaving(false);
 
@@ -44,7 +51,7 @@ export function Pending() {
                 <Avatar name={profile?.name} url={profile?.avatar_url} size="lg" />
                 <div className="grow">
                     <div className="b" style={{ fontSize: 'var(--fs-md)' }}>
-                        {profile?.name || '이름 없음'}
+                        {profile?.name || '닉네임 없음'}
                     </div>
                     <div className="sm faint">{session?.user?.email ?? '카카오 계정'}</div>
                 </div>
@@ -62,19 +69,27 @@ export function Pending() {
             <div className="card">
                 <div className="section-title">운영진이 알아볼 수 있게 적어 주세요</div>
                 <div className="field">
-                    <label htmlFor="p-name">이름</label>
+                    <label htmlFor="p-name">닉네임</label>
                     <input
                         id="p-name" className="input" value={name}
                         onChange={e => setName(e.target.value)}
-                        placeholder="실명" maxLength={20}
+                        placeholder="모임에서 부르는 이름" maxLength={20}
                     />
                 </div>
                 <div className="field">
-                    <label htmlFor="p-phone">연락처 <span className="faint">(선택)</span></label>
+                    <label htmlFor="p-phone">전화번호</label>
                     <input
                         id="p-phone" className="input" value={phone}
                         onChange={e => setPhone(e.target.value)}
                         placeholder="010-0000-0000" inputMode="tel" maxLength={20}
+                    />
+                </div>
+                <div className="field">
+                    <label htmlFor="p-car">차량번호</label>
+                    <input
+                        id="p-car" className="input" value={car}
+                        onChange={e => setCar(e.target.value)}
+                        placeholder="12가 3456" maxLength={20}
                     />
                 </div>
                 <button className="btn primary block" onClick={save} disabled={saving}>

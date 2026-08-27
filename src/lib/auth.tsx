@@ -4,7 +4,11 @@ import {
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import type { Profile } from './types';
+import type { Profile, Role } from './types';
+
+/** DB의 `is_member()` · `is_admin()`과 짝이다. 한쪽만 고치지 말 것. */
+const MEMBERS: Role[] = ['member', 'treasurer', 'staff', 'admin', 'superadmin'];
+const STAFF_UP: Role[] = ['staff', 'admin', 'superadmin'];
 
 /**
  * 로그인 상태와 내 프로필을 앱 전체에 공급한다.
@@ -22,14 +26,17 @@ interface AuthValue {
     /** 운영진 — 운영자와 부운영자. 하는 일이 같아 한 이름으로 묶는다. */
     isAdmin: boolean;
     /** 운영자 한 사람. 부운영자를 임명·해임할 수 있다. */
+    /** 방장(운영자·앱관리자). 부운영자·총무를 임명한다. */
     isOwner: boolean;
+    /** 앱관리자. 운영자를 임명한다. */
+    isSuper: boolean;
     /** 프로필을 다시 읽는다 (승인 뒤 새로고침 없이 반영하려고). */
     refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue>({
     session: null, profile: null, loading: true,
-    isMember: false, isAdmin: false, isOwner: false,
+    isMember: false, isAdmin: false, isOwner: false, isSuper: false,
     refresh: async () => {},
 });
 
@@ -147,10 +154,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         profile,
         loading: !sessionReady || !profileReady,
-        isMember: profile?.role === 'member' || profile?.role === 'staff'
-                  || profile?.role === 'admin',
-        isAdmin: profile?.role === 'staff' || profile?.role === 'admin',
-        isOwner: profile?.role === 'admin',
+        // DB의 is_member() · is_admin() · is_owner()와 **같은 잣대여야 한다.**
+        // 화면만 열어 두면 눌렀을 때 정책에 막히고, 화면만 닫아 두면
+        // 할 수 있는 일을 못 하게 된다.
+        isMember: MEMBERS.includes(profile?.role as Role),
+        isAdmin: STAFF_UP.includes(profile?.role as Role),
+        isOwner: profile?.role === 'admin' || profile?.role === 'superadmin',
+        isSuper: profile?.role === 'superadmin',
         refresh,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [session, profile, sessionReady, profileReady]);

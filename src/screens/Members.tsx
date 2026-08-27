@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, fetchProfiles } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate } from '../lib/format';
-import { ROLE_LABEL, type Profile, type Role } from '../lib/types';
+import { ROLE_LABEL, ROLE_TAG, type Profile, type Role } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -12,17 +12,20 @@ import { readableError } from '../lib/errors';
 import './Home.css';
 
 /**
- * 회원 명단. 운영진에게는 여기가 **가입 승인 창구**다.
+ * 회원 명단. 운영진에게는 여기가 **가입 승인 창구**이자 **임명 창구**다.
  *
  * 카카오로 로그인만 하면 누구나 pending 상태로 들어오므로,
  * 승인하지 않으면 아무것도 볼 수 없다. 이게 이 앱의 문이다.
  *
- * 승인·거절은 운영진(운영자·부운영자)이 하고, **부운영자 임명은 운영자만**
- * 한다. DB도 같게 막아 두었다(`profiles_staff_upd`) — 화면만 감추면
- * 그만이 아니기 때문이다.
+ * **임명은 위에서 아래로만 된다:**
+ *   앱관리자 → 운영자
+ *   운영자   → 부운영자 · 총무 (인원 제한 없음)
+ *
+ * DB도 같게 막아 두었다(`profiles_owner` · `profiles_staff_upd`) —
+ * 화면에서 버튼을 감추는 것만으로는 부족하다.
  */
 export function Members() {
-    const { isAdmin, isOwner, session } = useAuth();
+    const { isAdmin, isOwner, isSuper, session } = useAuth();
     const me = session!.user.id;
     const toast = useToast();
     const confirm = useConfirm();
@@ -57,11 +60,10 @@ export function Members() {
         if (err) { toast(readableError(err), 'error'); return; }
         toast(
             role === 'member' && p.role === 'pending' ? `${p.name}님을 승인했습니다.`
-            : role === 'staff' ? `${p.name}님을 부운영자로 임명했습니다.`
-            : role === 'member' ? `${p.name}님의 부운영자를 풀었습니다.`
-            : role === 'admin' ? `${p.name}님을 운영자로 올렸습니다.`
+            : role === 'member' ? `${p.name}님의 ${ROLE_LABEL[p.role]}를 풀었습니다.`
             : role === 'banned' ? `${p.name}님을 추방했습니다.`
-            : `${p.name}님을 대기로 되돌렸습니다.`,
+            : role === 'pending' ? `${p.name}님을 대기로 되돌렸습니다.`
+            : `${p.name}님을 ${ROLE_LABEL[role]}로 임명했습니다.`,
             'ok'
         );
         reload();
@@ -138,7 +140,12 @@ export function Members() {
             <div className="card" style={{ padding: 0, gap: 0 }}>
                 {members.length === 0 && <div className="empty">아직 회원이 없습니다.</div>}
                 {members.map(p => {
-                    const manageable = isAdmin && p.id !== me && p.role !== 'admin';
+                    /* **나보다 위에 있는 사람은 못 건드린다.** 앱관리자만
+                       운영자를 다루고, 운영자는 그 아래만 다룬다.
+                       DB의 `profiles_owner`가 같은 규칙을 다시 본다. */
+                    const above = p.role === 'superadmin'
+                        || (p.role === 'admin' && !isSuper);
+                    const manageable = isAdmin && p.id !== me && !above;
                     const open = openId === p.id;
                     return (
                         <div key={p.id}>
@@ -147,15 +154,15 @@ export function Members() {
                                 <div className="grow" style={{ minWidth: 0 }}>
                                     <div className="row" style={{ gap: 6 }}>
                                         <span className="b truncate">{p.name || '이름 없음'}</span>
-                                        {(p.role === 'admin' || p.role === 'staff') && (
-                                            <span className={`role-tag ${p.role === 'admin' ? 'role-admin' : 'role-staff'}`}>
+                                        {ROLE_TAG[p.role] && (
+                                            <span className={`role-tag ${ROLE_TAG[p.role]}`}>
                                                 {ROLE_LABEL[p.role]}
                                             </span>
                                         )}
                                         {p.id === me && <span className="xs faint">(나)</span>}
                                     </div>
                                     <div className="xs faint">
-                                        {p.handicap != null ? `핸디캡 ${p.handicap}` : '핸디캡 미등록'}
+                                        {p.car || '차량번호 미등록'}
                                         {isAdmin && p.phone ? ` · ${p.phone}` : ''}
                                     </div>
                                 </div>
@@ -169,14 +176,25 @@ export function Members() {
                             </div>
                             {manageable && open && (
                                 <div className="member-actions">
-                                    {/* 부운영자 임명은 운영자만. 운영자 행은 아무도 못 건드린다. */}
-                                    {isOwner && (
-                                        <button
-                                            className="btn ghost sm"
-                                            onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}
-                                        >
-                                            {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                                    {/* **앱관리자만 운영자를 임명한다.** */}
+                                    {isSuper && (
+                                        <button className="btn ghost sm"
+                                                onClick={() => setRole(p, p.role === 'admin' ? 'member' : 'admin')}>
+                                            {p.role === 'admin' ? '운영자 해제' : '운영자로'}
                                         </button>
+                                    )}
+                                    {/* **방장은 부운영자·총무를 인원 제한 없이 임명한다.** */}
+                                    {isOwner && p.role !== 'admin' && (
+                                        <>
+                                            <button className="btn ghost sm"
+                                                    onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}>
+                                                {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                                            </button>
+                                            <button className="btn ghost sm"
+                                                    onClick={() => setRole(p, p.role === 'treasurer' ? 'member' : 'treasurer')}>
+                                                {p.role === 'treasurer' ? '총무 해제' : '총무로'}
+                                            </button>
+                                        </>
                                     )}
                                     <button className="btn ghost sm" onClick={() => demote(p)}>
                                         내보내기
@@ -219,9 +237,15 @@ export function Members() {
                     <b>내보내기</b>는 대기 상태로 되돌립니다 — 바로 다시 승인할 수
                     있습니다. <b>추방</b>은 다시 신청조차 못 하게 막습니다.
                     카카오로 로그인한 사람은 승인 전까지 아무것도 볼 수 없습니다.
-                    {isOwner
-                        ? ' 부운영자는 가입 승인과 공지 쓰기를 함께 맡습니다. 임명은 운영자만 할 수 있습니다.'
-                        : ' 부운영자 임명은 운영자만 할 수 있습니다.'}
+                    <br />
+                    <b>직책</b>은 넷입니다 — 앱관리자 · 운영자 · 부운영자 · 총무.
+                    운영자·부운영자는 가입 승인과 공지를 맡고,
+                    <b>총무</b>는 라운드 정산을 맡습니다.
+                    {isSuper
+                        ? ' 운영자 임명은 앱관리자만, 부운영자·총무 임명은 운영자가 합니다.'
+                        : isOwner
+                            ? ' 부운영자·총무는 인원 제한 없이 임명할 수 있습니다. 운영자 임명은 앱관리자만 합니다.'
+                            : ' 임명은 운영자 이상만 할 수 있습니다.'}
                 </p>
             )}
         </div>
