@@ -206,14 +206,20 @@ $$;
  * 조건에 안 걸려 거기서 멈춘다.
  *
  * 번호는 숫자만 남겨 견주므로 하이픈이 있든 없든 맞는다.
+ *
+ * ⚠️ **여기에 진짜 이름과 번호를 적어 커밋하지 말 것.** 이 저장소는
+ * 공개라 전화번호가 그대로 남는다. 자리표시자로 두고, 실제 값은
+ * Supabase의 SQL 편집기에 붙여넣을 때만 채운다 — 아래 그대로 실행하면
+ * 조건이 안 맞아 아무도 앱관리자가 되지 않는다(막히기만 할 뿐 탈은 없다).
+ * 손으로 한 사람을 올리는 길은 `docs/설치.md` 5번 방법 A에 있다.
  */
 create or replace function claim_superadmin()
 returns trigger language plpgsql security definer
 set search_path = public as $$
 begin
     if new.role <> 'superadmin'
-       and btrim(coalesce(new.name, '')) = '신성호'
-       and regexp_replace(coalesce(new.phone, ''), '[^0-9]', '', 'g') = '01075129333'
+       and btrim(coalesce(new.name, '')) = '[이름]'
+       and regexp_replace(coalesce(new.phone, ''), '[^0-9]', '', 'g') = '[숫자만 적은 번호]'
     then
         update profiles set role = 'superadmin' where id = new.id;
     end if;
