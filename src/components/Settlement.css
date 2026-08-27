@@ -1,0 +1,137 @@
+/* ── 정산 ─────────────────────────────────────────────────────
+ *
+ * 라운드 상세 안에 들어가는 칸이다. 카드 안의 카드라 테두리를 두르지
+ * 않고 **옅은 바탕**으로 나눈다 — 테두리가 겹치면 답답하다.
+ */
+
+.settle {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 11px 12px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+}
+.settle + .settle { margin-top: var(--gap-xs); }
+
+.settle-body { white-space: pre-wrap; line-height: 1.6; }
+
+/* **내 몫**. 이 칸에서 제일 궁금한 값이라 크게 놓고, 누르면 바로
+   '보냈어요'가 된다 — 총무에게 따로 말하러 갈 일이 없다. */
+.settle-mine {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: var(--fs);
+    text-align: left;
+}
+.settle-mine b { font-size: var(--fs-md); }
+.settle-mine.paid {
+    background: var(--grass-soft);
+    color: var(--grass-deep);
+}
+.settle-check {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    font-weight: 800;
+    opacity: 0.85;
+}
+
+/* 계좌는 **복사가 목적**이다. 손으로 옮겨 적다가 틀리면 돈이 엉뚱한 데로 간다. */
+.settle-account {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+}
+
+.settle-people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.settle-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 3px 9px 3px 3px;
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+}
+.settle-chip .avatar { width: 20px; height: 20px; font-size: 9px; }
+/* 보낸 사람은 잔디색으로 — '좋은 상태'라 색이 뜻과 맞는다. */
+.settle-chip.paid {
+    background: var(--grass-soft);
+    border-color: transparent;
+    color: var(--grass-deep);
+}
+
+/* ── 만들기 ──────────────────────────────────────────────────── */
+
+.settle-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    padding: var(--gap-sm) 0;
+}
+
+/* 사람 고르기. 이름을 알약으로 늘어놓고 눌러서 켠다 — 서른 명이면
+   내려가는 목록보다 이쪽이 훨씬 빠르다. */
+.settle-pick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.settle-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 4px 11px 4px 4px;
+    border-radius: var(--r-pill);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    transition: transform 0.12s ease;
+}
+.settle-pill .avatar { width: 22px; height: 22px; font-size: 10px; }
+.settle-pill:active { transform: scale(0.96); }
+.settle-pill.on {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--on-brand);
+}
+
+/* 1/N 줄. 금액 칸이 좁아야 이름이 안 밀린다. */
+.settle-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.settle-row {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    font-size: var(--fs-sm);
+}
+.settle-amount {
+    width: 110px;
+    flex: 0 0 auto;
+    text-align: right;
+    /* 16px 미만이면 iOS 사파리가 입력할 때 화면을 확대한다 — 그대로 둔다. */
+}

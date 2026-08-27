@@ -7,12 +7,14 @@ import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../
 import {
     CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
     type Round, type RoundComment, type Signup, type Profile,
+    type Settlement, type SettlementShare,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { Comments } from '../components/Comments';
+import { Settlements } from '../components/Settlement';
 import { readableError } from '../lib/errors';
 import './Rounds.css';
 
@@ -20,6 +22,8 @@ interface Loaded {
     round: Round | null;
     signups: Signup[];
     comments: RoundComment[];
+    settlements: Settlement[];
+    shares: SettlementShare[];
     people: Profile[];
 }
 
@@ -33,22 +37,34 @@ export function RoundDetail() {
     const [busy, setBusy] = useState(false);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        const [round, signups, comments, people] = await Promise.all([
+        const [round, signups, comments, settlements, people] = await Promise.all([
             supabase.from('rounds').select('*').eq('id', id!).maybeSingle(),
             supabase.from('signups').select('*').eq('round_id', id!).order('seq'),
             supabase.from('round_comments').select('*').eq('round_id', id!)
                     .order('created_at'),
+            supabase.from('settlements').select('*').eq('round_id', id!)
+                    .order('created_at', { ascending: false }),
             fetchProfiles(),
         ]);
+        /* 몫은 정산을 받아 온 **뒤에** 그 id들로 부른다. 라운드 id로는
+           못 걸러서다 — 몫 표에는 라운드가 안 적혀 있다. */
+        const list = (unwrap(settlements) ?? []) as Settlement[];
+        const shares = list.length
+            ? unwrap(await supabase.from('settlement_shares').select('*')
+                     .in('settlement_id', list.map(x => x.id)).order('created_at')) ?? []
+            : [];
         return {
             round: unwrap(round),
             signups: unwrap(signups) ?? [],
             comments: unwrap(comments) ?? [],
+            settlements: list,
+            shares: shares as SettlementShare[],
             people,
         };
     }, [id]);
 
-    useRealtime(['signups', 'rounds', 'round_comments'], reload);
+    useRealtime(
+        ['signups', 'rounds', 'round_comments', 'settlements', 'settlement_shares'], reload);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -304,6 +320,18 @@ export function RoundDetail() {
                     )}
                 </div>
             )}
+
+            {/* ── 정산 ──
+                **총무와 운영진만 만든다**(`canSettle`). 정산이 있으면
+                회원 모두에게 보인다 — 자기 몫이 얼마인지 봐야 한다.
+                댓글보다 위에 둔다: 돈은 먼저 눈에 들어와야 한다. */}
+            <Settlements
+                roundId={r.id}
+                people={data.people.filter(p => p.role !== 'pending' && p.role !== 'banned')}
+                list={data.settlements}
+                shares={data.shares}
+                onChange={reload}
+            />
 
             {/* ── 모집을 연 사람과 운영진만 ── */}
             {(isAdmin || r.created_by === me) && (

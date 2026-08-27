@@ -204,6 +204,29 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
+    /* 정산은 **고른 사람에게만, 각자의 금액으로** 간다.
+       몫 행(`settlement_shares`) 하나가 사람 하나라, 그 행이 들어올 때
+       그 사람에게만 보내면 금액이 저절로 맞는다 — 사람마다 낼 돈이
+       다르기 때문에(중간 참여자) 한 번에 묶어 보낼 수가 없다.
+       `tag`를 정산 단위로 묶어 두어 알림창이 도배되지도 않는다. */
+    if (hook.table === 'settlement_shares' && hook.type === 'INSERT') {
+        const { data: st } = await db.from('settlements')
+            .select('title, bank, account, created_by')
+            .eq('id', r.settlement_id).maybeSingle();
+        if (!st) return null;
+        const who = await nameOf(st.created_by);
+        const won = Number(r.amount ?? 0).toLocaleString('ko-KR');
+        const acc = [st.bank, st.account].filter(Boolean).join(' ');
+        return {
+            title: '💰 정산',
+            body: `${st.title} · ${won}원`
+                + (acc ? `\n${acc} (${who})` : ''),
+            tag: `settle-${r.settlement_id}`,
+            url: '#/rounds',
+            only: typeof r.user_id === 'string' ? [r.user_id] : [],
+        };
+    }
+
     // 가입 신청은 **운영진에게만**(운영자·부운영자). 트리거가 만든 pending 행이 들어온다.
     if (hook.table === 'profiles' && hook.type === 'INSERT' && r.role === 'pending') {
         const { data: admins } = await db.from('profiles')
@@ -241,6 +264,8 @@ Deno.serve(async req => {
     if (!note) return new Response(JSON.stringify({ sent: 0, skipped: true }));
 
     let q = db.from('push_subscriptions').select('endpoint, p256dh, auth, user_id');
+    // 받을 사람이 아무도 없으면 조회할 것도 없다.
+    if (note.only && !note.only.length) return new Response(JSON.stringify({ sent: 0 }));
     if (note.only) q = q.in('user_id', note.only);
     else if (note.except) q = q.neq('user_id', note.except);
     // 이 갈래를 끈 기기는 뺀다. **다만 이름이 불린 사람은 껐어도 받는다.**

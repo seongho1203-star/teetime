@@ -100,6 +100,20 @@ export const round_comments = [
     { id: 'rc2', round_id: 'r1', author_id: uid(1), body: '제 차에 자리 있습니다. 6시 20분까지 오세요', created_at: iso(-1) },
 ];
 
+/* 정산 한 건. **중간 참여자 예외**가 보이게 신성호만 금액이 다르다. */
+export const settlements = [
+    { id: 'st1', round_id: 'r1', title: '무등산CC 그린피 + 카트비',
+      body: '캐디피는 현장에서 각자 냅니다.', bank: '국민', account: '123456-78-901234',
+      total: 70000, created_by: uid(4), created_at: iso(-1) },
+];
+
+export const settlement_shares = [
+    { id: 'sh1', settlement_id: 'st1', user_id: uid(1), amount: 10000, paid: false, created_at: iso(-1) },
+    { id: 'sh2', settlement_id: 'st1', user_id: uid(2), amount: 20000, paid: true,  created_at: iso(-1) },
+    { id: 'sh3', settlement_id: 'st1', user_id: uid(3), amount: 20000, paid: false, created_at: iso(-1) },
+    { id: 'sh4', settlement_id: 'st1', user_id: uid(4), amount: 20000, paid: true,  created_at: iso(-1) },
+];
+
 export const posts = [
     { id: 'b1', title: '9월 회비 안내', pinned: true, author_id: uid(1),
       body: '9월 회비는 8월 31일까지 입금 부탁드립니다.\n\n국민 123456-78-901234 (신성호)\n금액: 50,000원',
@@ -156,6 +170,7 @@ export const push_subscriptions = [
 ];
 
 export const tables = {
-    profiles, rounds, signups, round_comments, polls, poll_options, poll_votes,
+    profiles, rounds, signups, round_comments, settlements, settlement_shares,
+    polls, poll_options, poll_votes,
     poll_comments, posts, post_comments, rooms, messages, push_subscriptions,
 };
