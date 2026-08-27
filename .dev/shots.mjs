@@ -126,6 +126,8 @@ for (const [name, path, opts = {}] of shots) {
        글꼴이 늦게 와도 화면이 먼저 뜬다. */
     await page.route('**fonts.googleapis.com/**', r => r.abort());
     await page.route('**fonts.gstatic.com/**', r => r.abort());
+    // Pretendard도 밖에서 받는다. 화면마다 다녀오면 열두 장 찍는 데 오래 걸린다.
+    await page.route('**cdn.jsdelivr.net/**', r => r.abort());
 
     /* 날씨(Open-Meteo)도 흉내 낸다. 진짜로 부르면 화면마다 요청이 나가고,
        망이 막힌 곳에서는 날씨칸이 통째로 빠져 확인이 안 된다. */

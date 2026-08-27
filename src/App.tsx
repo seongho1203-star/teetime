@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { watchBadge } from './lib/badge';
+import { useTabSwipe } from './lib/tabs';
 import { isConfigured } from './lib/supabase';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
@@ -37,6 +38,8 @@ import { Members } from './screens/Members';
 
 function Gate() {
     const { session, isMember, loading } = useAuth();
+    // 좌우로 밀어 탭을 옮긴다. 라우터 안이어야 해서 여기 둔다.
+    useTabSwipe();
 
     if (!isConfigured) return <Setup />;
 

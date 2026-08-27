@@ -5,7 +5,8 @@ import { useAuth } from '../lib/auth';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
 import { daysUntil } from '../lib/format';
 import { SEEN_EVENT, lastSeen } from '../lib/unread';
-import type { Poll, Round } from '../lib/types';
+import type { Message, Poll, Round } from '../lib/types';
+import { playDing } from '../lib/sound';
 import './TabBar.css';
 
 /* 아이콘은 파일을 더 받지 않으려고 인라인 SVG로 둔다. 24×24 stroke. */
@@ -93,8 +94,41 @@ function useLiveCounts() {
     return data;
 }
 
+/**
+ * 새 글이 오면 `까꿍` 소리를 낸다.
+ *
+ * **앱을 보고 있을 때만이다.** 닫혀 있을 때 오는 알림은 폰의 기본음이
+ * 난다 — 웹푸시에는 소리를 정하는 길이 없다(`lib/sound.ts` 참고).
+ *
+ * 대화 화면을 보고 있으면 안 운다. 그 자리에서 읽는 것이라 소리는
+ * 방해일 뿐이다 — 카톡도 보고 있는 방에서는 안 울린다.
+ * 앱이 스스로 남긴 줄(라운드·투표 안내)도 조용히 지나간다.
+ *
+ * 이 막대는 모든 탭에 떠 있어서, 여기 붙이면 어느 화면에 있든 들린다.
+ */
+function useDing(me: string, onChat: boolean) {
+    useEffect(() => {
+        if (!me) return;
+        const ch = supabase
+            .channel('ding')
+            .on('postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'messages' },
+                payload => {
+                    const m = payload.new as Message;
+                    if (m.user_id === me || m.system) return;
+                    if (onChat || document.visibilityState !== 'visible') return;
+                    playDing();
+                })
+            .subscribe();
+        return () => { supabase.removeChannel(ch); };
+    }, [me, onChat]);
+}
+
 export function TabBar() {
     const counts = useLiveCounts();
+    const { session } = useAuth();
+    const { pathname } = useLocation();
+    useDing(session?.user.id ?? '', pathname === '/chat');
 
     /* 순서는 사용자가 정한 것이다. 공지가 라운드 앞에 온다 —
        홈에서 공지 칸을 걷어냈으므로 그 자리를 이 탭이 대신한다. */

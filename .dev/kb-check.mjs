@@ -77,6 +77,8 @@ await page.route('**/realtime/v1/**', r => r.abort());
        글꼴이 늦게 와도 화면이 먼저 뜬다. */
     await page.route('**fonts.googleapis.com/**', r => r.abort());
     await page.route('**fonts.gstatic.com/**', r => r.abort());
+    // Pretendard도 밖에서 받는다. 화면마다 다녀오면 열두 장 찍는 데 오래 걸린다.
+    await page.route('**cdn.jsdelivr.net/**', r => r.abort());
 await page.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
 
 await page.goto('http://localhost:5199/#/chat', { waitUntil: 'networkidle' });

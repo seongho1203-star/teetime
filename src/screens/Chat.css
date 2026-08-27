@@ -36,13 +36,13 @@
     justify-content: center;
     background: var(--bg);
 }
-/* 다른 화면의 제목과 같은 글꼴(Jua)을 쓴다. 이 줄 하나로 대화방이
-   '같은 앱의 한 화면'이 된다 — 예전에는 여기만 낯선 글씨였다. */
+/* 다른 화면의 제목과 같은 글꼴·굵기를 쓴다. 이 줄 하나로 대화방이
+   '같은 앱의 한 화면'이 된다. */
 .chat-title {
     font-family: var(--font-display);
     font-size: 17.5px;
-    font-weight: 400;
-    letter-spacing: 0;
+    font-weight: 800;
+    letter-spacing: -0.02em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -86,6 +86,25 @@
     flex: 1;
     height: 1px;
     background: var(--line);
+}
+
+/* 앱이 남긴 안내 줄(`신성호님이 라운드 모집을 열었습니다`).
+   말풍선이 아니라 **가운데 한 줄**이다 — 사람이 한 말과 섞이면 누가
+   말을 건 줄 알고 답장하게 된다. 날짜 칸과 같은 자리·같은 모양이되
+   글자만 한 톤 진하다(지나가는 안내가 아니라 알림이라서). */
+.chat-notice {
+    align-self: center;
+    max-width: 88%;
+    margin: var(--gap-sm) auto 2px;
+    padding: 4px 12px;
+    border-radius: var(--r-pill);
+    background: var(--surface-3);
+    color: var(--text-dim);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.45;
+    width: fit-content;
 }
 
 .chat-day {

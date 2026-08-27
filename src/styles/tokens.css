@@ -88,5 +88,6 @@
 
     /* 제목용 글꼴. 아이콘의 통통한 글씨와 같은 결이다 — 본문에는 쓰지 말 것
        (한글 웹폰트는 무거워서 제목에만 쓴다). */
-    --font-display: 'Jua', system-ui, -apple-system, sans-serif;
+    --font-display: 'Pretendard Variable', 'Pretendard', -apple-system,
+                    BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
 }

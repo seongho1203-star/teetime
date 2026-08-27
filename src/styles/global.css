@@ -10,7 +10,11 @@ body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    /* **Pretendard 한 벌로 간다.** 제목에 쓰던 Jua를 걷어냈다 —
+       두 글꼴이 섞이면 숫자와 영문이 서로 어긋나 보인다.
+       변수 글꼴이 아직 안 왔을 때를 위해 시스템 글꼴을 뒤에 세워 둔다. */
+    font-family: 'Pretendard Variable', 'Pretendard', -apple-system,
+                 BlinkMacSystemFont, 'Apple SD Gothic Neo',
                  'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
     font-size: var(--fs);
     line-height: 1.5;
@@ -69,13 +73,15 @@ body::before {
 /* 탭바가 없는 화면(로그인 등) */
 .page.bare { padding-bottom: calc(var(--safe-b) + var(--gap-lg)); }
 
-/* 화면 제목은 아이콘과 같은 통통한 글씨다. 글꼴이 늦게 와도 자리가
-   흔들리지 않게 시스템 글꼴을 예비로 둔다(`--font-display`). */
+/* 화면 제목. 글꼴이 늦게 와도 자리가 흔들리지 않게 시스템 글꼴을
+   예비로 둔다(`--font-display`). */
 .page-title {
     font-family: var(--font-display);
     font-size: 1.6rem;
-    font-weight: 400;
-    letter-spacing: 0;
+    /* Jua는 굵기가 하나뿐이라 400이었다. Pretendard로 오면서 **굵기로**
+       제목을 세운다 — 글꼴이 같아졌으니 크기와 굵기가 그 일을 해야 한다. */
+    font-weight: 800;
+    letter-spacing: -0.03em;
 }
 
 .page-head {

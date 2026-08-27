@@ -143,6 +143,12 @@ async function planFor(hook: Hook): Promise<Note | null> {
     const r = hook.record ?? {};
 
     if (hook.table === 'messages' && hook.type === 'INSERT') {
+        /* **앱이 스스로 남긴 줄에는 알림을 안 보낸다.** 라운드·투표가
+           올라오면 DB 트리거가 대화방에도 한 줄 적는데(`announce_to_chat`),
+           그 건은 `⛳ 새 모집` 알림이 이미 나간 뒤다 — 여기서 또 보내면
+           같은 일로 두 번 울린다. */
+        if (r.system === true) return null;
+
         const who = await nameOf(r.user_id);
         const text = typeof r.body === 'string' && r.body.trim()
             ? r.body.trim()

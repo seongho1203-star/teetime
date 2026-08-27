@@ -60,6 +60,7 @@ for (const [label, w, h] of SIZES) {
     await page.route('**/auth/v1/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
     await page.route('**/realtime/v1/**', r => r.abort());
     await page.route('**fonts.g**', r => r.abort());
+    await page.route('**cdn.jsdelivr.net/**', r => r.abort());
     await page.route('**api.open-meteo.com/**', r => r.abort());
     await page.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
 

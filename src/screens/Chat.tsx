@@ -87,7 +87,9 @@ export function Chat() {
     /* `@전체`는 운영진만 쓴다. **쓴 사람이 누구인지로 가른다** — 내가
        운영진이라고 남이 친 `@전체`까지 도드라져서는 안 된다. */
     const staffIds = new Set(
-        (data?.people ?? []).filter(p => p.role === 'admin' || p.role === 'staff').map(p => p.id));
+        (data?.people ?? [])
+            .filter(p => p.role === 'admin' || p.role === 'staff' || p.role === 'superadmin')
+            .map(p => p.id));
 
     /* 첫 묶음을 불러온다. 최근 것부터 받아 뒤집는다.
        **안 읽은 개수를 먼저 세어 그만큼 더 받는다** — 그러지 않으면 밀린
@@ -696,10 +698,16 @@ export function Chat() {
                         // `data-mid`는 인용을 눌렀을 때 원본을 찾는 표다.
                         <div key={m.id} data-mid={m.id}>
                             {newDay && <div className="chat-day">{formatDate(m.created_at)}</div>}
+                            {/* **앱이 스스로 남긴 줄**(라운드·투표 안내).
+                                말풍선으로 그리면 누가 말을 건 것처럼 보이고
+                                답장·밀기까지 붙는다 — 안내는 가운데 한 줄이다. */}
+                            {m.system && (
+                                <div className="chat-notice">{m.body}</div>
+                            )}
                             {m.id === unreadFrom && (
                                 <div className="chat-unread">여기까지 읽으셨습니다</div>
                             )}
-                            <Bubble
+                            {!m.system && <Bubble
                                 message={m}
                                 who={names[m.user_id ?? '']}
                                 mine={m.user_id === me}
@@ -714,7 +722,7 @@ export function Chat() {
                                 mentionNames={mentionNames}
                                 myName={myName}
                                 allowAll={staffIds.has(m.user_id ?? '')}
-                            />
+                            />}
                         </div>
                     );
                 })}

@@ -135,6 +135,9 @@ export const messages = [
       body: '@전체 집합 시각이 6시 20분으로 바뀌었습니다', created_at: iso(0, 9, 35) },
     { id: 'm10', room_id: 'room1', user_id: uid(2),
       body: '@전체 저도 확인했습니다', created_at: iso(0, 9, 36) },
+    // 앱이 스스로 남긴 안내 줄. 말풍선이 아니라 가운데 한 줄로 나온다.
+    { id: 'sys1', room_id: 'room1', user_id: uid(2), system: true,
+      body: '이관교님이 라운드 모집을 열었습니다 · 함평엘리체CC', created_at: iso(0, 9, 34) },
     // 이모지만 보낸 글은 말풍선 없이 크게 나온다. 남·나 양쪽과, 글자가
     // 섞이면 평소대로 돌아오는 것까지 나란히 둔다.
     { id: 'm11', room_id: 'room1', user_id: uid(3), body: '👍', created_at: iso(0, 9, 37) },
