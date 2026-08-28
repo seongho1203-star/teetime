@@ -67,7 +67,7 @@ export function PollDetail() {
             comments: unwrap(comments) ?? [],
             people,
         };
-    }, [id]);
+    }, [id], `poll:${id}`);
 
     useRealtime(['polls', 'poll_options', 'poll_votes', 'poll_comments'], reload);
 

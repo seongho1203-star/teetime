@@ -26,7 +26,7 @@ export function Rounds() {
             supabase.from('signups').select('*'),
         ]);
         return { rounds: unwrap(rounds) ?? [], signups: unwrap(signups) ?? [] };
-    }, []);
+    }, [], 'rounds');
 
     // 남이 신청하면 자리 수가 바뀐다. 보고 있는 동안 따라 움직여야 한다.
     useRealtime(['rounds', 'signups'], reload);

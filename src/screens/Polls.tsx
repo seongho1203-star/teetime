@@ -31,7 +31,7 @@ export function Polls() {
             votes: unwrap(votes) ?? [],
             people,
         };
-    }, []);
+    }, [], 'polls');
 
     useRealtime(['poll_votes', 'polls', 'poll_options'], reload);
 

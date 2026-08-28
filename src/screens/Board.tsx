@@ -22,7 +22,7 @@ export function Board() {
             fetchProfiles(),
         ]);
         return { posts: unwrap(posts) ?? [], people };
-    }, []);
+    }, [], 'board');
 
     useRealtime('posts', reload);
 

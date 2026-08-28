@@ -61,7 +61,7 @@ export function RoundDetail() {
             shares: shares as SettlementShare[],
             people,
         };
-    }, [id]);
+    }, [id], `round:${id}`);
 
     useRealtime(
         ['signups', 'rounds', 'round_comments', 'settlements', 'settlement_shares'], reload);

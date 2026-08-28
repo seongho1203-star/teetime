@@ -74,7 +74,7 @@ function useLiveCounts() {
             board: board.count ?? 0,
             pending: pending.count ?? 0,
         };
-    }, [pathname, me, isAdmin]);
+    }, [pathname, me, isAdmin], 'counts');
 
     useRealtime(['rounds', 'polls', 'messages', 'posts', 'profiles'], reload);
 

@@ -78,7 +78,7 @@ export function Home() {
             pendingCount: pending.count ?? 0,
             unreadChat: chat.count ?? 0,
         };
-    }, [me, isAdmin]);
+    }, [me, isAdmin], 'home');
 
     useRealtime(['rounds', 'signups', 'polls', 'poll_votes', 'profiles', 'messages'], reload);
 

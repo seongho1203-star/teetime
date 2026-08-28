@@ -16,8 +16,74 @@ interface AsyncState<T> {
     reload: () => void;
 }
 
-export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []): AsyncState<T> {
-    const [data, setData] = useState<T | null>(null);
+/* ── 마지막으로 받은 것을 기억해 둔다 ────────────────────────────
+ *
+ * 탭을 넘길 때마다 화면이 새로 만들어지며 자료를 다시 물어보는데, 그
+ * 답을 기다리는 동안 빈 화면에 스피너가 돈다. **그 기다림이 통째로
+ * 인터넷 왕복 시간이다** — 재 봤더니 왕복 0ms일 때 10~58ms, 150ms일 때
+ * 190ms, 300ms일 때 340ms였다. 앱이 느린 게 아니라 서버에 다녀오는
+ * 시간이다(그래서 **앱으로 감싸도 이건 안 없어진다**).
+ *
+ * 그래서 **아까 본 것을 먼저 보여 주고 뒤에서 새로 받는다.** 화면들이
+ * 이미 `loading && !data`로 스피너를 띄우므로, 처음 값만 채워 주면
+ * 기다림이 사라진다.
+ *
+ * 두 가지를 조심할 것:
+ *
+ * - **로그아웃할 때 반드시 비운다**(`clearAsyncCache`). 안 그러면 한
+ *   기기에서 사람이 바뀔 때 **앞사람이 보던 명단·대화가 그대로 뜬다.**
+ * - **대화·수정 화면은 안 쓴다.** 대화는 안 읽음 줄과 스크롤이 얽혀
+ *   있고, 수정 화면은 옛 값을 폼에 채우면 그대로 저장될 수 있다.
+ */
+const CACHE_MAX = 30;
+const cache = new Map<string, unknown>();
+
+function readCache<T>(key: string): T | undefined {
+    if (!cache.has(key)) return undefined;
+    const v = cache.get(key) as T;
+    // 쓴 것을 맨 뒤로 옮긴다 — 넘칠 때 오래된 것부터 버리려는 것이다.
+    cache.delete(key);
+    cache.set(key, v);
+    return v;
+}
+
+function writeCache(key: string, v: unknown) {
+    cache.delete(key);
+    cache.set(key, v);
+    while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
+}
+
+/** 기억해 둔 것을 통째로 버린다. **남의 자료가 남아 있으면 안 된다.** */
+export function clearAsyncCache() {
+    cache.clear();
+}
+
+/* **사람이 바뀌면 기억한 것을 버린다.**
+ *
+ * 로그아웃 단추를 누르는 자리에서 지우면 빠뜨리는 길이 생긴다 — 토큰이
+ * 만료돼 저절로 풀리는 경우도 있고, 한 폰을 둘이 쓰며 갈아타는 경우도
+ * 있다. 그래서 **로그인 상태가 바뀌는 곳 한 군데**에서 지운다.
+ * (`supabase.ts`가 이 파일을 부르게 하면 두 파일이 서로 물고 돈다.)
+ */
+let seenUser: string | undefined;
+supabase.auth.onAuthStateChange((_event, session) => {
+    const uid = session?.user?.id;
+    if (uid !== seenUser) {
+        seenUser = uid;
+        cache.clear();
+    }
+});
+
+/**
+ * @param cacheKey 주면 마지막 결과를 기억해 두었다가 다음에 먼저 보여 준다.
+ *   화면마다 다른 글자여야 하고, 상세 화면은 `round:{id}`처럼 id를 붙인다.
+ *   안 주면 예전처럼 매번 빈 화면에서 시작한다.
+ */
+export function useAsync<T>(
+    fn: () => Promise<T>, deps: unknown[] = [], cacheKey?: string,
+): AsyncState<T> {
+    const [data, setData] = useState<T | null>(
+        () => (cacheKey ? readCache<T>(cacheKey) ?? null : null));
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [tick, setTick] = useState(0);
@@ -28,16 +94,30 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []): AsyncSt
     const fnRef = useRef(fn);
     useEffect(() => { fnRef.current = fn; });
 
+    const keyRef = useRef(cacheKey);
+
     useEffect(() => {
         let alive = true;
+        /* **키가 바뀌면 앞 화면 내용을 그대로 두면 안 된다.** 라운드 상세는
+           주소만 바뀌고 화면은 그대로 살아 있어서(리액트가 다시 안 만든다),
+           안 지우면 6차를 눌렀는데 5차 내용이 남는다. */
+        if (keyRef.current !== cacheKey) {
+            keyRef.current = cacheKey;
+            setData(cacheKey ? readCache<T>(cacheKey) ?? null : null);
+        }
         setLoading(true);
         fnRef.current()
-            .then(v => { if (alive) { setData(v); setError(null); } })
+            .then(v => {
+                if (!alive) return;
+                setData(v);
+                setError(null);
+                if (cacheKey) writeCache(cacheKey, v);
+            })
             .catch(e => { if (alive) setError(e?.message ?? String(e)); })
             .finally(() => { if (alive) setLoading(false); });
         return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [...deps, tick]);
+    }, [...deps, tick, cacheKey]);
 
     const reload = useCallback(() => setTick(t => t + 1), []);
     return { data, loading, error, reload };

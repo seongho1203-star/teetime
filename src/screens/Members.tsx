@@ -30,7 +30,7 @@ export function Members() {
     const toast = useToast();
     const confirm = useConfirm();
 
-    const { data, loading, error, reload } = useAsync<Profile[]>(fetchProfiles, []);
+    const { data, loading, error, reload } = useAsync<Profile[]>(fetchProfiles, [], 'members');
     useRealtime('profiles', reload);
 
     // 관리 버튼은 **누른 사람 것만** 펼친다. 줄마다 세 개씩 늘어놓으면

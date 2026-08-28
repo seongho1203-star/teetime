@@ -33,7 +33,7 @@ export function PostDetail() {
             fetchProfiles(),
         ]);
         return { post: unwrap(post), comments: unwrap(comments) ?? [], people };
-    }, [id]);
+    }, [id], `post:${id}`);
 
     useRealtime(['posts', 'post_comments'], reload);
 
