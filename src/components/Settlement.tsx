@@ -156,14 +156,27 @@ function SettlementCard({
 
             {s.body && <p className="sm dim settle-body">{s.body}</p>}
 
-            {/* **내 몫을 맨 위에 크게.** 목록을 훑어 내 이름을 찾게 하지 않는다. */}
+            {/* **낼 돈을 맨 위에 크게.** 목록을 훑어 내 이름을 찾게 하지 않는다.
+                **금액과 단추를 갈라 놓는다.** 예전에는 줄 하나가 통째로
+                눌리는 단추였는데, 단추처럼 안 생겨서 **눌리는 줄인지조차
+                몰랐다**(사용자 제보). 금액은 읽는 곳, 단추는 누르는 곳으로
+                나누고 단추는 단추답게 그린다. */}
             {mine && (
-                <button className={`settle-mine${mine.paid ? ' paid' : ''}`}
-                        onClick={() => togglePaid(mine)}>
-                    <span className="grow">내 몫</span>
-                    <b>{formatWon(mine.amount)}</b>
-                    <span className="settle-check">{mine.paid ? '보냄 ✓' : '보냈어요'}</span>
-                </button>
+                <div className={`settle-mine${mine.paid ? ' paid' : ''}`}>
+                    <div className="row between settle-mine-top">
+                        <span className="settle-mine-label">입금금액</span>
+                        <b className="settle-mine-won">{formatWon(mine.amount)}</b>
+                    </div>
+                    <button className={`btn block settle-done${mine.paid ? ' on' : ''}`}
+                            onClick={() => togglePaid(mine)}>
+                        {mine.paid ? '입금완료 ✓' : '입금완료'}
+                    </button>
+                    {mine.paid && (
+                        <p className="xs faint settle-undo">
+                            잘못 누르셨으면 한 번 더 누르면 취소됩니다.
+                        </p>
+                    )}
+                </div>
             )}
 
             {(s.bank || s.account) && (
