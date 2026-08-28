@@ -66,6 +66,9 @@ function Form({
     const [cart, setCart] = useState<Round['cart']>(round?.cart ?? null);
     const [saving, setSaving] = useState(false);
     const [picking, setPicking] = useState(false);
+    /** 골프장 칸의 안내 글씨를 띄울까. **초점이 기준이다** — 글자가
+        들어왔는지로 정하면 한글 조합 중에 번쩍일 틈이 생긴다. */
+    const [courseHint, setCourseHint] = useState(true);
 
     const screen = kind === 'screen';
 
@@ -141,11 +144,23 @@ function Form({
 
                 <div className="field">
                     <label htmlFor="f-course">{PLACE_LABEL[kind]}</label>
-                    <input id="f-course" className="input" value={course}
-                           onChange={e => { setCourse(e.target.value); setPicking(true); }}
-                           onFocus={() => setPicking(true)}
-                           placeholder={screen ? '예) 신용DS' : '예) 무등산CC'}
-                           maxLength={40} autoComplete="off" />
+                    {/* **안내 글씨를 `placeholder`로 두지 않는다.** 한글을 치는
+                        칸이라 iOS가 조합 중인 글자를 '내용 없음'으로 봐서
+                        **첫 글자에 `예) 무등산CC`가 한 번 번쩍인다**(사용자 제보).
+                        대화·댓글 칸에서 겪은 그것이다 — 직접 그리고 **초점이
+                        가는 순간** 치운다. */}
+                    <div className="input-wrap">
+                        <input id="f-course" className="input" value={course}
+                               onChange={e => { setCourse(e.target.value); setPicking(true); }}
+                               onFocus={() => { setPicking(true); setCourseHint(false); }}
+                               onBlur={() => setCourseHint(true)}
+                               maxLength={40} autoComplete="off" />
+                        {courseHint && !course && (
+                            <span className="input-hint" aria-hidden="true">
+                                {screen ? '예) 신용DS' : '예) 무등산CC'}
+                            </span>
+                        )}
+                    </div>
                     {/* 목록에서 고르면 좌표가 함께 붙어 날씨가 뜬다.
                         목록에 없는 곳도 그냥 쳐 넣으면 되고, 그때는 날씨만 빠진다. */}
                     {picking && hits.length > 0 && (
