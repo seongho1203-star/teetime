@@ -14,7 +14,6 @@ import {
     chatPush, disablePush, enablePush, pushState, setChatPush, type PushState,
 } from '../lib/push';
 import { Switch } from '../components/Switch';
-import { testDing } from '../lib/sound';
 import './Home.css';
 
 export function Me() {
@@ -283,26 +282,9 @@ export function Me() {
                         </div>
                     )}
 
-                    {/* **소리 시험.** 앱을 보고 있을 때 나는 `까꿍`이 제대로
-                        나는지 확인하는 자리다. 밖에서는 왜 안 나는지 알 길이
-                        없어서 뒀다 — 폰이 무음이면 웹에서는 넘을 수 없는
-                        벽이라, 그때는 그렇게 알려 준다. */}
-                    <div className="switch-row">
-                        <div className="grow">
-                            <div className="switch-label">🔊 알림음</div>
-                            <div className="switch-desc">
-                                앱을 보고 있을 때만 `까꿍` 소리가 납니다
-                            </div>
-                        </div>
-                        <button className="btn ghost sm" onClick={async () => {
-                            const ok = await testDing();
-                            toast(ok
-                                ? '소리가 안 들리면 폰이 무음인지 확인해 주세요.'
-                                : '이 기기에서는 소리를 낼 수 없습니다.', ok ? 'info' : 'error');
-                        }}>
-                            소리 시험
-                        </button>
-                    </div>
+                    {/* 소리 시험 줄은 걷어냈다(사용자 요청). 소리 자체는
+                        그대로 나고, 잠금 푸는 일은 `lib/sound.ts`가 첫 손짓에서
+                        알아서 한다 — 이 단추가 있어야 도는 것이 아니었다. */}
                 </div>
             )}
 

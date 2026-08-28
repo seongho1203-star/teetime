@@ -36,12 +36,13 @@ let audio: HTMLAudioElement | null = null;
 /** 소리가 실제로 난 적이 있는가. iOS에서만 뜻이 있다. */
 let unlocked = false;
 /**
- * 재생을 걸어 둔 적이 있는가. **바로 서는 표시라야 한다.**
+ * 진짜 재생을 걸어 둔 적이 있는가. **바로 서는 표시라야 한다.**
  *
- * `소리 시험`을 누르면 단추의 `onClick`이 먼저 돌고, 그 누름이 창까지
- * 올라가 아래 `unlock`도 뒤따라 돈다. 그때 `unlock`이 소리를 끄고 다시
- * 재생하면 **방금 울린 시험음을 스스로 음소거해 버린다.** `play()`가
- * 끝나기를 기다리는 값으로는 이 순간을 못 막아서 동기 표시를 따로 둔다.
+ * 잠금 풀기와 진짜 소리가 같은 순간에 겹칠 수 있다. `play()`가 끝나기를
+ * 기다리는 값으로는 그 찰나를 못 막아 동기 표시를 따로 둔다 —
+ * 아래 `unlock`의 `pause()`가 **방금 난 소리를 스스로 끄는 것**을 막는다.
+ * (`내 정보`에 있던 `소리 시험` 단추에서 실제로 그렇게 났었다.
+ *  단추는 사용자 요청으로 걷어냈지만 이 장치는 남겨 둔다.)
  */
 let tried = false;
 /** 잠금 풀기가 도는 중. 한 번 누르면 pointerdown·touchend가 같이 온다. */
@@ -70,10 +71,9 @@ function unlock() {
     a.play().then(() => {
         unlocking = false;
         /* **그새 진짜 소리가 시작됐으면 멈추지 않는다.**
-           `pointerdown`은 `click`보다 **먼저** 온다. 그래서 `소리 시험`을
-           누르면 여기가 먼저 돌고, 뒤이어 단추가 진짜로 울린다 — 그때
-           아래 `pause()`를 그대로 부르면 **방금 난 소리를 스스로 끈다.**
-           실제로 시험음이 안 나던 원인이 이것이었다. */
+           `pointerdown`은 `click`보다 **먼저** 오므로, 누름 하나로 여기가
+           먼저 돌고 뒤이어 진짜 소리가 날 수 있다 — 그때 아래 `pause()`를
+           그대로 부르면 **방금 난 소리를 스스로 끈다.** 실제로 겪은 일이다. */
         if (tried) { a.muted = false; return; }
         a.pause();
         a.currentTime = 0;
@@ -99,37 +99,15 @@ if (typeof window !== 'undefined') {
 export function playDing() {
     if (Date.now() - last < GAP) return;
     last = Date.now();
-    ring();
-}
 
-/**
- * 지금 당장 울린다 (`내 정보`의 소리 시험용).
- *
- * 사람이 단추를 누른 자리라 **텀을 두지 않는다** — 눌렀는데 아무 소리도
- * 안 나면 고장으로 보인다. 소리가 났는지를 그대로 돌려주므로 화면이
- * '무음인지 확인해 보라'고 알려 줄 수 있다.
- */
-export function testDing(): Promise<boolean> {
-    last = Date.now();
-    // **잠금을 따로 풀지 않는다.** 단추를 누른 것이 이미 손짓이라 이
-    // 재생 자체로 풀린다. 여기서 `unlock()`까지 부르면 둘이 부딪혀
-    // 시험음이 음소거된 채 나간다(실제로 그렇게 났다).
-    return ring();
-}
-
-function ring(): Promise<boolean> {
+    // 위 `unlock`이 이 순간을 알아채고 물러나도록 **먼저** 표시한다.
     tried = true;
     try {
         const a = ensureAudio();
         a.muted = false;
         a.currentTime = 0;
-        return a.play().then(() => { unlocked = true; return true; }).catch(() => false);
-    } catch {
-        return Promise.resolve(false);
-    }
+        a.play().then(() => { unlocked = true; })
+                .catch(() => { /* 아직 안 풀렸거나 폰이 무음이다 */ });
+    } catch { /* 소리를 못 내는 기기 */ }
 }
 
-/** 소리를 낼 수 있는 상태인가. 시험 단추의 안내 문구에 쓴다. */
-export function soundUnlocked() {
-    return unlocked;
-}

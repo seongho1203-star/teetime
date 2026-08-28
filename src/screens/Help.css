@@ -15,16 +15,18 @@
 
 .help-part { padding-bottom: 14px; }
 
+/* **flex 로 두지 말 것.** 아이콘·번호·제목을 각각 한 덩어리로 보아서,
+   제목이 길면 그것만 통째로 다음 줄로 밀린다(2번 `라운드 운영 —`이 실제로
+   그랬다). 보통 글처럼 흐르게 두면 글자 단위로 자연스럽게 접힌다. */
 .help-h {
-    display: flex;
-    align-items: center;
-    gap: 7px;
     margin: 0 0 6px;
     font-size: var(--fs-md);
     font-weight: 800;
+    line-height: 1.4;
 }
+.help-num { color: var(--text-faint); margin-right: 3px; }
 /* 아이콘은 장식이라 소리로는 안 읽힌다(`aria-hidden`). */
-.help-icon { font-size: 1.1em; }
+.help-icon { font-size: 1.1em; margin-right: 5px; }
 
 .help-lead {
     margin: 0 0 10px;
