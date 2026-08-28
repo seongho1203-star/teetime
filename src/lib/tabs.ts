@@ -12,6 +12,29 @@ const MIN_X = 60;
 /** 가로가 세로보다 이만큼 커야 '옆으로 민 것'으로 본다. */
 const RATIO = 1.6;
 
+/**
+ * 넘어가는 쪽을 `<html>`에 잠깐 적어 둔다. 그 표시를 보고 CSS가 새 화면을
+ * 스르륵 밀어 넣는다(global.css의 `page-in-*`).
+ *
+ * **화면 전환에 애니메이션이 없어 뚝 끊겨 보인다는 제보가 있었다.**
+ * 아이폰은 왼쪽 가장자리에서 미는 '뒤로 가기'에 사파리가 제 애니메이션을
+ * 붙여 주는데, 그 한 방향만 부드러워서 나머지가 더 도드라졌다.
+ *
+ * **사파리 것과 똑같이는 못 만든다.** 그쪽은 손가락을 따라 실시간으로
+ * 움직이고 중간에 놓으면 되돌아간다 — 우리는 **손을 뗀 뒤에야** 어디로
+ * 갈지 알 수 있어서, 짧게 밀어 넣는 것이 할 수 있는 전부다.
+ */
+const SLIDE_MS = 220;
+let slideTimer: ReturnType<typeof setTimeout> | undefined;
+
+function markSlide(dir: 'next' | 'prev') {
+    const el = document.documentElement;
+    el.dataset.slide = dir;
+    clearTimeout(slideTimer);
+    // 표시를 남겨 두면 다음에 다시 그릴 때 또 미끄러진다. 끝나면 지운다.
+    slideTimer = setTimeout(() => { delete el.dataset.slide; }, SLIDE_MS + 40);
+}
+
 /** 가로로 스크롤되는 칸(골프장 검색 목록 등) 안에서 시작한 손짓은 그쪽 몫이다. */
 function inScroller(start: EventTarget | null): boolean {
     let el = start instanceof Element ? start : null;
@@ -62,8 +85,11 @@ export function useTabSwipe() {
             const dy = t.clientY - y0;
             if (Math.abs(dx) < MIN_X || Math.abs(dx) < Math.abs(dy) * RATIO) return;
             // 왼쪽으로 밀면 다음 탭, 오른쪽으로 밀면 앞 탭. 끝에서는 안 넘어간다.
-            const to = TAB_PATHS[at + (dx < 0 ? 1 : -1)];
-            if (to) nav(to);
+            const next = dx < 0;
+            const to = TAB_PATHS[at + (next ? 1 : -1)];
+            if (!to) return;
+            markSlide(next ? 'next' : 'prev');
+            nav(to);
         };
 
         document.addEventListener('touchstart', start, { passive: true });
