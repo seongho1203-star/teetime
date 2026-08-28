@@ -107,3 +107,19 @@ export function fromKstInput(value: string): string | null {
     const d = new Date(`${value}:00+09:00`);
     return isNaN(d.getTime()) ? null : d.toISOString();
 }
+
+/**
+ * 다가올 라운드만 받아 오려고 쓰는 자르는 선.
+ *
+ * **지난 라운드를 받지 않으려는 것이다.** 화면들이 보여 주는 것은 앞으로의
+ * 라운드뿐인데 예전에는 취소된 것만 빼고 **전부** 받아 왔다 — 신청 기록까지
+ * 딸려 오면서, 1년 지난 시점에 홈 한 번 여는 데 334KB였다. 해가 갈수록
+ * 무거워지므로 회원이 쉰 명이면 무료 통신량(월 5GB)을 넘긴다.
+ *
+ * **하루 여유를 둔다.** 한국 날짜로 자르는 일은 화면의 `daysUntil`에
+ * 맡긴다 — 여기서 시간대까지 맞추면 판단하는 곳이 둘이 되고, 어긋나면
+ * 오늘 라운드가 화면에서 사라진다. 넉넉히 받아 두고 거르는 편이 안전하다.
+ */
+export function upcomingSince(): string {
+    return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+}

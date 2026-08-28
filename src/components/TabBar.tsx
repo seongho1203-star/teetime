@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
-import { daysUntil } from '../lib/format';
+import { daysUntil, upcomingSince } from '../lib/format';
 import { SEEN_EVENT, lastSeen } from '../lib/unread';
 import type { Message, Poll, Round } from '../lib/types';
 import { playDing } from '../lib/sound';
@@ -51,7 +51,11 @@ function useLiveCounts() {
         const seenBoard = lastSeen('board', me);
 
         const [rounds, polls, chat, board, pending] = await Promise.all([
-            supabase.from('rounds').select('tee_at, status').neq('status', 'cancelled'),
+            /* **지난 라운드는 받지 않는다.** 탭바는 모든 화면에 떠 있고
+               대화가 한 마디 올 때마다 이 조회가 다시 도는데, 예전에는
+               지난 것까지 다 받아 와 1년 지나면 한 번에 33KB였다. */
+            supabase.from('rounds').select('tee_at, status')
+                    .neq('status', 'cancelled').gte('tee_at', upcomingSince()),
             supabase.from('polls').select('closes_at').eq('closed', false),
             // 세기만 하면 되므로 행은 받아 오지 않는다(head).
             supabase.from('messages').select('id', { count: 'exact', head: true })

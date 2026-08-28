@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchProfiles } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDateTime, ddayLabel, daysUntil } from '../lib/format';
+import { formatDateTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
 import { lastSeen } from '../lib/unread';
 import { fetchWeather, type Weather } from '../lib/weather';
 import { KIND_ICON, roundKind, type Poll, type PollVote, type Profile, type Round, type Signup } from '../lib/types';
@@ -18,8 +18,8 @@ interface Loaded {
     /** 내가 아직 표를 안 던진 투표 */
     openPolls: Poll[];
     pendingCount: number;
-    unreadChat: number;
 }
+
 
 /**
  * 첫 화면.
@@ -47,11 +47,13 @@ export function Home() {
     useEffect(() => onInstallChange(() => setInstallable(canInstall())), []);
 
     const { data, loading, reload } = useAsync<Loaded>(async () => {
-        const seenChat = lastSeen('chat', me);
-        const [rounds, signups, people, polls, votes, pending, chat] = await Promise.all([
-            supabase.from('rounds').select('*')
-                    .neq('status', 'cancelled').order('tee_at', { ascending: true }),
-            supabase.from('signups').select('*'),
+        const [rounds, people, polls, votes, pending] = await Promise.all([
+            /* 신청 기록을 라운드에 딸려 받는다. 따로 부르면 **모든 라운드의**
+               신청이 다 와서, 지난 것까지 해마다 쌓인다. */
+            supabase.from('rounds').select('*, signups(*)')
+                    .neq('status', 'cancelled')
+                    .gte('tee_at', upcomingSince())
+                    .order('tee_at', { ascending: true }),
             fetchProfiles(),
             supabase.from('polls').select('*').eq('closed', false),
             supabase.from('poll_votes').select('poll_id').eq('user_id', me),
@@ -59,8 +61,6 @@ export function Home() {
                 ? supabase.from('profiles').select('id', { count: 'exact', head: true })
                           .eq('role', 'pending')
                 : Promise.resolve({ count: 0, error: null }),
-            supabase.from('messages').select('id', { count: 'exact', head: true })
-                    .gt('created_at', seenChat).neq('user_id', me),
         ]);
 
         const now = Date.now();
@@ -70,17 +70,37 @@ export function Home() {
             .filter(p => !p.closes_at || new Date(p.closes_at).getTime() > now)
             .filter(p => !voted.has(p.id));
 
+        /* 딸려 온 신청을 한 줄로 편다. 화면은 예전처럼 평평한 배열에서
+           `round_id`로 골라 쓴다 — 그쪽 코드는 손대지 않는다.
+           **`unknown`을 거쳐 형을 바꾼다.** `types.ts`의 `Database`에는 표
+           사이의 관계가 안 적혀 있어, 딸려 오는 `signups`를 타입이 오류로
+           본다 — 실제로는 PostgREST가 외래키를 보고 채워 준다. */
+        const rows = (unwrap(rounds) ?? []) as unknown as (Round & { signups?: Signup[] })[];
+        const signups = rows.flatMap(r => r.signups ?? []);
+
         return {
-            rounds: unwrap(rounds) ?? [],
-            signups: unwrap(signups) ?? [],
+            rounds: rows.map(({ signups: _drop, ...r }) => r as Round),
+            signups,
             people,
             openPolls,
             pendingCount: pending.count ?? 0,
-            unreadChat: chat.count ?? 0,
         };
     }, [me, isAdmin], 'home');
 
-    useRealtime(['rounds', 'signups', 'polls', 'poll_votes', 'profiles', 'messages'], reload);
+    useRealtime(['rounds', 'signups', 'polls', 'poll_votes', 'profiles'], reload);
+
+    /* **안 읽은 대화는 따로 센다.** 예전에는 위 조회에 끼워 두어, 대화가
+       한 마디 올 때마다 **라운드·신청·명단까지 통째로 다시 받았다** —
+       홈을 켜 둔 사람이 열 명이면 한 달 통신량이 10GB를 넘었다(무료 5GB).
+       이쪽은 개수만 세므로(`head: true`) 몸통이 아예 안 실려 온다. */
+    const { data: unread, reload: reloadUnread } = useAsync<number>(async () => {
+        const { count } = await supabase.from('messages')
+            .select('id', { count: 'exact', head: true })
+            .gt('created_at', lastSeen('chat', me)).neq('user_id', me);
+        return count ?? 0;
+    }, [me], 'home:unread');
+
+    useRealtime('messages', reloadUnread);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -90,7 +110,7 @@ export function Home() {
     const signups = data?.signups ?? [];
     const polls = data?.openPolls ?? [];
     const pendingCount = data?.pendingCount ?? 0;
-    const unreadChat = data?.unreadChat ?? 0;
+    const unreadChat = unread ?? 0;
 
     // 오늘(한국 날짜) 이후만. 가장 가까운 것이 주인공, 나머지는 아래 목록.
     const upcoming = rounds.filter(r => daysUntil(r.tee_at) >= 0);

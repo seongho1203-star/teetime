@@ -32,6 +32,14 @@ function handleRest(url, req) {
             return desc ? -c : c;
         });
     }
+    /* **딸려 받기(embed) 흉내.** `select=*,signups(*)` 처럼 적으면
+       PostgREST 가 외래키를 보고 채워 준다 — 홈이 신청 기록을 이렇게 받는다. */
+    for (const m of (url.searchParams.get('select') ?? '').matchAll(/(\w+)\(\*\)/g)) {
+        const child = m[1];
+        const fk = table.replace(/s$/, '') + '_id';       // rounds → round_id
+        rows = rows.map(r => ({ ...r, [child]: (tables[child] ?? []).filter(c => c[fk] === r.id) }));
+    }
+
     const limit = url.searchParams.get('limit');
     if (limit) rows = rows.slice(0, Number(limit));
     return (req.headers()['accept'] || '').includes('vnd.pgrst.object') ? (rows[0] ?? null) : rows;
