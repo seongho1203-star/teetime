@@ -199,6 +199,14 @@ function SettlementCard({
     );
 }
 
+/**
+ * `그 외`가 이보다 많으면 이름으로 찾게 한다.
+ *
+ * 열두 명까지는 네 줄이라 눈으로 훑을 만하다. 그 위로는 늘어놓는 것이
+ * 오히려 방해가 된다 — 마흔여섯 명을 폈더니 목록만 602px였다.
+ */
+const FIND_AT = 12;
+
 /** 고르는 알약 하나. 참가자와 `그 외`가 같이 쓴다 — 모양이 갈리면 안 된다. */
 function PersonPill({ person, on, onClick }: {
     person: Profile; on: boolean; onClick: () => void;
@@ -234,6 +242,8 @@ function SettlementForm({
     const [saving, setSaving] = useState(false);
     /** `그 외`를 펼쳤는가. 평소에는 접어 둔다 — 대개 참가자끼리 끝난다. */
     const [showRest, setShowRest] = useState(false);
+    /** `그 외`에서 이름으로 찾기. 사람이 많을 때만 쓴다. */
+    const [find, setFind] = useState('');
 
     /* 참가자와 그 외로 가른다. **참가자 순서는 명단 순서를 따른다** —
        고를 때마다 자리가 움직이면 누르기 어렵다. */
@@ -245,6 +255,19 @@ function SettlementForm({
     /* 뒷풀이만 온 사람을 이미 골라 뒀다면 접어 버리면 안 된다 —
        고른 것이 화면에서 사라져 지운 것처럼 보인다. */
     const restOpen = showRest || rest.some(p => picked.includes(p.id));
+
+    /* **쉰 명이면 이름을 늘어놓을 수가 없다.** 46명을 다 펴 봤더니 그
+       목록만 602px로 화면의 3/4를 먹었고, 한 명 찾으려면 눈으로 다 훑어야
+       했다. 그래서 사람이 많으면 **찾아서 고른다** — 적을 때는 예전처럼
+       그냥 다 보여 준다(칸이 하나 더 생겨 봐야 성가시기만 하다). */
+    const bigList = rest.length > FIND_AT;
+    const shownRest = useMemo(() => {
+        if (!bigList) return rest;
+        const q = find.replace(/\s/g, '').toLowerCase();
+        // 고른 사람은 검색어와 상관없이 남긴다 — 사라지면 뺀 것처럼 보인다.
+        return rest.filter(p => picked.includes(p.id)
+            || (!!q && String(p.name ?? '').replace(/\s/g, '').toLowerCase().includes(q)));
+    }, [bigList, rest, find, picked]);
 
     const totalNum = Number(total.replace(/[^0-9]/g, '')) || 0;
     const amounts = useMemo(
@@ -367,13 +390,33 @@ function SettlementForm({
                                 그 외 {rest.length}명 · 뒷풀이만 오신 분을 여기서 넣으세요
                             </span>
                         </div>
-                        <div className="settle-pick">
-                            {rest.map(p => (
-                                <PersonPill key={p.id} person={p}
-                                            on={picked.includes(p.id)}
-                                            onClick={() => toggle(p.id)} />
-                            ))}
-                        </div>
+                        {/* **안내 글씨(placeholder)를 안 쓴다.** 한글을 치는
+                            칸이라 iOS가 조합 중인 글자를 '내용 없음'으로 봐서
+                            첫 글자에 한 번 번쩍인다 — 대화·댓글 칸에서 겪은
+                            그것이다. 라벨로 세워 두면 그럴 틈이 없다. */}
+                        {bigList && (
+                            <div className="field settle-find">
+                                <label htmlFor="s-find">이름으로 찾기</label>
+                                <input id="s-find" className="input" value={find}
+                                       onChange={e => setFind(e.target.value)} />
+                            </div>
+                        )}
+                        {shownRest.length > 0 && (
+                            <div className="settle-pick">
+                                {shownRest.map(p => (
+                                    <PersonPill key={p.id} person={p}
+                                                on={picked.includes(p.id)}
+                                                onClick={() => toggle(p.id)} />
+                                ))}
+                            </div>
+                        )}
+                        {bigList && !shownRest.length && (
+                            <p className="xs faint settle-find-hint">
+                                {find.trim()
+                                    ? `'${find.trim()}' 님을 못 찾았습니다.`
+                                    : '이름을 적으면 찾아 드립니다.'}
+                            </p>
+                        )}
                     </>
                 ) : (
                     <button type="button" className="btn ghost sm settle-more"

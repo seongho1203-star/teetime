@@ -109,6 +109,11 @@
     align-self: flex-start;
     margin-top: 8px;
 }
+
+/* 이름으로 찾기. 사람이 열둘을 넘을 때만 나온다 — 쉰 명을 늘어놓으면
+   그 목록만 화면의 3/4을 먹는다. */
+.settle-find { margin-bottom: 8px; }
+.settle-find-hint { margin: 2px 0 4px; }
 .settle-pill {
     display: inline-flex;
     align-items: center;
