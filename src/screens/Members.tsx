@@ -180,7 +180,7 @@ export function Members() {
                                     {isSuper && (
                                         <button className="btn ghost sm"
                                                 onClick={() => setRole(p, p.role === 'admin' ? 'member' : 'admin')}>
-                                            {p.role === 'admin' ? '운영자 해제' : '운영자로'}
+                                            {p.role === 'admin' ? '운영자 해제' : '운영자'}
                                         </button>
                                     )}
                                     {/* **방장은 부운영자·총무를 인원 제한 없이 임명한다.** */}
@@ -188,11 +188,11 @@ export function Members() {
                                         <>
                                             <button className="btn ghost sm"
                                                     onClick={() => setRole(p, p.role === 'staff' ? 'member' : 'staff')}>
-                                                {p.role === 'staff' ? '부운영자 해제' : '부운영자로'}
+                                                {p.role === 'staff' ? '부운영자 해제' : '부운영자'}
                                             </button>
                                             <button className="btn ghost sm"
                                                     onClick={() => setRole(p, p.role === 'treasurer' ? 'member' : 'treasurer')}>
-                                                {p.role === 'treasurer' ? '총무 해제' : '총무로'}
+                                                {p.role === 'treasurer' ? '총무 해제' : '총무'}
                                             </button>
                                         </>
                                     )}
