@@ -202,7 +202,8 @@ async function planFor(hook: Hook): Promise<Note | null> {
             title: '🗳 새 투표',
             body: `${who}님: ${String(r.title ?? '').slice(0, 80)}`,
             tag: `poll-${r.id}`,
-            url: '#/polls',
+            // 투표가 여러 개 열려 있으면 목록으로 보내 봐야 또 찾아야 한다.
+            url: `#/polls/${r.id}`,
             except: typeof r.created_by === 'string' ? r.created_by : null,
         };
     }
@@ -224,7 +225,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
        `tag`를 정산 단위로 묶어 두어 알림창이 도배되지도 않는다. */
     if (hook.table === 'settlement_shares' && hook.type === 'INSERT') {
         const { data: st } = await db.from('settlements')
-            .select('title, bank, account, created_by')
+            .select('title, bank, account, created_by, round_id')
             .eq('id', r.settlement_id).maybeSingle();
         if (!st) return null;
         const who = await nameOf(st.created_by);
@@ -235,7 +236,10 @@ async function planFor(hook: Hook): Promise<Note | null> {
             body: `${st.title} · ${won}원`
                 + (acc ? `\n${acc} (${who})` : ''),
             tag: `settle-${r.settlement_id}`,
-            url: '#/rounds',
+            /* **그 라운드로 바로 보낸다.** 정산은 라운드 안에 있어서
+               목록으로 보내면 어느 라운드였는지 찾아 들어가야 한다.
+               `round_id`가 없는 옛 행이면 목록으로라도 보낸다. */
+            url: st.round_id ? `#/rounds/${st.round_id}` : '#/rounds',
             only: typeof r.user_id === 'string' ? [r.user_id] : [],
         };
     }

@@ -41,13 +41,43 @@ export function registerServiceWorker() {
     navigator.serviceWorker.addEventListener('message', e => {
         const msg = e.data as { type?: string; url?: string } | null;
         if (msg?.type !== 'navigate' || !msg.url) return;
-        try {
-            const to = new URL(msg.url, location.href);
-            if (to.origin !== location.origin) return;
-            // 해시 라우팅이라 해시만 옮기면 화면이 바뀐다.
-            if (to.hash && to.hash !== location.hash) location.hash = to.hash;
-        } catch { /* 이상한 주소면 그냥 둔다 */ }
+        goTo(msg.url);
     });
+
+    takePendingNav();
+}
+
+/** 알림이 가리키는 화면으로 옮긴다. 해시 라우팅이라 해시만 갈면 된다. */
+function goTo(url: string) {
+    try {
+        const to = new URL(url, location.href);
+        if (to.origin !== location.origin) return;
+        if (to.hash && to.hash !== location.hash) location.hash = to.hash;
+    } catch { /* 이상한 주소면 그냥 둔다 */ }
+}
+
+/**
+ * 앱이 켜질 때 "눌린 알림이 있었나"를 서비스워커에 물어본다.
+ *
+ * **앱이 꺼져 있을 때 누른 경우를 위한 길이다.** 그때 서비스워커는
+ * `openWindow`에 주소를 주는데 **아이폰은 그걸 무시하고 첫 화면으로 띄우기도
+ * 한다** — 알림을 눌렀는데 홈이 나오는 것이다. 서비스워커가 갈 곳을 적어
+ * 두었으므로(`sw.js`의 `putNav`) 여기서 가져와 옮긴다.
+ *
+ * **가져오면 그쪽에서 지운다.** 안 지우면 다음에 앱을 그냥 켤 때도 옛
+ * 알림 화면으로 끌려간다.
+ */
+function takePendingNav() {
+    navigator.serviceWorker.ready.then(reg => {
+        const sw = reg.active;
+        if (!sw) return;
+        const ch = new MessageChannel();
+        ch.port1.onmessage = e => {
+            const url = (e.data as { url?: string } | null)?.url;
+            if (url) goTo(url);
+        };
+        sw.postMessage({ type: 'take-nav' }, [ch.port2]);
+    }).catch(() => { /* 서비스워커가 없으면 그냥 둔다 */ });
 }
 
 /** 홈 화면에 추가해서 연 앱인가. iOS는 이때만 알림을 준다. */

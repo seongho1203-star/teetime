@@ -76,6 +76,39 @@ async function isWatching() {
     return list.some(c => c.visibilityState === 'visible');
 }
 
+/* ── 알림을 누르면 갈 곳을 적어 둔다 ─────────────────────────
+ *
+ * **앱이 꺼져 있을 때가 문제다.** 알림을 누르면 `openWindow`에 주소를
+ * 주는데, **아이폰은 그걸 무시하고 앱을 첫 화면으로 띄우기도 한다.**
+ * 그러면 알림을 눌렀는데 홈이 나온다.
+ *
+ * 그래서 갈 곳을 여기 적어 두고, 앱이 켜질 때 가져가게 한다
+ * (`lib/push.ts`가 `take-nav`로 물어본다). 뱃지가 쓰는 그 저장소를
+ * 같이 쓴다 — 값 하나 더 넣는 것뿐이라 따로 만들 이유가 없다.
+ *
+ * **가져가면 지운다.** 안 지우면 다음에 앱을 그냥 켤 때도 옛 알림 화면으로
+ * 끌려간다.
+ */
+async function putNav(url) {
+    try {
+        const db = await openDb();
+        const st = db.transaction('n', 'readwrite').objectStore('n');
+        st.put(url, 'nav');
+    } catch { /* 저장이 안 돼도 알림 자체는 떠야 한다 */ }
+}
+
+async function takeNav() {
+    try {
+        const db = await openDb();
+        return await new Promise((ok, no) => {
+            const st = db.transaction('n', 'readwrite').objectStore('n');
+            const get = st.get('nav');
+            get.onsuccess = () => { st.delete('nav'); ok(get.result || null); };
+            get.onerror = () => no(get.error);
+        });
+    } catch { return null; }
+}
+
 /* 앱이 "봤다"고 알려 오면 비운다. **화면에서 직접 세지 않고 여기로 넘기는**
    이유는 세는 곳을 하나로 두려는 것이다. */
 self.addEventListener('message', event => {
@@ -85,6 +118,11 @@ self.addEventListener('message', event => {
     // 쪽이 여기라**, 화면에서 되는지 보는 것만으로는 알 수 없다.
     if (kind === 'badge-support' && event.ports[0]) {
         event.ports[0].postMessage({ badge: 'setAppBadge' in navigator });
+    }
+    // 앱이 켜지면서 "눌린 알림이 있었나" 물어 온다.
+    if (kind === 'take-nav' && event.ports[0]) {
+        const port = event.ports[0];
+        event.waitUntil(takeNav().then(url => port.postMessage({ url })));
     }
 });
 
@@ -145,6 +183,10 @@ self.addEventListener('notificationclick', event => {
     ).href;
 
     event.waitUntil((async () => {
+        /* **먼저 적어 둔다.** 아래 셋 중 무엇이 통할지 기기마다 달라서,
+           다 실패해도 앱이 켜질 때 스스로 찾아가게 하는 마지막 길이다. */
+        await putNav(target);
+
         const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
 
         for (const client of list) {
