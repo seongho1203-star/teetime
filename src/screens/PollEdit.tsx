@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { fromKstInput } from '../lib/format';
 import { TopBar } from '../components/TopBar';
+import { Hinted } from '../components/Hinted';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { Switch } from '../components/Switch';
@@ -78,9 +79,10 @@ export function PollEdit() {
             <div className="card">
                 <div className="field">
                     <label htmlFor="v-title">무엇을 물어볼까요?</label>
-                    <input id="v-title" className="input" value={title}
-                           onChange={e => setTitle(e.target.value)}
-                           placeholder="예) 9월 정기 라운드 날짜" maxLength={80} />
+                    <Hinted hint="예) 9월 정기 라운드 날짜" empty={!title}>
+                        <input id="v-title" className="input" value={title}
+                               onChange={e => setTitle(e.target.value)} maxLength={80} />
+                    </Hinted>
                 </div>
                 <div className="field">
                     <label htmlFor="v-body">설명 <span className="faint">(선택)</span></label>
@@ -94,12 +96,14 @@ export function PollEdit() {
                 <div className="section-title">항목</div>
                 {options.map((o, i) => (
                     <div className="option-row" key={i}>
-                        <input
-                            className="input grow" value={o}
-                            onChange={e => setOption(i, e.target.value)}
-                            placeholder={`항목 ${i + 1}`} maxLength={60}
-                            aria-label={`항목 ${i + 1}`}
-                        />
+                        <Hinted hint={`항목 ${i + 1}`} empty={!o}>
+                            <input
+                                className="input" value={o}
+                                onChange={e => setOption(i, e.target.value)}
+                                maxLength={60}
+                                aria-label={`항목 ${i + 1}`}
+                            />
+                        </Hinted>
                         <button
                             className="btn ghost sm"
                             onClick={() => removeOption(i)}

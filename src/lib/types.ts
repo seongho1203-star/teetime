@@ -108,7 +108,7 @@ export type Profile = {
     role: Role;
     /** 대화를 언제부터 볼 수 있는가. 승인된 순간이 찍힌다. */
     joined_at: string | null;
-    /** 차량번호. 골프장 입구 확인과 카풀에 쓴다. */
+    /** 차량번호. **골프장에 미리 차를 등록할 때** 쓴다(카풀과는 무관). */
     car: string | null;
     /** 예전에 받던 값. 지금은 화면에서 안 쓰지만 적어 둔 것이 남아 있다. */
     handicap: number | null;

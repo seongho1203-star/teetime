@@ -7,6 +7,7 @@ import { toKstInput, fromKstInput } from '../lib/format';
 import { courseGeo, searchCourses } from '../lib/courses';
 import { FEE_LABEL, KIND_ICON, PLACE_LABEL, TEE_LABEL, roundKind, type Round, type RoundKind } from '../lib/types';
 import { TopBar } from '../components/TopBar';
+import { Hinted } from '../components/Hinted';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 
@@ -66,9 +67,6 @@ function Form({
     const [cart, setCart] = useState<Round['cart']>(round?.cart ?? null);
     const [saving, setSaving] = useState(false);
     const [picking, setPicking] = useState(false);
-    /** 골프장 칸의 안내 글씨를 띄울까. **초점이 기준이다** — 글자가
-        들어왔는지로 정하면 한글 조합 중에 번쩍일 틈이 생긴다. */
-    const [courseHint, setCourseHint] = useState(true);
 
     const screen = kind === 'screen';
 
@@ -144,23 +142,15 @@ function Form({
 
                 <div className="field">
                     <label htmlFor="f-course">{PLACE_LABEL[kind]}</label>
-                    {/* **안내 글씨를 `placeholder`로 두지 않는다.** 한글을 치는
-                        칸이라 iOS가 조합 중인 글자를 '내용 없음'으로 봐서
-                        **첫 글자에 `예) 무등산CC`가 한 번 번쩍인다**(사용자 제보).
-                        대화·댓글 칸에서 겪은 그것이다 — 직접 그리고 **초점이
-                        가는 순간** 치운다. */}
-                    <div className="input-wrap">
+                    {/* **안내 글씨는 `placeholder`가 아니라 `Hinted`로 그린다.**
+                        한글을 치는 칸이라 iOS가 조합 중인 글자를 '내용 없음'으로
+                        봐서 **첫 글자에 한 번 번쩍인다**(사용자 제보). */}
+                    <Hinted hint={screen ? '예) 신용DS' : '예) 무등산CC'} empty={!course}>
                         <input id="f-course" className="input" value={course}
                                onChange={e => { setCourse(e.target.value); setPicking(true); }}
-                               onFocus={() => { setPicking(true); setCourseHint(false); }}
-                               onBlur={() => setCourseHint(true)}
+                               onFocus={() => setPicking(true)}
                                maxLength={40} autoComplete="off" />
-                        {courseHint && !course && (
-                            <span className="input-hint" aria-hidden="true">
-                                {screen ? '예) 신용DS' : '예) 무등산CC'}
-                            </span>
-                        )}
-                    </div>
+                    </Hinted>
                     {/* 목록에서 고르면 좌표가 함께 붙어 날씨가 뜬다.
                         목록에 없는 곳도 그냥 쳐 넣으면 되고, 그때는 날씨만 빠진다. */}
                     {picking && hits.length > 0 && (
@@ -236,12 +226,14 @@ function Form({
                     칸 하나만 든 카드는 여백만 차지한다. */}
                 <div className="field">
                     <label htmlFor="f-note">전달 내용 <span className="faint">(선택)</span></label>
-                    <textarea id="f-note" className="textarea" value={note}
-                              onChange={e => setNote(e.target.value)}
-                              placeholder={screen
-                                  ? '모이는 곳, 게임 방식, 내기 같은 것'
-                                  : '모이는 곳, 카풀, 준비물 같은 것'}
-                              maxLength={1000} />
+                    <Hinted empty={!note}
+                            hint={screen
+                                ? '모이는 곳, 게임 방식, 내기 같은 것'
+                                : '모이는 곳, 준비물 같은 것'}>
+                        <textarea id="f-note" className="textarea" value={note}
+                                  onChange={e => setNote(e.target.value)}
+                                  maxLength={1000} />
+                    </Hinted>
                 </div>
             </div>
 

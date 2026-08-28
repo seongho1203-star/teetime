@@ -53,8 +53,9 @@ alter table profiles add constraint profiles_role_check
                     'staff', 'admin', 'superadmin', 'banned'));
 
 alter table profiles add column if not exists joined_at timestamptz;
--- **핸디캡 대신 차량번호를 받는다**(사용자 요청). 골프장 입구에서 차를
--- 확인하고 카풀을 맞추는 데 쓰인다. `handicap` 칸은 지우지 않고 남겨 둔다 —
+-- **핸디캡 대신 차량번호를 받는다**(사용자 요청). **골프장에 미리 차를
+-- 등록할 때** 쓴다 (카풀과는 무관 — 사용자가 바로잡아 준 것이다).
+-- `handicap` 칸은 지우지 않고 남겨 둔다 —
 -- 예전에 적어 둔 값이 있고, 지워서 얻을 게 없다.
 alter table profiles add column if not exists car text;
 

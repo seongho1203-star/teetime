@@ -499,6 +499,9 @@ body::before {
    **초점이 가는 순간** 치운다(대화·댓글·정산 찾기·골프장 칸이 같다).
    `.input` 의 padding(9px 13px)에 맞춰 자리를 잡는다. */
 .input-wrap { position: relative; }
+/* **감싼 칸은 block 으로 둔다.** 그냥 두면 칸이 인라인이라 밑줄 자리
+   (descender)만큼 6px이 더 붙어, 감싼 것만으로 화면이 길어진다. */
+.input-wrap > .input, .input-wrap > .textarea { display: block; }
 .input-hint {
     position: absolute;
     left: 14px;

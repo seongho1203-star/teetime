@@ -5,6 +5,7 @@ import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import type { Post } from '../lib/types';
 import { TopBar } from '../components/TopBar';
+import { Hinted } from '../components/Hinted';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { Switch } from '../components/Switch';
@@ -82,9 +83,10 @@ function Form({
             <div className="card">
                 <div className="field">
                     <label htmlFor="b-title">제목</label>
-                    <input id="b-title" className="input" value={title}
-                           onChange={e => setTitle(e.target.value)} maxLength={100}
-                           placeholder="예) 9월 회비 안내" />
+                    <Hinted hint="예) 9월 회비 안내" empty={!title}>
+                        <input id="b-title" className="input" value={title}
+                               onChange={e => setTitle(e.target.value)} maxLength={100} />
+                    </Hinted>
                 </div>
                 <div className="field">
                     <label htmlFor="b-body">내용</label>

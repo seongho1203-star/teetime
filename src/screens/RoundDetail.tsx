@@ -397,8 +397,9 @@ function PersonRow({
                 {profile?.name ?? '알 수 없음'}
                 {isMe && <span className="xs brand-tag"> (나)</span>}
             </span>
-            {/* 명단에서는 차량번호가 쓸모 있다 — 골프장 입구에서 확인하고
-                카풀을 맞출 때 본다(핸디캡을 대신해 받는 값이다). */}
+            {/* 명단에서는 차량번호가 쓸모 있다 — **골프장에 차를 미리
+                등록할 때** 여기서 옮겨 적는다(핸디캡을 대신해 받는 값이다).
+                **카풀 때문이 아니다** — 사용자가 바로잡아 준 것이다. */}
             {profile?.car && <span className="xs faint">{profile.car}</span>}
             {onKick && (
                 <button className="btn ghost sm" onClick={onKick} aria-label="명단에서 빼기">✕</button>
