@@ -69,10 +69,6 @@ export function Help({ onBack }: { onBack?: () => void }) {
                         모아 보여줍니다.</li>
                     <li><b>모집 중</b> — 현재 참가 신청이 가능한 전체 라운드 목록입니다.</li>
                 </ul>
-                <p className="help-tip">
-                    <b>Tip</b> · 하단 탭 메뉴는 버튼 터치뿐만 아니라, 화면을
-                    <b> 좌우로 스와이프</b>하여 편리하게 이동할 수 있습니다.
-                </p>
             </Part>
 
             <Part n={2} icon="⛳" title="라운드 운영 — 모집 및 자동 대기 시스템"
