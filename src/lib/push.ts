@@ -47,8 +47,15 @@ export function registerServiceWorker() {
     takePendingNav();
 }
 
-/** 알림이 가리키는 화면으로 옮긴다. 해시 라우팅이라 해시만 갈면 된다. */
-function goTo(url: string) {
+/**
+ * 알림이 가리키는 화면으로 옮긴다. 해시 라우팅이라 해시만 갈면 된다.
+ *
+ * **앱(Capacitor)으로 감쌀 때 이걸 그대로 쓴다** — 알림을 누른 사건
+ * (`pushNotificationActionPerformed`)에서 `data.url`을 꺼내 여기 넘기면
+ * 끝이다. 갈 곳은 발송기가 이미 알림마다 실어 보내고 있다.
+ * `docs/출시-전-할일.md` 4번 참고.
+ */
+export function goTo(url: string) {
     try {
         const to = new URL(url, location.href);
         if (to.origin !== location.origin) return;
