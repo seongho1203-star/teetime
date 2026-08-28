@@ -45,11 +45,21 @@ function splitEvenly(total: number, ids: string[], fixed: Record<string, number>
 }
 
 export function Settlements({
-    roundId, people, list, shares, onChange,
+    roundId, people, joined, list, shares, onChange,
 }: {
     roundId: string;
     /** 고를 수 있는 사람들. 대기·추방은 빠진 회원 명단이다. */
     people: Profile[];
+    /**
+     * 이 라운드에 **확정으로 참가한 사람**의 id.
+     *
+     * 정산은 대개 이 사람들끼리 하지만 **거기서 끝나지 않는다** —
+     * 라운드는 안 하고 뒷풀이만 온 사람이 있다. 그래서 참가자를 앞에
+     * 세워 두고, 나머지 회원은 `그 외`로 접어 두었다가 필요할 때 편다.
+     * 목록을 참가자로 **좁히지는 말 것** — 그러면 뒷풀이만 온 사람을
+     * 넣을 길이 아예 없어진다.
+     */
+    joined: string[];
     list: Settlement[];
     shares: SettlementShare[];
     onChange: () => void;
@@ -77,7 +87,7 @@ export function Settlements({
 
             {open && (
                 <SettlementForm
-                    roundId={roundId} people={people}
+                    roundId={roundId} people={people} joined={joined}
                     onDone={() => { setOpen(false); onChange(); }}
                 />
             )}
@@ -189,12 +199,25 @@ function SettlementCard({
     );
 }
 
+/** 고르는 알약 하나. 참가자와 `그 외`가 같이 쓴다 — 모양이 갈리면 안 된다. */
+function PersonPill({ person, on, onClick }: {
+    person: Profile; on: boolean; onClick: () => void;
+}) {
+    return (
+        <button type="button" className={`settle-pill${on ? ' on' : ''}`} onClick={onClick}>
+            <Avatar name={person.name} url={person.avatar_url} size="sm" />
+            <span className="truncate">{person.name}</span>
+        </button>
+    );
+}
+
 /** 정산 만들기. 사람을 고르면 1/N이 바로 보이고, 예외는 금액을 직접 적는다. */
 function SettlementForm({
-    roundId, people, onDone,
+    roundId, people, joined, onDone,
 }: {
     roundId: string;
     people: Profile[];
+    joined: string[];
     onDone: () => void;
 }) {
     const { session } = useAuth();
@@ -209,6 +232,19 @@ function SettlementForm({
     /** 예외로 금액을 못박은 사람. 비면 1/N을 따른다. */
     const [fixed, setFixed] = useState<Record<string, number>>({});
     const [saving, setSaving] = useState(false);
+    /** `그 외`를 펼쳤는가. 평소에는 접어 둔다 — 대개 참가자끼리 끝난다. */
+    const [showRest, setShowRest] = useState(false);
+
+    /* 참가자와 그 외로 가른다. **참가자 순서는 명단 순서를 따른다** —
+       고를 때마다 자리가 움직이면 누르기 어렵다. */
+    const [players, rest] = useMemo(() => {
+        const set = new Set(joined);
+        return [people.filter(p => set.has(p.id)), people.filter(p => !set.has(p.id))];
+    }, [people, joined]);
+
+    /* 뒷풀이만 온 사람을 이미 골라 뒀다면 접어 버리면 안 된다 —
+       고른 것이 화면에서 사라져 지운 것처럼 보인다. */
+    const restOpen = showRest || rest.some(p => picked.includes(p.id));
 
     const totalNum = Number(total.replace(/[^0-9]/g, '')) || 0;
     const amounts = useMemo(
@@ -264,49 +300,87 @@ function SettlementForm({
         <div className="settle-form">
             <div className="field">
                 <label htmlFor="s-title">정산 제목</label>
+                {/* **예시 글씨를 넣지 않는다**(사용자 요청). 칸 이름이 이미
+                    무엇을 적는 자리인지 말해 주는데, 흐린 예시까지 다섯 칸에
+                    깔리면 다 적은 화면인지 빈 화면인지 헷갈린다. */}
                 <input id="s-title" className="input" value={title} maxLength={60}
-                       onChange={e => setTitle(e.target.value)} placeholder="예) 무등산CC 그린피" />
+                       onChange={e => setTitle(e.target.value)} />
             </div>
             <div className="field">
                 <label htmlFor="s-body">상세 내용 <span className="faint">(선택)</span></label>
                 <textarea id="s-body" className="textarea" value={body} rows={2} maxLength={300}
-                          onChange={e => setBody(e.target.value)}
-                          placeholder="그린피 + 카트비. 캐디피는 현장에서 각자." />
+                          onChange={e => setBody(e.target.value)} />
             </div>
             <div className="row" style={{ gap: 'var(--gap-sm)' }}>
                 <div className="field grow">
                     <label htmlFor="s-bank">입금 은행</label>
                     <input id="s-bank" className="input" value={bank} maxLength={20}
-                           onChange={e => setBank(e.target.value)} placeholder="국민" />
+                           onChange={e => setBank(e.target.value)} />
                 </div>
                 <div className="field" style={{ flex: 2 }}>
                     <label htmlFor="s-acc">계좌번호</label>
                     <input id="s-acc" className="input" value={account} maxLength={40}
-                           onChange={e => setAccount(e.target.value)}
-                           inputMode="numeric" placeholder="123456-78-901234" />
+                           onChange={e => setAccount(e.target.value)} inputMode="numeric" />
                 </div>
             </div>
             <div className="field">
                 <label htmlFor="s-total">총금액</label>
                 <input id="s-total" className="input" value={total} inputMode="numeric"
-                       onChange={e => setTotal(e.target.value)} placeholder="480000" />
+                       onChange={e => setTotal(e.target.value)} />
             </div>
 
+            {/* **참가자를 앞에 세우고 나머지는 접어 둔다.** 대개 참가자끼리
+                끝나지만, 라운드는 안 하고 뒷풀이만 온 사람이 있어 목록을
+                참가자로 좁힐 수는 없다. */}
             <div className="field">
                 <label>정산할 사람 <span className="faint">({picked.length}명)</span></label>
-                <div className="settle-pick">
-                    {people.map(p => {
-                        const on = picked.includes(p.id);
-                        return (
-                            <button key={p.id} type="button"
-                                    className={`settle-pill${on ? ' on' : ''}`}
-                                    onClick={() => toggle(p.id)}>
-                                <Avatar name={p.name} url={p.avatar_url} size="sm" />
-                                <span className="truncate">{p.name}</span>
+
+                {players.length > 0 && (
+                    <>
+                        <div className="row between settle-group">
+                            <span className="xs faint">참가자 {players.length}명</span>
+                            <button type="button" className="btn ghost sm"
+                                    onClick={() => setPicked(prev => {
+                                        const ids = players.map(p => p.id);
+                                        const all = ids.every(id => prev.includes(id));
+                                        return all
+                                            ? prev.filter(id => !ids.includes(id))
+                                            : [...new Set([...prev, ...ids])];
+                                    })}>
+                                {players.every(p => picked.includes(p.id)) ? '모두 빼기' : '모두 넣기'}
                             </button>
-                        );
-                    })}
-                </div>
+                        </div>
+                        <div className="settle-pick">
+                            {players.map(p => (
+                                <PersonPill key={p.id} person={p}
+                                            on={picked.includes(p.id)}
+                                            onClick={() => toggle(p.id)} />
+                            ))}
+                        </div>
+                    </>
+                )}
+
+                {rest.length > 0 && (restOpen ? (
+                    <>
+                        <div className="settle-group">
+                            <span className="xs faint">
+                                그 외 {rest.length}명 · 뒷풀이만 오신 분을 여기서 넣으세요
+                            </span>
+                        </div>
+                        <div className="settle-pick">
+                            {rest.map(p => (
+                                <PersonPill key={p.id} person={p}
+                                            on={picked.includes(p.id)}
+                                            onClick={() => toggle(p.id)} />
+                            ))}
+                        </div>
+                    </>
+                ) : (
+                    <button type="button" className="btn ghost sm settle-more"
+                            onClick={() => setShowRest(true)}>
+                        ＋ 참가자 외 다른 사람 추가
+                    </button>
+                ))}
             </div>
 
             {/* **1/N을 바로 보여 준다.** 사람마다 줄이 있고, 금액을 고쳐 적으면

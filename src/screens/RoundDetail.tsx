@@ -328,6 +328,10 @@ export function RoundDetail() {
             <Settlements
                 roundId={r.id}
                 people={data.people.filter(p => p.role !== 'pending' && p.role !== 'banned')}
+                /* **명단은 회원 전체로 두고, 참가자만 앞세운다.** 라운드는
+                   안 하고 뒷풀이만 온 사람도 정산에 넣어야 하기 때문이다 —
+                   여기서 참가자로 좁히면 그 사람을 넣을 길이 없어진다. */
+                joined={confirmed.map(s => s.user_id)}
                 list={data.settlements}
                 shares={data.shares}
                 onChange={reload}

@@ -95,6 +95,20 @@
     flex-wrap: wrap;
     gap: 6px;
 }
+
+/* `참가자` / `그 외` 머리말. 알약과 붙어 보이지 않게 위에만 자리를 준다. */
+.settle-group {
+    align-items: center;
+    margin: 4px 0 5px;
+    min-height: 22px;
+}
+.settle-pick + .settle-group { margin-top: 10px; }
+
+/* `그 외`를 펴는 단추. 평소엔 접혀 있어 참가자만 보인다. */
+.settle-more {
+    align-self: flex-start;
+    margin-top: 8px;
+}
 .settle-pill {
     display: inline-flex;
     align-items: center;
