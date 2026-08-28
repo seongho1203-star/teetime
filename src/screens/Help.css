@@ -1,0 +1,79 @@
+/* ── 사용법 ────────────────────────────────────────────────
+ *
+ * 처음 들어온 분이 **한 번 훑고 덮는** 글이다. 그래서 꼭지마다 카드를
+ * 나눠 어디까지 읽었는지 눈으로 알게 하고, 글자는 본문(15px)보다 살짝
+ * 키운다 — 골프장 햇빛 아래에서도 읽히게.
+ */
+
+.help-intro {
+    margin: 0 0 var(--gap-sm);
+    padding: 0 2px;
+    font-size: var(--fs);
+    line-height: 1.65;
+    color: var(--text-dim);
+}
+
+.help-part { padding-bottom: 14px; }
+
+.help-h {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 6px;
+    font-size: var(--fs-md);
+    font-weight: 800;
+}
+/* 아이콘은 장식이라 소리로는 안 읽힌다(`aria-hidden`). */
+.help-icon { font-size: 1.1em; }
+
+.help-lead {
+    margin: 0 0 10px;
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+    color: var(--text-dim);
+}
+
+.help-list {
+    margin: 0;
+    padding-left: 17px;
+    font-size: var(--fs-sm);
+    line-height: 1.7;
+}
+.help-list li + li { margin-top: 6px; }
+
+/* 손으로 따라 할 일에만 번호를 붙인다. 눈이 순서를 놓치지 않게. */
+.help-step {
+    display: flex;
+    gap: 9px;
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+}
+.help-step + .help-step { margin-top: 9px; }
+.help-n {
+    flex: 0 0 auto;
+    width: 21px;
+    height: 21px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: var(--on-brand);
+    font-size: var(--fs-xs);
+    font-weight: 800;
+    text-align: center;
+    line-height: 21px;
+}
+.help-step-body { flex: 1 1 auto; min-width: 0; }
+
+/* 곁들이는 말. 옅은 바탕으로 본문과 갈라 둔다 — 안 읽어도 되는 줄이다. */
+.help-tip {
+    margin: 10px 0 0;
+    padding: 9px 11px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+    color: var(--text-dim);
+}
+
+.help-foot { text-align: center; }
+.help-foot p { margin: 0 0 10px; color: var(--text-dim); }

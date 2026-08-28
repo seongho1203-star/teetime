@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { Help } from './Help';
 
 /**
  * 로그인은 됐지만 아직 회원이 아닌 사람이 보는 화면.
@@ -25,6 +26,9 @@ export function Pending() {
     const [phone, setPhone] = useState(profile?.phone ?? '');
     const [car, setCar] = useState(profile?.car ?? '');
     const [saving, setSaving] = useState(false);
+    /* **기다리는 동안 읽을 거리.** 승인 전에는 라우터가 안 열려
+       `/help`로 못 가므로 여기서 직접 띄운다. */
+    const [help, setHelp] = useState(false);
     const toast = useToast();
 
     const save = async () => {
@@ -44,6 +48,8 @@ export function Pending() {
         await refresh();
         toast('저장했습니다. 운영진이 확인하면 들어갈 수 있습니다.', 'ok');
     };
+
+    if (help) return <Help onBack={() => setHelp(false)} />;
 
     return (
         <div className="page bare" style={{ gap: 'var(--gap-lg)' }}>
@@ -96,6 +102,13 @@ export function Pending() {
                     {saving ? '저장 중…' : '저장'}
                 </button>
             </div>
+            )}
+
+            {/* 기다리는 동안 미리 읽어 두면 승인되자마자 쓸 수 있다. */}
+            {!banned && (
+                <button className="btn block" onClick={() => setHelp(true)}>
+                    📖 기다리는 동안 사용법 보기
+                </button>
             )}
 
             <button className="btn ghost block" onClick={signOut}>로그아웃</button>
