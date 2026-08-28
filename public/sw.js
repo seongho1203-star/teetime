@@ -107,13 +107,27 @@ self.addEventListener('push', event => {
         renotify: true,
         data: { url: data.url || './' },
     };
-    /* 보고 있는 동안 온 것은 세지 않는다 — 그 자리에서 읽는 것이라
-       숫자가 붙었다 바로 지워지는 깜빡임만 남는다. 겸사겸사 앱이 미처
-       못 지운 옛 숫자도 여기서 바로잡힌다. */
-    event.waitUntil(Promise.all([
-        self.registration.showNotification(title, options),
-        isWatching().then(seen => bumpBadge(seen ? 0 : 1)),
-    ]));
+    event.waitUntil((async () => {
+        const seen = await isWatching();
+
+        /* **앱을 보고 있으면 소리 없이 띄운다.**
+           안 그러면 소리가 두 번 난다 — 폰의 기본 알림음과, 앱이 내는
+           `까꿍`(`lib/sound.ts`)이 같이 울린다. 실제로 아이폰 홈 화면
+           앱에서 그렇게 났다. 보고 있을 때 들려야 할 것은 `까꿍`이므로
+           여기서 폰 소리를 죽인다.
+           **알림 자체는 그대로 띄운다.** 웹푸시는 밀어 준 건마다 눈에
+           보이는 알림을 하나 띄우기로 되어 있어서, 아예 안 띄우면
+           브라우저가 '백그라운드에서 갱신됨' 같은 제 문구를 대신 띄운다. */
+        options.silent = seen;
+
+        /* 보고 있는 동안 온 것은 세지 않는다 — 그 자리에서 읽는 것이라
+           숫자가 붙었다 바로 지워지는 깜빡임만 남는다. 겸사겸사 앱이 미처
+           못 지운 옛 숫자도 여기서 바로잡힌다. */
+        await Promise.all([
+            self.registration.showNotification(title, options),
+            bumpBadge(seen ? 0 : 1),
+        ]);
+    })());
 });
 
 self.addEventListener('notificationclick', event => {
