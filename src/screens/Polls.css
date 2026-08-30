@@ -9,10 +9,15 @@
 }
 
 /* 제목 줄이 곧 상세로 가는 길이다. 화살표가 그걸 알려 준다. */
+/* **제목 줄이 상세로 들어가는 유일한 문이다.** 글자 높이만큼(24px)만
+   누르게 두면 손가락에 안 잡힌다 — 위아래로 4px씩 넓혀 32px로 만든다.
+   `margin`으로 그만큼 되돌려 카드 안의 간격은 그대로다. */
 .poll-title-link {
     display: flex;
     align-items: center;
     gap: var(--gap-xs);
+    padding: 4px 0;
+    margin: -4px 0;
     color: inherit;
     text-decoration: none;
 }

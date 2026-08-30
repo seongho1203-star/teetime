@@ -237,7 +237,10 @@ function PollCard({
                 <span className="xs faint grow">
                     {voters}명 참여
                     {poll.closes_at && !poll.closed && (
-                        <> · {formatDateTime(poll.closes_at)} 마감</>
+                        // 마감 시각은 **한 덩어리로 접힌다.** 그냥 두면 좁은 줄에서
+                        // `마감`만 다음 줄로 떨어져, 바로 옆 `마감` 단추와 나란히
+                        // 놓여 무엇이 단추인지 헷갈렸다.
+                        <> · <span className="nowrap">{formatDateTime(poll.closes_at)} 마감</span></>
                     )}
                 </span>
                 {/* 마감·지우기는 만든 사람과 운영진만. 남의 투표는 못 건드린다. */}

@@ -866,6 +866,8 @@ function Bubble({
        사진에 함께 적은 글은 그대로 둔다 — 사진 아래 붙는 한 줄이라
        거기서만 글자가 커지면 짜임이 무너진다. */
     const big = !message.image_url && emojiOnly(message.body);
+    /** 사진에 함께 적은 글. 있으면 그 줄이 이 덩어리의 마지막 줄이 된다. */
+    const caption = !!message.image_url && !!message.body;
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
@@ -953,14 +955,26 @@ function Bubble({
                         : <div className={`chat-bubble${big ? ' emoji-only' : ''}`}>
                               <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                           </div>}
-                    {showTime && (
+                    {/* 시각은 **덩어리의 마지막 줄**에 붙는다. 사진에 글을 함께
+                        보냈으면 그 글이 마지막 줄이므로 여기서는 비운다 —
+                        안 그러면 사진 옆에 시각이 찍히고 그 아래로 글이 더 온다. */}
+                    {showTime && !caption && (
                         <span className="chat-time">{formatTime(message.created_at)}</span>
                     )}
                 </div>
-                {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다. */}
-                {message.image_url && message.body && (
-                    <div className="chat-bubble">
-                        <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
+                {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다.
+                    **`.chat-line`으로 감싸야 한다** — 그냥 두면 `.chat-col`이
+                    늘여서(`align-items: stretch`) 짧은 글도 사진보다 넓게
+                    퍼진다. 감싸면 글 길이만큼만 차지하고, 내 글은 오른쪽으로
+                    붙으며, 시각도 이 줄 끝에 온다. */}
+                {caption && (
+                    <div className="chat-line">
+                        <div className="chat-bubble">
+                            <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
+                        </div>
+                        {showTime && (
+                            <span className="chat-time">{formatTime(message.created_at)}</span>
+                        )}
                     </div>
                 )}
             </div>

@@ -69,6 +69,20 @@
     font-size: var(--fs-sm);
     font-weight: 700;
 }
+/* 잘리느니 접힌다 — 위 주석 참고. `min-width: 0`이 없으면 flex 칸이
+   글자 길이만큼 버텨서 `복사` 단추를 밀어낸다. */
+.settle-account-no {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+}
+/* 은행 이름은 이름표다 — 한 줄 위로 올려 번호가 안 끊기게 한다. */
+.settle-bank {
+    display: block;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text-dim);
+}
 
 .settle-people {
     display: flex;

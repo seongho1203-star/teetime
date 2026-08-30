@@ -181,7 +181,15 @@ function SettlementCard({
 
             {(s.bank || s.account) && (
                 <div className="settle-account">
-                    <span className="grow truncate">{s.bank} {s.account}</span>
+                    {/* **계좌번호는 자르지 않는다.** `...`으로 끝나면 옮겨 적을 수도,
+                        복사된 것이 맞는지 확인할 수도 없다 — 돈이 가는 자리다.
+                        좁은 화면(320px)에서 실제로 `국민 123456-78-90...`이 됐다.
+                        은행 이름을 윗줄로 올려 번호가 한 줄을 통째로 쓰게 했다 —
+                        한 줄에 이어 붙이면 번호 가운데서 끊겨 옮겨 적기 나쁘다. */}
+                    <span className="grow settle-account-no">
+                        {s.bank && <span className="settle-bank">{s.bank}</span>}
+                        {s.account}
+                    </span>
                     <button className="btn ghost sm" onClick={() => {
                         navigator.clipboard?.writeText(`${s.bank} ${s.account}`.trim())
                             .then(() => toast('계좌를 복사했습니다.', 'ok'))

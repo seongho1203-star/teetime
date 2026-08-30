@@ -8,6 +8,9 @@ const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const BASE = 'http://localhost:5199';
 const path = process.argv[2] || '/#/rounds/r1';
 const tag = process.argv[3] || 'view';
+/* 넷째 인자로 화면 크기를 준다 — `320x693`처럼. 저장소 주인 폰은 iOS
+   `화면 확대`가 켜져 있어 320px이라, 거기서만 어긋나는 자리가 있다. */
+const [VW, VH] = (process.argv[4] || '390x844').split('x').map(Number);
 
 function handleRest(url, req) {
     const table = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
@@ -54,7 +57,7 @@ const SESSION = {
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const page = await browser.newPage({
-    viewport: { width: 390, height: 844 }, deviceScaleFactor: 2,
+    viewport: { width: VW, height: VH }, deviceScaleFactor: 2,
     locale: 'ko-KR', timezoneId: 'Asia/Seoul',
 });
 await page.route('**/rest/v1/**', r => r.fulfill({
@@ -78,9 +81,9 @@ await page.goto(BASE + path, { waitUntil: 'networkidle' });
 await page.waitForTimeout(800);
 
 const h = await page.evaluate(() => document.documentElement.scrollHeight);
-console.log('문서 높이', h, '· 화면 844');
+console.log('문서 높이', h, '· 화면', VW + '×' + VH);
 
-for (const [name, y] of [['top', 0], ['mid', Math.round((h - 844) / 2)], ['bottom', h]]) {
+for (const [name, y] of [['top', 0], ['mid', Math.round((h - VH) / 2)], ['bottom', h]]) {
     await page.evaluate(v => window.scrollTo(0, v), y);
     await page.waitForTimeout(350);
     await page.screenshot({ path: `.dev/shots/${tag}-${name}.png` });

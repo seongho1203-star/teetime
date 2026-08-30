@@ -6,14 +6,18 @@
     letter-spacing: -0.015em;
 }
 
-/* 목록에서는 본문 두 줄까지만. */
+/* 목록에서는 본문 두 줄까지만.
+ *
+ * **여기서는 줄바꿈을 살리지 않는다**(`pre-wrap` 아님). 본문에 빈 줄이
+ * 있으면 두 줄 중 하나를 그 빈 줄이 차지해, 첫 문장 아래에 `…`만 덩그러니
+ * 남았다(`9월 회비 안내`가 실제로 그랬다). 줄바꿈은 상세(`.post-body`)에서
+ * 살리고, 목록은 두 줄이 전부이므로 이어 붙여 보여 주는 편이 낫다. */
 .post-preview {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    white-space: pre-wrap;
     line-height: 1.6;
 }
 
