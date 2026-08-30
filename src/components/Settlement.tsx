@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { formatWon, timeAgo } from '../lib/format';
 import { readableError } from '../lib/errors';
-import { canSettle, type Profile, type Settlement, type SettlementShare } from '../lib/types';
+import { canSettle, FIND_AT, type Person, type Settlement, type SettlementShare } from '../lib/types';
 import { Avatar } from './Avatar';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
@@ -49,7 +49,7 @@ export function Settlements({
 }: {
     roundId: string;
     /** 고를 수 있는 사람들. 대기·추방은 빠진 회원 명단이다. */
-    people: Profile[];
+    people: Person[];
     /**
      * 이 라운드에 **확정으로 참가한 사람**의 id.
      *
@@ -113,7 +113,7 @@ function SettlementCard({
     settlement: s, people, shares, me, mayEdit, onChange, toast, confirm,
 }: {
     settlement: Settlement;
-    people: Profile[];
+    people: Person[];
     shares: SettlementShare[];
     me: string;
     mayEdit: boolean;
@@ -226,11 +226,10 @@ function SettlementCard({
  * 열두 명까지는 네 줄이라 눈으로 훑을 만하다. 그 위로는 늘어놓는 것이
  * 오히려 방해가 된다 — 마흔여섯 명을 폈더니 목록만 602px였다.
  */
-const FIND_AT = 12;
 
 /** 고르는 알약 하나. 참가자와 `그 외`가 같이 쓴다 — 모양이 갈리면 안 된다. */
 function PersonPill({ person, on, onClick }: {
-    person: Profile; on: boolean; onClick: () => void;
+    person: Person; on: boolean; onClick: () => void;
 }) {
     return (
         <button type="button" className={`settle-pill${on ? ' on' : ''}`} onClick={onClick}>
@@ -245,7 +244,7 @@ function SettlementForm({
     roundId, people, joined, onDone,
 }: {
     roundId: string;
-    people: Profile[];
+    people: Person[];
     joined: string[];
     onDone: () => void;
 }) {

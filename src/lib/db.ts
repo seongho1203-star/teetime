@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import type { Profile } from './types';
+import type { Person, Profile } from './types';
 
 /**
  * 화면마다 같은 코드를 쓰지 않으려고 둔 조회 도우미.
@@ -176,15 +176,34 @@ export function unwrap<T>({ data, error }: { data: T | null; error: { message: s
 
 /* ── 자주 쓰는 조회 ───────────────────────────────────────── */
 
+/**
+ * 명단 전체를 **모든 칸까지** 받는다.
+ *
+ * **`회원 명단` 화면에서만 쓴다** — 전화번호·차량번호를 보여 주는 곳이
+ * 거기뿐이기 때문이다. 다른 화면은 아래 `fetchPeople()`을 쓸 것.
+ */
 export async function fetchProfiles(): Promise<Profile[]> {
     return unwrap(
         await supabase.from('profiles').select('*').order('name')
     ) ?? [];
 }
 
+/**
+ * 이름표를 붙일 때 쓰는 가벼운 명단 (`id · name · avatar_url · role`).
+ *
+ * 거의 모든 화면이 남의 이름과 얼굴을 붙이려고 명단을 받는데, 전화번호·
+ * 차량번호·가입일까지 따라오면 100명 기준 **화면마다 58KB**다. 네 칸만
+ * 받으면 20KB로 준다. 무료 통신량이 월 5GB라 이 차이가 크다.
+ */
+export async function fetchPeople(): Promise<Person[]> {
+    return unwrap(
+        await supabase.from('profiles').select('id, name, avatar_url, role, car').order('name')
+    ) ?? [];
+}
+
 /** id → 프로필. 명단을 한 번만 읽고 여기저기서 이름을 붙일 때 쓴다. */
-export function byId(list: Profile[]): Record<string, Profile> {
-    const map: Record<string, Profile> = {};
+export function byId<T extends { id: string }>(list: T[]): Record<string, T> {
+    const map: Record<string, T> = {};
     for (const p of list) map[p.id] = p;
     return map;
 }

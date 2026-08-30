@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { readableError } from '../lib/errors';
-import type { Profile } from '../lib/types';
+import type { Person } from '../lib/types';
 import { Avatar } from './Avatar';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
@@ -34,7 +34,7 @@ export function Comments({
     comments, names, target, onChange,
 }: {
     comments: AnyComment[];
-    names: Record<string, Profile>;
+    names: Record<string, Person>;
     target: Target;
     onChange: () => void;
 }) {

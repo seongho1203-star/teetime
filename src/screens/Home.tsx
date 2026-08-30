@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchProfiles } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
 import { lastSeen } from '../lib/unread';
 import { fetchWeather, type Weather } from '../lib/weather';
-import { KIND_ICON, roundKind, type Poll, type PollVote, type Profile, type Round, type Signup } from '../lib/types';
+import { KIND_ICON, roundKind, type Poll, type PollVote, type Person, type Round, type SignupLite } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import './Home.css';
 
 interface Loaded {
     rounds: Round[];
-    signups: Signup[];
-    people: Profile[];
+    signups: SignupLite[];
+    people: Person[];
     /** 내가 아직 표를 안 던진 투표 */
     openPolls: Poll[];
     pendingCount: number;
@@ -50,11 +50,11 @@ export function Home() {
         const [rounds, people, polls, votes, pending] = await Promise.all([
             /* 신청 기록을 라운드에 딸려 받는다. 따로 부르면 **모든 라운드의**
                신청이 다 와서, 지난 것까지 해마다 쌓인다. */
-            supabase.from('rounds').select('*, signups(*)')
+            supabase.from('rounds').select('*, signups(round_id, user_id, state, seq)')
                     .neq('status', 'cancelled')
                     .gte('tee_at', upcomingSince())
                     .order('tee_at', { ascending: true }),
-            fetchProfiles(),
+            fetchPeople(),
             supabase.from('polls').select('*').eq('closed', false),
             supabase.from('poll_votes').select('poll_id').eq('user_id', me),
             isAdmin
@@ -75,7 +75,7 @@ export function Home() {
            **`unknown`을 거쳐 형을 바꾼다.** `types.ts`의 `Database`에는 표
            사이의 관계가 안 적혀 있어, 딸려 오는 `signups`를 타입이 오류로
            본다 — 실제로는 PostgREST가 외래키를 보고 채워 준다. */
-        const rows = (unwrap(rounds) ?? []) as unknown as (Round & { signups?: Signup[] })[];
+        const rows = (unwrap(rounds) ?? []) as unknown as (Round & { signups?: SignupLite[] })[];
         const signups = rows.flatMap(r => r.signups ?? []);
 
         return {
@@ -200,8 +200,8 @@ function NextRound({
     round: r, signups, people, me,
 }: {
     round: Round;
-    signups: Signup[];
-    people: Profile[];
+    signups: SignupLite[];
+    people: Person[];
     me: string;
 }) {
     const [weather, setWeather] = useState<Weather | null>(null);
@@ -222,6 +222,17 @@ function NextRound({
     const my = mine.find(s => s.user_id === me);
     const left = Math.max(0, r.capacity - confirmed.length);
     const byId = new Map(people.map(p => [p.id, p]));
+
+    /* **대기 번호는 대기 줄에서 몇 번째인가다.** `signups.seq`를 그대로
+       적으면 안 된다 — 그건 그 라운드의 몇 번째 신청인지라, 정원이 4명이면
+       대기 첫 사람이 `5`가 된다. 라운드 상세는 대기자를 1번부터 세는데
+       홈만 5라고 적어, **같은 사람이 화면마다 다른 번호**로 보였다.
+       사람이 늘수록 벌어진다(100명이면 `대기 24번`까지 갔다). */
+    const waitRank = my?.state === 'waitlist'
+        ? mine.filter(s => s.state === 'waitlist')
+              .sort((a, b) => a.seq - b.seq)
+              .findIndex(s => s.user_id === me) + 1
+        : 0;
 
     return (
         <Link to={`/rounds/${r.id}`} className="next">
@@ -252,7 +263,7 @@ function NextRound({
                 {confirmed.length > 0 && (
                     <span className="next-faces">
                         {confirmed.slice(0, 5).map(s => (
-                            <Avatar key={s.id} size="sm"
+                            <Avatar key={s.user_id} size="sm"
                                     name={byId.get(s.user_id)?.name}
                                     url={byId.get(s.user_id)?.avatar_url} />
                         ))}
@@ -268,7 +279,7 @@ function NextRound({
             {my
                 ? (
                     <span className={`next-state${my.state === 'waitlist' ? ' wait' : ''}`}>
-                        {my.state === 'waitlist' ? `대기 ${my.seq}번` : '신청 완료'}
+                        {my.state === 'waitlist' ? `대기 ${waitRank}번` : '신청 완료'}
                     </span>
                 )
                 : <span className="next-go">{left > 0 ? '신청하기' : '대기 신청'}</span>}
@@ -277,7 +288,7 @@ function NextRound({
 }
 
 /** 모집중인 다른 라운드 — 자리가 남았는지만 보이면 된다. */
-function OtherRound({ round: r, signups, me }: { round: Round; signups: Signup[]; me: string }) {
+function OtherRound({ round: r, signups, me }: { round: Round; signups: SignupLite[]; me: string }) {
     const mine = signups.filter(s => s.round_id === r.id);
     const confirmed = mine.filter(s => s.state === 'confirmed').length;
     const my = mine.some(s => s.user_id === me);

@@ -1,9 +1,9 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatStamp } from '../lib/format';
-import type { Post, PostComment, Profile } from '../lib/types';
+import type { Person, Post, PostComment } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
@@ -14,7 +14,7 @@ import './Board.css';
 interface Loaded {
     post: Post | null;
     comments: PostComment[];
-    people: Profile[];
+    people: Person[];
 }
 
 export function PostDetail() {
@@ -30,7 +30,7 @@ export function PostDetail() {
             supabase.from('posts').select('*').eq('id', id!).maybeSingle(),
             supabase.from('post_comments').select('*').eq('post_id', id!)
                     .order('created_at'),
-            fetchProfiles(),
+            fetchPeople(),
         ]);
         return { post: unwrap(post), comments: unwrap(comments) ?? [], people };
     }, [id], `post:${id}`);

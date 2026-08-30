@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { useAsync, unwrap, fetchProfiles, byId } from '../lib/db';
+import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate, formatTime, kstDate, kstMinute } from '../lib/format';
-import type { Message, Profile, Room } from '../lib/types';
+import type { Message, Person, Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -30,7 +30,7 @@ const MAX_CATCHUP = 300;
 /** 줄 위로 몇 개쯤 보이게 할지. 앞뒤 맥락 없이 줄부터 나오면 뚝 끊겨 보인다. */
 const CATCHUP_MARGIN = 10;
 
-interface Loaded { room: Room | null; people: Profile[]; }
+interface Loaded { room: Room | null; people: Person[]; }
 
 export function Chat() {
     const { session, isAdmin } = useAuth();
@@ -73,7 +73,7 @@ export function Chat() {
         const [room, people] = await Promise.all([
             supabase.from('rooms').select('*').is('round_id', null)
                     .order('created_at').limit(1).maybeSingle(),
-            fetchProfiles(),
+            fetchPeople(),
         ]);
         return { room: unwrap(room), people };
     }, []);
@@ -842,7 +842,7 @@ function Bubble({
     quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName, allowAll,
 }: {
     message: Message;
-    who?: Profile;
+    who?: Person;
     mine: boolean;
     grouped: boolean;
     /** 덩어리의 마지막 줄에만 시각을 적는다. */

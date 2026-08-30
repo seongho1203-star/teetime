@@ -3,17 +3,27 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDateTime, ddayLabel, daysUntil, formatWon } from '../lib/format';
+import { formatDateTime, ddayLabel, daysUntil, formatWon, upcomingSince } from '../lib/format';
 import {
     CADDIE_LABEL, CART_LABEL, KIND_ICON, KIND_LABEL, roundKind,
-    type Round, type RoundKind, type Signup,
+    type RoundLite, type RoundKind, type SignupLite,
 } from '../lib/types';
 import './Rounds.css';
 
 interface Loaded {
-    rounds: Round[];
-    signups: Signup[];
+    rounds: RoundLite[];
+    signups: SignupLite[];
 }
+
+/**
+ * `지난 라운드`를 몇 개까지 받아 올까.
+ *
+ * 목록에 페이지 넘기기가 없으므로 **받는 대로 다 그린다** — 한도가 없으면
+ * 해가 갈수록 목록도 통신량도 함께 불어난다. 서른이면 100명 모임에서
+ * 두 달치다. 그보다 옛것을 여기서 훑는 일은 없다(찾을 길이 필요해지면
+ * 그때 `더 보기`를 붙인다).
+ */
+const PAST_ROUNDS = 30;
 
 export function Rounds() {
     const { session } = useAuth();
@@ -21,11 +31,32 @@ export function Rounds() {
     const [only, setOnly] = useState<RoundKind | null>(null);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        const [rounds, signups] = await Promise.all([
-            supabase.from('rounds').select('*').order('tee_at', { ascending: true }),
-            supabase.from('signups').select('*'),
+        /* **지난 것을 전부 받지 않는다.** 예전에는 라운드도 신청 기록도
+           통째로 받았는데, 100명이 한 해 백쉰 번 라운드를 하면 신청이
+           1,200줄이라 **목록 한 번 여는 데 479KB**가 나갔다.
+           지금은 앞으로 올 것은 다 받고, 지난 것은 최근 것만 받는다.
+           신청 기록은 라운드에 **딸려서** 온다(`signups(*)`) — 따로 부르면
+           또 전부 오기 때문이다. 홈이 쓰는 방식과 같다. */
+        const cut = upcomingSince();
+        /* 목록 카드가 그리는 칸만 받는다(`RoundLite`) — `note`는 목록에
+           안 나오는데 한 줄이 수백 글자다. 신청 기록도 자리 수와 내 상태만
+           보므로 네 칸이면 된다(`SignupLite`). */
+        const cols = 'id, course, title, tee_at, capacity, fee, status, kind, caddie, cart,'
+                   + ' signups(round_id, user_id, state, seq)';
+        const [next, past] = await Promise.all([
+            supabase.from('rounds').select(cols)
+                    .gte('tee_at', cut).order('tee_at', { ascending: true }),
+            supabase.from('rounds').select(cols)
+                    .lt('tee_at', cut).order('tee_at', { ascending: false })
+                    .limit(PAST_ROUNDS),
         ]);
-        return { rounds: unwrap(rounds) ?? [], signups: unwrap(signups) ?? [] };
+
+        const rows = [...(unwrap(next) ?? []), ...(unwrap(past) ?? [])] as unknown as
+            (RoundLite & { signups?: SignupLite[] })[];
+        return {
+            rounds: rows.map(({ signups: _drop, ...r }) => r as RoundLite),
+            signups: rows.flatMap(r => r.signups ?? []),
+        };
     }, [], 'rounds');
 
     // 남이 신청하면 자리 수가 바뀐다. 보고 있는 동안 따라 움직여야 한다.
@@ -106,8 +137,8 @@ export function Rounds() {
 export function RoundCard({
     round: r, signups, me, past,
 }: {
-    round: Round;
-    signups: Signup[];
+    round: RoundLite;
+    signups: SignupLite[];
     me: string;
     past?: boolean;
 }) {

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
     CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
-    type Round, type RoundComment, type Signup, type Profile,
+    type Person, type Round, type RoundComment, type Signup,
     type Settlement, type SettlementShare,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
@@ -24,7 +24,7 @@ interface Loaded {
     comments: RoundComment[];
     settlements: Settlement[];
     shares: SettlementShare[];
-    people: Profile[];
+    people: Person[];
 }
 
 export function RoundDetail() {
@@ -44,7 +44,7 @@ export function RoundDetail() {
                     .order('created_at'),
             supabase.from('settlements').select('*').eq('round_id', id!)
                     .order('created_at', { ascending: false }),
-            fetchProfiles(),
+            fetchPeople(),
         ]);
         /* 몫은 정산을 받아 온 **뒤에** 그 id들로 부른다. 라운드 id로는
            못 걸러서다 — 몫 표에는 라운드가 안 적혀 있다. */
@@ -384,7 +384,7 @@ function PersonRow({
     seq, profile, isMe, waiting, onKick,
 }: {
     seq: number;
-    profile?: Profile;
+    profile?: Person;
     isMe: boolean;
     waiting?: boolean;
     onKick?: () => void;

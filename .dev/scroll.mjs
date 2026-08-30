@@ -3,6 +3,7 @@
 
 import { chromium } from 'playwright-core';
 import { tables, ME } from './fixtures.mjs';
+import { handleRest } from './rest.mjs';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const BASE = 'http://localhost:5199';
@@ -12,41 +13,6 @@ const tag = process.argv[3] || 'view';
    `화면 확대`가 켜져 있어 320px이라, 거기서만 어긋나는 자리가 있다. */
 const [VW, VH] = (process.argv[4] || '390x844').split('x').map(Number);
 
-function handleRest(url, req) {
-    const table = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
-    let rows = tables[table] ? [...tables[table]] : [];
-    for (const [key, raw] of url.searchParams) {
-        if (['select', 'order', 'limit', 'offset'].includes(key)) continue;
-        const [op, value] = raw.split(/\.(.*)/s);
-        rows = rows.filter(r => {
-            const v = r[key];
-            if (op === 'eq') return String(v) === value;
-            if (op === 'is') return value === 'null' ? v === null : String(v) === value;
-            if (op === 'lt') return String(v) < value;
-            return true;
-        });
-    }
-    for (const spec of url.searchParams.getAll('order').reverse()) {
-        const [col, ...mods] = spec.split('.');
-        const desc = mods.includes('desc');
-        rows.sort((a, b) => {
-            const x = a[col], y = b[col];
-            const c = x === y ? 0 : (x ?? '') < (y ?? '') ? -1 : 1;
-            return desc ? -c : c;
-        });
-    }
-    /* **딸려 받기(embed) 흉내.** `select=*,signups(*)` 처럼 적으면
-       PostgREST 가 외래키를 보고 채워 준다 — 홈이 신청 기록을 이렇게 받는다. */
-    for (const m of (url.searchParams.get('select') ?? '').matchAll(/(\w+)\(\*\)/g)) {
-        const child = m[1];
-        const fk = table.replace(/s$/, '') + '_id';       // rounds → round_id
-        rows = rows.map(r => ({ ...r, [child]: (tables[child] ?? []).filter(c => c[fk] === r.id) }));
-    }
-
-    const limit = url.searchParams.get('limit');
-    if (limit) rows = rows.slice(0, Number(limit));
-    return (req.headers()['accept'] || '').includes('vnd.pgrst.object') ? (rows[0] ?? null) : rows;
-}
 
 const SESSION = {
     access_token: 'fake', token_type: 'bearer', refresh_token: 'fake',
@@ -62,7 +28,7 @@ const page = await browser.newPage({
 });
 await page.route('**/rest/v1/**', r => r.fulfill({
     status: 200, contentType: 'application/json',
-    body: JSON.stringify(handleRest(new URL(r.request().url()), r.request())),
+    body: JSON.stringify(handleRest(tables, new URL(r.request().url()), r.request())),
 }));
 await page.route('**/auth/v1/**', r => r.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));

@@ -1,14 +1,14 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import type { Post, Profile } from '../lib/types';
+import type { Person, Post } from '../lib/types';
 import { markSeen } from '../lib/unread';
 import './Board.css';
 
-interface Loaded { posts: Post[]; people: Profile[]; }
+interface Loaded { posts: Post[]; people: Person[]; }
 
 export function Board() {
     const { isAdmin, session } = useAuth();
@@ -19,7 +19,7 @@ export function Board() {
             supabase.from('posts').select('*')
                 .order('pinned', { ascending: false })
                 .order('created_at', { ascending: false }),
-            fetchProfiles(),
+            fetchPeople(),
         ]);
         return { posts: unwrap(posts) ?? [], people };
     }, [], 'board');

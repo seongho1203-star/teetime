@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, fetchProfiles } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate } from '../lib/format';
-import { ROLE_LABEL, ROLE_TAG, type Profile, type Role } from '../lib/types';
+import { FIND_AT, ROLE_LABEL, ROLE_TAG, type Profile, type Role } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -36,6 +36,8 @@ export function Members() {
     // 관리 버튼은 **누른 사람 것만** 펼친다. 줄마다 세 개씩 늘어놓으면
     // 이름 칸이 밀려 잘리고, 아랫줄로 내리면 명단이 두 배로 길어진다.
     const [openId, setOpenId] = useState<string | null>(null);
+    /** 이름·차량번호·전화번호로 찾기. 사람이 많을 때만 칸이 나온다. */
+    const [find, setFind] = useState('');
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -53,6 +55,19 @@ export function Members() {
     const pending = all.filter(p => p.role === 'pending');
     const members = all.filter(p => p.role !== 'pending' && p.role !== 'banned');
     const banned = all.filter(p => p.role === 'banned');
+
+    /* **사람이 많으면 찾아서 본다.** 100명으로 재 보니 명단이 6,495px —
+       화면 여덟 장어치라, 한 사람을 임명하려면 끝까지 훑어야 했다.
+       정산에서 사람 고를 때와 같은 잣대(`FIND_AT`)를 쓴다. 열둘 이하면
+       칸을 안 띄운다 — 훑는 게 빠르고, 칸만 하나 더 생겨 성가시다.
+       **차량번호와 전화번호로도 찾는다** — 골프장에 차를 등록하다 `1234`가
+       누구 것인지 되짚는 자리가 실제로 있다. */
+    const bigList = members.length > FIND_AT;
+    const q = find.replace(/\s/g, '').toLowerCase();
+    const shown = bigList && q
+        ? members.filter(p => [p.name, p.car, p.phone]
+            .some(v => String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q)))
+        : members;
 
     const setRole = async (p: Profile, role: Role) => {
         const { error: err } = await supabase.from('profiles')
@@ -137,9 +152,21 @@ export function Members() {
             )}
 
             <div className="section-title">회원 {members.length}명</div>
+
+            {bigList && (
+                <div className="field member-find">
+                    <label htmlFor="m-find">이름 · 차량번호 · 전화번호로 찾기</label>
+                    <input id="m-find" className="input" value={find}
+                           onChange={e => setFind(e.target.value)} />
+                </div>
+            )}
+
             <div className="card" style={{ padding: 0, gap: 0 }}>
                 {members.length === 0 && <div className="empty">아직 회원이 없습니다.</div>}
-                {members.map(p => {
+                {bigList && q && shown.length === 0 && (
+                    <div className="empty">'{find.trim()}' 님을 못 찾았습니다.</div>
+                )}
+                {shown.map(p => {
                     /* **나보다 위에 있는 사람은 못 건드린다.** 앱관리자만
                        운영자를 다루고, 운영자는 그 아래만 다룬다.
                        DB의 `profiles_owner`가 같은 규칙을 다시 본다. */

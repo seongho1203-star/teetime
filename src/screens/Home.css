@@ -232,3 +232,8 @@
    진하게 세우고, 총무는 돈을 맡는 자리라 노랑을 쓴다. */
 .role-super     { color: var(--brand-deep); font-weight: 900; }
 .role-treasurer { color: var(--warn); }
+
+/* 회원 명단의 찾기 칸. 사람이 열둘을 넘으면 나온다(`FIND_AT`) —
+   100명이면 명단이 화면 여덟 장이라, 훑어서는 한 사람을 못 찾는다.
+   카드 밖에 두어 목록이 스크롤돼도 무엇을 찾는 칸인지 헷갈리지 않게 했다. */
+.member-find { margin-bottom: var(--gap-sm); }

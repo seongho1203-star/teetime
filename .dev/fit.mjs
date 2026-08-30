@@ -14,20 +14,8 @@
  */
 import { chromium } from 'playwright-core';
 import { tables, ME } from '/home/user/teetime/.dev/fixtures.mjs';
+import { handleRest } from '/home/user/teetime/.dev/rest.mjs';
 
-function rest(url, req) {
-    const t = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
-    let rows = tables[t] ? [...tables[t]] : [];
-    for (const [k, raw] of url.searchParams) {
-        if (['select', 'order', 'limit', 'offset'].includes(k)) continue;
-        const [op, v] = raw.split(/\.(.*)/s);
-        rows = rows.filter(r => op === 'eq' ? String(r[k]) === v
-            : op === 'neq' ? String(r[k]) !== v
-            : op === 'is' ? (v === 'null' ? r[k] === null : String(r[k]) === v) : true);
-    }
-    const one = (req.headers()['accept'] || '').includes('vnd.pgrst.object');
-    return one ? (rows[0] ?? null) : rows;
-}
 
 const SESSION = {
     access_token: 'f', token_type: 'bearer', refresh_token: 'f', expires_in: 9e5,
@@ -56,7 +44,7 @@ for (const [label, w, h] of SIZES) {
                                          locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
     await page.route('**/rest/v1/**', r => r.fulfill({
         status: 200, contentType: 'application/json', headers: { 'content-range': '0-0/*' },
-        body: JSON.stringify(rest(new URL(r.request().url()), r.request())) }));
+        body: JSON.stringify(handleRest(tables, new URL(r.request().url()), r.request())) }));
     await page.route('**/auth/v1/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
     await page.route('**/realtime/v1/**', r => r.abort());
     await page.route('**fonts.g**', r => r.abort());

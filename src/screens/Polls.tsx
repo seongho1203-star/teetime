@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
-import { pollClosed, type Poll, type PollOption, type PollVote, type Profile } from '../lib/types';
+import { pollClosed, type Poll, type PollOption, type PollVoteLite, type Person } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { useConfirm } from '../components/Confirm';
@@ -12,23 +12,62 @@ import './Polls.css';
 interface Loaded {
     polls: Poll[];
     options: PollOption[];
-    votes: PollVote[];
-    people: Profile[];
+    votes: PollVoteLite[];
+    people: Person[];
 }
+
+/**
+ * 목록이 받아 오는 양의 한도.
+ *
+ * **투표 한 건이 곧 표 수백 줄이다.** 100명 모임에서 날짜를 고르면 예순 명이
+ * 두 개씩 골라 120줄이 된다. 예전에는 `poll_votes`를 통째로 받았고, 한 해치가
+ * 쌓이자 **목록 한 번 여는 데 546KB**가 나갔다 — 무료 통신량(월 5GB)을 이
+ * 화면 하나가 다 먹는다.
+ *
+ * 그래서 **투표 수를 묶고**, 항목·표는 그 투표에 딸려서만 오게 했다.
+ * 끝난 투표를 목록에서 훑는 일은 거의 없다(결과는 눌러서 상세에서 본다).
+ * 아직 안 끝난 것은 놓치면 안 되므로 넉넉히 둔다.
+ */
+const LIVE_POLLS = 20;
+const DONE_POLLS = 5;
+
+/** 투표 하나에 딸려 오는 항목과 표. */
+type PollRow = Poll & { poll_options?: PollOption[]; poll_votes?: PollVoteLite[] };
 
 export function Polls() {
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        const [polls, options, votes, people] = await Promise.all([
-            supabase.from('polls').select('*').order('created_at', { ascending: false }),
-            supabase.from('poll_options').select('*').order('sort'),
-            supabase.from('poll_votes').select('*'),
-            fetchProfiles(),
+        /* **항목과 표를 딸려 받는다**(`poll_options(*)` · `poll_votes(...)`).
+           따로 부르면 지난 투표 것까지 다 온다 — 홈이 신청 기록을 라운드에
+           딸려 받는 것과 같은 이유다.
+           표는 세 칸만 받는다: 화면이 보는 것은 **어느 투표의 · 어느 항목을 ·
+           누가** 골랐나뿐이다.
+
+           **진행중과 마감을 따로 부른다.** 한 번에 최근 것부터 받으면, 끝난
+           투표가 여러 개 쌓인 주에 **아직 안 끝난 투표가 목록에서 밀려난다.**
+           `closed=false`인데 마감 시각이 지난 것은 아래에서 `pollClosed()`가
+           다시 갈라 `마감된 투표` 칸으로 보낸다 — 그래서 두 조회의 잣대가
+           화면의 잣대와 달라도 괜찮다. */
+        const cols = '*, poll_options(*), poll_votes(poll_id, option_id, user_id)';
+        const [live, done, people] = await Promise.all([
+            supabase.from('polls').select(cols).eq('closed', false)
+                    .order('created_at', { ascending: false }).limit(LIVE_POLLS),
+            supabase.from('polls').select(cols).eq('closed', true)
+                    .order('created_at', { ascending: false }).limit(DONE_POLLS),
+            fetchPeople(),
         ]);
+
+        /* 화면 코드는 예전처럼 평평한 배열을 본다. `types.ts`의 `Database`에
+           표 사이의 관계가 안 적혀 있어 타입은 `unknown`을 거쳐 바꾼다 —
+           실행에는 문제가 없다(홈도 같은 방식이다). */
+        const rows = [...(unwrap(live) ?? []), ...(unwrap(done) ?? [])] as unknown as PollRow[];
+        rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+
         return {
-            polls: unwrap(polls) ?? [],
-            options: unwrap(options) ?? [],
-            votes: unwrap(votes) ?? [],
+            polls: rows.map(({ poll_options: _o, poll_votes: _v, ...p }) => p as Poll),
+            // 딸려 온 항목은 순서가 없다. `sort`는 여기서 매긴다.
+            options: rows.flatMap(r => r.poll_options ?? []).sort((a, b) => a.sort - b.sort),
+            votes: rows.flatMap(r => r.poll_votes ?? []),
             people,
         };
     }, [], 'polls');
@@ -107,8 +146,8 @@ export function PollOptions({
 }: {
     poll: Poll;
     options: PollOption[];
-    votes: PollVote[];
-    names: Record<string, Profile>;
+    votes: PollVoteLite[];
+    names: Record<string, Person>;
     me: string;
     onChange: () => void;
     /** 상세에서는 이름을 여기 안 적는다 — 아래 `현황` 탭이 그 일을 한다. */
@@ -181,8 +220,13 @@ function PollCard({
     const names = byId(data.people);
     const closed = pollClosed(poll);
 
-    // 투표한 사람 수 (복수 선택이면 표 수와 다르다)
-    const voters = new Set(votes.map(v => v.user_id)).size;
+    /* 투표한 사람 수 (복수 선택이면 표 수와 다르다).
+       **지금 회원인 사람만 센다** — 표를 던진 뒤 추방되거나 대기로 내려간
+       사람의 표가 남아 있어, 그냥 세면 상세의 `전체 N명`·`미참여`와 합이
+       안 맞는다(실제로 `91명 참여 · 전체 98명 · 미참여 9`가 나왔다). */
+    const members = new Set(data.people
+        .filter(p => p.role !== 'pending' && p.role !== 'banned').map(p => p.id));
+    const voters = new Set(votes.map(v => v.user_id).filter(id => members.has(id))).size;
 
     const close = async () => {
         const { error } = await supabase.from('polls').update({ closed: true }).eq('id', poll.id);

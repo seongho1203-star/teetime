@@ -8,60 +8,13 @@
 
 import { chromium } from 'playwright-core';
 import { tables, ME } from './fixtures.mjs';
+import { handleRest } from './rest.mjs';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const BASE = 'http://localhost:5199';
 const OUT = '.dev/shots';
 
 /* PostgREST 흉내 — 앱이 실제로 쓰는 필터만 처리한다. */
-function handleRest(url, req) {
-    const table = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
-    let rows = tables[table] ? [...tables[table]] : [];
-
-    for (const [key, raw] of url.searchParams) {
-        if (['select', 'order', 'limit', 'offset'].includes(key)) continue;
-        const [op, value] = raw.split(/\.(.*)/s);
-        rows = rows.filter(r => {
-            const v = r[key];
-            switch (op) {
-                case 'eq':  return String(v) === value;
-                case 'neq': return String(v) !== value;
-                case 'is':  return value === 'null' ? v === null : String(v) === value;
-                case 'lt':  return String(v) < value;
-                case 'gt':  return String(v) > value;
-                case 'gte': return String(v) >= value;
-                case 'lte': return String(v) <= value;
-                case 'in':  return value.replace(/[()]/g, '').split(',').includes(String(v));
-                default:    return true;
-            }
-        });
-    }
-
-    for (const spec of url.searchParams.getAll('order').reverse()) {
-        const [col, ...mods] = spec.split('.');
-        const desc = mods.includes('desc');
-        rows.sort((a, b) => {
-            const x = a[col], y = b[col];
-            const c = x === y ? 0 : (x ?? '') < (y ?? '') ? -1 : 1;
-            return desc ? -c : c;
-        });
-    }
-
-    /* **딸려 받기(embed) 흉내.** `select=*,signups(*)` 처럼 적으면
-       PostgREST 가 외래키를 보고 채워 준다 — 홈이 신청 기록을 이렇게 받는다. */
-    for (const m of (url.searchParams.get('select') ?? '').matchAll(/(\w+)\(\*\)/g)) {
-        const child = m[1];
-        const fk = table.replace(/s$/, '') + '_id';       // rounds → round_id
-        rows = rows.map(r => ({ ...r, [child]: (tables[child] ?? []).filter(c => c[fk] === r.id) }));
-    }
-
-    const limit = url.searchParams.get('limit');
-    if (limit) rows = rows.slice(0, Number(limit));
-
-    // .single() / .maybeSingle() 은 객체 하나를 기대한다.
-    const wantsOne = (req.headers()['accept'] || '').includes('vnd.pgrst.object');
-    return wantsOne ? (rows[0] ?? null) : rows;
-}
 
 const SESSION = {
     access_token: 'fake', token_type: 'bearer', refresh_token: 'fake',
@@ -108,7 +61,7 @@ for (const [name, path, opts = {}] of shots) {
     await page.route('**/rest/v1/**', async route => {
         const req = route.request();
         const url = new URL(req.url());
-        const body = handleRest(url, req);
+        const body = handleRest(tables, url, req);
 
         // 개수만 세는 조회(head:true, count:'exact')는 몸통이 아니라
         // **content-range 헤더**로 답한다. 여기서 진짜 수를 넣어 주지 않으면

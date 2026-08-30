@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchProfiles, byId } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
 import {
     pollClosed,
-    type Poll, type PollComment, type PollOption, type PollVote, type Profile,
+    type Person, type Poll, type PollComment, type PollOption, type PollVoteLite,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
@@ -20,9 +20,9 @@ import './Polls.css';
 interface Loaded {
     poll: Poll | null;
     options: PollOption[];
-    votes: PollVote[];
+    votes: PollVoteLite[];
     comments: PollComment[];
-    people: Profile[];
+    people: Person[];
 }
 
 /** 현황을 보는 세 가지 눈. 사람이 많아지면 하나로는 못 본다. */
@@ -55,10 +55,10 @@ export function PollDetail() {
         const [poll, options, votes, comments, people] = await Promise.all([
             supabase.from('polls').select('*').eq('id', id!).maybeSingle(),
             supabase.from('poll_options').select('*').eq('poll_id', id!).order('sort'),
-            supabase.from('poll_votes').select('*').eq('poll_id', id!),
+            supabase.from('poll_votes').select('poll_id, option_id, user_id').eq('poll_id', id!),
             supabase.from('poll_comments').select('*').eq('poll_id', id!)
                     .order('created_at'),
-            fetchProfiles(),
+            fetchPeople(),
         ]);
         return {
             poll: unwrap(poll),
@@ -143,7 +143,12 @@ export function PollDetail() {
                 <PollOptions poll={poll} options={data.options} votes={data.votes}
                              names={names} me={me} onChange={reload} hideVoters />
                 <span className="xs faint">
-                    {voted.size}명 참여 · 전체 {members.length}명
+                    {/* **참여 수를 `voted.size`로 세지 말 것.** 그건 표를 던진
+                        사람 전부라, 나중에 추방되거나 대기로 내려간 사람의 표도
+                        들어간다 — `전체`와 `미참여`는 그 사람들을 빼고 세므로
+                        `91명 참여 · 전체 98명`인데 미참여가 9로 나왔다(합이 100).
+                        셋이 같은 사람들을 세야 숫자가 맞는다. */}
+                    {done.length}명 참여 · 전체 {members.length}명
                     {poll.closes_at && !poll.closed && (
                         <> · {formatDateTime(poll.closes_at)} 마감</>
                     )}
@@ -234,7 +239,7 @@ export function PollDetail() {
 }
 
 /** 얼굴 + 이름을 두 칸으로 늘어놓는다. 서른 명이 되어도 줄로 흘러간다. */
-function PeopleGrid({ people }: { people: Profile[] }) {
+function PeopleGrid({ people }: { people: Person[] }) {
     return (
         <div className="people-grid">
             {people.map(p => (

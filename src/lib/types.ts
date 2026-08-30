@@ -100,6 +100,30 @@ export function roundKind(r: { kind?: RoundKind | null }): RoundKind {
 }
 export type SignupState = 'confirmed' | 'waitlist';
 
+/**
+ * 사람 목록이 이보다 길면 **늘어놓지 않고 찾게 한다.**
+ *
+ * 열둘이면 네 줄이라 눈으로 훑는 게 빠르고, 검색칸만 하나 더 생겨 성가시다.
+ * 그 위로는 늘어놓는 것이 오히려 방해다 — 정산에서 마흔여섯 명을 폈더니
+ * 목록만 602px였고, 회원 명단은 100명에서 6,495px(화면 여덟 장)이었다.
+ * **정산의 사람 고르기와 회원 명단이 같은 잣대를 쓴다.** */
+export const FIND_AT = 12;
+
+/**
+ * 이름과 얼굴만 필요한 곳에서 쓰는 가벼운 프로필.
+ *
+ * **명단 말고는 아무도 전화번호·가입일을 안 본다.** 그런데 거의 모든
+ * 화면이 `fetchProfiles()`로 전체 명단을 받으므로, 안 쓰는 칸이 100명분씩
+ * 화면마다 따라왔다 — 100명 기준 58KB 중 38KB가 그것이었다.
+ * 이름표를 붙이는 곳은 `fetchPeople()`로 이 다섯 칸만 받는다.
+ *
+ * - `role` — 대화에서 `@전체`를 도드라지게 할지 가른다.
+ * - `car` — **라운드 상세의 참가자 줄에 보인다**(골프장에 차를 미리
+ *   등록할 때 쓴다). 두 화면에서만 쓰지만 짧은 값이라(100명에 2KB)
+ *   여기 넣어 두고 명단 타입을 하나로 유지한다.
+ */
+export type Person = Pick<Profile, 'id' | 'name' | 'avatar_url' | 'role' | 'car'>;
+
 export type Profile = {
     id: string;
     /** 화면에 보이는 이름. 가입할 때 **닉네임**으로 받는다. */
@@ -139,6 +163,17 @@ export type Round = {
     created_at: string;
 };
 
+/**
+ * 목록 카드가 그리는 데 필요한 라운드의 칸들.
+ *
+ * **`note`(전달 내용)를 안 받는다** — 목록에는 안 나오는데 한 줄이 수백
+ * 글자라, 라운드 마흔 건이면 그것만으로 수십 KB다. 좌표(`lat`/`lon`)도
+ * 마찬가지다: 날씨는 홈과 상세에만 있다.
+ * (홈은 날씨를 그리므로 `Round` 전부를 받는다.)
+ */
+export type RoundLite = Pick<Round,
+    'id' | 'course' | 'title' | 'tee_at' | 'capacity' | 'fee' | 'status' | 'kind' | 'caddie' | 'cart'>;
+
 export type Signup = {
     id: string;
     round_id: string;
@@ -148,6 +183,20 @@ export type Signup = {
     note: string;
     created_at: string;
 };
+
+/**
+ * 목록에서 쓰는 신청 기록의 최소 조각.
+ *
+ * **목록은 자리 수와 내 상태만 본다** — `id` · `note` · `created_at`은
+ * 상세에서만 쓴다. 100명 · 1년치로 재 보니 라운드 목록이 받는 것의 절반이
+ * 이 안 쓰는 칸들이었다. 그래서 홈과 라운드 목록은 **네 칸만 받는다.**
+ * (상세 화면은 그대로 `Signup` 전부를 받는다 — 한 라운드어치뿐이다.)
+ *
+ * `seq`는 대기 번호를 매기는 데 쓴다 — 이 값 자체가 대기 번호는 **아니다.**
+ * 그 라운드의 몇 번째 신청인지라, 정원이 4명이면 대기 첫 사람이 5다.
+ * 대기 줄에서 몇 번째인지는 `seq`로 줄을 세운 뒤 세어야 한다(홈이 그렇게 한다).
+ */
+export type SignupLite = Pick<Signup, 'round_id' | 'user_id' | 'state' | 'seq'>;
 
 /**
  * 마감된 투표인가. 손으로 마감했거나 마감 시각이 지났으면 끝난 것이다.
@@ -186,6 +235,16 @@ export type PollVote = {
     user_id: string;
     created_at: string;
 };
+
+/**
+ * 목록·상세에서 쓰는 표의 최소 조각.
+ *
+ * 화면이 보는 것은 **어느 투표의 · 어느 항목을 · 누가** 골랐나, 이 셋뿐이다.
+ * 표 한 줄의 `id`와 `created_at`은 아무 데서도 안 쓰는데 둘이 합쳐 줄의
+ * 절반이 넘는다. 100명이 스물네 번 투표하면 표가 3천 줄이라 그 차이가 곧
+ * 수백 KB다.
+ */
+export type PollVoteLite = Pick<PollVote, 'poll_id' | 'option_id' | 'user_id'>;
 
 /** 투표에 달린 댓글. `PostComment`와 같은 모양이다. */
 export type PollComment = {
