@@ -61,6 +61,7 @@ function Gate() {
                 <Route path="/polls" element={<Polls />} />
                 <Route path="/polls/new" element={<PollEdit />} />
                 <Route path="/polls/:id" element={<PollDetail />} />
+                <Route path="/polls/:id/edit" element={<PollEdit />} />
                 <Route path="/board" element={<Board />} />
                 <Route path="/board/new" element={<PostEdit />} />
                 <Route path="/board/:id" element={<PostDetail />} />

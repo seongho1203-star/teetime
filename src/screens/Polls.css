@@ -150,6 +150,9 @@
 /* 안내 글씨를 직접 그리느라 칸이 `.input-wrap`으로 한 겹 싸여 있다
    (`components/Hinted.tsx`). 늘어나는 몫을 그 겉에 넘겨야 줄이 안 깨진다. */
 .option-row .input-wrap { flex: 1 1 auto; min-width: 0; }
+/* 수정할 때 그 항목이 몇 표를 받았는지. 지우면 함께 사라지는 값이라
+   지우기 버튼 바로 옆에 둔다 — 누르기 전에 눈에 걸려야 한다. */
+.option-votes { flex: 0 0 auto; white-space: nowrap; }
 /* 지우기 버튼은 칸과 같은 높이의 정사각형이다. 글자 길이로 폭이 정해지면
    줄마다 오른쪽 끝이 어긋난다 — 아래 `+ 항목 추가`와도 맞지 않는다. */
 .option-row .btn {

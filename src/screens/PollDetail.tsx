@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
@@ -134,9 +134,16 @@ export function PollDetail() {
         nav('/polls', { replace: true });
     };
 
+    const mayEdit = isAdmin || poll.created_by === me;
+
     return (
         <div className="page">
-            <TopBar title="투표" fallback="/polls" />
+            {/* 라운드 상세와 같은 자리에 `수정`을 둔다 — 고치는 문이 화면마다
+                다른 곳에 있으면 찾느라 헤맨다. */}
+            <TopBar title="투표" fallback="/polls"
+                    right={mayEdit && (
+                        <Link to={`/polls/${poll.id}/edit`} className="btn ghost sm">수정</Link>
+                    )} />
 
             <div className="round-hero">
                 <div className="row" style={{ gap: 'var(--gap-xs)' }}>
@@ -240,7 +247,7 @@ export function PollDetail() {
                 onChange={reload}
             />
 
-            {(isAdmin || poll.created_by === me) && (
+            {mayEdit && (
                 <div className="card">
                     <div className="section-title">{isAdmin ? '운영' : '내가 만든 투표'}</div>
                     <div className="row wrap" style={{ gap: 'var(--gap-sm)' }}>

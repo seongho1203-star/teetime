@@ -42,9 +42,17 @@ await ctx.route('**/rest/v1/rpc/**', route => {
 });
 
 let patch = null;
+const writes = [];
 await ctx.route('**/rest/v1/polls**', route => {
     if (route.request().method() !== 'PATCH') return route.fallback();
     patch = route.request().postDataJSON();
+    writes.push(['polls PATCH', patch]);
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+});
+await ctx.route('**/rest/v1/poll_options**', route => {
+    const m = route.request().method();
+    if (m === 'GET') return route.fallback();
+    writes.push([`poll_options ${m}`, route.request().postDataJSON() ?? null]);
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
 });
 
@@ -107,6 +115,32 @@ await page.getByText('다시 열기', { exact: true }).click();
 await page.waitForTimeout(500);
 ok(patch && !('closes_at' in patch),
    `마감 시각이 없던 투표는 그 칸을 안 건드린다 (보낸 값 ${JSON.stringify(patch)})`);
+
+/* ── 3. 투표 수정 ───────────────────────────────────────────────
+   **표가 들어온 뒤에는 잠기는 것이 둘이다** — `익명`을 끄면 비밀인 줄 알고
+   고른 사람이 드러나고, `복수 선택`을 끄면 이미 여러 개 고른 사람의 표가
+   남아 '하나만 고르는 투표'에 두 표를 가진 사람이 생긴다.
+   안 바뀐 항목에는 쓰기를 안 보내는지도 함께 본다. */
+console.log('\n── 투표 수정 ──');
+await go('/#/polls/p1/edit', 700);
+const sw = await page.$$eval('.switch', e => e.map(x => x.disabled));
+ok(sw.length === 2 && sw.every(Boolean), `표가 있는 투표는 스위치 둘이 잠긴다 (실제 ${JSON.stringify(sw)})`);
+const tallies = await page.$$eval('.option-votes', e => e.map(x => x.textContent));
+ok(tallies.length > 0, `항목마다 받은 표를 적어 준다 (${JSON.stringify(tallies)})`);
+
+writes.length = 0;
+await page.fill('#v-title', '9월 정기 라운드 날짜 (수정)');
+await page.getByText('저장', { exact: true }).click();
+await page.waitForTimeout(700);
+ok(writes.some(([w, b]) => w === 'polls PATCH' && b.title === '9월 정기 라운드 날짜 (수정)'),
+   '제목만 고치면 polls 만 고친다');
+ok(!writes.some(([w]) => w.startsWith('poll_options')),
+   `안 바뀐 항목에는 쓰기를 안 보낸다 (실제 ${JSON.stringify(writes.map(w => w[0]))})`);
+
+// 표가 없는 투표(p3는 표가 없다)에서는 스위치가 열려 있어야 한다
+await go('/#/polls/p3/edit', 700);
+const sw2 = await page.$$eval('.switch', e => e.map(x => x.disabled));
+ok(sw2.length === 2 && sw2.every(d => !d), `표가 없으면 스위치가 열려 있다 (실제 ${JSON.stringify(sw2)})`);
 
 await browser.close();
 
