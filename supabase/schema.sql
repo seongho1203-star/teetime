@@ -1016,6 +1016,27 @@ drop trigger if exists profiles_seed_reads on profiles;
 create trigger profiles_seed_reads after update on profiles
     for each row execute function seed_room_reads();
 
+/*
+ * 이미 있는 회원에게도 읽음 줄을 만들어 둔다. 위 트리거는 **승인되는 순간**에만
+ * 돌기 때문에, 이 기능이 생기기 전부터 있던 사람은 줄이 없다 — 줄이 없으면
+ * 화면이 '한 번도 안 읽음'으로 세어 지난 글이 전부 `안 읽음`으로 굳는다.
+ *
+ * **`now()`로 찍는다. `joined_at`으로 찍지 말 것.**
+ * 몇 달째 대화를 읽어 온 사람도 가입 시각으로 찍히면, 그 사람이 대화를 한 번
+ * 열기 전까지 **지난 몇 달치 글이 전부 안 읽음으로 보인다.** 실제로 그렇게
+ * 넣었다가 숫자가 3~4에서 안 내려간다는 제보를 받았다.
+ * 읽음 표시를 켜는 순간까지의 이야기는 **다 읽은 것으로 보는 게 맞다** —
+ * 그전 기록이 아예 없으므로 지어낼 수가 없고, 카톡도 그렇게 시작한다.
+ *
+ * `do nothing`이라 **다시 실행해도 이미 있는 줄은 안 건드린다** — 스키마를
+ * 통째로 다시 돌려도 사람들의 읽음 자리가 되돌아가지 않는다.
+ */
+insert into room_reads (room_id, user_id, last_read_at)
+select r.id, p.id, now()
+  from rooms r cross join profiles p
+ where p.role in ('member', 'treasurer', 'staff', 'admin', 'superadmin')
+on conflict (room_id, user_id) do nothing;
+
 /**
  * `여기까지 읽었다`를 지금으로 밀어 둔다.
  *
