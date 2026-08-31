@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
@@ -9,6 +9,7 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
 import { lastSeen, markSeen, NEVER } from '../lib/unread';
+import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { emojiOnly } from '../lib/emoji';
 import './Chat.css';
@@ -44,6 +45,11 @@ export function Chat() {
     const [loadingMore, setLoadingMore] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [focused, setFocused] = useState(false);
+    /** 사람마다 어디까지 읽었나. 말풍선 옆의 숫자를 세는 데 쓴다. */
+    const [reads, setReads] = useState<Reads>({});
+    /** 앱을 보고 있는가. 안 보고 있으면 읽은 것으로 치지 않는다. */
+    const [watching, setWatching] = useState(() =>
+        typeof document === 'undefined' || !document.hidden);
     /** 지금 답장하려는 글. 입력칸 위에 인용으로 떠 있다. */
     const [replyTo, setReplyTo] = useState<Message | null>(null);
     /** 캐럿 앞에 `@무엇`을 치고 있으면 그 글자. 아니면 null. */
@@ -159,6 +165,78 @@ export function Chat() {
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [roomId]);
+
+    /* ── 읽음 표시 ──────────────────────────────────────────────
+     *
+     * 카톡처럼 말풍선 옆에 **아직 안 읽은 사람 수**를 적는다.
+     * 사람마다 '어디까지 읽었나' 시각 하나만 오간다(`lib/reads.ts` 참고).
+     */
+
+    // 들어올 때 한 번 받는다. 100명이라도 100줄, 7KB 남짓이다.
+    useEffect(() => {
+        if (!roomId) return;
+        let alive = true;
+        supabase.from('room_reads').select('user_id, last_read_at').eq('room_id', roomId)
+            .then(({ data: rows }) => {
+                if (!alive || !rows) return;
+                setReads(Object.fromEntries(rows.map(r => [r.user_id, r.last_read_at])));
+            });
+        return () => { alive = false; };
+    }, [roomId]);
+
+    /* **들어온 행을 그대로 갈아 끼운다 — 다시 불러오지 않는다.**
+       `useRealtime`은 다시 불러오는데, 읽음은 사람이 볼 때마다 바뀌므로
+       그러면 100명분 명단을 하루에도 수백 번 다시 받게 된다(무료 통신량이
+       월 5GB다). 읽음은 **줄끼리 서로 얽히지 않아** 온 줄만 반영하면 맞다 —
+       대화 글을 덧붙이기만 하는 것과 같은 이유다. */
+    useEffect(() => {
+        if (!roomId) return;
+        const channel = supabase
+            .channel(`reads:${roomId}`)
+            .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'room_reads',
+                  filter: `room_id=eq.${roomId}` },
+                payload => {
+                    const row = payload.new as { user_id?: string; last_read_at?: string };
+                    if (!row?.user_id || !row.last_read_at) return;
+                    setReads(prev => ({ ...prev, [row.user_id!]: row.last_read_at! }));
+                })
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [roomId]);
+
+    // 앱을 덮어 두면 읽고 있는 게 아니다. 돌아오면 그때 밀어 준다.
+    useEffect(() => {
+        const on = () => setWatching(!document.hidden);
+        document.addEventListener('visibilitychange', on);
+        return () => document.removeEventListener('visibilitychange', on);
+    }, []);
+
+    /* **어디까지 읽었는지 서버에 남긴다.**
+       시각은 서버가 찍는다(`mark_room_read`) — 폰 시계가 몇 초 어긋나면
+       방금 온 글보다 앞선 시각이 박혀 읽었는데도 숫자가 안 준다.
+       마지막 글이 밀렸을 때만, 그것도 잠깐 모았다가 한 번 보낸다 —
+       한 마디마다 쓰기가 나가면 100명이 떠들 때 그것만으로 시끄러워진다. */
+    const reportedRef = useRef('');
+    useEffect(() => {
+        if (!roomId || !watching) return;
+        const newest = messages[messages.length - 1]?.created_at;
+        if (!newest || newest <= reportedRef.current) return;
+        const t = setTimeout(() => {
+            reportedRef.current = newest;
+            supabase.rpc('mark_room_read', { p_room: roomId })
+                    .then(() => { /* 실패해도 화면은 그대로 돌아야 한다 */ });
+        }, 700);
+        return () => clearTimeout(t);
+    }, [roomId, messages, watching]);
+
+    /** 글마다 아직 안 읽은 사람 수. 대기·추방은 세지 않는다 — 못 보는 사람이다. */
+    const unreadBy = useMemo(() => {
+        const ids = (data?.people ?? [])
+            .filter(p => p.role !== 'pending' && p.role !== 'banned')
+            .map(p => p.id);
+        return unreadCounts(messages, reads, ids);
+    }, [messages, reads, data?.people]);
 
     /** 맨 아래를 보고 있었으면 다시 맨 아래로 붙인다. */
     const pinBottom = useCallback(() => {
@@ -713,6 +791,7 @@ export function Chat() {
                                 mine={m.user_id === me}
                                 grouped={grouped}
                                 showTime={showTime}
+                                unread={unreadBy[m.id] ?? 0}
                                 onImageLoad={pinBottom}
                                 quoted={quoted}
                                 quotedWho={quoted ? names[quoted.user_id ?? '']?.name : undefined}
@@ -833,12 +912,31 @@ function preview(m: Message): string {
     return m.image_url ? '사진' : '';
 }
 
+/**
+ * 말풍선 옆에 붙는 것 — **안 읽은 사람 수**와 시각.
+ *
+ * 카톡과 같은 자리다. 둘을 한 덩어리로 세로로 쌓아 두어, 숫자가 생기거나
+ * 사라져도 말풍선이 위아래로 흔들리지 않는다.
+ * **다 읽으면 숫자가 사라진다** — 0을 적어 두면 아무 뜻이 없다.
+ */
+function Stamp({ at, showTime, unread }: { at: string; showTime: boolean; unread: number }) {
+    if (!unread && !showTime) return null;
+    return (
+        <span className="chat-stamp">
+            {unread > 0 && (
+                <span className="chat-unread-n" aria-label={`${unread}명이 안 읽음`}>{unread}</span>
+            )}
+            {showTime && <span className="chat-time">{formatTime(at)}</span>}
+        </span>
+    );
+}
+
 /** 왼쪽으로 이만큼 밀면 답장이 걸린다. 되돌아가는 최대 거리도 이 근처다. */
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 72;
 
 function Bubble({
-    message, who, mine, grouped, showTime, onImageLoad,
+    message, who, mine, grouped, showTime, unread, onImageLoad,
     quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName, allowAll,
 }: {
     message: Message;
@@ -847,6 +945,8 @@ function Bubble({
     grouped: boolean;
     /** 덩어리의 마지막 줄에만 시각을 적는다. */
     showTime: boolean;
+    /** 아직 안 읽은 사람 수. 0이면 아무것도 안 적는다(다 읽었다는 뜻이다). */
+    unread: number;
     /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 뜨면 다시 바닥에 붙이라고 알린다. */
     onImageLoad: () => void;
     /** 답장이면 원본. 아직 안 불러온 지난 글이면 없다. */
@@ -957,10 +1057,10 @@ function Bubble({
                           </div>}
                     {/* 시각은 **덩어리의 마지막 줄**에 붙는다. 사진에 글을 함께
                         보냈으면 그 글이 마지막 줄이므로 여기서는 비운다 —
-                        안 그러면 사진 옆에 시각이 찍히고 그 아래로 글이 더 온다. */}
-                    {showTime && !caption && (
-                        <span className="chat-time">{formatTime(message.created_at)}</span>
-                    )}
+                        안 그러면 사진 옆에 시각이 찍히고 그 아래로 글이 더 온다.
+                        **안 읽은 사람 수는 글마다 붙는다**(카톡이 그렇다) —
+                        같은 분에 보낸 글이라도 읽힌 정도가 다를 수 있다. */}
+                    {!caption && <Stamp at={message.created_at} showTime={showTime} unread={unread} />}
                 </div>
                 {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다.
                     **`.chat-line`으로 감싸야 한다** — 그냥 두면 `.chat-col`이
@@ -972,9 +1072,7 @@ function Bubble({
                         <div className="chat-bubble">
                             <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                         </div>
-                        {showTime && (
-                            <span className="chat-time">{formatTime(message.created_at)}</span>
-                        )}
+                        <Stamp at={message.created_at} showTime={showTime} unread={unread} />
                     </div>
                 )}
             </div>

@@ -211,6 +211,31 @@
     line-height: 1.15;
 }
 
+/* 말풍선 옆에 붙는 것 — **안 읽은 사람 수**와 시각.
+   카톡처럼 세로로 쌓는다. 한 덩어리로 묶어 두면 숫자가 생기거나 사라져도
+   시각이 옆으로 밀리지 않는다. `flex-end`라 아랫줄(시각)이 말풍선 바닥에
+   맞고, 숫자는 그 위에 얹힌다. */
+.chat-stamp {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+.chat-row.mine .chat-stamp { align-items: flex-start; }
+
+/* **아직 안 읽은 사람 수.** 다 읽으면 사라진다(0은 안 적는다).
+   노랑은 '기다리는 것' 자리다 — 아직 안 본 사람을 기다리는 숫자라
+   그 뜻에 맞고, 분홍(지금 눌러야 할 것)과도 안 부딪힌다.
+   카톡도 이 자리에 노란 숫자를 쓴다. */
+.chat-unread-n {
+    font-size: 10.5px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--warn);
+    white-space: nowrap;
+}
+
 .chat-time {
     flex: 0 0 auto;
     font-size: 10.5px;

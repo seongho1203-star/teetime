@@ -282,6 +282,18 @@ export type PostComment = {
     created_at: string;
 };
 
+/**
+ * 사람마다 **그 방을 어디까지 읽었나.**
+ *
+ * 말풍선 옆의 `안 읽은 사람 수`가 이걸로 셈해진다(`lib/reads.ts`).
+ * 글마다가 아니라 **사람마다 한 줄**이라 해가 지나도 안 늘어난다.
+ */
+export type RoomRead = {
+    room_id: string;
+    user_id: string;
+    last_read_at: string;
+};
+
 export type Room = {
     id: string;
     name: string;
@@ -365,6 +377,7 @@ export interface Database {
             post_comments: Table<PostComment>;
             rooms: Table<Room>;
             messages: Table<Message>;
+            room_reads: Table<RoomRead>;
             push_subscriptions: Table<PushSubscriptionRow>;
         };
         Views: Record<string, never>;
@@ -378,6 +391,7 @@ export interface Database {
             is_admin: { Args: Record<string, never>; Returns: boolean };
             is_owner: { Args: Record<string, never>; Returns: boolean };
             can_settle: { Args: Record<string, never>; Returns: boolean };
+            mark_room_read: { Args: { p_room: string }; Returns: void };
         };
         Enums: Record<string, never>;
         CompositeTypes: Record<string, never>;

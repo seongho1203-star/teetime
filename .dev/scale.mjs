@@ -129,6 +129,13 @@ for (let i = 0; i < SETTLES; i++) {
         });
     }
 }
+/* 읽음 표시 — **사람마다 한 줄**이다. 글마다가 아니라서 대화가 3만 개여도
+   100줄로 끝난다. 8할은 최근까지 읽었고 나머지는 뒤처져 있다고 본다. */
+tables.room_reads = Array.from({ length: N }, (_, i) => ({
+    room_id: 'room1', user_id: uid(i + 1),
+    last_read_at: iso(i % 5 === 0 ? -30 : -0.01),
+}));
+
 tables.round_comments = [];
 tables.post_comments = [];
 tables.poll_comments = [];

@@ -914,6 +914,77 @@ create policy messages_own   on messages for delete using (user_id = auth.uid())
 create policy messages_admin on messages for all    using (is_admin()) with check (is_admin());
 
 
+-- ═══ 7-1. 읽음 표시 (카톡의 안 읽은 사람 수) ═══════════════════
+--
+-- 말풍선 옆에 **아직 안 읽은 사람 수**를 적는다. 다 읽으면 숫자가 사라진다.
+--
+-- **글마다 기록하지 않는다.** 100명이 하루 100마디를 주고받으면 '누가 어느
+-- 글을 읽었나'는 하루 만 줄이 된다. 대신 **사람마다 어디까지 읽었는지**
+-- 시각 하나만 남긴다 — 100명이면 100줄로 끝나고, 해가 지나도 안 늘어난다.
+-- '이 글을 읽었나'는 `last_read_at >= created_at`으로 화면이 셈한다.
+
+create table if not exists room_reads (
+    room_id      uuid not null references rooms on delete cascade,
+    user_id      uuid not null references profiles on delete cascade,
+    last_read_at timestamptz not null default now(),
+    primary key (room_id, user_id)
+);
+
+alter table room_reads enable row level security;
+drop policy if exists room_reads_read on room_reads;
+drop policy if exists room_reads_mine on room_reads;
+-- 숫자를 세려면 남의 읽음도 봐야 한다. 회원이면 다 읽힌다.
+create policy room_reads_read on room_reads for select using (is_member());
+-- **쓰는 것은 자기 줄만.** 남이 읽은 것으로 대신 찍어 줄 수는 없다.
+create policy room_reads_mine on room_reads for all
+    using (user_id = auth.uid())
+    with check (user_id = auth.uid() and is_member());
+
+/**
+ * 승인되는 순간 읽음 줄을 만들어 둔다.
+ *
+ * 이게 없으면 **승인만 받고 대화를 한 번도 안 연 사람** 때문에 지난 글이
+ * 전부 `안 읽음 +1`로 굳는다 — 그 사람은 들어오기 전 글을 **볼 수도 없는데**
+ * (`chat_since()`) 영영 안 읽은 사람으로 세어진다.
+ * 승인 시각으로 찍어 두면 그 전 글은 읽은 것이 되고, 그 뒤 글만 세어진다.
+ *
+ * `security definer`인 것은 **남의 줄을 넣는 일**이라 위 정책
+ * (`user_id = auth.uid()`)에 걸리기 때문이다. `stamp_joined_at`이 도장을
+ * 찍은 **뒤에** 돌아야 하므로 `AFTER`다.
+ */
+create or replace function seed_room_reads()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+    if new.joined_at is not null and old.joined_at is null then
+        insert into room_reads (room_id, user_id, last_read_at)
+        select r.id, new.id, new.joined_at from rooms r
+        on conflict (room_id, user_id) do nothing;
+    end if;
+    return null;
+end $$;
+
+drop trigger if exists profiles_seed_reads on profiles;
+create trigger profiles_seed_reads after update on profiles
+    for each row execute function seed_room_reads();
+
+/**
+ * `여기까지 읽었다`를 지금으로 밀어 둔다.
+ *
+ * **시각을 화면이 정해 보내지 않는다.** 폰 시계가 몇 초 어긋나 있으면
+ * 방금 온 글보다 앞선 시각이 찍혀, 읽었는데도 숫자가 안 줄어든다.
+ * 서버의 `now()`로 찍으면 그럴 일이 없다.
+ *
+ * `security invoker`(기본)라 위 정책이 그대로 걸린다 — 넣는 것은 늘
+ * `auth.uid()`의 줄이라 남의 읽음은 못 건드린다.
+ */
+create or replace function mark_room_read(p_room uuid)
+returns void language sql set search_path = public as $$
+    insert into room_reads (room_id, user_id, last_read_at)
+    values (p_room, auth.uid(), now())
+    on conflict (room_id, user_id) do update set last_read_at = now();
+$$;
+
+
 -- ═══ 7-1. 알림 받을 기기 ═══════════════════════════════════════
 --
 -- 앱을 안 보고 있을 때 폰으로 밀어 줄 곳. **사람이 아니라 기기 단위다** —
@@ -1017,7 +1088,7 @@ begin
     foreach t in array array[
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
         'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles',
-        'settlements', 'settlement_shares'
+        'settlements', 'settlement_shares', 'room_reads'
     ] loop
         if not exists (
             select 1 from pg_publication_tables

@@ -169,8 +169,20 @@ export const push_subscriptions = [
       p256dh: 'x', auth: 'y', ua: 'headless', chat: true, created_at: iso(-3) },
 ];
 
+/* 사람마다 대화를 어디까지 읽었나. 말풍선 옆의 `안 읽은 사람 수`가 이걸로
+   셈해진다. 회원 다섯 중 셋만 최근까지 읽은 것으로 두어, 숫자가 나오는
+   말풍선과 안 나오는(다 읽은) 말풍선이 한 화면에 같이 보이게 했다. */
+export const room_reads = [
+    { room_id: 'room1', user_id: uid(1), last_read_at: iso(1, 0, 0) },   // 나 — 다 읽음
+    { room_id: 'room1', user_id: uid(2), last_read_at: iso(0, 9, 36) },
+    { room_id: 'room1', user_id: uid(3), last_read_at: iso(0, 9, 40) },
+    { room_id: 'room1', user_id: uid(4), last_read_at: iso(0, 8, 30) },  // 뒤처짐
+    // uid(5) 정우성은 줄이 아예 없다 — 한 번도 안 읽은 사람.
+];
+
 export const tables = {
     profiles, rounds, signups, round_comments, settlements, settlement_shares,
     polls, poll_options, poll_votes,
-    poll_comments, posts, post_comments, rooms, messages, push_subscriptions,
+    poll_comments, posts, post_comments, rooms, messages, room_reads,
+    push_subscriptions,
 };
