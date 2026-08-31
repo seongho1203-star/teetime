@@ -654,30 +654,68 @@ create index if not exists messages_room_idx on messages (room_id, created_at de
  *
  * 방이 아직 없으면(설치 직후) 조용히 지나간다.
  */
+/**
+ * 마감된 투표인가.
+ *
+ * **화면의 `pollClosed()`(types.ts)와 같은 잣대여야 한다** — 손으로 마감했거나
+ * 마감 시각이 지났으면 끝난 것이다. 한쪽만 고치면 화면에는 진행중인데
+ * DB는 마감으로 보는 일이 생긴다.
+ * (`cast_vote`는 이 둘을 따로 본다 — 왜 막혔는지 사람에게 다르게 알려
+ *  주려는 것이라, 규칙이 갈린 게 아니라 말만 갈라 놓은 것이다.)
+ */
+create or replace function poll_shut(p_closed boolean, p_closes timestamptz)
+returns boolean language sql stable as $$
+    select p_closed or (p_closes is not null and p_closes < now());
+$$;
+
 create or replace function announce_to_chat()
 returns trigger language plpgsql security definer
 set search_path = public as $$
 declare
-    room uuid;
-    who  text;
-    line text;
+    room  uuid;
+    who   text;
+    line  text;
+    actor uuid;
+    again boolean := false;
 begin
     select id into room from rooms where round_id is null order by created_at limit 1;
     if room is null then return null; end if;
 
+    /* **다시 연 것도 알린다.** 예전에는 새로 올릴 때만(`after insert`) 적어서,
+       마감했던 투표를 다시 열면 대화방에 아무 말도 안 남았다 — 열어 둔 줄
+       모르고 지나간다. 고친 것이 그것뿐일 때는 조용히 지나간다. */
+    if tg_op = 'UPDATE' then
+        if tg_table_name = 'rounds' then
+            again := old.status <> 'open' and new.status = 'open';
+        else
+            again := poll_shut(old.closed, old.closes_at)
+                 and not poll_shut(new.closed, new.closes_at);
+        end if;
+        if not again then return null; end if;
+    end if;
+
+    /* 누가 한 일인가. 새로 올린 것은 **올린 사람**, 다시 연 것은 **지금 누른
+       사람**이다 — 남이 연 투표를 운영진이 다시 열 수 있다.
+       SQL 편집기에서 고치면 `auth.uid()`가 없으므로 만든 사람으로 되돌아간다. */
+    actor := case when tg_op = 'INSERT' then new.created_by
+                  else coalesce(auth.uid(), new.created_by) end;
+    select name into who from profiles where id = actor;
+    who := coalesce(nullif(who, ''), '누군가');
+
     if tg_table_name = 'rounds' then
-        select name into who from profiles where id = new.created_by;
-        line := coalesce(nullif(who, ''), '누군가') || '님이 '
+        line := who || '님이 '
              || case when new.kind = 'screen' then '스크린' else '라운드' end
-             || ' 모집을 열었습니다'
+             || case when again then ' 모집을 다시 열었습니다'
+                                 else ' 모집을 열었습니다' end
              || case when coalesce(new.course, '') <> '' then ' · ' || new.course else '' end;
     else
-        select name into who from profiles where id = new.created_by;
-        line := coalesce(nullif(who, ''), '누군가') || '님이 투표를 올렸습니다 · ' || new.title;
+        line := who || '님이 투표를 '
+             || case when again then '다시 열었습니다' else '올렸습니다' end
+             || ' · ' || new.title;
     end if;
 
     insert into messages (room_id, user_id, body, system)
-    values (room, new.created_by, line, true);
+    values (room, actor, line, true);
     return null;
 end $$;
 
@@ -687,6 +725,17 @@ create trigger rounds_announce after insert on rounds
 
 drop trigger if exists polls_announce on polls;
 create trigger polls_announce after insert on polls
+    for each row execute function announce_to_chat();
+
+/* 다시 열렸는지는 함수 안에서 가린다. 조건을 `when`에 적으면 라운드·투표
+   두 벌로 갈라져, 규칙이 바뀔 때 한쪽만 고치게 된다. 라운드·투표를 고치는
+   일은 드물어 매번 함수가 도는 값은 안 든다. */
+drop trigger if exists rounds_reopen on rounds;
+create trigger rounds_reopen after update on rounds
+    for each row execute function announce_to_chat();
+
+drop trigger if exists polls_reopen on polls;
+create trigger polls_reopen after update on polls
     for each row execute function announce_to_chat();
 
 -- 전체 채팅방 하나는 항상 있어야 한다.

@@ -68,6 +68,12 @@ export const polls = [
     { id: 'p2', title: '가을 워크숍 장소', body: '',
       multi: false, anonymous: false, closes_at: null, closed: true,
       created_by: uid(1), created_at: iso(-30) },
+    /* **마감 시각이 지나 끝난 투표.** `closed`는 아직 false다 — 이 상태에서
+       단추가 `마감`으로 보이면(옛 코드가 그랬다) 이미 끝난 것을 또 마감하는
+       셈이고, 그 뒤에 눌러도 마감 시각이 그대로라 안 열린다. */
+    { id: 'p3', title: '12월 송년 모임 날짜', body: '',
+      multi: true, anonymous: false, closes_at: iso(-3, 23, 59), closed: false,
+      created_by: uid(1), created_at: iso(-20) },
 ];
 
 export const poll_options = [

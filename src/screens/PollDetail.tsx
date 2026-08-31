@@ -94,10 +94,27 @@ export function PollDetail() {
     const yet = members.filter(p => !voted.has(p.id));
     const done = members.filter(p => voted.has(p.id));
 
-    const close = async () => {
-        const { error: err } = await supabase.from('polls')
-            .update({ closed: !poll.closed }).eq('id', poll.id);
+    /**
+     * 마감 ↔ 다시 열기.
+     *
+     * **`poll.closed`가 아니라 `pollClosed()`로 가른다.** 마감 시각이 지나
+     * 끝난 투표는 `closed`가 아직 false라, 그 값만 보면 단추에 `마감`이라고
+     * 적혀 있었다 — 이미 마감된 것을 또 마감하는 셈이다.
+     *
+     * **다시 열 때는 지나간 마감 시각을 함께 지운다.** 안 그러면 `closed`만
+     * 내려가고 시각은 그대로라 **열자마자 다시 닫힌 것으로 보인다** —
+     * `다시 열기`를 눌러도 아무 일이 안 일어나던 것이 이것이다.
+     * 앞으로 남은 마감 시각은 그대로 둔다(아직 뜻이 있는 값이다).
+     */
+    const toggleClosed = async () => {
+        const shut = pollClosed(poll);
+        const patch: { closed: boolean; closes_at?: null } = { closed: !shut };
+        if (shut && poll.closes_at && new Date(poll.closes_at) < new Date()) {
+            patch.closes_at = null;
+        }
+        const { error: err } = await supabase.from('polls').update(patch).eq('id', poll.id);
         if (err) { toast(readableError(err), 'error'); return; }
+        toast(shut ? '다시 열었습니다. 대화방에도 알렸습니다.' : '마감했습니다.', 'ok');
         reload();
     };
 
@@ -227,8 +244,8 @@ export function PollDetail() {
                 <div className="card">
                     <div className="section-title">{isAdmin ? '운영' : '내가 만든 투표'}</div>
                     <div className="row wrap" style={{ gap: 'var(--gap-sm)' }}>
-                        <button className="btn ghost sm" onClick={close}>
-                            {poll.closed ? '다시 열기' : '마감'}
+                        <button className="btn ghost sm" onClick={toggleClosed}>
+                            {closed ? '다시 열기' : '마감'}
                         </button>
                         <button className="btn danger sm" onClick={remove}>지우기</button>
                     </div>
