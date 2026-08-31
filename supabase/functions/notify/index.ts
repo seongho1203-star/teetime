@@ -8,7 +8,11 @@
  *   profiles           새 가입 → 운영진 모두 ('pending'으로 들어온 행)
  *   rounds             새 모집 → 연 사람 빼고 회원 모두
  *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
+ *   rounds · polls (UPDATE)  다시 열림 → 회원 모두
  *   settlement_shares  정산 → **그 몫의 주인 한 사람에게만** (금액이 사람마다 다르다)
+ *
+ * **`UPDATE`가 오면 그건 '다시 열렸다'는 뜻이다.** 무엇을 보고 가리는지는
+ * DB 트리거의 `when` 절에 있다 — 여기서 다시 가리지 않는다.
  *
  * 웹훅은 Supabase 화면(Database → Webhooks)에서 건다. 보낼 때
  * `x-notify-secret` 헤더에 NOTIFY_SECRET을 넣게 해 두었다 — 이 함수는
@@ -205,6 +209,42 @@ async function planFor(hook: Hook): Promise<Note | null> {
             // 투표가 여러 개 열려 있으면 목록으로 보내 봐야 또 찾아야 한다.
             url: `#/polls/${r.id}`,
             except: typeof r.created_by === 'string' ? r.created_by : null,
+        };
+    }
+
+    /* ── 다시 열렸다 ────────────────────────────────────────────
+     *
+     * **여기까지 왔다는 것이 곧 '다시 열렸다'는 뜻이다.** 무엇을 보고
+     * 가리는지는 DB 트리거의 `when` 절에 있다(`docs/설치.md` 3번) —
+     * 마감했다 푼 것만 이 함수를 부르고, 제목만 고치거나 마감할 때는
+     * 아예 안 부른다. 그래서 여기서 `old_record`를 볼 필요가 없다
+     * (`notify_push()`가 그 칸을 null로 보내기도 한다).
+     *
+     * **말을 새로 올린 것과 갈라 적는다.** `🗳 새 투표`라고 오면 새 투표가
+     * 생긴 줄 알고 들어갔다가 아까 그것을 보게 된다.
+     *
+     * **누가 눌렀는지는 뺄 수 없다.** 웹훅이 주는 것은 바뀐 행뿐이라
+     * 누른 사람을 알 길이 없다 — `created_by`로 빼면 남이 다시 열었을 때
+     * **정작 만든 사람만 소식을 못 듣는다.** 그래서 아무도 안 뺀다:
+     * 누른 사람에게 한 번 더 울리는 쪽이 덜 나쁘다.
+     */
+    if (hook.table === 'polls' && hook.type === 'UPDATE') {
+        return {
+            title: '🗳 투표 다시 열림',
+            body: `${String(r.title ?? '').slice(0, 80)}\n다시 고르실 수 있습니다`,
+            tag: `poll-${r.id}`,
+            url: `#/polls/${r.id}`,
+        };
+    }
+
+    if (hook.table === 'rounds' && hook.type === 'UPDATE') {
+        const course = typeof r.course === 'string' && r.course ? r.course : '라운드';
+        const screen = r.kind === 'screen';
+        return {
+            title: screen ? '🎯 스크린 다시 열림' : '⛳ 모집 다시 열림',
+            body: `${course} 모집이 다시 열렸습니다`,
+            tag: `round-${r.id}`,
+            url: `#/rounds/${r.id}`,
         };
     }
 
