@@ -7,7 +7,7 @@ import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
-import { ROLE_LABEL } from '../lib/types';
+import { ROLE_LABEL, canSettle } from '../lib/types';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { shrinkImage } from '../lib/image';
 import {
@@ -233,6 +233,20 @@ export function Me() {
                         <span className="grow">회원 명단</span>
                         <span className="chev">›</span>
                     </Link>
+                    {/* **총무·운영진에게만.** 탭바에는 안 넣는다 — 탭 다섯의
+                        순서는 사용자가 정한 것이고, 한두 사람이 쓰는 화면
+                        때문에 모두의 탭을 늘릴 이유가 없다. */}
+                    {canSettle(profile?.role) && (
+                        <Link className="menu-item" to="/settle">
+                            <span className="grow">
+                                <span className="b">정산 현황</span>
+                                <br /><span className="xs faint">
+                                    안 걷힌 돈과 안 내신 분을 한 번에 봅니다
+                                </span>
+                            </span>
+                            <span className="chev">›</span>
+                        </Link>
+                    )}
                     {installable && (
                         <button className="menu-item" onClick={() => promptInstall()}>
                             <span className="grow">

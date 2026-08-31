@@ -18,6 +18,11 @@ export const profiles = [
     { id: uid(3), name: '김지명', avatar_url: null, role: 'staff', joined_at: iso(-100), car: '56다 7890',  phone: null, memo: '', created_at: iso(-100) },
     { id: uid(4), name: '박승수', avatar_url: null, role: 'treasurer', joined_at: iso(-90),  car: '78라 1234',   phone: null, memo: '', created_at: iso(-90) },
     { id: uid(5), name: '정우성', avatar_url: null, role: 'member', joined_at: iso(-40),  car: null, phone: null, memo: '', created_at: iso(-40) },
+    /* 여덟 명이 차야 **조가 둘로 갈린다** — 네 명짜리 라운드만 두면 조
+       편성이 늘 한 덩어리라, 조별로 묶어 그리는 것이 맞는지 확인이 안 된다. */
+    { id: uid(9),  name: '오세훈', avatar_url: null, role: 'member', joined_at: iso(-35), car: '90마 1122', phone: null, memo: '', created_at: iso(-35) },
+    { id: uid(10), name: '장동건', avatar_url: null, role: 'member', joined_at: iso(-33), car: null, phone: null, memo: '', created_at: iso(-33) },
+    { id: uid(11), name: '임채원', avatar_url: null, role: 'member', joined_at: iso(-31), car: '11바 3344', phone: null, memo: '', created_at: iso(-31) },
     { id: uid(6), name: '한도현', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: '010-9999-1111', memo: '', created_at: iso(-1) },
     { id: uid(7), name: '조민석', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: null, memo: '', created_at: iso(0) },
     // 추방된 사람. 명단 아래 칸이 어떻게 보이는지 확인용.
@@ -51,14 +56,32 @@ export const rounds = [
       note: '', created_by: uid(1), created_at: iso(-30) },
 ];
 
+/* `grp`가 몇 조인가. **r1은 아직 안 짠 라운드로 둔다** — 조를 안 짜는
+   라운드가 대부분이라, 그때 명단이 예전처럼 한 줄로 그려지는지도 봐야 한다.
+   조가 짜인 것은 r2다(여덟 명 · 두 조). */
 export const signups = [
-    { id: 's1', round_id: 'r1', user_id: uid(2), state: 'confirmed', seq: 1, note: '', created_at: iso(-9) },
-    { id: 's2', round_id: 'r1', user_id: uid(3), state: 'confirmed', seq: 2, note: '', created_at: iso(-9) },
-    { id: 's3', round_id: 'r1', user_id: uid(1), state: 'confirmed', seq: 3, note: '', created_at: iso(-8) },
-    { id: 's4', round_id: 'r1', user_id: uid(4), state: 'confirmed', seq: 4, note: '', created_at: iso(-8) },
-    { id: 's5', round_id: 'r1', user_id: uid(5), state: 'waitlist',  seq: 5, note: '', created_at: iso(-7) },
-    { id: 's6', round_id: 'r2', user_id: uid(3), state: 'confirmed', seq: 1, note: '', created_at: iso(-4) },
-    { id: 's7', round_id: 'r2', user_id: uid(4), state: 'confirmed', seq: 2, note: '', created_at: iso(-4) },
+    { id: 's1', round_id: 'r1', user_id: uid(2), state: 'confirmed', seq: 1, grp: null, note: '', created_at: iso(-9) },
+    { id: 's2', round_id: 'r1', user_id: uid(3), state: 'confirmed', seq: 2, grp: null, note: '', created_at: iso(-9) },
+    { id: 's3', round_id: 'r1', user_id: uid(1), state: 'confirmed', seq: 3, grp: null, note: '', created_at: iso(-8) },
+    { id: 's4', round_id: 'r1', user_id: uid(4), state: 'confirmed', seq: 4, grp: null, note: '', created_at: iso(-8) },
+    { id: 's5', round_id: 'r1', user_id: uid(5), state: 'waitlist',  seq: 5, grp: null, note: '', created_at: iso(-7) },
+
+    { id: 's6',  round_id: 'r2', user_id: uid(3),  state: 'confirmed', seq: 1, grp: 1, note: '', created_at: iso(-4) },
+    { id: 's7',  round_id: 'r2', user_id: uid(4),  state: 'confirmed', seq: 2, grp: 1, note: '', created_at: iso(-4) },
+    { id: 's8',  round_id: 'r2', user_id: uid(1),  state: 'confirmed', seq: 3, grp: 1, note: '', created_at: iso(-4) },
+    { id: 's9',  round_id: 'r2', user_id: uid(2),  state: 'confirmed', seq: 4, grp: 1, note: '', created_at: iso(-3) },
+    { id: 's10', round_id: 'r2', user_id: uid(9),  state: 'confirmed', seq: 5, grp: 2, note: '', created_at: iso(-3) },
+    { id: 's11', round_id: 'r2', user_id: uid(10), state: 'confirmed', seq: 6, grp: 2, note: '', created_at: iso(-3) },
+    { id: 's12', round_id: 'r2', user_id: uid(11), state: 'confirmed', seq: 7, grp: 2, note: '', created_at: iso(-2) },
+    /* **조가 정해진 뒤에 대기에서 올라온 사람.** `미배정`으로 뜨는지 본다 —
+       자리가 나면 실제로 이 상태가 되고, 그걸 못 보면 조가 하나 빈 채로 나간다. */
+    { id: 's13', round_id: 'r2', user_id: uid(5),  state: 'confirmed', seq: 8, grp: null, note: '', created_at: iso(-1) },
+];
+
+/* 조 편성이 공개된 라운드 하나. 조별 시각이 8분씩 밀리는 흔한 모양이다. */
+export const round_groups = [
+    { round_id: 'r2', tees: { 1: iso(12, 7, 30), 2: iso(12, 7, 38) },
+      posted_by: uid(1), posted_at: iso(-1) },
 ];
 
 export const polls = [
@@ -111,6 +134,9 @@ export const settlements = [
     { id: 'st1', round_id: 'r1', title: '무등산CC 그린피 + 카트비',
       body: '캐디피는 현장에서 각자 냅니다.', bank: '국민', account: '123456-78-901234',
       total: 70000, created_by: uid(4), created_at: iso(-1) },
+    { id: 'st2', round_id: 'r3', title: '해피니스CC 뒤풀이',
+      body: '', bank: '국민', account: '123456-78-901234',
+      total: 30000, created_by: uid(4), created_at: iso(-20) },
 ];
 
 export const settlement_shares = [
@@ -118,6 +144,14 @@ export const settlement_shares = [
     { id: 'sh2', settlement_id: 'st1', user_id: uid(2), amount: 20000, paid: true,  created_at: iso(-1) },
     { id: 'sh3', settlement_id: 'st1', user_id: uid(3), amount: 20000, paid: false, created_at: iso(-1) },
     { id: 'sh4', settlement_id: 'st1', user_id: uid(4), amount: 20000, paid: true,  created_at: iso(-1) },
+    // 다 걷힌 정산. 총무 화면에서 이건 목록에 안 나오고 아래 한 줄로만 세어진다.
+    { id: 'sh5', settlement_id: 'st2', user_id: uid(1), amount: 15000, paid: true, created_at: iso(-20) },
+    { id: 'sh6', settlement_id: 'st2', user_id: uid(3), amount: 15000, paid: true, created_at: iso(-20) },
+];
+
+/* 독촉을 한 번 보낸 기록. `마지막 알림 …` 줄이 나오는지 본다. */
+export const settle_reminders = [
+    { id: 'sr1', settlement_id: 'st1', created_by: uid(4), created_at: iso(0, 9, 10) },
 ];
 
 export const posts = [
@@ -184,10 +218,17 @@ export const room_reads = [
     { room_id: 'room1', user_id: uid(3), last_read_at: iso(0, 9, 40) },
     { room_id: 'room1', user_id: uid(4), last_read_at: iso(0, 8, 30) },  // 뒤처짐
     // uid(5) 정우성은 줄이 아예 없다 — 한 번도 안 읽은 사람.
+    /* 뒤에 늘린 셋은 **다 읽은 것으로** 둔다. 안 그러면 모든 말풍선에 +3이
+       얹혀, 숫자가 나오는 것과 안 나오는 것이 한 화면에 같이 보이게 맞춰 둔
+       위 배치가 통째로 무너진다. */
+    { room_id: 'room1', user_id: uid(9),  last_read_at: iso(1, 0, 0) },
+    { room_id: 'room1', user_id: uid(10), last_read_at: iso(1, 0, 0) },
+    { room_id: 'room1', user_id: uid(11), last_read_at: iso(1, 0, 0) },
 ];
 
 export const tables = {
-    profiles, rounds, signups, round_comments, settlements, settlement_shares,
+    profiles, rounds, signups, round_groups, round_comments,
+    settlements, settlement_shares, settle_reminders,
     polls, poll_options, poll_votes,
     poll_comments, posts, post_comments, rooms, messages, room_reads,
     push_subscriptions,

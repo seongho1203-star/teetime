@@ -299,6 +299,32 @@ create table if not exists signups (
 
 create index if not exists signups_round_seq_idx on signups (round_id, seq);
 
+-- **조 편성.** 필드는 네 명이 한 조로 돌고, 스크린도 타석 단위로 나뉜다.
+-- 카톡에서 "1조 누구누구" 하고 적던 것을 여기로 옮긴 것이다.
+-- null이면 아직 안 정한 것이다 — 조를 안 짜는 라운드가 대부분이라 그게 기본이다.
+-- ⚠️ 위 `create table`은 이미 있는 표를 안 고친다. 이 줄이 있어야 한다.
+alter table signups add column if not exists grp smallint;
+alter table signups drop constraint if exists signups_grp_check;
+alter table signups add  constraint signups_grp_check check (grp is null or grp between 1 and 20);
+
+
+-- **조 편성이 공개됐다는 표시.** 라운드 하나에 한 줄이다.
+--
+-- 조 번호는 사람(`signups.grp`)에 붙는데, 그것만으로는 **언제 공개됐는지**와
+-- **조별 시각**을 담을 데가 없다. 무엇보다 알림을 걸 자리가 필요했다 —
+-- 웹훅은 행이 바뀔 때 도는데 `signups`를 열여섯 줄 고치면 열여섯 번 운다.
+-- 여기에 한 줄만 쓰면 저장 한 번에 알림도 한 번이다.
+--
+-- `tees`는 `{"1": "2026-09-01T07:00:00+09:00", "2": ...}` 꼴로, 조 번호가
+-- 키다. 조마다 티오프가 8분씩 밀리는 것이 흔해서 따로 적을 자리를 두었다.
+-- 안 적으면 빈 객체다 — 라운드의 티오프 하나로 충분한 모임도 있다.
+create table if not exists round_groups (
+    round_id  uuid primary key references rounds on delete cascade,
+    tees      jsonb not null default '{}'::jsonb,
+    posted_by uuid references profiles on delete set null,
+    posted_at timestamptz not null default now()
+);
+
 
 -- ── 신청 ──────────────────────────────────────────────────────
 --
@@ -361,6 +387,65 @@ end;
 $$;
 
 
+-- ── 빈 자리를 대기자로 채운다 ─────────────────────────────────
+--
+-- **빈 자리를 세어 그만큼 올린다.** 한 명만 올리게 두면 자리가 둘 이상
+-- 났을 때(정원을 늘렸을 때) 한 자리밖에 안 채워진다.
+--
+-- 취소·강제 제외·**정원 늘리기** 셋이 이 한 곳을 같이 쓴다. 예전에는
+-- 취소와 제외가 각자 `대기 1번 하나만` 올리는 코드를 따로 들고 있었고,
+-- 그래서 **정원을 4명에서 8명으로 늘려도 대기자가 그대로 남았다** —
+-- 자리는 넷이나 비었는데 아무도 안 올라가니, 운영자는 늘렸다고 알리고
+-- 대기자는 영영 대기였다. 규칙을 여기 하나로 모아 그 구멍을 막았다.
+create or replace function promote_waitlist(p_round uuid)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_cap  int;
+    v_open int;
+    v_n    int := 0;
+begin
+    -- 잠근다. 두 사람이 동시에 취소하면 같은 대기자를 두 번 올리려 든다.
+    select capacity into v_cap from rounds where id = p_round for update;
+    if v_cap is null then return 0; end if;
+
+    select v_cap - count(*) into v_open
+      from signups where round_id = p_round and state = 'confirmed';
+    if v_open <= 0 then return 0; end if;
+
+    update signups set state = 'confirmed'
+     where id in (
+        select id from signups
+         where round_id = p_round and state = 'waitlist'
+         order by seq
+         limit v_open
+     );
+    get diagnostics v_n = row_count;
+    return v_n;
+end;
+$$;
+
+
+-- **정원을 늘리면 대기자가 저절로 올라간다.**
+-- 줄일 때는 아무도 안 뺀다 — 이미 확정된 사람을 앱이 말없이 내리면
+-- 그 사람은 영문을 모른 채 자리를 잃는다. 그건 사람이 `✕`로 할 일이다.
+create or replace function rounds_capacity_sync()
+returns trigger language plpgsql security definer
+set search_path = public as $$
+begin
+    perform promote_waitlist(new.id);
+    return null;
+end $$;
+
+drop trigger if exists rounds_capacity_grew on rounds;
+create trigger rounds_capacity_grew after update on rounds
+    for each row when (new.capacity > old.capacity)
+    execute function rounds_capacity_sync();
+
+
 -- ── 신청 취소 ─────────────────────────────────────────────────
 --
 -- 확정된 사람이 빠지면 대기자 맨 앞을 자동으로 올린다.
@@ -389,15 +474,9 @@ begin
         return;                      -- 애초에 신청한 적이 없다
     end if;
 
-    -- 확정 자리가 하나 비었으니 대기 1번을 올린다.
+    -- 확정 자리가 비었으니 대기 줄에서 올린다.
     if v_state = 'confirmed' then
-        update signups set state = 'confirmed'
-         where id = (
-            select id from signups
-             where round_id = p_round and state = 'waitlist'
-             order by seq
-             limit 1
-         );
+        perform promote_waitlist(p_round);
     end if;
 end;
 $$;
@@ -424,13 +503,100 @@ begin
     returning state into v_state;
 
     if v_state = 'confirmed' then
-        update signups set state = 'confirmed'
-         where id = (
-            select id from signups
-             where round_id = p_round and state = 'waitlist'
-             order by seq limit 1
-         );
+        perform promote_waitlist(p_round);
     end if;
+end;
+$$;
+
+
+-- ── 조 짜기 ───────────────────────────────────────────────────
+--
+-- **한 번에 다 쓴다.** 열여섯 명을 한 줄씩 고치면 쓰기가 열여섯 번이고,
+-- 실시간 이벤트도 열여섯 번이라 보는 사람 화면이 그만큼 다시 그려진다.
+-- 여기로 모으면 저장 한 번에 트랜잭션 하나, 알림도 한 번이다.
+--
+-- `p_grps`는 `{"<사람 id>": 2, ...}` 꼴이고 **이것이 곧 전부다** — 이 목록에
+-- 없는 사람은 조에서 빠진 것으로 본다. 화면이 늘 확정자 전원을 실어 보내므로
+-- '빼기'를 따로 만들 필요가 없다.
+--
+-- **안 바뀐 줄에는 쓰기를 안 보낸다**(투표 항목과 같은 규칙이다).
+-- 조를 짜다 보면 저장을 여러 번 누르게 되는데, 그때마다 열여섯 줄이
+-- 다시 쓰이면 실시간 이벤트만 쌓인다.
+create or replace function set_round_groups(
+    p_round uuid,
+    p_grps  jsonb,
+    p_tees  jsonb default '{}'::jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    r          rounds;
+    v_moved    int;
+    v_old_tees jsonb;
+    v_groups   int;
+    v_actor    uuid;
+begin
+    select * into r from rounds where id = p_round;
+    if not found then
+        raise exception '없는 라운드입니다.';
+    end if;
+    -- **모집을 연 사람과 운영진.** 라운드를 고칠 수 있는 사람과 같은 잣대다.
+    if not (is_admin() or r.created_by = auth.uid()) then
+        raise exception '모집을 연 사람과 운영진만 조를 짤 수 있습니다.';
+    end if;
+
+    p_grps := coalesce(p_grps, '{}'::jsonb);
+    p_tees := coalesce(p_tees, '{}'::jsonb);
+
+    -- 조 번호는 1~20의 정수뿐이다. 화면을 거치지 않고 부를 수도 있으니 여기서 본다.
+    if exists (
+        select 1 from jsonb_each_text(p_grps) e
+         where coalesce(e.value, '') <> ''
+           and (e.value !~ '^[0-9]+$' or e.value::int not between 1 and 20))
+    then
+        raise exception '조 번호가 올바르지 않습니다.';
+    end if;
+
+    update signups s
+       set grp = nullif(p_grps ->> s.user_id::text, '')::smallint
+     where s.round_id = p_round
+       and s.grp is distinct from nullif(p_grps ->> s.user_id::text, '')::smallint;
+    get diagnostics v_moved = row_count;
+
+    select count(distinct grp) into v_groups
+      from signups where round_id = p_round and grp is not null;
+
+    -- 아무도 조에 안 들었으면 편성을 걷어낸다. 그래야 화면에서 '조 편성
+    -- 지우기'가 되고, 지운 것이 알림으로 나가지도 않는다.
+    if v_groups = 0 then
+        delete from round_groups where round_id = p_round;
+        return;
+    end if;
+
+    select tees into v_old_tees from round_groups where round_id = p_round;
+
+    -- **바뀐 게 없으면 아예 안 쓴다.** 이 표에 쓰는 순간 알림이 나가므로,
+    -- 저장만 다시 눌렀을 때 폰이 또 울리면 안 된다.
+    if v_moved = 0 and v_old_tees is not distinct from p_tees then
+        return;
+    end if;
+
+    v_actor := coalesce(auth.uid(), r.created_by);
+
+    insert into round_groups (round_id, tees, posted_by, posted_at)
+    values (p_round, p_tees, v_actor, now())
+    on conflict (round_id) do update
+       set tees = excluded.tees, posted_by = excluded.posted_by,
+           posted_at = excluded.posted_at;
+
+    -- 대화방에도 한 줄 남긴다 — 모집·투표와 같은 결이다.
+    perform chat_notice(
+        coalesce(nullif(r.course, ''), nullif(r.title, ''), '라운드')
+        || ' 조 편성이 나왔습니다 · ' || v_groups || '개 조',
+        v_actor);
 end;
 $$;
 
@@ -607,6 +773,24 @@ create table if not exists settlement_shares (
 
 create index if not exists settlement_shares_user_idx on settlement_shares (user_id);
 
+-- **입금 독촉을 보낸 기록.** 한 줄이 곧 '한 번 보냈다'는 뜻이다.
+--
+-- 알림은 새 행이 생길 때 나가므로(웹훅), 이미 있는 몫 행(`settlement_shares`)을
+-- 다시 밀 방법이 없다. 그래서 누를 때마다 여기 한 줄을 남기고, 발송기는
+-- 그 정산에서 **아직 안 낸 사람만** 골라 보낸다.
+--
+-- 기록이 남는 것도 값이 있다 — 마지막으로 언제 보냈는지 총무가 볼 수 있어
+-- 하루에 세 번 보내는 일이 없다.
+create table if not exists settle_reminders (
+    id            uuid primary key default gen_random_uuid(),
+    settlement_id uuid not null references settlements on delete cascade,
+    created_by    uuid references profiles on delete set null,
+    created_at    timestamptz not null default now()
+);
+
+create index if not exists settle_reminders_idx
+    on settle_reminders (settlement_id, created_at desc);
+
 
 -- ═══ 6. 채팅 ═══════════════════════════════════════════════════
 --
@@ -668,19 +852,40 @@ returns boolean language sql stable as $$
     select p_closed or (p_closes is not null and p_closes < now());
 $$;
 
+/**
+ * 대화방에 안내 한 줄 남기기.
+ *
+ * **전체 대화방은 `round_id`가 없는 방 중 가장 먼저 만든 것**이다.
+ * 방이 하나도 없으면(설치 직후) 조용히 지나간다 — 안내 한 줄 때문에
+ * 모집 열기가 통째로 실패하면 안 된다.
+ *
+ * `security definer`인 것은 방을 찾는 조회가 RLS에 안 걸리게 하려는 것이다.
+ * 글의 주인(`user_id`)은 그 일을 한 사람이라, 대화에서는 그 사람이 남긴
+ * 것으로 남는다.
+ *
+ * **부르는 곳이 둘이다** — 모집·투표 트리거(`announce_to_chat`)와
+ * 조 편성(`set_round_groups`). 방을 찾는 규칙이 두 벌이 되지 않게 모아 두었다.
+ */
+create or replace function chat_notice(p_line text, p_actor uuid)
+returns void language plpgsql security definer
+set search_path = public as $$
+declare room uuid;
+begin
+    select id into room from rooms where round_id is null order by created_at limit 1;
+    if room is null then return; end if;
+    insert into messages (room_id, user_id, body, system)
+    values (room, p_actor, p_line, true);
+end $$;
+
 create or replace function announce_to_chat()
 returns trigger language plpgsql security definer
 set search_path = public as $$
 declare
-    room  uuid;
     who   text;
     line  text;
     actor uuid;
     again boolean := false;
 begin
-    select id into room from rooms where round_id is null order by created_at limit 1;
-    if room is null then return null; end if;
-
     /* **다시 연 것도 알린다.** 예전에는 새로 올릴 때만(`after insert`) 적어서,
        마감했던 투표를 다시 열면 대화방에 아무 말도 안 남았다 — 열어 둔 줄
        모르고 지나간다. 고친 것이 그것뿐일 때는 조용히 지나간다. */
@@ -714,8 +919,7 @@ begin
              || ' · ' || new.title;
     end if;
 
-    insert into messages (room_id, user_id, body, system)
-    values (room, actor, line, true);
+    perform chat_notice(line, actor);
     return null;
 end $$;
 
@@ -767,6 +971,8 @@ alter table poll_comments enable row level security;
 alter table round_comments enable row level security;
 alter table settlements       enable row level security;
 alter table settlement_shares enable row level security;
+alter table settle_reminders  enable row level security;
+alter table round_groups      enable row level security;
 alter table rooms         enable row level security;
 alter table messages      enable row level security;
 
@@ -843,6 +1049,16 @@ drop policy if exists signups_read on signups;
 drop policy if exists signups_admin on signups;
 create policy signups_read  on signups for select using (is_member());
 create policy signups_admin on signups for all    using (is_admin()) with check (is_admin());
+
+-- round_groups — **쓰기는 `set_round_groups`로만 한다.**
+-- `signups`에 직접 insert를 안 여는 것과 같은 이유다: 조 번호와 이 표는
+-- 함께 움직여야 하는데, 여기만 따로 고칠 수 있으면 '편성이 있다고 적혀
+-- 있는데 아무도 조에 없는' 상태가 만들어진다. 운영진에게만 지우기를
+-- 열어 두는 것은 되돌릴 길 하나는 남기려는 것이다.
+drop policy if exists round_groups_read on round_groups;
+drop policy if exists round_groups_admin on round_groups;
+create policy round_groups_read  on round_groups for select using (is_member());
+create policy round_groups_admin on round_groups for delete using (is_admin());
 
 -- polls ------------------------------------------------------
 drop policy if exists polls_read on polls;
@@ -930,6 +1146,15 @@ create policy shares_write      on settlement_shares for all
 -- 트리거가 막는다.
 create policy shares_own_paid on settlement_shares for update
     using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- settle_reminders — **총무·운영진만 보내고, 총무·운영진만 본다.**
+-- 회원에게는 알림으로 갈 뿐이라 이 표를 읽을 일이 없다. 지우기는 안 연다:
+-- 언제 보냈는지가 남아 있어야 하루에 세 번 보내는 일이 없다.
+drop policy if exists settle_reminders_read on settle_reminders;
+drop policy if exists settle_reminders_add  on settle_reminders;
+create policy settle_reminders_read on settle_reminders for select using (can_settle());
+create policy settle_reminders_add  on settle_reminders for insert
+    with check (can_settle() and created_by = auth.uid());
 
 create or replace function shares_amount_locked()
 returns trigger language plpgsql as $$
@@ -1158,7 +1383,7 @@ begin
     foreach t in array array[
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
         'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles',
-        'settlements', 'settlement_shares', 'room_reads'
+        'settlements', 'settlement_shares', 'room_reads', 'round_groups'
     ] loop
         if not exists (
             select 1 from pg_publication_tables

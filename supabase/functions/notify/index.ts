@@ -9,10 +9,14 @@
  *   rounds             새 모집 → 연 사람 빼고 회원 모두
  *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
  *   rounds · polls (UPDATE)  다시 열림 → 회원 모두
+ *   signups (UPDATE)   대기 → 확정 → **올라간 그 사람에게만**
+ *   round_groups       조 편성 → **그 라운드의 확정 참가자에게만**
  *   settlement_shares  정산 → **그 몫의 주인 한 사람에게만** (금액이 사람마다 다르다)
+ *   settle_reminders   입금 독촉 → **아직 안 낸 사람에게만**
  *
- * **`UPDATE`가 오면 그건 '다시 열렸다'는 뜻이다.** 무엇을 보고 가리는지는
- * DB 트리거의 `when` 절에 있다 — 여기서 다시 가리지 않는다.
+ * **`UPDATE`가 오면 그건 '뒤집혔다'는 뜻이다.** 무엇을 보고 가리는지는
+ * DB 트리거의 `when` 절에 있다 — 여기서 다시 가리지 않는다. 라운드·투표는
+ * '다시 열림', 신청은 '대기에서 확정으로 올라감'이다.
  *
  * 웹훅은 Supabase 화면(Database → Webhooks)에서 건다. 보낼 때
  * `x-notify-secret` 헤더에 NOTIFY_SECRET을 넣게 해 두었다 — 이 함수는
@@ -248,6 +252,62 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
+    /* ── 대기가 확정으로 올라갔다 ────────────────────────────────
+     *
+     * **이 알림이 없으면 올라간 사람은 앱을 열어 봐야 안다.** 자리는 남이
+     * 취소할 때 나므로 본인은 아무것도 안 한 채로 확정된다 — 라운드 전날
+     * 자리가 나도 모르고 안 나오는 일이 실제로 생길 자리였다.
+     *
+     * 트리거의 `when`이 '대기 → 확정'만 고르므로 여기서 다시 안 가린다.
+     * 정원을 늘려서 여럿이 한꺼번에 올라가면 사람마다 한 번씩 온다 —
+     * 각자에게 가는 소식이라 묶을 것이 없다.
+     */
+    if (hook.table === 'signups' && hook.type === 'UPDATE') {
+        if (typeof r.user_id !== 'string') return null;
+        const { data: rd } = await db.from('rounds')
+            .select('course, title, kind, tee_at').eq('id', r.round_id).maybeSingle();
+        const where = (rd?.course as string) || (rd?.title as string) || '라운드';
+        return {
+            title: '🎉 자리가 났습니다',
+            body: `${where} · 대기에서 참가 확정으로 올라갔습니다`,
+            /* 모집 알림(`round-`)과 갈라 둔다. 같은 tag면 알림창에서 서로를
+               밀어내는데, 이건 그 모집과 별개로 읽어야 할 소식이다. */
+            tag: `signup-${r.round_id}`,
+            url: `#/rounds/${r.round_id}`,
+            only: [r.user_id],
+        };
+    }
+
+    /* ── 조 편성이 나왔다 ────────────────────────────────────────
+     *
+     * **확정 참가자에게만** 간다. 안 가는 라운드의 조가 몇 명인지는
+     * 아무도 안 궁금하다.
+     *
+     * 이 표는 라운드 하나에 한 줄이라, 열여섯 명을 배정해도 알림은 한 번이다
+     * (`signups`를 열여섯 줄 고치는 것에 걸었으면 열여섯 번 울렸다).
+     * 저장을 다시 눌러도 바뀐 게 없으면 `set_round_groups`가 아예 안 쓰므로
+     * 여기까지 오지 않는다.
+     */
+    if (hook.table === 'round_groups') {
+        const [{ data: rd }, { data: ups }] = await Promise.all([
+            db.from('rounds').select('course, title').eq('id', r.round_id).maybeSingle(),
+            db.from('signups').select('user_id, grp')
+              .eq('round_id', r.round_id).eq('state', 'confirmed'),
+        ]);
+        const rows = ups ?? [];
+        const groups = new Set(
+            rows.map(x => x.grp).filter(g => g !== null && g !== undefined)).size;
+        const where = (rd?.course as string) || (rd?.title as string) || '라운드';
+        return {
+            title: '🚩 조 편성',
+            body: `${where} · ${groups}개 조로 나뉘었습니다`,
+            tag: `groups-${r.round_id}`,
+            url: `#/rounds/${r.round_id}`,
+            // 짠 사람은 방금 자기 손으로 저장했다. 본인에게까지 울릴 것 없다.
+            only: rows.map(x => x.user_id as string).filter(id => id !== r.posted_by),
+        };
+    }
+
     if (hook.table === 'posts' && hook.type === 'INSERT') {
         return {
             title: '📢 새 공지',
@@ -281,6 +341,40 @@ async function planFor(hook: Hook): Promise<Note | null> {
                `round_id`가 없는 옛 행이면 목록으로라도 보낸다. */
             url: st.round_id ? `#/rounds/${st.round_id}` : '#/rounds',
             only: typeof r.user_id === 'string' ? [r.user_id] : [],
+        };
+    }
+
+    /* ── 입금 독촉 ───────────────────────────────────────────────
+     *
+     * 총무가 `💬 아직 안 내신 분` 하고 대화방에 적던 일을 대신한다.
+     * **아직 안 낸 사람에게만** 가므로, 이미 낸 사람은 재촉받지 않는다 —
+     * 대화방에 적으면 그게 안 갈리는 것이 가장 성가신 점이었다.
+     *
+     * **금액은 안 적는다.** 이 알림 한 건이 여러 사람에게 가는데 낼 돈은
+     * 사람마다 다르다(중간 참여자). 잘못 적느니 안 적고, 눌러서 들어가면
+     * 자기 몫이 크게 적혀 있다. 계좌는 거기서 바로 복사할 수 있다.
+     *
+     * 다 낸 정산이면 보낼 사람이 없어 조용히 끝난다.
+     */
+    if (hook.table === 'settle_reminders' && hook.type === 'INSERT') {
+        const { data: st } = await db.from('settlements')
+            .select('title, bank, account, round_id')
+            .eq('id', r.settlement_id).maybeSingle();
+        if (!st) return null;
+        const { data: unpaid } = await db.from('settlement_shares')
+            .select('user_id').eq('settlement_id', r.settlement_id).eq('paid', false);
+        const only = (unpaid ?? []).map(x => x.user_id as string);
+        if (!only.length) return null;
+        const acc = [st.bank, st.account].filter(Boolean).join(' ');
+        return {
+            title: '💰 입금 부탁드립니다',
+            body: `${st.title}` + (acc ? `\n${acc}` : ''),
+            /* 정산 알림과 **같은 tag**를 쓴다. 처음 받은 알림을 아직 안
+               지웠으면 이 독촉이 그 자리를 대신한다 — 같은 정산 건으로
+               알림창에 두 줄이 쌓일 이유가 없다. */
+            tag: `settle-${r.settlement_id}`,
+            url: st.round_id ? `#/rounds/${st.round_id}` : '#/rounds',
+            only,
         };
     }
 

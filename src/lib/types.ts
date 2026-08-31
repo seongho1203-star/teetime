@@ -181,6 +181,41 @@ export type Signup = {
     state: SignupState;
     seq: number;
     note: string;
+    /**
+     * 몇 조인가. 안 정했으면 null — 조를 안 짜는 라운드가 대부분이라
+     * 그게 기본이다. 스키마를 아직 안 돌린 저장소에는 이 칸이 아예
+     * 없으므로 `undefined`도 온다(`roundKind`와 같은 사정이다).
+     */
+    grp: number | null;
+    created_at: string;
+};
+
+/**
+ * 조 편성이 공개됐다는 표시. 라운드 하나에 한 줄이다.
+ *
+ * 조 번호는 사람(`signups.grp`)에 붙어 있고, 이 줄은 **언제 누가 짰는지**와
+ * **조별 시각**을 담는다. 알림이 여기 걸려 있어서, 열여섯 명을 배정해도
+ * 폰은 한 번만 울린다.
+ */
+export type RoundGroup = {
+    round_id: string;
+    /** `{"1": "2026-09-01T07:00:00+09:00", ...}` — 키가 조 번호다. */
+    tees: Record<string, string>;
+    posted_by: string | null;
+    posted_at: string;
+};
+
+/** 한 라운드에 짤 수 있는 조의 최대 개수. DB의 `signups_grp_check`와 같다. */
+export const MAX_GROUPS = 20;
+
+/** 한 조에 몇 명을 넣을까. 필드는 네 명이 한 팀이라 그게 기본이다. */
+export const GROUP_SIZE = 4;
+
+/** 입금 독촉을 보낸 기록. 총무만 본다. */
+export type SettleReminder = {
+    id: string;
+    settlement_id: string;
+    created_by: string | null;
     created_at: string;
 };
 
@@ -373,6 +408,8 @@ export interface Database {
             round_comments: Table<RoundComment>;
             settlements: Table<Settlement>;
             settlement_shares: Table<SettlementShare>;
+            settle_reminders: Table<SettleReminder>;
+            round_groups: Table<RoundGroup>;
             posts: Table<Post>;
             post_comments: Table<PostComment>;
             rooms: Table<Room>;
@@ -385,6 +422,20 @@ export interface Database {
             join_round: { Args: { p_round: string; p_note?: string }; Returns: Signup };
             leave_round: { Args: { p_round: string }; Returns: void };
             kick_signup: { Args: { p_round: string; p_user: string }; Returns: void };
+            /**
+             * 조 편성을 통째로 저장한다. `p_grps`는 `{"<사람 id>": 2, ...}`,
+             * `p_tees`는 `{"1": "2026-09-01T07:00:00+09:00", ...}`.
+             * **목록에 없는 사람은 조에서 빠진 것으로 본다** — 화면이 늘
+             * 확정자 전원을 실어 보내므로 '빼기'를 따로 부르지 않는다.
+             */
+            set_round_groups: {
+                Args: {
+                    p_round: string;
+                    p_grps: Record<string, number | null>;
+                    p_tees?: Record<string, string>;
+                };
+                Returns: void;
+            };
             cast_vote: { Args: { p_option: string }; Returns: void };
             retract_vote: { Args: { p_option: string }; Returns: void };
             is_member: { Args: Record<string, never>; Returns: boolean };

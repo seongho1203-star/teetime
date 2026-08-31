@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
     CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL, roundKind,
-    type Person, type Round, type RoundComment, type Signup,
+    type Person, type Round, type RoundComment, type RoundGroup, type Signup,
     type Settlement, type SettlementShare,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
@@ -17,6 +17,7 @@ import { Comments } from '../components/Comments';
 import { Settlements } from '../components/Settlement';
 import { readableError } from '../lib/errors';
 import './Rounds.css';
+import './Groups.css';
 
 interface Loaded {
     round: Round | null;
@@ -25,6 +26,7 @@ interface Loaded {
     settlements: Settlement[];
     shares: SettlementShare[];
     people: Person[];
+    groups: RoundGroup | null;
 }
 
 export function RoundDetail() {
@@ -37,7 +39,7 @@ export function RoundDetail() {
     const [busy, setBusy] = useState(false);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        const [round, signups, comments, settlements, people] = await Promise.all([
+        const [round, signups, comments, settlements, people, groups] = await Promise.all([
             supabase.from('rounds').select('*').eq('id', id!).maybeSingle(),
             supabase.from('signups').select('*').eq('round_id', id!).order('seq'),
             supabase.from('round_comments').select('*').eq('round_id', id!)
@@ -45,7 +47,16 @@ export function RoundDetail() {
             supabase.from('settlements').select('*').eq('round_id', id!)
                     .order('created_at', { ascending: false }),
             fetchPeople(),
+            /* 조별 시각만 여기 있다. 조 번호는 `signups.grp`라 위에서 함께
+               왔으므로, 편성이 없으면 이 줄이 없을 뿐 나머지는 멀쩡하다. */
+            supabase.from('round_groups').select('*').eq('round_id', id!).maybeSingle(),
         ]);
+        /* **여기서 `unwrap`을 쓰지 않는다.** 스키마를 아직 다시 안 돌린
+           저장소에는 이 표가 아예 없어 오류가 돌아오는데, 그걸 던지면
+           **라운드 상세가 통째로 안 열린다.** 조 편성은 있으면 좋은 것이지
+           라운드를 못 보게 할 만한 것이 아니다 — 대화의 `image_url`을 안
+           보내는 것, `roundKind()`가 없는 칸을 필드로 보는 것과 같은 규칙이다. */
+        const groupRow = (groups.error ? null : groups.data) as RoundGroup | null;
         /* 몫은 정산을 받아 온 **뒤에** 그 id들로 부른다. 라운드 id로는
            못 걸러서다 — 몫 표에는 라운드가 안 적혀 있다. */
         const list = (unwrap(settlements) ?? []) as Settlement[];
@@ -60,11 +71,13 @@ export function RoundDetail() {
             settlements: list,
             shares: shares as SettlementShare[],
             people,
+            groups: groupRow,
         };
     }, [id], `round:${id}`);
 
     useRealtime(
-        ['signups', 'rounds', 'round_comments', 'settlements', 'settlement_shares'], reload);
+        ['signups', 'rounds', 'round_comments', 'settlements', 'settlement_shares',
+         'round_groups'], reload);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -85,6 +98,22 @@ export function RoundDetail() {
     const waiting = data.signups.filter(s => s.state === 'waitlist');
     const my = data.signups.find(s => s.user_id === me);
     const openSlots = Math.max(0, r.capacity - confirmed.length);
+    const mayEditGroups = isAdmin || r.created_by === me;
+
+    /* 조별로 묶은 확정자. **조가 하나도 없으면 빈 배열**이고, 그때는 아래에서
+       예전처럼 한 줄로 그린다 — 조를 안 짜는 라운드가 대부분이라 그게 기본이다.
+       미배정(`null`)은 늘 맨 뒤에 온다: 자리가 나서 나중에 올라온 사람이다. */
+    const grouped: [number | null, Signup[]][] = (() => {
+        if (!confirmed.some(s => s.grp != null)) return [];
+        const bag = new Map<number | null, Signup[]>();
+        for (const s of confirmed) {
+            const key = s.grp ?? null;
+            if (!bag.has(key)) bag.set(key, []);
+            bag.get(key)!.push(s);
+        }
+        return [...bag.entries()].sort(([a], [b]) =>
+            a === null ? 1 : b === null ? -1 : a - b);
+    })();
 
     const isPast = daysUntil(r.tee_at) < 0;
     /* **`opens_at`은 더 안 본다.** `신청 시작` 칸을 없앴으므로 새로 정할
@@ -255,7 +284,9 @@ export function RoundDetail() {
                 </div>
             )}
 
-            {/* ── 참가자 ── */}
+            {/* ── 참가자 ──
+                조가 짜여 있으면 **조별로 묶어 그린다.** 명단은 그대로인데
+                순서만 조 순서가 되므로, 내 조가 어디인지 훑을 필요가 없다. */}
             <div className="card">
                 <div className="row between">
                     <div className="section-title">
@@ -266,22 +297,68 @@ export function RoundDetail() {
                     )}
                 </div>
 
-                <div className="signup-list">
-                    {confirmed.map((s, i) => (
-                        <PersonRow
-                            key={s.id} seq={i + 1} profile={names[s.user_id]}
-                            isMe={s.user_id === me}
-                            onKick={isAdmin && s.user_id !== me ? () => kick(s.user_id) : undefined}
-                        />
-                    ))}
-                    {/* 남은 자리를 빈 줄로 그려 둔다 — 몇 자리인지 세지 않아도 보인다. */}
-                    {!isPast && Array.from({ length: openSlots }, (_, i) => (
-                        <div key={`slot-${i}`} className="signup-row empty-slot">
-                            <span className="signup-seq">{confirmed.length + i + 1}</span>
-                            <span>빈 자리</span>
-                        </div>
-                    ))}
-                </div>
+                {grouped.length > 0 ? (
+                    <>
+                        {grouped.map(([no, list]) => (
+                            <div key={no ?? 'none'} className="grp-block">
+                                <div className="grp-head">
+                                    <span className="grp-no">
+                                        {no === null ? '미배정' : `${no}조`}
+                                    </span>
+                                    {/* **내 조는 작은 표로만 알린다.** 칸을 통째로
+                                        분홍으로 칠해 봤는데, 분홍은 '지금 눌러야
+                                        할 것' 자리라 명단이 그 색을 덮으면 뜻이
+                                        무너진다. 내 줄은 어차피 `(나)`로 도드라진다. */}
+                                    {list.some(s => s.user_id === me) && (
+                                        <span className="badge brand">내 조</span>
+                                    )}
+                                    {no !== null && data.groups?.tees?.[no] && (
+                                        <span className="xs faint">
+                                            {TEE_LABEL[kind]} {formatTime(data.groups.tees[no])}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="signup-list">
+                                    {list.map((s, i) => (
+                                        <PersonRow
+                                            key={s.id} seq={i + 1} profile={names[s.user_id]}
+                                            isMe={s.user_id === me}
+                                            onKick={isAdmin && s.user_id !== me
+                                                ? () => kick(s.user_id) : undefined}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </>
+                ) : (
+                    <div className="signup-list">
+                        {confirmed.map((s, i) => (
+                            <PersonRow
+                                key={s.id} seq={i + 1} profile={names[s.user_id]}
+                                isMe={s.user_id === me}
+                                onKick={isAdmin && s.user_id !== me ? () => kick(s.user_id) : undefined}
+                            />
+                        ))}
+                        {/* 남은 자리를 빈 줄로 그려 둔다 — 몇 자리인지 세지 않아도 보인다. */}
+                        {!isPast && Array.from({ length: openSlots }, (_, i) => (
+                            <div key={`slot-${i}`} className="signup-row empty-slot">
+                                <span className="signup-seq">{confirmed.length + i + 1}</span>
+                                <span>빈 자리</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* **조 짜기로 들어가는 문.** 명단 바로 밑이라 눈이 가는
+                    자리다 — 운영 칸에 넣으면 화면 맨 아래라 못 찾는다. */}
+                {mayEditGroups && confirmed.length > 0 && (
+                    <div className="row" style={{ marginTop: 'var(--gap-sm)' }}>
+                        <Link className="btn ghost sm" to={`/rounds/${r.id}/groups`}>
+                            🚩 {grouped.length > 0 ? '조 편성 고치기' : '조 짜기'}
+                        </Link>
+                    </div>
+                )}
             </div>
 
             {waiting.length > 0 && (

@@ -31,6 +31,9 @@ const shots = [
     ['home',         '/#/'                            ],
     ['rounds',       '/#/rounds'                      ],
     ['round-detail', '/#/rounds/r1'                   ],
+    // 조가 짜인 라운드(r2 · 여덟 명 두 조)와 그걸 짜는 화면.
+    ['round-groups', '/#/rounds/r2'                   ],
+    ['group-edit',   '/#/rounds/r2/groups'            ],
     ['round-new',    '/#/rounds/new'                  ],
     ['polls',        '/#/polls'                       ],
     ['poll-new',     '/#/polls/new'                   ],
@@ -40,6 +43,7 @@ const shots = [
     ['chat',         '/#/chat'                        ],
     ['me',           '/#/me'                          ],
     ['members',      '/#/members'                     ],
+    ['settle',       '/#/settle'                      ],
 ];
 
 const errors = [];

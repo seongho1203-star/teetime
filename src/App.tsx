@@ -13,6 +13,7 @@ import { Home } from './screens/Home';
 import { Rounds } from './screens/Rounds';
 import { RoundDetail } from './screens/RoundDetail';
 import { RoundEdit } from './screens/RoundEdit';
+import { RoundGroups } from './screens/RoundGroups';
 import { Polls } from './screens/Polls';
 import { PollDetail } from './screens/PollDetail';
 import { PollEdit } from './screens/PollEdit';
@@ -22,6 +23,7 @@ import { PostEdit } from './screens/PostEdit';
 import { Chat } from './screens/Chat';
 import { Me } from './screens/Me';
 import { Members } from './screens/Members';
+import { Settle } from './screens/Settle';
 import { Help } from './screens/Help';
 
 /**
@@ -58,6 +60,7 @@ function Gate() {
                 <Route path="/rounds/new" element={<RoundEdit />} />
                 <Route path="/rounds/:id" element={<RoundDetail />} />
                 <Route path="/rounds/:id/edit" element={<RoundEdit />} />
+                <Route path="/rounds/:id/groups" element={<RoundGroups />} />
                 <Route path="/polls" element={<Polls />} />
                 <Route path="/polls/new" element={<PollEdit />} />
                 <Route path="/polls/:id" element={<PollDetail />} />
@@ -69,6 +72,7 @@ function Gate() {
                 <Route path="/chat" element={<Chat />} />
                 <Route path="/me" element={<Me />} />
                 <Route path="/members" element={<Members />} />
+                <Route path="/settle" element={<Settle />} />
                 <Route path="/help" element={<Help />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

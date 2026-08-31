@@ -74,10 +74,17 @@ for (let i = 0; i < ROUNDS; i++) {
     for (let j = 0; j < PER_ROUND; j++) {
         tables.signups.push({
             id: `s${i}_${j}`, round_id: `r${i}`, user_id: uid(1 + ((i * 7 + j) % N)),
-            state: j < 4 ? 'confirmed' : 'waitlist', seq: j + 1, created_at: iso(-YEAR + i),
+            state: j < 4 ? 'confirmed' : 'waitlist', seq: j + 1,
+            grp: j < 4 ? 1 : null, created_at: iso(-YEAR + i),
         });
     }
 }
+/* 조 편성은 라운드 하나에 한 줄이라 통신량에는 거의 안 잡힌다. 그래도
+   상세 화면이 실제로 그 줄을 받아 그리는 상태에서 재야 값이 맞다. */
+tables.round_groups = Array.from({ length: ROUNDS }, (_, i) => ({
+    round_id: `r${i}`, tees: { 1: iso(-YEAR + i) },
+    posted_by: uid(1), posted_at: iso(-YEAR + i),
+}));
 
 tables.polls = Array.from({ length: POLLS }, (_, i) => ({
     id: `p${i}`, title: `${(i % 12) + 1}월 정기 라운드 날짜`,
@@ -125,10 +132,17 @@ for (let i = 0; i < SETTLES; i++) {
     for (let j = 0; j < 4; j++) {
         tables.settlement_shares.push({
             id: `sh${i}_${j}`, settlement_id: `t${i}`, user_id: uid(1 + ((i + j) % N)),
-            amount: 120000, paid: true, created_at: iso(-YEAR + i * 3),
+            amount: 120000,
+            /* **다 걷힌 것만 두면 총무 화면이 빈 채로 재어진다.** 최근 다섯
+               건에는 안 낸 사람을 남겨 실제로 그리게 한다. */
+            paid: !(i >= SETTLES - 5 && j % 2 === 0),
+            created_at: iso(-YEAR + i * 3),
         });
     }
 }
+tables.settle_reminders = [{
+    id: 'sr0', settlement_id: `t${SETTLES - 1}`, created_by: uid(4), created_at: iso(-0.5),
+}];
 /* 읽음 표시 — **사람마다 한 줄**이다. 글마다가 아니라서 대화가 3만 개여도
    100줄로 끝난다. 8할은 최근까지 읽었고 나머지는 뒤처져 있다고 본다. */
 tables.room_reads = Array.from({ length: N }, (_, i) => ({
@@ -154,6 +168,9 @@ const SCREENS = [
     ['공지 목록',   '/#/board'],
     ['대화',       '/#/chat'],
     ['회원 명단',   '/#/members'],
+    /* 총무 화면. **정산 서른 건을 몫까지 딸려 받는다** — 여기가 조용히
+       무거워질 수 있는 자리라 함께 잰다. */
+    ['정산 현황',   '/#/settle'],
 ];
 
 const kb = n => (n / 1024).toFixed(1) + ' KB';

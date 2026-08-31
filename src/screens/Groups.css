@@ -1,0 +1,98 @@
+/* ── 조 짜기 ────────────────────────────────────────────────
+ *
+ * 조 카드가 여럿 쌓이는 화면이라, 카드 사이 간격과 안쪽 여백은 다른
+ * 목록과 같게 둔다(`--gap-sm` · 13px). 여기만 성기면 굴릴 거리가 길어진다.
+ */
+
+.grp-auto { padding-bottom: 10px; }
+.grp-auto p { margin-top: 6px; }
+
+/* `한 조에 [4명]` — 글자 길이로 폭이 정해지면 옆 단추와 안 맞는다. */
+.grp-size { width: 78px; flex: 0 0 auto; }
+
+/* 아직 아무도 없는 조. **지우지 말 것** — 이 빈 칸이 곧 `새 조 만들기`다.
+   흐리게 두어 다 찬 조와 눈으로 갈린다. */
+.grp-card.empty-grp { background: var(--surface-2); }
+.grp-card p { margin-top: 6px; }
+
+/* 조별 시각. 안 적어도 되는 값이라 제목 줄 오른쪽에 작게 붙인다 —
+   칸을 따로 한 줄 내주면 조가 넷일 때 화면이 그만큼 길어진다.
+   **폭을 못박는다**: 그냥 두면 칸이 줄 전체를 먹는다. `오전 07:30`(또는
+   `07:30 AM`)에 시계 아이콘까지 들어가는 폭이다. */
+.grp-tee {
+    flex: 0 0 auto;
+    width: 138px;
+    height: 34px;
+    padding: 0 8px;
+    font-size: var(--fs-sm);
+}
+
+.grp-people {
+    display: flex;
+    flex-direction: column;
+    margin-top: 8px;
+}
+
+.grp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    min-width: 0;
+}
+.grp-row + .grp-row { border-top: 1px solid var(--line); }
+
+/* 조를 옮기는 칩. **32px로 둔다** — 그보다 작으면 손가락에 안 잡힌다
+   (`.dev/audit.mjs`가 30px 미만을 잡아낸다). 조가 많아지면 아래로 접힌다. */
+.grp-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 5px;
+    flex: 0 1 auto;
+}
+
+.grp-chip {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    transition: transform 0.12s ease;
+}
+.grp-chip:active { transform: scale(0.94); }
+/* 지금 있는 조. **분홍이 아니라 먹색이다** — 분홍은 '지금 눌러야 할 것'
+   자리인데, 여기서는 사람마다 하나씩 켜져 있어 화면이 분홍으로 덮인다. */
+.grp-chip.on {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+}
+
+/* 조가 여섯을 넘으면 칩 대신 고르는 칸을 쓴다 — 칩이 두 줄로 접히면
+   사람 이름이 밀려 누구를 옮기는지가 안 보인다. */
+.grp-pick { width: 88px; flex: 0 0 auto; height: 34px; padding: 0 8px; }
+
+
+/* ── 라운드 상세에 보이는 조 ──────────────────────────────────
+ *
+ * 짜는 화면이 아니라 **읽는 화면**이다. 여기서는 옮길 수 없다.
+ */
+
+.grp-head {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    margin-bottom: 4px;
+}
+.grp-no {
+    font-size: var(--fs);
+    font-weight: 800;
+}
+/* 조 사이를 띄우는 것이 곧 묶음이다. 칸을 칠하지 않는다 — 안의 줄들이
+   이미 제 바탕을 갖고 있어 겹치면 탁해지고, 분홍은 '눌러야 할 것' 몫이다. */
+.grp-block + .grp-block { margin-top: 12px; }
