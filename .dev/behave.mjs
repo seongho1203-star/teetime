@@ -154,12 +154,12 @@ await go('/#/polls/p3/edit', 700);
 const sw2 = await page.$$eval('.switch', e => e.map(x => x.disabled));
 ok(sw2.length === 2 && sw2.every(d => !d), `표가 없으면 스위치가 열려 있다 (실제 ${JSON.stringify(sw2)})`);
 
-/* ── 4. 조 짜기 ─────────────────────────────────────────────────
+/* ── 4. 조 편성 ─────────────────────────────────────────────────
    **여덟 명을 옮겨도 쓰기는 한 번이다.** 한 줄씩 고치면 쓰기가 여덟 번이고
    실시간 이벤트도 여덟 번이라 보는 사람 화면이 그만큼 다시 그려진다.
    보내는 값이 `{사람: 조}` 통째인지도 함께 본다 — 목록에 없는 사람은
    DB가 조에서 빼므로, 확정자 전원을 실어 보내지 않으면 남이 조에서 사라진다. */
-console.log('\n── 조 짜기 ──');
+console.log('\n── 조 편성 ──');
 await go('/#/rounds/r2/groups', 700);
 rpc.length = 0;
 await page.getByText('저장', { exact: true }).click();

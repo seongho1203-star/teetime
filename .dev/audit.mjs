@@ -33,7 +33,7 @@ const ROUTES = [
     ['라운드',     '/#/rounds'],
     ['라운드 상세', '/#/rounds/r1'],
     ['조 편성된 라운드', '/#/rounds/r2'],
-    ['조 짜기',    '/#/rounds/r2/groups'],
+    ['조 편성',    '/#/rounds/r2/groups'],
     ['모집 열기',   '/#/rounds/new'],
     ['투표',       '/#/polls'],
     ['투표 만들기', '/#/polls/new'],

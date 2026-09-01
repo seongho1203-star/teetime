@@ -350,12 +350,15 @@ export function RoundDetail() {
                     </div>
                 )}
 
-                {/* **조 짜기로 들어가는 문.** 명단 바로 밑이라 눈이 가는
-                    자리다 — 운영 칸에 넣으면 화면 맨 아래라 못 찾는다. */}
+                {/* **조 편성으로 들어가는 문.** 명단 바로 밑이라 눈이 가는
+                    자리다 — 운영 칸에 넣으면 화면 맨 아래라 못 찾는다.
+                    **말은 `조 편성` 하나로 통일한다**(사용자가 정한 것이다) —
+                    여기만 `조 짜기`였는데, 눌러 들어간 화면 제목은 `조 편성`이라
+                    같은 것인지 한 번 더 생각하게 된다. */}
                 {mayEditGroups && confirmed.length > 0 && (
                     <div className="row" style={{ marginTop: 'var(--gap-sm)' }}>
                         <Link className="btn ghost sm" to={`/rounds/${r.id}/groups`}>
-                            🚩 {grouped.length > 0 ? '조 편성 고치기' : '조 짜기'}
+                            🚩 {grouped.length > 0 ? '조 편성 고치기' : '조 편성'}
                         </Link>
                     </div>
                 )}
