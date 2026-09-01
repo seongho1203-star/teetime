@@ -141,9 +141,12 @@ language sql security definer stable set search_path = public as $$
     );
 $$;
 
--- **정산을 다룰 수 있는가.** 총무와 운영진이다.
+-- **남의 정산까지 다룰 수 있는가.** 총무와 운영진이다.
 -- 총무를 따로 둔 이유가 이것이라, 정산 정책은 `is_admin()`이 아니라
 -- 이 함수를 본다.
+-- **정산을 만드는 것 자체는 회원 누구나 한다** — 자기가 만든 것을 자기가
+-- 고치는 길은 `owns_settlement()`가 따로 연다. 이 함수는 그 위, 남의 것까지
+-- 챙기는 권한이다(만든 사람이 한동안 안 들어올 때 돈이 뜨지 않게).
 create or replace function can_settle() returns boolean
 language sql security definer stable set search_path = public as $$
     select exists (
@@ -740,8 +743,10 @@ create index if not exists round_comments_round_idx on round_comments (round_id,
 -- ═══ 5-1. 정산 ═════════════════════════════════════════════════
 --
 -- 라운드 하나에 정산 여러 건이 달릴 수 있다(그린피 따로, 뒤풀이 따로).
--- **총무와 운영진이 만든다**(`can_settle`) — 총무라는 자리를 둔 이유가
--- 이것이다.
+-- **회원 누구나 만들고, 만든 사람이 챙긴다**(사용자가 정한 것이다).
+-- 100명 모임에서 라운드를 여는 사람이 제각각인데 총무 한 사람이 모든 돈을
+-- 걷는 것은 무리다. **남의 정산은 못 고친다** — 규칙은 정책 쪽에 있다
+-- (`settlements_own` · `owns_settlement()`).
 --
 -- **1/N은 화면이 계산하고, DB에는 사람마다 낼 돈을 그대로 적는다.**
 -- 중간에 들어온 사람은 금액이 다르기 때문이다("신성호 1만원, 나머지
@@ -1129,17 +1134,62 @@ create policy round_comments_add   on round_comments for insert with check (is_m
 create policy round_comments_own   on round_comments for delete using (author_id = auth.uid());
 create policy round_comments_admin on round_comments for all    using (is_admin()) with check (is_admin());
 
--- settlements — **총무와 운영진이 만든다**(`can_settle`). 읽기는 회원 전체다.
+-- ── 정산 ──────────────────────────────────────────────────────
+--
+-- **회원 누구나 정산을 만든다**(사용자가 정한 것이다). 100명 모임에서
+-- 라운드를 여는 사람이 제각각인데 총무 한 사람이 모든 돈을 걷는 것은
+-- 무리라, 걷는 사람이 곧 만드는 사람이 되게 열었다.
+--
+-- **대신 남의 정산은 못 건드린다.** 여는 순간 누구나 계좌번호를 걸고
+-- 100명에게 알림을 밀 수 있게 되므로, 열어 준 만큼 좁히는 것이 이 아래
+-- 정책들이다:
+--   · 만들 때 `created_by`가 나여야 한다 — 남의 이름으로 못 만든다.
+--   · 고치고 지우는 것은 **만든 사람과 총무·운영진**뿐이다.
+--   · 몫(`settlement_shares`)도 같은 잣대다 — 정산과 몫이 따로 놀면
+--     남의 정산에 내 몫을 끼워 넣는 길이 생긴다.
+--
+-- **총무·운영진(`can_settle`)은 그대로 전부 만질 수 있다.** 만든 사람이
+-- 한동안 안 들어올 때 대신 챙길 자리가 없으면 돈이 공중에 뜬다.
+
+-- **이 정산이 내 것인가.** 정책 네 곳과 트리거 하나가 같이 쓴다 —
+-- 잣대가 여러 벌이 되면 한쪽만 고치게 된다.
+-- `security definer`인 것은 `settlements`를 읽는 이 조회가 다시 RLS를
+-- 타지 않게 하려는 것이다(`is_member()`와 같은 이유다).
+create or replace function owns_settlement(p_settlement uuid)
+returns boolean
+language sql security definer stable set search_path = public as $$
+    select exists (
+        select 1 from settlements
+        where id = p_settlement and created_by = auth.uid()
+    );
+$$;
+
 drop policy if exists settlements_read   on settlements;
 drop policy if exists settlements_write  on settlements;
+drop policy if exists settlements_add    on settlements;
+drop policy if exists settlements_own    on settlements;
+drop policy if exists settlements_admin  on settlements;
 drop policy if exists shares_read        on settlement_shares;
 drop policy if exists shares_write       on settlement_shares;
+drop policy if exists shares_own         on settlement_shares;
+drop policy if exists shares_admin       on settlement_shares;
 drop policy if exists shares_own_paid    on settlement_shares;
+
 create policy settlements_read  on settlements for select using (is_member());
-create policy settlements_write on settlements for all
+-- **`created_by = auth.uid()`가 이 줄의 전부다.** 이게 없으면 남의 이름으로
+-- 정산을 만들어 그 사람 계좌인 것처럼 꾸밀 수 있다.
+create policy settlements_add   on settlements for insert
+    with check (is_member() and created_by = auth.uid());
+create policy settlements_own   on settlements for all
+    using (created_by = auth.uid()) with check (created_by = auth.uid());
+create policy settlements_admin on settlements for all
     using (can_settle()) with check (can_settle());
-create policy shares_read       on settlement_shares for select using (is_member());
-create policy shares_write      on settlement_shares for all
+
+create policy shares_read  on settlement_shares for select using (is_member());
+create policy shares_own   on settlement_shares for all
+    using (owns_settlement(settlement_id))
+    with check (owns_settlement(settlement_id));
+create policy shares_admin on settlement_shares for all
     using (can_settle()) with check (can_settle());
 -- **본인 몫은 스스로 '보냈다'고 표시할 수 있다.** 금액은 못 고친다 —
 -- `with check`가 `user_id`가 그대로인지만 보고, 금액 변경은 아래
@@ -1147,21 +1197,28 @@ create policy shares_write      on settlement_shares for all
 create policy shares_own_paid on settlement_shares for update
     using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- settle_reminders — **총무·운영진만 보내고, 총무·운영진만 본다.**
+-- settle_reminders — **그 정산을 만든 사람과 총무·운영진.**
+-- 남의 정산에 독촉을 보내면 그 사람 계좌로 오라는 알림이 100명에게 나간다.
 -- 회원에게는 알림으로 갈 뿐이라 이 표를 읽을 일이 없다. 지우기는 안 연다:
 -- 언제 보냈는지가 남아 있어야 하루에 세 번 보내는 일이 없다.
 drop policy if exists settle_reminders_read on settle_reminders;
 drop policy if exists settle_reminders_add  on settle_reminders;
-create policy settle_reminders_read on settle_reminders for select using (can_settle());
+create policy settle_reminders_read on settle_reminders for select
+    using (can_settle() or owns_settlement(settlement_id));
 create policy settle_reminders_add  on settle_reminders for insert
-    with check (can_settle() and created_by = auth.uid());
+    with check (created_by = auth.uid()
+                and (can_settle() or owns_settlement(settlement_id)));
 
 create or replace function shares_amount_locked()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql
+security definer set search_path = public as $$
 begin
-    -- 총무·운영진이 아니면 금액은 못 고친다. 표시만 바꿀 수 있다.
-    if new.amount <> old.amount and not can_settle() then
-        raise exception '금액은 총무만 고칠 수 있습니다';
+    -- 금액을 고칠 수 있는 사람은 **그 정산을 만든 사람과 총무·운영진**뿐이다.
+    -- 나머지는 `paid`(보냈다는 표시)만 뒤집을 수 있다 — 안 그러면 자기 몫을
+    -- 0원으로 고쳐 놓고 냈다고 표시할 수 있다.
+    if new.amount <> old.amount
+       and not (can_settle() or owns_settlement(new.settlement_id)) then
+        raise exception '금액은 정산을 올린 사람만 고칠 수 있습니다';
     end if;
     return new;
 end $$;

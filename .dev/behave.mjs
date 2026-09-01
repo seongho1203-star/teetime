@@ -8,7 +8,7 @@
  *   node .dev/behave.mjs
  */
 import { chromium } from 'playwright-core';
-import { tables, ME } from './fixtures.mjs';
+import { tables, ME, uid } from './fixtures.mjs';
 import { restRoute, stubOutside } from './rest.mjs';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -235,7 +235,40 @@ const [what, sent] = writes[0] ?? [];
 ok(what === 'settlement_shares PATCH' && JSON.stringify(sent) === '{"paid":true}',
    `이름을 누르면 입금완료만 보낸다 (실제 ${what} ${JSON.stringify(sent)})`);
 
-/* ── 6. 스키마를 아직 다시 안 돌린 저장소 ───────────────────────
+/* ── 6. 일반회원 눈으로 본 정산 ─────────────────────────────────
+ *
+ * **정산은 회원 누구나 만든다**(사용자가 정한 것이다). 다만 `전체` 탭은
+ * 남의 정산까지 챙기는 자리라 총무·운영진 몫이다 — 일반회원에게 열면
+ * 남의 돈 서른 건이 깔릴 뿐이다. 화면에서 감추는 것만으로 끝내지 않고
+ * DB도 같게 막혀 있다(`settlements_own` · `settle_reminders_add`).
+ */
+console.log('\n── 일반회원 눈으로 ──');
+const MEMBER = uid(5);                       // 정우성 — role: 'member'
+const mCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+const mSession = { ...SESSION, user: { ...SESSION.user, id: MEMBER } };
+await mCtx.route('**/rest/v1/**', restRoute(tables));
+await mCtx.route('**/auth/v1/**', r => r.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(mSession) }));
+await stubOutside(mCtx);
+await mCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), mSession);
+
+const mPage = await mCtx.newPage();
+await mPage.goto(BASE + '/#/rounds/r1', { waitUntil: 'networkidle' });
+await mPage.waitForTimeout(700);
+ok(await mPage.getByText('＋ 정산', { exact: true }).count() === 1,
+   '일반회원도 라운드에서 정산을 만들 수 있다');
+
+await mPage.goto(BASE + '/#/settle', { waitUntil: 'networkidle' });
+await mPage.waitForTimeout(700);
+ok((await mPage.$$('.settle-tabs')).length === 0,
+   '일반회원에게는 `전체` 탭이 없다 — 남의 정산까지 볼 자리가 아니다');
+const mText = await mPage.textContent('.page');
+ok(mText.includes('아직 만든 정산이 없습니다'),
+   `내가 올린 것이 없으면 만들라고 알려 준다 (실제 ${JSON.stringify(mText.slice(0, 60))})`);
+await mCtx.close();
+
+/* ── 7. 스키마를 아직 다시 안 돌린 저장소 ───────────────────────
  *
  * **앱은 배포되면 바로 올라가지만 `schema.sql`은 사람이 손으로 붙여넣는다.**
  * 그 사이에 새 표를 `unwrap`으로 읽으면 오류가 던져져 **화면이 통째로 안

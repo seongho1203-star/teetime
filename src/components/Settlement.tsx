@@ -68,21 +68,22 @@ export function Settlements({
     const me = session!.user.id;
     const toast = useToast();
     const confirm = useConfirm();
-    const mayEdit = canSettle(profile?.role);
+    /* **만드는 것은 회원 누구나**(사용자가 정한 것이다) — 라운드를 여는 사람이
+       제각각인데 총무 한 사람이 100명분 돈을 다 걷는 것은 무리다.
+       **고치고 지우는 것은 만든 사람과 총무·운영진뿐**이라, 그 잣대는 정산
+       한 건마다 따로 본다(`mayEditOne`). DB도 같게 막혀 있다. */
+    const canAll = canSettle(profile?.role);
+    const mayEditOne = (s: Settlement) => canAll || s.created_by === me;
 
     const [open, setOpen] = useState(false);
-
-    if (!list.length && !mayEdit) return null;
 
     return (
         <div className="card">
             <div className="row between">
                 <div className="section-title">정산 {list.length || ''}</div>
-                {mayEdit && (
-                    <button className="btn ghost sm" onClick={() => setOpen(o => !o)}>
-                        {open ? '닫기' : '＋ 정산'}
-                    </button>
-                )}
+                <button className="btn ghost sm" onClick={() => setOpen(o => !o)}>
+                    {open ? '닫기' : '＋ 정산'}
+                </button>
             </div>
 
             {open && (
@@ -100,7 +101,7 @@ export function Settlements({
                 <SettlementCard
                     key={s.id} settlement={s} people={people}
                     shares={shares.filter(x => x.settlement_id === s.id)}
-                    me={me} mayEdit={mayEdit} onChange={onChange}
+                    me={me} mayEdit={mayEditOne(s)} onChange={onChange}
                     toast={toast} confirm={confirm}
                 />
             ))}
@@ -153,6 +154,14 @@ function SettlementCard({
                 <span className="b">{s.title}</span>
                 <span className="xs faint">{timeAgo(s.created_at)}</span>
             </div>
+            {/* **누가 걷는지 적는다.** 회원 누구나 정산을 만들게 열면서
+                한 라운드에 여러 사람의 정산이 붙을 수 있게 됐다 — 계좌만
+                덩그러니 있으면 그게 누구 것인지 물어보러 가야 한다. */}
+            {s.created_by && (
+                <div className="xs faint">
+                    {names[s.created_by]?.name ?? '알 수 없음'}님이 걷습니다
+                </div>
+            )}
 
             {s.body && <p className="sm dim settle-body">{s.body}</p>}
 

@@ -1,7 +1,7 @@
 /* 헤드리스 확인용 가짜 데이터.
  * 실제 Supabase 없이 모든 화면을 눈으로 보려고 둔 것이다. 배포에는 안 들어간다. */
 
-const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+export const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const iso = (dayOffset, h = 7, m = 30) => {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() + dayOffset);

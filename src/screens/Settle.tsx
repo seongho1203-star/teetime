@@ -54,19 +54,21 @@ interface Loaded {
  * 어차피 정산은 회원 누구나 라운드에서 볼 수 있어(`settlements_read`)
  * 감추는 것이 아니라 **눈을 좁혀 주는 것**이다.
  *
- * **탭바에는 안 넣는다** — 탭 다섯의 순서는 사용자가 정한 것이고, 총무
- * 한두 사람이 쓰는 화면 때문에 모두의 탭을 늘릴 이유가 없다. 문은
- * `내 정보`에 있고 총무·운영진에게만 보인다(정산을 만들 수 있는 사람과
- * 같은 잣대다 — 못 만드는 사람에게는 늘 빈 화면이다).
+ * **탭바에는 안 넣는다** — 탭 다섯의 순서는 사용자가 정한 것이고, 이
+ * 화면 때문에 모두의 탭을 늘릴 이유가 없다. 문은 `내 정보`에 있고
+ * **회원 누구나 들어온다** — 정산을 만드는 것이 누구나이므로 걷는 사람도
+ * 누구나다. 만든 것이 없으면 빈 화면에 '라운드에서 정산 만들기를 누르라'고
+ * 적힌다.
  */
 export function Settle() {
     const { session, profile } = useAuth();
     const me = session!.user.id;
-    const may = canSettle(profile?.role);
+    /* **`전체`는 총무·운영진에게만.** 남의 정산까지 챙기는 자리라 일반
+       회원에게는 남의 돈 서른 건이 깔릴 뿐이다. 내 것만 보면 된다. */
+    const mayAll = canSettle(profile?.role);
     const [mineOnly, setMineOnly] = useState(true);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        if (!may) return { list: [], people: [], lastSent: {}, where: {} };
 
         /* **몫을 딸려 받는다.** 따로 부르면 지난 정산 것까지 다 온다
            (홈이 신청 기록을 라운드에 매다는 것과 같다). */
@@ -110,18 +112,10 @@ export function Settle() {
         for (const s of list) where[s.id] = name[s.round_id] ?? '';
 
         return { list, people, lastSent, where };
-    }, [may], may ? 'settle' : undefined);
+    }, [], 'settle');
 
     useRealtime(['settlements', 'settlement_shares'], reload);
 
-    if (!may) {
-        return (
-            <div className="page">
-                <TopBar title="정산 현황" fallback="/me" />
-                <div className="notice danger">총무와 운영진만 볼 수 있습니다.</div>
-            </div>
-        );
-    }
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
     }
@@ -136,8 +130,9 @@ export function Settle() {
 
     const all = data?.list ?? [];
     const mine = all.filter(s => s.created_by === me);
-    const list = mineOnly ? mine : all;
-    const others = all.length - mine.length;
+    /** `전체` 탭을 쓸 수 있고, 남이 올린 것이 실제로 있을 때만 보여 준다. */
+    const canToggle = mayAll && all.length > mine.length;
+    const list = canToggle && !mineOnly ? all : mine;
 
     const open = list.filter(s => s.settlement_shares.some(x => !x.paid));
     const done = list.length - open.length;
@@ -152,10 +147,11 @@ export function Settle() {
         <div className="page">
             <TopBar title="정산 현황" fallback="/me" />
 
-            {/* **남이 올린 정산이 있을 때만 나온다.** 혼자 걷는 모임에서는
+            {/* **총무·운영진에게, 남이 올린 정산이 있을 때만 나온다.**
+                일반회원에게는 남의 돈 서른 건이 깔릴 뿐이고, 혼자 걷는 달에는
                 누를 일이 없는 단추 둘이 자리만 차지한다(라운드 목록의
                 필드·스크린 가리개와 같은 규칙이다). */}
-            {others > 0 && (
+            {canToggle && (
                 <div className="tabs settle-tabs" role="group" aria-label="보기 고르기">
                     <button className={`tab-btn${mineOnly ? ' on' : ''}`}
                             onClick={() => setMineOnly(true)}>
@@ -201,12 +197,12 @@ export function Settle() {
             )}
             {list.length === 0 && (
                 <div className="empty">
-                    {mineOnly && others > 0 ? (
+                    {canToggle ? (
                         <>내가 올린 정산이 없습니다.<br />
                         남이 올린 것은 위의 <b>전체</b>에서 봅니다.</>
                     ) : (
                         <>아직 만든 정산이 없습니다.<br />
-                        라운드에 들어가 <b>정산 만들기</b>를 눌러 주세요.</>
+                        라운드에 들어가 <b>＋ 정산</b>을 눌러 주세요.</>
                     )}
                 </div>
             )}
