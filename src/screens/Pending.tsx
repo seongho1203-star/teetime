@@ -19,9 +19,10 @@ import { Help } from './Help';
  * **차량번호는 골프장에 미리 차를 등록할 때** 쓴다 — 나중에 물어보러
  * 다니느니 처음에 받아 둔다. (카풀 때문이 아니다.)
  *
- * **성별과 태어난 해는 안 적어도 된다.** 조 편성의 `성별 조합`·`나이 조합`
- * 에만 쓰는 값이라 없다고 가입을 막을 이유가 없다. 다만 여기서 받아 두면
- * 나중에 100명에게 따로 물어보러 다니지 않아도 된다.
+ * **성별과 태어난 해도 필수다.** 조 편성의 `성별 조합`·`나이 조합`이 그
+ * 값을 본다 — 여기서 받아 두지 않으면 나중에 100명에게 따로 물어보러
+ * 다녀야 한다. 이 기능 이전에 승인된 분들은 이 화면을 다시 안 보므로
+ * 로그인 뒤에 따로 받는다(`screens/FillProfile.tsx`).
  *
  * 운영진이 승인하면 auth.tsx의 실시간 구독이 profiles 변경을 받아
  * 새로고침 없이 앱으로 들어간다.
@@ -46,7 +47,9 @@ export function Pending() {
         if (!trimmed) { toast('닉네임을 적어 주세요.', 'error'); return; }
         if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
         if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
+        if (!gender) { toast('성별을 골라 주세요.', 'error'); return; }
         const year = birthValue(birth);
+        if (year === null) { toast('태어난 해를 적어 주세요.', 'error'); return; }
         if (year === false) {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;

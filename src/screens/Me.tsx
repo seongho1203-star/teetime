@@ -26,8 +26,8 @@ export function Me() {
     const [name, setName] = useState(profile?.name ?? '');
     const [phone, setPhone] = useState(profile?.phone ?? '');
     const [car, setCar] = useState(profile?.car ?? '');
-    /* 조 편성의 `성별 조합`·`나이 조합`이 보는 값이다. 둘 다 안 적어도 된다 —
-       이 기능 이전에 가입한 분은 전부 비어 있다. */
+    /* 조 편성의 `성별 조합`·`나이 조합`이 보는 값이다. **둘 다 필수라
+       여기서도 비울 수 없다** — 비울 수 있게 두면 로그인할 때 다시 막힌다. */
     const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
     const [birth, setBirth] = useState(
         profile?.birth_year ? String(profile.birth_year) : '');
@@ -40,7 +40,9 @@ export function Me() {
         if (!trimmed) { toast('닉네임을 적어 주세요.', 'error'); return; }
         if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
         if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
+        if (!gender) { toast('성별을 골라 주세요.', 'error'); return; }
         const year = birthValue(birth);
+        if (year === null) { toast('태어난 해를 적어 주세요.', 'error'); return; }
         if (year === false) {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;

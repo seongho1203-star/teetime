@@ -158,6 +158,25 @@ export function birthValue(text: string): number | null | false {
     return n;
 }
 
+/**
+ * 이 사람이 성별·태어난 해를 아직 안 적었는가 (로그인 뒤 한 번 막고 받는다).
+ *
+ * **`null`과 `undefined`를 반드시 갈라야 한다.**
+ * - `null` — 칸은 있는데 안 적은 것. 받아야 한다.
+ * - `undefined` — **DB에 그 칸이 아예 없는 것**(스키마를 아직 다시 안 돌린
+ *   저장소). 이때 막으면 **회원 모두가 앱에 못 들어간다** — 저장하려 해도
+ *   없는 칸이라 오류가 나서 영영 빠져나올 수가 없다. 그래서 칸이 있는 것이
+ *   확인될 때만 막는다(`select('*')`라 없는 칸은 키 자체가 안 온다).
+ *
+ * 앱은 푸시하면 몇 분 뒤 올라가는데 `schema.sql`은 사람이 손으로 붙여넣으므로,
+ * 그 사이에는 **칸이 없는 DB에 새 앱이 붙는다.** 여기가 그 시간을 견디는 곳이다.
+ */
+export function needsProfile(p?: Profile | null): boolean {
+    if (!p) return false;
+    if (!('gender' in p) || !('birth_year' in p)) return false;   // 칸이 아직 없다
+    return p.gender == null || p.birth_year == null;
+}
+
 export type Profile = {
     id: string;
     /** 화면에 보이는 이름. 가입할 때 **닉네임**으로 받는다. */

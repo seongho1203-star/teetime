@@ -305,7 +305,50 @@ ok(mText.includes('아직 만든 정산이 없습니다'),
    `내가 올린 것이 없으면 만들라고 알려 준다 (실제 ${JSON.stringify(mText.slice(0, 60))})`);
 await mCtx.close();
 
-/* ── 7. 스키마를 아직 다시 안 돌린 저장소 ───────────────────────
+/* ── 7. 성별·태어난 해를 안 적은 회원 ───────────────────────────
+ *
+ * **둘 다 필수라 로그인 뒤 한 번 막고 받는다**(`screens/FillProfile.tsx`).
+ * 가입 화면은 승인 전에만 보이므로, 이미 승인된 분들은 그 길로는 못 받는다.
+ * 여기서 보는 것은 **막히는가**와 **적으면 풀리는가** 둘이다.
+ */
+console.log('\n── 안 적은 회원은 로그인 뒤 막힌다 ──');
+const BLANK = uid(9);                        // 오세훈 — 성별·태어난 해가 빈 회원
+const bCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+const bSession = { ...SESSION, user: { ...SESSION.user, id: BLANK } };
+const bWrites = [];
+await bCtx.route('**/rest/v1/**', restRoute(tables));
+await bCtx.route('**/rest/v1/profiles**', route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    bWrites.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+});
+await bCtx.route('**/auth/v1/**', r => r.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(bSession) }));
+await stubOutside(bCtx);
+await bCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), bSession);
+
+const bPage = await bCtx.newPage();
+await bPage.goto(BASE + '/#/', { waitUntil: 'networkidle' });
+await bPage.waitForTimeout(800);
+ok((await bPage.textContent('.page') ?? '').includes('조 편성'),
+   '안 적은 회원은 앱 대신 받는 화면을 본다');
+ok((await bPage.$$('.tabbar')).length === 0, '적기 전에는 탭바가 없다 — 앱으로 못 들어간다');
+
+// 성별만 고르고 저장하면 태어난 해를 달라고 해야 한다(둘 다 필수다).
+await bPage.locator('.opt', { hasText: '남' }).first().click();
+await bPage.getByText('저장하고 시작하기', { exact: true }).click();
+await bPage.waitForTimeout(300);
+ok(bWrites.length === 0, '태어난 해가 비면 저장을 안 보낸다');
+
+await bPage.fill('#fp-birth', '1985');
+await bPage.getByText('저장하고 시작하기', { exact: true }).click();
+await bPage.waitForTimeout(400);
+ok(bWrites.length === 1 && bWrites[0].gender === 'm' && bWrites[0].birth_year === 1985,
+   `둘 다 적으면 저장한다 (보낸 값 ${JSON.stringify(bWrites[0])})`);
+await bCtx.close();
+
+/* ── 8. 스키마를 아직 다시 안 돌린 저장소 ───────────────────────
  *
  * **앱은 배포되면 바로 올라가지만 `schema.sql`은 사람이 손으로 붙여넣는다.**
  * 그 사이에 새 표를 `unwrap`으로 읽으면 오류가 던져져 **화면이 통째로 안
@@ -322,6 +365,11 @@ delete oldTables.round_groups;
 delete oldTables.settle_reminders;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 oldTables.signups = tables.signups.map(({ grp, ...rest }) => rest);
+/* **성별·태어난 해도 칸째 없앤다.** 여기가 이번에 제일 위험한 자리다 —
+   그 칸이 없는데 '안 적었다'로 보고 막으면, 저장도 안 되는 화면에
+   **회원 모두가 갇힌다**(`needsProfile`이 `null`과 `undefined`를 가르는 이유). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+oldTables.profiles = tables.profiles.map(({ gender, birth_year, ...rest }) => rest);
 const MISSING = ['round_groups', 'settle_reminders'];
 
 const oldCtx = await browser.newContext({
@@ -342,6 +390,7 @@ await oldCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.
 
 const oldPage = await oldCtx.newPage();
 for (const [name, hash, must] of [
+    ['앱이 열린다 — 프로필 받는 화면에 안 갇힌다', '/#/', '다음 라운드'],
     ['라운드 상세 (조가 짜여 있던 라운드)', '/#/rounds/r2', '함평엘리체CC'],
     ['라운드 상세 (조를 안 짠 라운드)',   '/#/rounds/r1', '무등산CC'],
     ['총무 정산 현황',                  '/#/settle',    '무등산CC 그린피'],

@@ -3,12 +3,14 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { watchBadge } from './lib/badge';
 import { isConfigured } from './lib/supabase';
+import { needsProfile } from './lib/types';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { TabBar } from './components/TabBar';
 
 import { Login } from './screens/Login';
 import { Pending } from './screens/Pending';
+import { FillProfile } from './screens/FillProfile';
 import { Home } from './screens/Home';
 import { Rounds } from './screens/Rounds';
 import { RoundDetail } from './screens/RoundDetail';
@@ -39,7 +41,7 @@ import { Help } from './screens/Help';
  */
 
 function Gate() {
-    const { session, isMember, loading } = useAuth();
+    const { session, profile, isMember, loading } = useAuth();
     if (!isConfigured) return <Setup />;
 
     /* 세션을 확인하는 동안. **index.html에 박아 둔 첫 화면과 같은 그림**이라,
@@ -51,6 +53,11 @@ function Gate() {
 
     if (!session) return <Login />;
     if (!isMember) return <Pending />;
+    /* **성별·태어난 해는 필수다**(사용자가 정한 것이다). 가입 화면에서 받지만
+       이 기능 이전에 승인된 분들은 그 화면을 다시 안 보므로, 로그인 뒤 앱에
+       들어가기 직전에 한 번 막고 받는다. 적고 나면 다시는 안 뜬다.
+       **DB에 칸이 없으면 안 막는다** — `needsProfile` 주석 참고. */
+    if (needsProfile(profile)) return <FillProfile />;
 
     return (
         <div className="app">
