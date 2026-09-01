@@ -24,26 +24,8 @@
 .poll-title-link .chev { flex: 0 0 auto; color: var(--text-faint); }
 .poll-title-link:active .poll-title { color: var(--brand); }
 
-/* ── 투표 현황의 탭 (항목별 · 멤버별 · 미참여) ──────────────────
-   사람이 서른을 넘으면 한 가지 배열로는 못 본다. 켜진 탭은 아래 선으로
-   알린다 — 알약으로 칠하면 이 화면의 분홍(보내기·등록)과 부딪힌다. */
-.tabs {
-    display: flex;
-    border-bottom: 1px solid var(--line);
-    margin: -2px -14px 4px;
-    padding: 0 14px;
-}
-.tab-btn {
-    flex: 1;
-    padding: 9px 4px;
-    font-size: var(--fs-sm);
-    font-weight: 700;
-    color: var(--text-faint);
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    white-space: nowrap;
-}
-.tab-btn.on { color: var(--text); border-bottom-color: var(--brand); }
+/* 투표 현황의 탭(항목별 · 멤버별 · 미참여)은 **`.tabs`로 global.css에 있다** —
+   정산 현황의 `내가 올린 것 · 전체`가 같은 것을 쓰게 되면서 옮겼다. */
 
 /* 항목 하나와 그걸 고른 사람들. */
 .tally + .tally { border-top: 1px solid var(--line); padding-top: 10px; }

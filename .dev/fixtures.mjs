@@ -131,9 +131,15 @@ export const round_comments = [
 
 /* 정산 한 건. **중간 참여자 예외**가 보이게 신성호만 금액이 다르다. */
 export const settlements = [
+    /* **올린 사람을 갈라 둔다.** 정산 현황이 기본으로 `내가 올린 것`만
+       보여 주므로, 전부 한 사람 것이면 그 화면이 비거나 가득 차서 어느
+       쪽도 확인이 안 된다. st1은 나(uid 1), st3은 남(uid 4)이다. */
     { id: 'st1', round_id: 'r1', title: '무등산CC 그린피 + 카트비',
       body: '캐디피는 현장에서 각자 냅니다.', bank: '국민', account: '123456-78-901234',
-      total: 70000, created_by: uid(4), created_at: iso(-1) },
+      total: 70000, created_by: uid(1), created_at: iso(-1) },
+    { id: 'st3', round_id: 'r2', title: '함평엘리체CC 그린피',
+      body: '', bank: '농협', account: '302-1234-5678-01',
+      total: 40000, created_by: uid(4), created_at: iso(-2) },
     { id: 'st2', round_id: 'r3', title: '해피니스CC 뒤풀이',
       body: '', bank: '국민', account: '123456-78-901234',
       total: 30000, created_by: uid(4), created_at: iso(-20) },
@@ -147,6 +153,11 @@ export const settlement_shares = [
     // 다 걷힌 정산. 총무 화면에서 이건 목록에 안 나오고 아래 한 줄로만 세어진다.
     { id: 'sh5', settlement_id: 'st2', user_id: uid(1), amount: 15000, paid: true, created_at: iso(-20) },
     { id: 'sh6', settlement_id: 'st2', user_id: uid(3), amount: 15000, paid: true, created_at: iso(-20) },
+    // 남(박승수)이 올린 정산. `전체`로 넘겼을 때만 보여야 한다.
+    { id: 'sh7', settlement_id: 'st3', user_id: uid(2),  amount: 10000, paid: false, created_at: iso(-2) },
+    { id: 'sh8', settlement_id: 'st3', user_id: uid(9),  amount: 10000, paid: false, created_at: iso(-2) },
+    { id: 'sh9', settlement_id: 'st3', user_id: uid(10), amount: 10000, paid: true,  created_at: iso(-2) },
+    { id: 'sh10', settlement_id: 'st3', user_id: uid(11), amount: 10000, paid: true, created_at: iso(-2) },
 ];
 
 /* 독촉을 한 번 보낸 기록. `마지막 알림 …` 줄이 나오는지 본다. */

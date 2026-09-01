@@ -39,19 +39,31 @@ interface Loaded {
 }
 
 /**
- * 총무의 정산 현황.
+ * 정산 현황.
  *
  * **라운드마다 들어가 보지 않아도 되게 하는 자리다.** 정산은 라운드에
- * 붙어 있어서, 지금까지 총무는 "누가 안 냈지"를 보려면 라운드를 하나씩
- * 열어야 했다. 여기 모아 놓으면 한 화면에서 끝난다.
+ * 붙어 있어서, 지금까지 "누가 안 냈지"를 보려면 라운드를 하나씩 열어야
+ * 했다. 여기 모아 놓으면 한 화면에서 끝난다.
+ *
+ * **기본은 `내가 올린 정산`이다.** 돈은 올린 사람 계좌로 들어가므로
+ * 챙길 사람도 그 사람이다 — 라운드를 여럿이 나눠 여는 모임에서 남이 걷는
+ * 돈까지 한 화면에 깔리면, 누구 것인지 헷갈리고 남의 정산에 독촉을
+ * 눌러 버리는 자리가 된다(사용자가 짚어 준 것이다).
+ * `전체`로 넘기는 길은 남겨 둔다 — 올린 사람이 한동안 안 들어올 때
+ * 총무가 대신 챙길 자리가 없으면 이 화면을 만든 뜻이 반쯤 없어진다.
+ * 어차피 정산은 회원 누구나 라운드에서 볼 수 있어(`settlements_read`)
+ * 감추는 것이 아니라 **눈을 좁혀 주는 것**이다.
  *
  * **탭바에는 안 넣는다** — 탭 다섯의 순서는 사용자가 정한 것이고, 총무
  * 한두 사람이 쓰는 화면 때문에 모두의 탭을 늘릴 이유가 없다. 문은
- * `내 정보`에 있고 총무·운영진에게만 보인다.
+ * `내 정보`에 있고 총무·운영진에게만 보인다(정산을 만들 수 있는 사람과
+ * 같은 잣대다 — 못 만드는 사람에게는 늘 빈 화면이다).
  */
 export function Settle() {
-    const { profile } = useAuth();
+    const { session, profile } = useAuth();
+    const me = session!.user.id;
     const may = canSettle(profile?.role);
+    const [mineOnly, setMineOnly] = useState(true);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         if (!may) return { list: [], people: [], lastSent: {}, where: {} };
@@ -63,7 +75,7 @@ export function Settle() {
            계좌는 독촉 알림이 실어 보내고, 자세한 것은 라운드에서 본다. */
         const [res, people] = await Promise.all([
             supabase.from('settlements')
-                    .select('id, round_id, title, total, created_at,'
+                    .select('id, round_id, title, total, created_by, created_at,'
                             + ' settlement_shares(id, settlement_id, user_id, amount, paid)')
                     .order('created_at', { ascending: false })
                     .limit(RECENT),
@@ -122,7 +134,11 @@ export function Settle() {
         );
     }
 
-    const list = data?.list ?? [];
+    const all = data?.list ?? [];
+    const mine = all.filter(s => s.created_by === me);
+    const list = mineOnly ? mine : all;
+    const others = all.length - mine.length;
+
     const open = list.filter(s => s.settlement_shares.some(x => !x.paid));
     const done = list.length - open.length;
 
@@ -136,7 +152,23 @@ export function Settle() {
         <div className="page">
             <TopBar title="정산 현황" fallback="/me" />
 
-            {/* **맨 위는 숫자 하나다.** 총무가 제일 먼저 알고 싶은 것은
+            {/* **남이 올린 정산이 있을 때만 나온다.** 혼자 걷는 모임에서는
+                누를 일이 없는 단추 둘이 자리만 차지한다(라운드 목록의
+                필드·스크린 가리개와 같은 규칙이다). */}
+            {others > 0 && (
+                <div className="tabs settle-tabs" role="group" aria-label="보기 고르기">
+                    <button className={`tab-btn${mineOnly ? ' on' : ''}`}
+                            onClick={() => setMineOnly(true)}>
+                        내가 올린 것
+                    </button>
+                    <button className={`tab-btn${mineOnly ? '' : ' on'}`}
+                            onClick={() => setMineOnly(false)}>
+                        전체
+                    </button>
+                </div>
+            )}
+
+            {/* **맨 위는 숫자 하나다.** 제일 먼저 알고 싶은 것은
                 "얼마가 안 걷혔나"이지 목록이 아니다. */}
             <div className="card settle-sum">
                 {open.length === 0 ? (
@@ -155,6 +187,9 @@ export function Settle() {
                 <Card
                     key={s.id} s={s} people={data!.people}
                     where={data!.where[s.id]} lastSent={data!.lastSent[s.id]}
+                    /* **남의 정산일 때만 올린 사람을 적는다.** 내 것에까지
+                       내 이름을 붙이면 줄만 길어진다. */
+                    by={s.created_by === me ? undefined : s.created_by}
                     onChange={reload}
                 />
             ))}
@@ -166,8 +201,13 @@ export function Settle() {
             )}
             {list.length === 0 && (
                 <div className="empty">
-                    아직 만든 정산이 없습니다.<br />
-                    라운드에 들어가 <b>정산 만들기</b>를 눌러 주세요.
+                    {mineOnly && others > 0 ? (
+                        <>내가 올린 정산이 없습니다.<br />
+                        남이 올린 것은 위의 <b>전체</b>에서 봅니다.</>
+                    ) : (
+                        <>아직 만든 정산이 없습니다.<br />
+                        라운드에 들어가 <b>정산 만들기</b>를 눌러 주세요.</>
+                    )}
                 </div>
             )}
         </div>
@@ -175,12 +215,14 @@ export function Settle() {
 }
 
 function Card({
-    s, people, where, lastSent, onChange,
+    s, people, where, lastSent, by, onChange,
 }: {
     s: Row;
     people: Person[];
     where?: string;
     lastSent?: string;
+    /** 남이 올린 정산이면 그 사람 id. 내 것이면 비어 있다. */
+    by?: string | null;
     onChange: () => void;
 }) {
     const toast = useToast();
@@ -209,6 +251,16 @@ function Card({
             detail: <>
                 아직 안 내신 <b>{unpaid.length}명</b>에게만 갑니다.<br />
                 <span className="xs faint">이미 보내신 분에게는 가지 않습니다.</span>
+                {/* **남의 정산이면 한 번 더 알려 준다.** 돈은 올린 사람
+                    계좌로 들어가고 그 사람이 이미 보냈을 수도 있다 —
+                    같은 날 두 사람이 각자 누르면 회원 폰은 두 번 울린다. */}
+                {by && (
+                    <><br /><br />
+                    <b style={{ color: 'var(--warn)' }}>
+                        {names[by]?.name ?? '다른 분'}님이 올린 정산입니다.
+                    </b><br />
+                    <span className="xs faint">돈은 그분 계좌로 들어갑니다.</span></>
+                )}
             </>,
             confirmLabel: '보내기',
         });
@@ -236,6 +288,17 @@ function Card({
                 총 {formatWon(s.total)} · {paid}/{s.settlement_shares.length}명 보냄
                 <span className="xs faint"> · {timeAgo(s.created_at)}</span>
             </div>
+            {/* **남이 올린 것이면 누구 것인지 적는다.** 돈이 그 사람 계좌로
+                들어가므로 챙길 사람도 그 사람이다 — 안 적으면 내 것과
+                섞여 남의 정산에 독촉을 눌러 버린다. */}
+            {by && (
+                <div className="settle-by">
+                    <Avatar name={names[by]?.name} url={names[by]?.avatar_url} size="sm" />
+                    <span className="truncate">
+                        <b>{names[by]?.name ?? '알 수 없음'}</b>님이 올림
+                    </span>
+                </div>
+            )}
 
             {/* **안 낸 사람만 세운다.** 다 낸 사람 이름까지 늘어놓으면 100명
                 모임에서 목록이 화면을 덮는데, 총무가 볼 것은 안 낸 쪽이다.

@@ -5,6 +5,22 @@
  * 생기면 같은 것인 줄 모른다.
  */
 
+/* `내가 올린 것` · `전체`. 투표 상세의 탭과 같은 모양을 쓴다(Polls.css) —
+   같은 손짓이라 같게 생겨야 한다. 여기서는 카드 밖에 서므로 좌우 여백만 뗀다. */
+.settle-tabs { margin: -2px 0 0; padding: 0; }
+
+/* 남이 올린 정산에 붙는 줄. 돈이 누구 계좌로 가는지가 여기서 갈린다. */
+.settle-by {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    min-width: 0;
+}
+.settle-by .avatar { width: 20px; height: 20px; font-size: 9px; }
+
 /* 맨 위의 숫자 하나. 총무가 제일 먼저 알고 싶은 것이다. */
 .settle-sum { text-align: center; padding: 16px 13px; }
 .settle-sum-won {

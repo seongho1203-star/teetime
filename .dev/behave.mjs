@@ -196,6 +196,25 @@ const cards = await page.$$eval('.card .settle-link .b', e => e.map(x => x.textC
 ok(cards.length === 1 && !cards[0].includes('뒤풀이'),
    `다 걷힌 정산은 목록에 없다 (실제 ${JSON.stringify(cards)})`);
 
+/* **기본은 `내가 올린 것`이다.** 돈은 올린 사람 계좌로 들어가므로 챙길
+   사람도 그 사람이다 — 남이 걷는 돈까지 기본으로 깔리면 누구 것인지
+   헷갈리고 남의 정산에 독촉을 눌러 버린다(사용자가 짚어 준 것이다). */
+ok(!cards.some(t => t.includes('함평엘리체')),
+   `기본은 내가 올린 것만 — 남이 올린 정산은 안 나온다 (실제 ${JSON.stringify(cards)})`);
+ok((await page.$$('.settle-by')).length === 0,
+   '내 것에는 올린 사람 줄을 안 붙인다');
+
+await page.getByText('전체', { exact: true }).click();
+await page.waitForTimeout(300);
+const allCards = await page.$$eval('.card .settle-link .b', e => e.map(x => x.textContent));
+ok(allCards.length === 2 && allCards.some(t => t.includes('함평엘리체')),
+   `전체로 넘기면 남이 올린 것도 나온다 (실제 ${JSON.stringify(allCards)})`);
+const bys = await page.$$eval('.settle-by', e => e.map(x => x.textContent));
+ok(bys.length === 1 && bys[0].includes('박승수'),
+   `남이 올린 것에는 누구 것인지 적는다 (실제 ${JSON.stringify(bys)})`);
+await page.getByText('내가 올린 것', { exact: true }).click();
+await page.waitForTimeout(300);
+
 writes.length = 0;
 await page.getByText('입금 알림 보내기', { exact: true }).click();
 await page.waitForTimeout(300);
