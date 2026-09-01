@@ -5,10 +5,36 @@
  */
 
 .grp-auto { padding-bottom: 10px; }
-.grp-auto p { margin-top: 6px; }
+.grp-auto p { margin-top: 8px; line-height: 1.6; }
 
-/* `한 조에 [4명]` — 글자 길이로 폭이 정해지면 옆 단추와 안 맞는다. */
-.grp-size { width: 78px; flex: 0 0 auto; }
+/* `한 조에 [4명]` — 글자 길이로 폭이 정해지면 줄이 흔들린다. */
+.grp-size { width: 74px; flex: 0 0 auto; height: 32px; padding: 0 6px; }
+
+/* ── 조 편성 조건 넷 ──────────────────────────────────────────
+ * **두 줄로 놓는다.** 넷을 한 줄에 세우면 320px에서 `성별 조합`이 접힌다
+ * (`.btn`은 `nowrap`이라 접히는 대신 삐져나온다). 2×2가 손가락에도 낫다.
+ * 켜진 것을 표시하지 않는 것은 일부러다 — 누르는 순간 나뉘고 그다음
+ * 손으로 옮기므로, 표시를 남기면 '지금 그 규칙대로'라는 거짓말이 된다. */
+.grp-modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap-xs);
+    margin-top: 10px;
+}
+.grp-mode { padding: 11px 8px; }
+
+/* 성별·태어난 해를 안 적은 사람이 몇인지. 알려 주는 값이라 노랑이다
+   (기다리는 것 자리) — 빨강은 '내가 안 본 것' 몫이다. */
+.grp-missing { margin-top: 8px; line-height: 1.6; color: var(--warn); }
+
+/* 이름 옆의 `여 · 65년생`. 이름보다 뒤로 물러나야 명단이 안 시끄럽다. */
+.grp-tag {
+    margin-left: 6px;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
 
 /* 아직 아무도 없는 조. **지우지 말 것** — 이 빈 칸이 곧 `새 조 만들기`다.
    흐리게 두어 다 찬 조와 눈으로 갈린다. */

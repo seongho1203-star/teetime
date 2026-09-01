@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
+import { useAsync, unwrap, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { toKstInput, fromKstInput, formatFullDate } from '../lib/format';
 import {
     GROUP_SIZE, MAX_GROUPS, TEE_LABEL, roundKind,
-    type Person, type Round, type RoundGroup, type Signup,
+    type GroupPerson, type Round, type RoundGroup, type Signup,
 } from '../lib/types';
+import { splitGroups, MODE_LABEL, MODE_HINT, type GroupMode } from '../lib/groups';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -19,7 +20,7 @@ interface Loaded {
     round: Round | null;
     signups: Signup[];
     groups: RoundGroup | null;
-    people: Person[];
+    people: GroupPerson[];
 }
 
 /**
@@ -46,13 +47,24 @@ export function RoundGroups() {
             supabase.from('rounds').select('*').eq('id', id!).maybeSingle(),
             supabase.from('signups').select('*').eq('round_id', id!).order('seq'),
             supabase.from('round_groups').select('*').eq('round_id', id!).maybeSingle(),
-            fetchPeople(),
+            /* **여기만 명단을 넓게 받는다**(`fetchPeople()`이 아니다) —
+               성별과 태어난 해로 섞는 조건이 그 두 칸을 본다. 다른 화면에
+               넣으면 100명분이 화면마다 따라다닌다(`GroupPerson` 주석 참고).
+               **`unwrap`을 안 쓴다**: 스키마를 아직 다시 안 돌린 저장소에는
+               그 칸이 없어 오류가 돌아오는데, 그걸 던지면 조 편성 화면이
+               통째로 안 열린다. 그때는 이름만 받아 `신청 순서`·`랜덤`은
+               그대로 되게 한다. */
+            supabase.from('profiles')
+                    .select('id, name, avatar_url, gender, birth_year').order('name'),
         ]);
+        const wide = people.error
+            ? unwrap(await supabase.from('profiles').select('id, name, avatar_url').order('name'))
+            : people.data;
         return {
             round: unwrap(round),
             signups: unwrap(signups) ?? [],
             groups: unwrap(groups),
-            people,
+            people: (wide ?? []) as GroupPerson[],
         };
     }, [id]);
 
@@ -97,7 +109,7 @@ function Editor({
     round: Round;
     signups: Signup[];
     groups: RoundGroup | null;
-    people: Person[];
+    people: GroupPerson[];
     onDone: () => void;
 }) {
     const toast = useToast();
@@ -132,11 +144,23 @@ function Editor({
     const inGroup = (n: number) => confirmed.filter(s => grp[s.user_id] === n);
     const unassigned = confirmed.filter(s => grp[s.user_id] == null);
 
-    /** `size`명씩 신청 순서대로. 이미 짠 것이 있어도 통째로 다시 짠다. */
-    const auto = () => {
-        const next: Record<string, number | null> = {};
-        confirmed.forEach((s, i) => { next[s.user_id] = Math.floor(i / size) + 1; });
-        setGrp(next);
+    /* 확정자를 **신청 순서 그대로** 명단 모양으로 세워 둔다 — 조를 나누는
+       규칙(`lib/groups.ts`)이 이 순서를 밑감으로 쓴다. 명단에 없는 사람은
+       조회가 어긋난 것이라 빈 껍데기로 채운다(빠뜨리면 조에서 사라진다). */
+    const roster: GroupPerson[] = useMemo(
+        () => confirmed.map(s => names[s.user_id]
+            ?? { id: s.user_id, name: '', avatar_url: null, gender: null, birth_year: null }),
+        [confirmed, names]);
+
+    /** 성별·태어난 해를 아직 안 적은 사람 수. 그 조건이 반쪽이 되는 값이다. */
+    const missing = useMemo(() => ({
+        gender: roster.filter(p => p.gender !== 'm' && p.gender !== 'f').length,
+        age: roster.filter(p => !p.birth_year).length,
+    }), [roster]);
+
+    /** 고른 조건대로 통째로 다시 나눈다. 이미 짠 것이 있어도 덮는다. */
+    const applyMode = (mode: GroupMode) => {
+        setGrp(splitGroups(roster, size, mode));
     };
 
     const clearAll = async () => {
@@ -191,27 +215,58 @@ function Editor({
                 </div>
             ) : (
                 <>
-                    {/* 대개 이 줄 하나로 끝난다. 손으로 옮기는 건 그 뒤의 손질이다. */}
+                    {/* ── 조 편성 조건 ──────────────────────────────────
+                        대개 여기서 한 번 누르면 끝나고, 손으로 옮기는 건
+                        그 뒤의 손질이다. **누르면 바로 나뉜다** — `적용`을
+                        따로 두면 고르고 또 눌러야 한다.
+                        **분홍은 `저장` 하나뿐이다.** 한 화면에 분홍이 둘이면
+                        어느 쪽이 '지금 눌러야 할 것'인지가 흐려진다 — 여기는
+                        손질을 시작하는 자리이고 일을 끝내는 것은 아래 `저장`이다. */}
                     <div className="card grp-auto">
-                        <div className="row" style={{ gap: 'var(--gap-sm)' }}>
-                            <label className="sm dim nowrap" htmlFor="g-size">한 조에</label>
-                            <select id="g-size" className="select grp-size" value={size}
-                                    onChange={e => setSize(Number(e.target.value))}>
-                                {[2, 3, 4, 5].map(n => (
-                                    <option key={n} value={n}>{n}명</option>
-                                ))}
-                            </select>
-                            {/* **분홍은 `저장` 하나뿐이다.** 한 화면에 분홍이
-                                둘이면 어느 쪽이 '지금 눌러야 할 것'인지가
-                                흐려진다 — 이 단추는 손질을 시작하는 자리이고
-                                일을 끝내는 것은 아래 `저장`이다. */}
-                            <button className="btn grow" onClick={auto}>
-                                자동으로 나누기
-                            </button>
+                        <div className="row between">
+                            <div className="section-title">조 편성 조건</div>
+                            <div className="row" style={{ gap: 6 }}>
+                                <label className="xs faint nowrap" htmlFor="g-size">한 조에</label>
+                                <select id="g-size" className="select grp-size" value={size}
+                                        onChange={e => setSize(Number(e.target.value))}>
+                                    {[2, 3, 4, 5].map(n => (
+                                        <option key={n} value={n}>{n}명</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
+
+                        <div className="grp-modes">
+                            {(['seq', 'random', 'gender', 'age'] as GroupMode[]).map(m => (
+                                <button key={m} className="btn grp-mode"
+                                        title={MODE_HINT[m]} aria-label={MODE_HINT[m]}
+                                        onClick={() => applyMode(m)}>
+                                    {MODE_LABEL[m]}
+                                </button>
+                            ))}
+                        </div>
+
                         <p className="xs faint">
-                            신청한 순서대로 나눕니다. 그다음 아래에서 손으로 옮기면 됩니다.
+                            누르면 바로 나뉘고, 그다음 아래에서 손으로 옮기면 됩니다.<br />
+                            <b>성별 조합</b>은 남녀가 고르게 섞이도록(남남여여 · 남남남여),
+                            <b> 나이 조합</b>은 나이가 고르게 섞이도록(신구 조화) 나눕니다.
                         </p>
+
+                        {/* **정보가 빈 사람이 몇인지 알려 준다.** 안 적으면
+                            그 조건이 반쪽으로 도는데, 화면만 봐서는 왜 이렇게
+                            갈렸는지 알 길이 없다. `내 정보`에서 각자 적는다. */}
+                        {(missing.gender > 0 || missing.age > 0) && (
+                            <p className="xs grp-missing">
+                                {missing.gender > 0 && `성별 안 적은 분 ${missing.gender}명`}
+                                {missing.gender > 0 && missing.age > 0 && ' · '}
+                                {missing.age > 0 && `태어난 해 안 적은 분 ${missing.age}명`}
+                                <br />
+                                <span className="faint">
+                                    그분들은 나머지 뒤에 고르게 넣습니다.
+                                    각자 <b>내 정보 → 프로필 수정</b>에서 적을 수 있습니다.
+                                </span>
+                            </p>
+                        )}
                     </div>
 
                     {numbers.map(n => {
@@ -307,16 +362,26 @@ const CHIPS_UP_TO = 6;
 function Row({
     person, current, numbers, onPick,
 }: {
-    person?: Person;
+    person?: GroupPerson;
     current: number | null;
     numbers: number[];
     onPick: (v: number | null) => void;
 }) {
     const name = person?.name ?? '알 수 없음';
+    /* **왜 이렇게 갈렸는지 보이게 한다.** 성별·나이로 나눠 놓고 그 값이
+       화면에 없으면, 손으로 옮길 때 무엇을 깨뜨리는지 모른 채 옮기게 된다.
+       나이가 아니라 `65년생`으로 적는다 — 나이는 해가 바뀌면 틀린다. */
+    const tag = [
+        person?.gender === 'f' ? '여' : person?.gender === 'm' ? '남' : '',
+        person?.birth_year ? `${String(person.birth_year).slice(2)}년생` : '',
+    ].filter(Boolean).join(' · ');
     return (
         <div className="grp-row">
             <Avatar name={person?.name} url={person?.avatar_url} size="sm" />
-            <span className="grow truncate">{name}</span>
+            <span className="grow truncate">
+                {name}
+                {tag && <span className="grp-tag">{tag}</span>}
+            </span>
             {numbers.length <= CHIPS_UP_TO ? (
                 <div className="grp-chips">
                     {numbers.map(n => (

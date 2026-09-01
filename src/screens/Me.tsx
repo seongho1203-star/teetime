@@ -7,7 +7,8 @@ import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
-import { ROLE_LABEL } from '../lib/types';
+import { BIRTH_MAX, BIRTH_MIN, ROLE_LABEL, birthValue, type Gender } from '../lib/types';
+import { GenderAge } from '../components/GenderAge';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { shrinkImage } from '../lib/image';
 import {
@@ -25,6 +26,11 @@ export function Me() {
     const [name, setName] = useState(profile?.name ?? '');
     const [phone, setPhone] = useState(profile?.phone ?? '');
     const [car, setCar] = useState(profile?.car ?? '');
+    /* 조 편성의 `성별 조합`·`나이 조합`이 보는 값이다. 둘 다 안 적어도 된다 —
+       이 기능 이전에 가입한 분은 전부 비어 있다. */
+    const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
+    const [birth, setBirth] = useState(
+        profile?.birth_year ? String(profile.birth_year) : '');
     const [saving, setSaving] = useState(false);
     const [photoBusy, setPhotoBusy] = useState(false);
     const photoRef = useRef<HTMLInputElement>(null);
@@ -34,10 +40,18 @@ export function Me() {
         if (!trimmed) { toast('닉네임을 적어 주세요.', 'error'); return; }
         if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
         if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
+        const year = birthValue(birth);
+        if (year === false) {
+            toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
+            return;
+        }
 
         setSaving(true);
         const { error } = await supabase.from('profiles')
-            .update({ name: trimmed, phone: phone.trim(), car: car.trim() })
+            .update({
+                name: trimmed, phone: phone.trim(), car: car.trim(),
+                gender, birth_year: year,
+            })
             .eq('id', session!.user.id);
         setSaving(false);
 
@@ -208,6 +222,10 @@ export function Me() {
                                onChange={e => setCar(e.target.value)}
                                placeholder="12가 3456" maxLength={20} />
                     </div>
+                    <GenderAge
+                        id="m" gender={gender} birth={birth}
+                        onGender={setGender} onBirth={setBirth}
+                    />
                     <div className="row" style={{ gap: 'var(--gap-sm)' }}>
                         <button className="btn ghost grow" onClick={() => setEditing(false)}>
                             취소

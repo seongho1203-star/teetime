@@ -59,6 +59,25 @@ alter table profiles add column if not exists joined_at timestamptz;
 -- 예전에 적어 둔 값이 있고, 지워서 얻을 게 없다.
 alter table profiles add column if not exists car text;
 
+-- **조 편성에 쓰는 두 칸.** 성별로 섞고(남남여여) 나이로 섞는(신구 조화)
+-- 조 편성 조건이 이 값을 본다 — 없으면 그 두 조건이 아예 못 돈다.
+--
+-- **둘 다 비워 둘 수 있다.** 이 기능을 만들기 전부터 있던 회원 100명이
+-- 다 `null`인데, 필수로 잡으면 그분들이 앱을 못 쓰게 된다. 조 편성 쪽에서
+-- 모르는 사람은 따로 모아 고르게 흩뿌린다.
+--
+-- **나이 대신 태어난 해를 받는다.** 나이를 적으면 해가 바뀔 때마다 틀린
+-- 값이 되고, 아무도 고치러 오지 않는다.
+alter table profiles add column if not exists gender text;
+alter table profiles drop constraint if exists profiles_gender_check;
+alter table profiles add  constraint profiles_gender_check
+    check (gender is null or gender in ('m', 'f'));
+
+alter table profiles add column if not exists birth_year smallint;
+alter table profiles drop constraint if exists profiles_birth_year_check;
+alter table profiles add  constraint profiles_birth_year_check
+    check (birth_year is null or birth_year between 1930 and 2020);
+
 -- 이미 있던 회원은 처음 들어온 때부터 본다.
 update profiles set joined_at = created_at
  where joined_at is null

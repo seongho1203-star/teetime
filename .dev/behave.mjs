@@ -174,15 +174,52 @@ ok(Object.values(body.p_grps ?? {}).filter(v => v === null).length === 1,
 ok(Object.keys(body.p_tees ?? {}).join(',') === '1,2',
    `사람이 있는 조의 시각만 보낸다 — 빈 3조는 안 보낸다 (실제 ${JSON.stringify(Object.keys(body.p_tees ?? {}))})`);
 
-/* **`자동으로 나누기`는 고른 인원수대로 자른다.** 여덟 명을 4명씩이면
-   두 조, 3명씩이면 세 조다. 여기가 어긋나면 조가 하나 남거나 모자란다. */
+/* ── 조 편성 조건 넷 ────────────────────────────────────────────
+   **규칙 자체는 `.dev/groups-check.mts`가 숫자로 붙들어 둔다**(브라우저 없이).
+   여기서 보는 것은 그 규칙이 **화면에 제대로 이어져 있는가**다 — 단추가
+   눌리는가, 고른 인원수가 먹는가, 사람이 안 빠지는가. */
+const groupsOf = () => page.$$eval('.grp-card', cards => cards
+    .map(c => ({
+        head: c.querySelector('.section-title')?.textContent.trim() ?? '',
+        who: [...c.querySelectorAll('.grp-row .grow')].map(x => x.textContent.trim()),
+    }))
+    .filter(g => g.who.length));
+
 await go('/#/rounds/r2/groups', 700);
 await page.selectOption('#g-size', '3');
-await page.getByText('자동으로 나누기', { exact: true }).click();
+await page.locator('.grp-mode', { hasText: '신청 순서' }).click();
 await page.waitForTimeout(300);
-const heads = await page.$$eval('.grp-card .section-title', e => e.map(x => x.textContent.trim()));
-ok(heads.some(h => h.startsWith('3조')) && heads.some(h => h.startsWith('1조')),
-   `3명씩 나누면 여덟 명이 세 조가 된다 (실제 ${JSON.stringify(heads)})`);
+const heads = (await groupsOf()).map(g => g.head);
+ok(heads.length === 3 && heads[0].startsWith('1조'),
+   `3명씩 고르면 여덟 명이 세 조가 된다 (실제 ${JSON.stringify(heads)})`);
+
+/* 넷 다 **아무도 안 빠뜨린다.** 한 명이라도 빠지면 그 사람만 `미배정`에
+   남는데, 조를 훑어보지 않으면 알아채기 어렵다. */
+/* **인원수를 매번 정해 준다.** 같은 주소로 다시 가는 것은 브라우저가
+   아무 일도 안 하는 것으로 봐서 화면이 새로 안 그려진다 — 앞 시험에서
+   고른 `3명`이 그대로 남아 있었다(여기서 한 번 헛짚었다). */
+for (const mode of ['신청 순서', '랜덤', '성별 조합', '나이 조합']) {
+    await page.selectOption('#g-size', '4');
+    await page.locator('.grp-mode', { hasText: mode }).click();
+    await page.waitForTimeout(300);
+    const gs = await groupsOf();
+    const n = gs.reduce((s, g) => s + g.who.length, 0);
+    ok(n === 8 && gs.length === 2,
+       `${mode}: 여덟 명이 두 조로 다 들어간다 (실제 ${gs.map(g => g.who.length)})`);
+}
+
+/* **성별 조합은 정말 갈라 놓는가.** 여덟 중 여자가 둘이라 조마다 하나씩
+   가야 한다(남남남여). 화면에 `여`가 적혀 있으므로 그걸로 센다. */
+await page.selectOption('#g-size', '4');
+await page.locator('.grp-mode', { hasText: '성별 조합' }).click();
+await page.waitForTimeout(300);
+const women = (await groupsOf()).map(g => g.who.filter(w => w.includes('여 ·')).length);
+ok(women.join(',') === '1,1', `성별 조합 → 조마다 여자 ${women} (남남남여)`);
+
+/* **정보가 빈 사람이 몇인지 알려 준다.** 안 알려 주면 왜 이렇게 갈렸는지
+   물어볼 데가 없다. 가짜 자료에서 오세훈만 둘 다 비어 있다. */
+ok((await page.textContent('.grp-missing') ?? '').includes('1명'),
+   '성별·태어난 해를 안 적은 사람 수를 알려 준다');
 
 /* ── 5. 총무의 정산 현황 ────────────────────────────────────────
    **안 낸 사람만 세운다.** 다 걷힌 정산(st2)은 목록에 없어야 하고,

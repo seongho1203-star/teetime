@@ -12,21 +12,25 @@ const iso = (dayOffset, h = 7, m = 30) => {
 
 export const ME = uid(1);
 
+/* `gender`·`birth_year`는 **조 편성 조건**이 보는 값이다.
+   **일부러 몇 사람은 비워 둔다** — 이 기능 이전에 가입한 분들이 실제로
+   그렇고, 그때 조 편성 화면이 `안 적은 분 N명`을 알려 주는지도 봐야 한다.
+   (오세훈은 성별만·태어난 해만 빈 경우를 각각 만들려고 둘 다 비웠다.) */
 export const profiles = [
-    { id: uid(1), name: '신성호', avatar_url: null, role: 'superadmin', joined_at: iso(-120), car: '12가 3456', phone: '010-1234-5678', memo: '', created_at: iso(-120) },
-    { id: uid(2), name: '이관교', avatar_url: null, role: 'admin', joined_at: iso(-110), car: '34나 5678',   phone: null, memo: '', created_at: iso(-110) },
-    { id: uid(3), name: '김지명', avatar_url: null, role: 'staff', joined_at: iso(-100), car: '56다 7890',  phone: null, memo: '', created_at: iso(-100) },
-    { id: uid(4), name: '박승수', avatar_url: null, role: 'treasurer', joined_at: iso(-90),  car: '78라 1234',   phone: null, memo: '', created_at: iso(-90) },
-    { id: uid(5), name: '정우성', avatar_url: null, role: 'member', joined_at: iso(-40),  car: null, phone: null, memo: '', created_at: iso(-40) },
+    { id: uid(1), name: '신성호', avatar_url: null, role: 'superadmin', joined_at: iso(-120), car: '12가 3456', phone: '010-1234-5678', memo: '', gender: 'm', birth_year: 1972, created_at: iso(-120) },
+    { id: uid(2), name: '이관교', avatar_url: null, role: 'admin', joined_at: iso(-110), car: '34나 5678', phone: null, memo: '', gender: 'm', birth_year: 1968, created_at: iso(-110) },
+    { id: uid(3), name: '김지명', avatar_url: null, role: 'staff', joined_at: iso(-100), car: '56다 7890', phone: null, memo: '', gender: 'm', birth_year: 1980, created_at: iso(-100) },
+    { id: uid(4), name: '박승수', avatar_url: null, role: 'treasurer', joined_at: iso(-90), car: '78라 1234', phone: null, memo: '', gender: 'm', birth_year: 1975, created_at: iso(-90) },
+    { id: uid(5), name: '정우성', avatar_url: null, role: 'member', joined_at: iso(-40), car: null, phone: null, memo: '', gender: 'f', birth_year: 1988, created_at: iso(-40) },
     /* 여덟 명이 차야 **조가 둘로 갈린다** — 네 명짜리 라운드만 두면 조
        편성이 늘 한 덩어리라, 조별로 묶어 그리는 것이 맞는지 확인이 안 된다. */
-    { id: uid(9),  name: '오세훈', avatar_url: null, role: 'member', joined_at: iso(-35), car: '90마 1122', phone: null, memo: '', created_at: iso(-35) },
-    { id: uid(10), name: '장동건', avatar_url: null, role: 'member', joined_at: iso(-33), car: null, phone: null, memo: '', created_at: iso(-33) },
-    { id: uid(11), name: '임채원', avatar_url: null, role: 'member', joined_at: iso(-31), car: '11바 3344', phone: null, memo: '', created_at: iso(-31) },
-    { id: uid(6), name: '한도현', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: '010-9999-1111', memo: '', created_at: iso(-1) },
-    { id: uid(7), name: '조민석', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: null, memo: '', created_at: iso(0) },
+    { id: uid(9),  name: '오세훈', avatar_url: null, role: 'member', joined_at: iso(-35), car: '90마 1122', phone: null, memo: '', gender: null, birth_year: null, created_at: iso(-35) },
+    { id: uid(10), name: '장동건', avatar_url: null, role: 'member', joined_at: iso(-33), car: null, phone: null, memo: '', gender: 'm', birth_year: 1995, created_at: iso(-33) },
+    { id: uid(11), name: '임채원', avatar_url: null, role: 'member', joined_at: iso(-31), car: '11바 3344', phone: null, memo: '', gender: 'f', birth_year: 1958, created_at: iso(-31) },
+    { id: uid(6), name: '한도현', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: '010-9999-1111', memo: '', gender: null, birth_year: null, created_at: iso(-1) },
+    { id: uid(7), name: '조민석', avatar_url: null, role: 'pending', joined_at: null, car: null, phone: null, memo: '', gender: null, birth_year: null, created_at: iso(0) },
     // 추방된 사람. 명단 아래 칸이 어떻게 보이는지 확인용.
-    { id: uid(8), name: '최민수', avatar_url: null, role: 'banned',  joined_at: iso(-60),  car: null, phone: null, memo: '', created_at: iso(-60) },
+    { id: uid(8), name: '최민수', avatar_url: null, role: 'banned', joined_at: iso(-60), car: null, phone: null, memo: '', gender: null, birth_year: null, created_at: iso(-60) },
 ];
 
 export const rounds = [

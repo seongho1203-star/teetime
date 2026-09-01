@@ -3,8 +3,10 @@ import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { Avatar } from '../components/Avatar';
 import { Hinted } from '../components/Hinted';
+import { GenderAge } from '../components/GenderAge';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
+import { BIRTH_MAX, BIRTH_MIN, birthValue, type Gender } from '../lib/types';
 import { Help } from './Help';
 
 /**
@@ -13,9 +15,13 @@ import { Help } from './Help';
  * 여기서 닉네임을 바로잡아 두면 운영진이 명단에서 누군지 알아본다 —
  * 카카오 닉네임이 `골프왕`이면 승인할 수가 없다.
  *
- * **셋 다 필수다**(닉네임·전화번호·차량번호). 전화는 급한 연락에,
+ * **셋은 필수다**(닉네임·전화번호·차량번호). 전화는 급한 연락에,
  * **차량번호는 골프장에 미리 차를 등록할 때** 쓴다 — 나중에 물어보러
  * 다니느니 처음에 받아 둔다. (카풀 때문이 아니다.)
+ *
+ * **성별과 태어난 해는 안 적어도 된다.** 조 편성의 `성별 조합`·`나이 조합`
+ * 에만 쓰는 값이라 없다고 가입을 막을 이유가 없다. 다만 여기서 받아 두면
+ * 나중에 100명에게 따로 물어보러 다니지 않아도 된다.
  *
  * 운영진이 승인하면 auth.tsx의 실시간 구독이 profiles 변경을 받아
  * 새로고침 없이 앱으로 들어간다.
@@ -26,6 +32,9 @@ export function Pending() {
     const [name, setName] = useState(profile?.name ?? '');
     const [phone, setPhone] = useState(profile?.phone ?? '');
     const [car, setCar] = useState(profile?.car ?? '');
+    const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
+    const [birth, setBirth] = useState(
+        profile?.birth_year ? String(profile.birth_year) : '');
     const [saving, setSaving] = useState(false);
     /* **기다리는 동안 읽을 거리.** 승인 전에는 라우터가 안 열려
        `/help`로 못 가므로 여기서 직접 띄운다. */
@@ -37,11 +46,19 @@ export function Pending() {
         if (!trimmed) { toast('닉네임을 적어 주세요.', 'error'); return; }
         if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
         if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
+        const year = birthValue(birth);
+        if (year === false) {
+            toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
+            return;
+        }
 
         setSaving(true);
         const { error } = await supabase
             .from('profiles')
-            .update({ name: trimmed, phone: phone.trim(), car: car.trim() })
+            .update({
+                name: trimmed, phone: phone.trim(), car: car.trim(),
+                gender, birth_year: year,
+            })
             .eq('id', session!.user.id);
         setSaving(false);
 
@@ -101,6 +118,10 @@ export function Pending() {
                         placeholder="12가 3456" maxLength={20}
                     />
                 </div>
+                <GenderAge
+                    id="p" gender={gender} birth={birth}
+                    onGender={setGender} onBirth={setBirth}
+                />
                 <button className="btn primary block" onClick={save} disabled={saving}>
                     {saving ? '저장 중…' : '저장'}
                 </button>

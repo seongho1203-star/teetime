@@ -48,6 +48,10 @@ tables.profiles = Array.from({ length: N }, (_, i) => ({
     avatar_url: i % 3 ? `https://x.supabase.co/storage/v1/object/public/avatars/${uid(i + 1)}/1712345678901.jpg` : null,
     role: i === 0 ? 'superadmin' : i === 1 ? 'admin' : i === 2 ? 'staff' : i === 3 ? 'treasurer'
         : i % 37 === 0 ? 'pending' : 'member',
+    /* 조 편성 조건이 보는 두 칸. **다섯에 하나는 비워 둔다** — 이 기능
+       이전에 가입한 분들이 실제로 그렇고, 그 상태에서도 재야 값이 맞다. */
+    gender: i % 5 === 0 ? null : (i % 4 === 0 ? 'f' : 'm'),
+    birth_year: i % 5 === 0 ? null : 1950 + (i * 7) % 45,
     joined_at: iso(-YEAR + i), car: `${10 + (i % 80)}가 ${1000 + i}`,
     phone: `010-${String(1000 + i).slice(0, 4)}-${String(5678 + i).slice(0, 4)}`,
     memo: '', created_at: iso(-YEAR + i),

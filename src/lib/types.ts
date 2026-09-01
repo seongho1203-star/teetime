@@ -124,6 +124,40 @@ export const FIND_AT = 12;
  */
 export type Person = Pick<Profile, 'id' | 'name' | 'avatar_url' | 'role' | 'car'>;
 
+/**
+ * 조 편성 화면이 받는 명단. **`Person`에 성별·태어난 해를 더한 것**이다.
+ *
+ * **`Person`에 그냥 넣지 않는다.** 명단은 거의 모든 화면이 받는데(홈·대화·
+ * 투표…), 조 편성 말고는 이 둘을 안 쓴다 — 100명이면 화면마다 3KB가 그냥
+ * 따라다닌다. 여기만 넓게 받는다(운영진이 가끔 여는 화면이라 값이 싸다).
+ */
+export type GroupPerson =
+    Pick<Profile, 'id' | 'name' | 'avatar_url' | 'gender' | 'birth_year'>;
+
+/** 성별. 조 편성에서 남녀를 고르게 섞는 데만 쓴다. */
+export type Gender = 'm' | 'f';
+export const GENDER_LABEL: Record<Gender, string> = { m: '남', f: '여' };
+
+/** 태어난 해로 받을 수 있는 범위. DB의 `profiles_birth_year_check`와 같다. */
+export const BIRTH_MIN = 1930;
+export const BIRTH_MAX = 2020;
+
+/**
+ * 적은 글자를 저장할 값으로 바꾼다.
+ * 비었으면 `null`(안 적은 것), 범위 밖이면 `false`(잘못 적은 것).
+ *
+ * **가입 화면과 `내 정보`가 같은 잣대를 쓰게 하려고 여기 둔다.**
+ * 화면 파일에서 함수를 내보내면 fast refresh가 깨진다는 경고가 붙는다
+ * (`pollClosed`를 여기 둔 것과 같은 이유다).
+ */
+export function birthValue(text: string): number | null | false {
+    const t = text.trim();
+    if (!t) return null;
+    const n = Number(t);
+    if (!Number.isInteger(n) || n < BIRTH_MIN || n > BIRTH_MAX) return false;
+    return n;
+}
+
 export type Profile = {
     id: string;
     /** 화면에 보이는 이름. 가입할 때 **닉네임**으로 받는다. */
@@ -134,6 +168,19 @@ export type Profile = {
     joined_at: string | null;
     /** 차량번호. **골프장에 미리 차를 등록할 때** 쓴다(카풀과는 무관). */
     car: string | null;
+    /**
+     * 조 편성에 쓰는 두 칸. **둘 다 비어 있을 수 있다.**
+     *
+     * 이 기능 이전에 가입한 사람은 전부 `null`이라 필수로 잡을 수 없었다 —
+     * 조 편성 쪽이 모르는 사람을 따로 모아 고르게 흩뿌린다(`lib/groups.ts`).
+     * 스키마를 아직 다시 안 돌린 저장소에서는 칸 자체가 없어 `undefined`도
+     * 온다(`roundKind`와 같은 사정이다).
+     *
+     * **나이가 아니라 태어난 해다** — 나이를 적으면 해가 바뀔 때마다 틀린
+     * 값이 되고 아무도 고치러 오지 않는다.
+     */
+    gender: Gender | null;
+    birth_year: number | null;
     /** 예전에 받던 값. 지금은 화면에서 안 쓰지만 적어 둔 것이 남아 있다. */
     handicap: number | null;
     phone: string | null;
