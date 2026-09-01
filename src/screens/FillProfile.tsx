@@ -10,7 +10,7 @@ import { readableError } from '../lib/errors';
 import { BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthValue, type Gender } from '../lib/types';
 
 /**
- * 성별·태어난 해·사는곳을 아직 안 적은 **이미 승인된 회원**에게 한 번 받는 화면.
+ * 성별·태어난 해·거주지역을 아직 안 적은 **이미 승인된 회원**에게 한 번 받는 화면.
  *
  * **가입 화면(`Pending`)만으로는 못 받는다.** 그 화면은 승인 전에만 보이는데,
  * 이 기능이 생기기 전에 가입한 100명은 이미 승인이 끝나 그리로 안 간다 —
@@ -40,7 +40,7 @@ export function FillProfile() {
             return;
         }
 
-        if (!region.trim()) { toast('사는곳을 적어 주세요.', 'error'); return; }
+        if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
         setSaving(true);
         const error = await saveMyProfile(
@@ -78,7 +78,7 @@ export function FillProfile() {
                     onGender={setGender} onBirth={setBirth}
                 />
                 <div className="field">
-                    <label htmlFor="fp-region">사는곳</label>
+                    <label htmlFor="fp-region">거주지역</label>
                     <Hinted hint="광산구" empty={!region}>
                         <input
                             id="fp-region" className="input" value={region}

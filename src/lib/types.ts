@@ -154,14 +154,14 @@ export type Contact = { id: string; phone: string | null; car: string | null };
 export type Gender = 'm' | 'f';
 export const GENDER_LABEL: Record<Gender, string> = { m: '남', f: '여' };
 
-/** 사는곳은 여덟 글자까지. DB의 `profiles_region_check`와 같은 값이다. */
+/** 거주지역은 여덟 글자까지. DB의 `profiles_region_check`와 같은 값이다. */
 export const REGION_MAX = 8;
 
 /**
  * 화면에 적는 이름 — `83/신성호/광산구`.
  *
  * **100명 모임에서는 닉네임만으로 누군지 모른다**(사용자 요청). 태어난 해
- * 뒤 두 자리 · 닉네임 · 사는곳을 `/`로 잇는다.
+ * 뒤 두 자리 · 닉네임 · 거주지역을 `/`로 잇는다.
  *
  * **모르는 조각은 그냥 뺀다** — `신성호/광산구`, `83/신성호`, `신성호`가
  * 모두 정상이다. 아직 안 적은 사람과 스키마를 다시 안 돌린 저장소가 그런데,
@@ -201,7 +201,7 @@ export function birthValue(text: string): number | null | false {
 }
 
 /**
- * 이 사람이 성별·태어난 해·사는곳을 아직 안 적었는가 (로그인 뒤 한 번 막고 받는다).
+ * 이 사람이 성별·태어난 해·거주지역을 아직 안 적었는가 (로그인 뒤 한 번 막고 받는다).
  *
  * **`null`과 `undefined`를 반드시 갈라야 한다.**
  * - `null` — 칸은 있는데 안 적은 것. 받아야 한다.
@@ -229,7 +229,7 @@ export type Profile = {
     /** 대화를 언제부터 볼 수 있는가. 승인된 순간이 찍힌다. */
     joined_at: string | null;
     /**
-     * 사는곳. 이름표에 `83/신성호/광산구`로 함께 적힌다.
+     * 거주지역. 이름표에 `83/신성호/광산구`로 함께 적힌다.
      * **여덟 글자까지**(`REGION_MAX` · DB의 `profiles_region_check`).
      */
     region: string | null;

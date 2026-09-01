@@ -53,7 +53,7 @@ export function Me() {
             return;
         }
 
-        if (!region.trim()) { toast('사는곳을 적어 주세요.', 'error'); return; }
+        if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
         setSaving(true);
         const error = await saveMyProfile(
@@ -205,9 +205,11 @@ export function Me() {
                     <div className="b truncate" style={{ fontSize: 'var(--fs-lg)' }}>
                         {personLabel(profile) || '닉네임 없음'}
                     </div>
+                    {/* **차량번호는 여기 적지 않는다**(사용자 요청). 보이는
+                        곳은 회원 명단 하나이고, 내 것은 아래 `프로필 수정`을
+                        열면 칸에 그대로 들어 있다. */}
                     <div className="sm faint">
                         {profile ? ROLE_LABEL[profile.role] : '일반회원'}
-                        {contact?.car && ` · ${contact.car}`}
                     </div>
                 </div>
             </div>
@@ -236,7 +238,7 @@ export function Me() {
                                placeholder="12가 3456" maxLength={20} />
                     </div>
                     <div className="field">
-                        <label htmlFor="m-region">사는곳</label>
+                        <label htmlFor="m-region">거주지역</label>
                         <Hinted hint="광산구" empty={!region}>
                             <input id="m-region" className="input" value={region}
                                    onChange={e => setRegion(e.target.value.slice(0, REGION_MAX))}

@@ -78,7 +78,7 @@ alter table profiles drop constraint if exists profiles_birth_year_check;
 alter table profiles add  constraint profiles_birth_year_check
     check (birth_year is null or birth_year between 1930 and 2020);
 
--- **사는곳.** 이름표에 `83/신성호/광산구`로 함께 적힌다 — 100명 모임에서
+-- **거주지역.** 이름표에 `83/신성호/광산구`로 함께 적힌다 — 100명 모임에서
 -- 닉네임만으로는 누가 누군지 모르고, 카톡에서도 다들 앞에 지역을 붙여
 -- 부르던 것을 옮긴 것이다(사용자 요청).
 --

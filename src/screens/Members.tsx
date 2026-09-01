@@ -171,8 +171,8 @@ export function Members() {
             {bigList && (
                 <div className="field member-find">
                     <label htmlFor="m-find">
-                        {isAdmin ? '이름 · 사는곳 · 차량번호 · 전화번호로 찾기'
-                                 : '이름 · 사는곳으로 찾기'}
+                        {isAdmin ? '이름 · 거주지역 · 차량번호 · 전화번호로 찾기'
+                                 : '이름 · 거주지역으로 찾기'}
                     </label>
                     <input id="m-find" className="input" value={find}
                            onChange={e => setFind(e.target.value)} />

@@ -162,15 +162,6 @@
    훑어 내리는 목록이라 작아져도 읽힌다. */
 .signup-name { font-weight: 700; font-size: var(--fs-sm); }
 
-/* 이름과 차량번호를 세로로 쌓는다. 한 줄에 나란히 두면 320px에서
-   이름표(`83/신성호/광산구`)가 잘렸다 — 차량번호는 운영진에게만 있으므로
-   대개 한 줄짜리 그대로다. */
-.signup-who {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    line-height: 1.35;
-}
 
 /* 줄 안의 `✕`. 기본 버튼 높이(35px)가 줄 전체를 끌어올린다 —
    아바타(26px)보다 크지 않게 눌러 둔다. */

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchPeople, fetchContacts, byId } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
@@ -28,8 +28,6 @@ interface Loaded {
     shares: SettlementShare[];
     people: Person[];
     groups: RoundGroup | null;
-    /** 차량번호. **운영진일 때만 채워진다** — 그때만 받아 오기 때문이다. */
-    cars: Record<string, string>;
 }
 
 export function RoundDetail() {
@@ -42,8 +40,7 @@ export function RoundDetail() {
     const [busy, setBusy] = useState(false);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        const [round, signups, comments, settlements, people, groups, contacts] =
-            await Promise.all([
+        const [round, signups, comments, settlements, people, groups] = await Promise.all([
             supabase.from('rounds').select('*').eq('id', id!).maybeSingle(),
             supabase.from('signups').select('*').eq('round_id', id!).order('seq'),
             supabase.from('round_comments').select('*').eq('round_id', id!)
@@ -54,10 +51,6 @@ export function RoundDetail() {
             /* 조별 시각만 여기 있다. 조 번호는 `signups.grp`라 위에서 함께
                왔으므로, 편성이 없으면 이 줄이 없을 뿐 나머지는 멀쩡하다. */
             supabase.from('round_groups').select('*').eq('round_id', id!).maybeSingle(),
-            /* **차량번호는 운영진만 본다.** 골프장에 차를 미리 등록하는 일이
-               운영진 몫이라 참가자 줄에 그대로 남겨 두되, 회원에게는 아예
-               안 받아 온다 — 정책이 막지만 왕복을 한 번 아낀다. */
-            isAdmin ? fetchContacts() : Promise.resolve([]),
         ]);
         /* **여기서 `unwrap`을 쓰지 않는다.** 스키마를 아직 다시 안 돌린
            저장소에는 이 표가 아예 없어 오류가 돌아오는데, 그걸 던지면
@@ -80,10 +73,8 @@ export function RoundDetail() {
             shares: shares as SettlementShare[],
             people,
             groups: groupRow,
-            cars: Object.fromEntries(
-                contacts.filter(c => c.car).map(c => [c.id, c.car as string])),
         };
-    }, [id, isAdmin], `round:${id}`);
+    }, [id], `round:${id}`);
 
     useRealtime(
         ['signups', 'rounds', 'round_comments', 'settlements', 'settlement_shares',
@@ -332,7 +323,7 @@ export function RoundDetail() {
                                     {list.map((s, i) => (
                                         <PersonRow
                                             key={s.id} seq={i + 1} profile={names[s.user_id]}
-                                            isMe={s.user_id === me} car={data.cars[s.user_id]}
+                                            isMe={s.user_id === me}
                                             onKick={isAdmin && s.user_id !== me
                                                 ? () => kick(s.user_id) : undefined}
                                         />
@@ -346,7 +337,7 @@ export function RoundDetail() {
                         {confirmed.map((s, i) => (
                             <PersonRow
                                 key={s.id} seq={i + 1} profile={names[s.user_id]}
-                                isMe={s.user_id === me} car={data.cars[s.user_id]}
+                                isMe={s.user_id === me}
                                 onKick={isAdmin && s.user_id !== me ? () => kick(s.user_id) : undefined}
                             />
                         ))}
@@ -381,7 +372,7 @@ export function RoundDetail() {
                         {waiting.map((s, i) => (
                             <PersonRow
                                 key={s.id} seq={i + 1} profile={names[s.user_id]}
-                                isMe={s.user_id === me} waiting car={data.cars[s.user_id]}
+                                isMe={s.user_id === me} waiting
                                 onKick={isAdmin && s.user_id !== me ? () => kick(s.user_id) : undefined}
                             />
                         ))}
@@ -471,14 +462,12 @@ export function RoundDetail() {
 }
 
 function PersonRow({
-    seq, profile, isMe, waiting, car, onKick,
+    seq, profile, isMe, waiting, onKick,
 }: {
     seq: number;
     profile?: Person;
     isMe: boolean;
     waiting?: boolean;
-    /** 운영진에게만 넘어온다. */
-    car?: string;
     onKick?: () => void;
 }) {
     return (
@@ -486,17 +475,12 @@ function PersonRow({
             <span className="signup-seq">{seq}</span>
             <Avatar name={profile?.name} url={profile?.avatar_url}
                     gender={profile?.gender} size="sm" />
-            {/* **차량번호를 아랫줄로 내렸다.** 이름표가 `83/신성호/광산구`로
-                길어져 한 줄에 나란히 두면 320px에서 이름이 잘렸다.
-                명단에서 차량번호가 쓸모 있는 것은 **골프장에 차를 미리
-                등록할 때**다(카풀 때문이 아니다 — 사용자가 바로잡아 준 것).
-                **지금은 운영진에게만 보인다**(사용자 요청). */}
-            <span className="signup-who grow">
-                <span className="signup-name truncate">
-                    {personLabel(profile) || '알 수 없음'}
-                    {isMe && <span className="xs brand-tag"> (나)</span>}
-                </span>
-                {car && <span className="xs faint truncate">{car}</span>}
+            {/* **차량번호는 여기 없다**(사용자 요청). 회원 명단에서 운영진에게만
+                보인다 — 골프장에 차를 미리 등록하는 일이 거기서 끝나고,
+                참가자 줄에까지 두면 남의 차량번호가 여러 화면에 흩어진다. */}
+            <span className="signup-name grow truncate">
+                {personLabel(profile) || '알 수 없음'}
+                {isMe && <span className="xs brand-tag"> (나)</span>}
             </span>
             {onKick && (
                 <button className="btn ghost sm" onClick={onKick} aria-label="명단에서 빼기">✕</button>

@@ -17,10 +17,10 @@ import { Help } from './Help';
  * 카카오 닉네임이 `골프왕`이면 승인할 수가 없다.
  *
  * **여섯 가지를 다 받고 다 필수다** — 사용자가 정해 준 차례 그대로
- * `닉네임 · 전화번호 · 태어난 해 · 성별 · 차량번호 · 사는곳`이다.
+ * `닉네임 · 전화번호 · 태어난 해 · 성별 · 차량번호 · 거주지역`이다.
  * 전화는 급한 연락에, **차량번호는 골프장에 미리 차를 등록할 때** 쓴다
  * (카풀 때문이 아니다). 성별·태어난 해는 조 편성의 `성별 조합`·`나이 조합`이
- * 보고, **태어난 해와 사는곳은 이름표에도 적힌다**(`83/신성호/광산구`).
+ * 보고, **태어난 해와 거주지역은 이름표에도 적힌다**(`83/신성호/광산구`).
  *
  * 여기서 받아 두지 않으면 나중에 100명에게 따로 물어보러 다녀야 한다.
  * 이 기능 이전에 승인된 분들은 이 화면을 다시 안 보므로 로그인 뒤에
@@ -60,7 +60,7 @@ export function Pending() {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;
         }
-        if (!region.trim()) { toast('사는곳을 적어 주세요.', 'error'); return; }
+        if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
         setSaving(true);
         const error = await saveMyProfile(
@@ -132,7 +132,7 @@ export function Pending() {
                     />
                 </div>
                 <div className="field">
-                    <label htmlFor="p-region">사는곳</label>
+                    <label htmlFor="p-region">거주지역</label>
                     <Hinted hint="광산구" empty={!region}>
                         <input
                             id="p-region" className="input" value={region}

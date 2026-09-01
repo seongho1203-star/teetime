@@ -312,7 +312,7 @@ await mCtx.close();
  * 여기서 보는 것은 **막히는가**와 **적으면 풀리는가** 둘이다.
  */
 console.log('\n── 안 적은 회원은 로그인 뒤 막힌다 ──');
-const BLANK = uid(9);                 // 오세훈 — 성별·태어난 해·사는곳이 빈 회원
+const BLANK = uid(9);                 // 오세훈 — 성별·태어난 해·거주지역이 빈 회원
 const bCtx = await browser.newContext({
     viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
 const bSession = { ...SESSION, user: { ...SESSION.user, id: BLANK } };
@@ -344,7 +344,7 @@ ok(bWrites.length === 0, '태어난 해가 비면 저장을 안 보낸다');
 await bPage.fill('#fp-birth', '1985');
 await bPage.getByText('저장하고 시작하기', { exact: true }).click();
 await bPage.waitForTimeout(300);
-ok(bWrites.length === 0, '사는곳이 비면 저장을 안 보낸다');
+ok(bWrites.length === 0, '거주지역이 비면 저장을 안 보낸다');
 
 await bPage.fill('#fp-region', '광산구');
 await bPage.getByText('저장하고 시작하기', { exact: true }).click();
