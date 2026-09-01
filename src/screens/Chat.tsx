@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate, formatTime, kstDate, kstMinute } from '../lib/format';
-import type { Message, Person, Room } from '../lib/types';
+import { personLabel, type Gender, type Message, type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -608,10 +608,12 @@ export function Chat() {
     const norm = (s2: string) => s2.replace(/\s/g, '');
     const mentionHits = mention === null ? [] : [
         ...(isAdmin && norm(ALL_MENTION).includes(norm(mention))
-            ? [{ id: '__all__', name: ALL_MENTION, avatar_url: null, all: true }] : []),
+            ? [{ id: '__all__', name: ALL_MENTION, avatar_url: null,
+                gender: null as Gender | null, all: true }] : []),
         ...mentionable
             .filter(p => p.id !== me && norm(p.name).includes(norm(mention)))
-            .map(p => ({ id: p.id, name: p.name, avatar_url: p.avatar_url, all: false })),
+            .map(p => ({ id: p.id, name: p.name, avatar_url: p.avatar_url,
+                         gender: p.gender ?? null, all: false })),
     ].slice(0, 6);
 
     /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
@@ -835,7 +837,7 @@ export function Chat() {
                                     onClick={() => insertMention(p.name)}>
                                 {p.all
                                     ? <span className="mention-all-icon" aria-hidden="true">📢</span>
-                                    : <Avatar name={p.name} url={p.avatar_url} size="sm" />}
+                                    : <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />}
                                 <span className="truncate">{p.name}</span>
                                 {p.all && <span className="xs faint">모두에게 알림</span>}
                             </button>
@@ -1035,12 +1037,16 @@ function Bubble({
              onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
             {!mine && (
                 <div className="chat-avatar">
-                    {!grouped && <Avatar name={who?.name} url={who?.avatar_url} />}
+                    {!grouped && <Avatar name={who?.name} url={who?.avatar_url} gender={who?.gender} />}
                 </div>
             )}
             <div className="chat-col">
+                {/* 이름표는 `83/신성호/광산구`다 — 100명 방에서는 닉네임만으로
+                    누군지 모른다. **`@언급`은 여전히 닉네임 그대로다.** */}
                 {!mine && !grouped && (
-                    <span className="xs faint chat-who">{who?.name ?? '알 수 없음'}</span>
+                    <span className="xs faint chat-who">
+                        {personLabel(who) || '알 수 없음'}
+                    </span>
                 )}
                 {quote}
                 <div className="chat-line">

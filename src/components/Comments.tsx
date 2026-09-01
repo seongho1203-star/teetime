@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { readableError } from '../lib/errors';
-import type { Person } from '../lib/types';
+import { personLabel, type Person } from '../lib/types';
 import { Avatar } from './Avatar';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
@@ -69,10 +69,11 @@ export function Comments({
                 const who = names[c.author_id ?? ''];
                 return (
                     <div className="comment" key={c.id}>
-                        <Avatar name={who?.name} url={who?.avatar_url} size="sm" />
+                        <Avatar name={who?.name} url={who?.avatar_url}
+                                gender={who?.gender} size="sm" />
                         <div className="grow" style={{ minWidth: 0 }}>
                             <div className="row" style={{ gap: 6 }}>
-                                <span className="sm b">{who?.name ?? '알 수 없음'}</span>
+                                <span className="sm b">{personLabel(who) || '알 수 없음'}</span>
                                 <span className="xs faint">{timeAgo(c.created_at)}</span>
                             </div>
                             <div className="sm comment-body">{c.body}</div>

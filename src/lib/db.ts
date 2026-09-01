@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import type { Person, Profile } from './types';
+import type { Contact, Person, Profile } from './types';
 
 /**
  * 화면마다 같은 코드를 쓰지 않으려고 둔 조회 도우미.
@@ -179,8 +179,9 @@ export function unwrap<T>({ data, error }: { data: T | null; error: { message: s
 /**
  * 명단 전체를 **모든 칸까지** 받는다.
  *
- * **`회원 명단` 화면에서만 쓴다** — 전화번호·차량번호를 보여 주는 곳이
- * 거기뿐이기 때문이다. 다른 화면은 아래 `fetchPeople()`을 쓸 것.
+ * **`회원 명단` 화면에서만 쓴다** — 가입일·메모를 보는 곳이 거기뿐이다.
+ * 다른 화면은 아래 `fetchPeople()`을 쓸 것.
+ * **전화번호·차량번호는 여기 안 온다** — 다른 표에 있다(`fetchContacts`).
  */
 export async function fetchProfiles(): Promise<Profile[]> {
     return unwrap(
@@ -188,17 +189,68 @@ export async function fetchProfiles(): Promise<Profile[]> {
     ) ?? [];
 }
 
+/** 이름표에 필요한 칸. 여기 없는 칸은 100명분씩 화면마다 따라다닌다. */
+const PERSON_COLS = 'id, name, avatar_url, role, gender, birth_year, region';
+
 /**
- * 이름표를 붙일 때 쓰는 가벼운 명단 (`id · name · avatar_url · role`).
+ * 이름표를 붙일 때 쓰는 가벼운 명단.
  *
- * 거의 모든 화면이 남의 이름과 얼굴을 붙이려고 명단을 받는데, 전화번호·
- * 차량번호·가입일까지 따라오면 100명 기준 **화면마다 58KB**다. 네 칸만
- * 받으면 20KB로 준다. 무료 통신량이 월 5GB라 이 차이가 크다.
+ * 거의 모든 화면이 남의 이름과 얼굴을 붙이려고 명단을 받는데, 가입일·메모까지
+ * 따라오면 100명 기준 **화면마다 64KB**다(`node .dev/scale.mjs 100`의
+ * `회원 명단`). 쓰는 칸만 받으면 **38.5KB**로 준다. 무료 통신량이 월 5GB라
+ * 이 차이가 크다. 이름표에 태어난 해·사는곳이 들어가면서 35.7KB에서
+ * 2.8KB 늘었고, 한 달 어림은 1.20GB 그대로다.
+ *
+ * **칸이 없는 저장소에서는 좁은 목록으로 물러난다.** `schema.sql`은 사람이
+ * 손으로 붙여넣으므로 앱이 며칠 먼저 올라가 있을 수 있는데, 그때 없는 칸을
+ * 달라고 하면 PostgREST가 오류를 주고 `unwrap`이 그걸 던져 **명단을 받는
+ * 화면이 전부 죽는다**(홈·대화·라운드·투표 다 받는다). 그 한 번만 왕복이
+ * 하나 더 늘고, 이름표는 닉네임만으로 나온다.
  */
 export async function fetchPeople(): Promise<Person[]> {
+    const wide = await supabase.from('profiles').select(PERSON_COLS).order('name');
+    if (!wide.error) return (wide.data ?? []) as Person[];
     return unwrap(
-        await supabase.from('profiles').select('id, name, avatar_url, role, car').order('name')
+        await supabase.from('profiles').select('id, name, avatar_url, role').order('name')
     ) ?? [];
+}
+
+/**
+ * 전화번호·차량번호. **정책이 알아서 좁혀 준다** —
+ * 운영진이면 전원, 그 밖에는 **본인 한 줄**만 돌아온다.
+ *
+ * 화면에서 감추는 것이 아니라 애초에 안 실려 오는 것이 요점이다
+ * (`profile_private` · schema.sql). 표가 아직 없는 저장소에서는 오류를
+ * 던지지 않고 빈 목록으로 물러난다 — 전화번호 한 줄 때문에 화면이
+ * 통째로 안 열리면 안 된다.
+ */
+export async function fetchContacts(): Promise<Contact[]> {
+    const { data, error } = await supabase.from('profile_private').select('id, phone, car');
+    return error ? [] : (data ?? []);
+}
+
+/**
+ * 내 프로필을 저장한다. **두 표에 나뉘어 있으므로 여기 한 곳에서만 쓴다** —
+ * 가입 화면 · `내 정보` · 로그인 뒤 `FillProfile` 셋이 같이 부른다.
+ * 화면마다 따로 적으면 한쪽만 고치게 된다.
+ *
+ * **`profiles`를 먼저 쓴다.** 첫 앱관리자를 가려내는 트리거가
+ * `profile_private`에 걸려 있고 이름은 `profiles`에서 읽으므로, 순서가
+ * 바뀌면 방금 고친 이름을 못 보고 지나간다(schema.sql의 `claim_superadmin`).
+ *
+ * 오류는 던지지 않고 돌려준다 — 화면이 토스트로 보여 줘야 한다.
+ */
+export async function saveMyProfile(
+    uid: string,
+    fields: Partial<Pick<Profile, 'name' | 'region' | 'gender' | 'birth_year'>>,
+    contact?: { phone: string; car: string },
+): Promise<{ message: string } | null> {
+    const { error } = await supabase.from('profiles').update(fields).eq('id', uid);
+    if (error) return error;
+    if (!contact) return null;
+    const priv = await supabase.from('profile_private')
+        .upsert({ id: uid, ...contact }, { onConflict: 'id' });
+    return priv.error ?? null;
 }
 
 /** id → 프로필. 명단을 한 번만 읽고 여기저기서 이름을 붙일 때 쓴다. */

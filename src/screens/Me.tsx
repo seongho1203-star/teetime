@@ -7,8 +7,12 @@ import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
-import { BIRTH_MAX, BIRTH_MIN, ROLE_LABEL, birthValue, type Gender } from '../lib/types';
+import {
+    BIRTH_MAX, BIRTH_MIN, REGION_MAX, ROLE_LABEL, birthValue, personLabel, type Gender,
+} from '../lib/types';
 import { GenderAge } from '../components/GenderAge';
+import { Hinted } from '../components/Hinted';
+import { saveMyProfile } from '../lib/db';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { shrinkImage } from '../lib/image';
 import {
@@ -18,19 +22,20 @@ import { Switch } from '../components/Switch';
 import './Home.css';
 
 export function Me() {
-    const { profile, session, refresh } = useAuth();
+    const { profile, contact, session, refresh } = useAuth();
     const toast = useToast();
     const confirm = useConfirm();
 
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(profile?.name ?? '');
-    const [phone, setPhone] = useState(profile?.phone ?? '');
-    const [car, setCar] = useState(profile?.car ?? '');
+    const [phone, setPhone] = useState(contact?.phone ?? '');
+    const [car, setCar] = useState(contact?.car ?? '');
     /* 조 편성의 `성별 조합`·`나이 조합`이 보는 값이다. **둘 다 필수라
        여기서도 비울 수 없다** — 비울 수 있게 두면 로그인할 때 다시 막힌다. */
     const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
     const [birth, setBirth] = useState(
         profile?.birth_year ? String(profile.birth_year) : '');
+    const [region, setRegion] = useState(profile?.region ?? '');
     const [saving, setSaving] = useState(false);
     const [photoBusy, setPhotoBusy] = useState(false);
     const photoRef = useRef<HTMLInputElement>(null);
@@ -48,13 +53,14 @@ export function Me() {
             return;
         }
 
+        if (!region.trim()) { toast('사는곳을 적어 주세요.', 'error'); return; }
+
         setSaving(true);
-        const { error } = await supabase.from('profiles')
-            .update({
-                name: trimmed, phone: phone.trim(), car: car.trim(),
-                gender, birth_year: year,
-            })
-            .eq('id', session!.user.id);
+        const error = await saveMyProfile(
+            session!.user.id,
+            { name: trimmed, gender, birth_year: year, region: region.trim() },
+            { phone: phone.trim(), car: car.trim() },
+        );
         setSaving(false);
 
         if (error) { toast(readableError(error), 'error'); return; }
@@ -188,7 +194,8 @@ export function Me() {
                     거기까지 들어가야 해서, 제일 자주 바꿀 것을 밖에 둔다. */}
                 <button className="avatar-pick" onClick={() => photoRef.current?.click()}
                         disabled={photoBusy} aria-label="프로필 사진 바꾸기">
-                    <Avatar name={profile?.name} url={profile?.avatar_url} size="lg" />
+                    <Avatar name={profile?.name} url={profile?.avatar_url}
+                              gender={profile?.gender} size="lg" />
                     <span className="avatar-pick-mark" aria-hidden="true">
                         {photoBusy ? '…' : '＋'}
                     </span>
@@ -196,11 +203,11 @@ export function Me() {
                 <input ref={photoRef} type="file" accept="image/*" onChange={pickPhoto} hidden />
                 <div className="grow" style={{ minWidth: 0 }}>
                     <div className="b truncate" style={{ fontSize: 'var(--fs-lg)' }}>
-                        {profile?.name || '닉네임 없음'}
+                        {personLabel(profile) || '닉네임 없음'}
                     </div>
                     <div className="sm faint">
                         {profile ? ROLE_LABEL[profile.role] : '일반회원'}
-                        {profile?.car && ` · ${profile.car}`}
+                        {contact?.car && ` · ${contact.car}`}
                     </div>
                 </div>
             </div>
@@ -218,16 +225,24 @@ export function Me() {
                                onChange={e => setPhone(e.target.value)}
                                inputMode="tel" maxLength={20} placeholder="010-0000-0000" />
                     </div>
+                    <GenderAge
+                        id="m" gender={gender} birth={birth}
+                        onGender={setGender} onBirth={setBirth}
+                    />
                     <div className="field">
                         <label htmlFor="m-car">차량번호</label>
                         <input id="m-car" className="input" value={car}
                                onChange={e => setCar(e.target.value)}
                                placeholder="12가 3456" maxLength={20} />
                     </div>
-                    <GenderAge
-                        id="m" gender={gender} birth={birth}
-                        onGender={setGender} onBirth={setBirth}
-                    />
+                    <div className="field">
+                        <label htmlFor="m-region">사는곳</label>
+                        <Hinted hint="광산구" empty={!region}>
+                            <input id="m-region" className="input" value={region}
+                                   onChange={e => setRegion(e.target.value.slice(0, REGION_MAX))}
+                                   maxLength={REGION_MAX} />
+                        </Hinted>
+                    </div>
                     <div className="row" style={{ gap: 'var(--gap-sm)' }}>
                         <button className="btn ghost grow" onClick={() => setEditing(false)}>
                             취소

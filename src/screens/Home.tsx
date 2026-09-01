@@ -126,7 +126,7 @@ export function Home() {
                     <h1 className="page-title">{profile?.name || '회원'}님</h1>
                 </div>
                 <Link to="/me" aria-label="내 정보">
-                    <Avatar name={profile?.name} url={profile?.avatar_url} />
+                    <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
                 </Link>
             </div>
 
@@ -265,7 +265,8 @@ function NextRound({
                         {confirmed.slice(0, 5).map(s => (
                             <Avatar key={s.user_id} size="sm"
                                     name={byId.get(s.user_id)?.name}
-                                    url={byId.get(s.user_id)?.avatar_url} />
+                                    url={byId.get(s.user_id)?.avatar_url}
+                                    gender={byId.get(s.user_id)?.gender} />
                         ))}
                     </span>
                 )}

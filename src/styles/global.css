@@ -322,6 +322,14 @@ body::before {
 .avatar.lg { width: 56px; height: 56px; font-size: var(--fs-md); }
 .avatar.sm { width: 26px; height: 26px; font-size: var(--fs-xs); }
 
+/* 남녀는 **얼굴 테두리 색**으로 가른다 (사용자가 고른 방법이다).
+   이름표가 `83/신성호/광산구`로 이미 길어서 글자를 더 붙일 자리가 없었다.
+   `border`가 아니라 `box-shadow`인 것은 **크기를 안 건드리려는 것**이다 —
+   테두리를 주면 26px 얼굴의 그림이 22px로 줄어 대화 줄의 짜임이 밀린다.
+   성별을 모르면 아무 테두리도 없다. */
+.avatar.av-m { box-shadow: 0 0 0 2px var(--male); }
+.avatar.av-f { box-shadow: 0 0 0 2px var(--female); }
+
 .row {
     display: flex;
     align-items: center;

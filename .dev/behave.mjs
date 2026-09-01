@@ -312,7 +312,7 @@ await mCtx.close();
  * 여기서 보는 것은 **막히는가**와 **적으면 풀리는가** 둘이다.
  */
 console.log('\n── 안 적은 회원은 로그인 뒤 막힌다 ──');
-const BLANK = uid(9);                        // 오세훈 — 성별·태어난 해가 빈 회원
+const BLANK = uid(9);                 // 오세훈 — 성별·태어난 해·사는곳이 빈 회원
 const bCtx = await browser.newContext({
     viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
 const bSession = { ...SESSION, user: { ...SESSION.user, id: BLANK } };
@@ -331,11 +331,11 @@ await bCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.st
 const bPage = await bCtx.newPage();
 await bPage.goto(BASE + '/#/', { waitUntil: 'networkidle' });
 await bPage.waitForTimeout(800);
-ok((await bPage.textContent('.page') ?? '').includes('조 편성'),
+ok((await bPage.textContent('.page') ?? '').includes('저장하고 시작하기'),
    '안 적은 회원은 앱 대신 받는 화면을 본다');
 ok((await bPage.$$('.tabbar')).length === 0, '적기 전에는 탭바가 없다 — 앱으로 못 들어간다');
 
-// 성별만 고르고 저장하면 태어난 해를 달라고 해야 한다(둘 다 필수다).
+// 성별만 고르고 저장하면 나머지를 달라고 해야 한다(셋 다 필수다).
 await bPage.locator('.opt', { hasText: '남' }).first().click();
 await bPage.getByText('저장하고 시작하기', { exact: true }).click();
 await bPage.waitForTimeout(300);
@@ -343,9 +343,15 @@ ok(bWrites.length === 0, '태어난 해가 비면 저장을 안 보낸다');
 
 await bPage.fill('#fp-birth', '1985');
 await bPage.getByText('저장하고 시작하기', { exact: true }).click();
+await bPage.waitForTimeout(300);
+ok(bWrites.length === 0, '사는곳이 비면 저장을 안 보낸다');
+
+await bPage.fill('#fp-region', '광산구');
+await bPage.getByText('저장하고 시작하기', { exact: true }).click();
 await bPage.waitForTimeout(400);
-ok(bWrites.length === 1 && bWrites[0].gender === 'm' && bWrites[0].birth_year === 1985,
-   `둘 다 적으면 저장한다 (보낸 값 ${JSON.stringify(bWrites[0])})`);
+ok(bWrites.length === 1 && bWrites[0].gender === 'm' && bWrites[0].birth_year === 1985
+   && bWrites[0].region === '광산구',
+   `셋 다 적으면 저장한다 (보낸 값 ${JSON.stringify(bWrites[0])})`);
 await bCtx.close();
 
 /* ── 8. 스키마를 아직 다시 안 돌린 저장소 ───────────────────────
@@ -369,8 +375,12 @@ oldTables.signups = tables.signups.map(({ grp, ...rest }) => rest);
    그 칸이 없는데 '안 적었다'로 보고 막으면, 저장도 안 되는 화면에
    **회원 모두가 갇힌다**(`needsProfile`이 `null`과 `undefined`를 가르는 이유). */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-oldTables.profiles = tables.profiles.map(({ gender, birth_year, ...rest }) => rest);
-const MISSING = ['round_groups', 'settle_reminders'];
+oldTables.profiles = tables.profiles.map(({ gender, birth_year, region, ...rest }) => rest);
+const MISSING = ['round_groups', 'settle_reminders', 'profile_private'];
+/* **없는 칸을 달라고 하면 진짜 PostgREST는 400을 준다.** 흉내가 그냥
+   빼고 주면 `fetchPeople()`이 좁은 목록으로 물러나는 길을 아예 안 타서,
+   이 시험이 통과해도 실제로는 명단을 받는 화면이 전부 죽는다. */
+const GONE_COLS = ['gender', 'birth_year', 'region'];
 
 const oldCtx = await browser.newContext({
     viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
@@ -380,6 +390,13 @@ await oldCtx.route('**/rest/v1/**', async route => {
     if (MISSING.includes(t)) {
         return route.fulfill({ status: 404, contentType: 'application/json',
             body: JSON.stringify({ message: `relation "public.${t}" does not exist` }) });
+    }
+    const sel = new URL(route.request().url()).searchParams.get('select') ?? '';
+    const gone = t === 'profiles' && GONE_COLS.find(c => sel.split(/[\s,()]+/).includes(c));
+    if (gone) {
+        return route.fulfill({ status: 400, contentType: 'application/json',
+            body: JSON.stringify({
+                message: `column profiles.${gone} does not exist`, code: '42703' }) });
     }
     return restRoute(oldTables)(route);
 });
@@ -394,10 +411,17 @@ for (const [name, hash, must] of [
     ['라운드 상세 (조가 짜여 있던 라운드)', '/#/rounds/r2', '함평엘리체CC'],
     ['라운드 상세 (조를 안 짠 라운드)',   '/#/rounds/r1', '무등산CC'],
     ['총무 정산 현황',                  '/#/settle',    '무등산CC 그린피'],
+    /* 명단을 받는 화면들. `fetchPeople()`이 좁은 목록으로 물러나야 열린다 —
+       안 물러나면 여기가 통째로 빈 화면이 된다. */
+    ['투표 목록',                       '/#/polls',     '투표'],
+    ['조 편성',                        '/#/rounds/r2/groups', '조 편성'],
+    ['회원 명단',                       '/#/members',   '회원'],
+    ['대화',                           '/#/chat',      ''],
 ]) {
     await oldPage.goto(BASE + hash, { waitUntil: 'networkidle' });
     await oldPage.waitForTimeout(700);
-    const txt = await oldPage.textContent('.page').catch(() => '');
+    // 대화 화면에는 `.page`가 없어 `body`로 본다.
+    const txt = await oldPage.textContent('body').catch(() => '') ?? '';
     ok(txt.includes(must) && !txt.includes('does not exist'),
        `${name} — 그대로 열린다${txt.includes('does not exist') ? ` (${txt.slice(0, 80)})` : ''}`);
 }

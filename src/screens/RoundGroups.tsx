@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, unwrap, byId } from '../lib/db';
+import { useAsync, unwrap, byId, fetchPeople } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { toKstInput, fromKstInput, formatFullDate } from '../lib/format';
 import {
     GROUP_SIZE, MAX_GROUPS, TEE_LABEL, roundKind,
     type GroupPerson, type Round, type RoundGroup, type Signup,
+    personLabel,
 } from '../lib/types';
 import { splitGroups, MODE_LABEL, MODE_HINT, type GroupMode } from '../lib/groups';
 import { TopBar } from '../components/TopBar';
@@ -47,24 +48,19 @@ export function RoundGroups() {
             supabase.from('rounds').select('*').eq('id', id!).maybeSingle(),
             supabase.from('signups').select('*').eq('round_id', id!).order('seq'),
             supabase.from('round_groups').select('*').eq('round_id', id!).maybeSingle(),
-            /* **여기만 명단을 넓게 받는다**(`fetchPeople()`이 아니다) —
-               성별과 태어난 해로 섞는 조건이 그 두 칸을 본다. 다른 화면에
-               넣으면 100명분이 화면마다 따라다닌다(`GroupPerson` 주석 참고).
-               **`unwrap`을 안 쓴다**: 스키마를 아직 다시 안 돌린 저장소에는
-               그 칸이 없어 오류가 돌아오는데, 그걸 던지면 조 편성 화면이
-               통째로 안 열린다. 그때는 이름만 받아 `신청 순서`·`랜덤`은
-               그대로 되게 한다. */
-            supabase.from('profiles')
-                    .select('id, name, avatar_url, gender, birth_year').order('name'),
+            /* 예전에는 여기만 명단을 넓게 받았다 — 성별·태어난 해로 섞는
+               조건이 그 두 칸을 보기 때문이다. **지금은 이름표가
+               `83/신성호/광산구`라 어느 화면이든 그 칸들을 받으므로**
+               다 같이 `fetchPeople()`을 쓴다. 칸이 없는 저장소에서 좁은
+               목록으로 물러나는 처리도 그 안에 들어 있다(`신청 순서`·
+               `랜덤`은 그때도 그대로 된다). */
+            fetchPeople(),
         ]);
-        const wide = people.error
-            ? unwrap(await supabase.from('profiles').select('id, name, avatar_url').order('name'))
-            : people.data;
         return {
             round: unwrap(round),
             signups: unwrap(signups) ?? [],
             groups: unwrap(groups),
-            people: (wide ?? []) as GroupPerson[],
+            people,
         };
     }, [id]);
 
@@ -367,7 +363,7 @@ function Row({
     numbers: number[];
     onPick: (v: number | null) => void;
 }) {
-    const name = person?.name ?? '알 수 없음';
+    const name = personLabel(person) || '알 수 없음';
     /* **왜 이렇게 갈렸는지 보이게 한다.** 성별·나이로 나눠 놓고 그 값이
        화면에 없으면, 손으로 옮길 때 무엇을 깨뜨리는지 모른 채 옮기게 된다.
        나이가 아니라 `65년생`으로 적는다 — 나이는 해가 바뀌면 틀린다. */
@@ -377,7 +373,8 @@ function Row({
     ].filter(Boolean).join(' · ');
     return (
         <div className="grp-row">
-            <Avatar name={person?.name} url={person?.avatar_url} size="sm" />
+            <Avatar name={person?.name} url={person?.avatar_url}
+                    gender={person?.gender} size="sm" />
             <span className="grow truncate">
                 {name}
                 {tag && <span className="grp-tag">{tag}</span>}

@@ -7,6 +7,7 @@ import { formatDateTime, timeAgo } from '../lib/format';
 import {
     pollClosed,
     type Person, type Poll, type PollComment, type PollOption, type PollVoteLite,
+    personLabel,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
@@ -225,8 +226,8 @@ export function PollDetail() {
                                     .map(o => o.label);
                                 return (
                                     <div className="member-pick" key={p.id}>
-                                        <Avatar name={p.name} url={p.avatar_url} size="sm" />
-                                        <span className="sm b">{p.name}</span>
+                                        <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />
+                                        <span className="sm b">{personLabel(p)}</span>
                                         <span className="sm dim grow">{picks.join(', ')}</span>
                                     </div>
                                 );
@@ -268,8 +269,8 @@ function PeopleGrid({ people }: { people: Person[] }) {
         <div className="people-grid">
             {people.map(p => (
                 <span className="people-cell" key={p.id}>
-                    <Avatar name={p.name} url={p.avatar_url} size="sm" />
-                    <span className="sm truncate">{p.name}</span>
+                    <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />
+                    <span className="sm truncate">{personLabel(p)}</span>
                 </span>
             ))}
         </div>

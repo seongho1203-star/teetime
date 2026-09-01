@@ -4,7 +4,7 @@ import {
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import type { Profile, Role } from './types';
+import type { Contact, Profile, Role } from './types';
 
 /** DB의 `is_member()` · `is_admin()`과 짝이다. 한쪽만 고치지 말 것. */
 const MEMBERS: Role[] = ['member', 'treasurer', 'staff', 'admin', 'superadmin'];
@@ -21,6 +21,12 @@ const STAFF_UP: Role[] = ['staff', 'admin', 'superadmin'];
 interface AuthValue {
     session: Session | null;
     profile: Profile | null;
+    /**
+     * 내 전화번호·차량번호. **프로필과 다른 표에 있다**(`profile_private`) —
+     * 운영진만 남의 것을 볼 수 있게 하려고 나눴기 때문이다.
+     * 프로필과 **나란히 받아** 시작이 느려지지 않게 한다.
+     */
+    contact: Contact | null;
     loading: boolean;
     isMember: boolean;
     /** 운영진 — 운영자와 부운영자. 하는 일이 같아 한 이름으로 묶는다. */
@@ -35,7 +41,7 @@ interface AuthValue {
 }
 
 const AuthContext = createContext<AuthValue>({
-    session: null, profile: null, loading: true,
+    session: null, profile: null, contact: null, loading: true,
     isMember: false, isAdmin: false, isOwner: false, isSuper: false,
     refresh: async () => {},
 });
@@ -69,6 +75,7 @@ async function createPending(session: Session): Promise<Profile | null> {
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
+    const [contact, setContact] = useState<Contact | null>(null);
     // 세션과 프로필을 둘 다 확인하기 전에는 화면을 정하지 않는다.
     // 하나만 보고 정하면 로그인한 사람에게 로그인 화면이 한 번 번쩍인다.
     const [sessionReady, setSessionReady] = useState(false);
@@ -105,10 +112,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setProfileReady(false);
         (async () => {
-            const { data, error } = await supabase
-                .from('profiles').select('*').eq('id', uid).maybeSingle();
+            /* **나란히 받는다.** 줄줄이 부르면 시작할 때 왕복이 하나 더
+               늘어 첫 화면이 그만큼 늦게 뜬다. */
+            const [{ data, error }, mine] = await Promise.all([
+                supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
+                supabase.from('profile_private').select('id, phone, car')
+                        .eq('id', uid).maybeSingle(),
+            ]);
             if (!alive) return;
             if (error) console.error('[teetime] 프로필 조회 실패', error.message);
+            // 표가 아직 없는 저장소에서는 오류가 오는데, 그건 그냥 넘긴다 —
+            // 전화번호를 못 읽는다고 앱에 못 들어가서는 안 된다.
+            setContact(mine.error ? null : (mine.data as Contact | null));
 
             // **행이 없으면 다시 만든다.** 로그인 트리거는 카카오 계정이
             // 처음 생길 때만 돈다. 운영진이 명단에서 지운 사람은 계정이
@@ -145,14 +160,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const refresh = async () => {
         const uid = session?.user?.id;
         if (!uid) return;
-        const { data } = await supabase
-            .from('profiles').select('*').eq('id', uid).maybeSingle();
+        const [{ data }, mine] = await Promise.all([
+            supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
+            supabase.from('profile_private').select('id, phone, car')
+                    .eq('id', uid).maybeSingle(),
+        ]);
         setProfile(data ?? null);
+        setContact(mine.error ? null : (mine.data as Contact | null));
     };
 
     const value = useMemo<AuthValue>(() => ({
         session,
         profile,
+        contact,
         loading: !sessionReady || !profileReady,
         // DB의 is_member() · is_admin() · is_owner()와 **같은 잣대여야 한다.**
         // 화면만 열어 두면 눌렀을 때 정책에 막히고, 화면만 닫아 두면
@@ -163,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isSuper: profile?.role === 'superadmin',
         refresh,
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [session, profile, sessionReady, profileReady]);
+    }), [session, profile, contact, sessionReady, profileReady]);
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

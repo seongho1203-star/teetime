@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import type { Person, Post } from '../lib/types';
+import { personLabel, type Person, type Post } from '../lib/types';
 import { markSeen } from '../lib/unread';
 import './Board.css';
 
@@ -65,7 +65,7 @@ export function Board() {
                     </div>
                     {p.body && <p className="sm dim post-preview">{p.body}</p>}
                     <div className="xs faint">
-                        {names[p.author_id ?? '']?.name ?? '알 수 없음'} · {timeAgo(p.created_at)}
+                        {personLabel(names[p.author_id ?? '']) || '알 수 없음'} · {timeAgo(p.created_at)}
                     </div>
                 </Link>
             ))}

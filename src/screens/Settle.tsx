@@ -7,6 +7,7 @@ import { formatWon, timeAgo } from '../lib/format';
 import {
     canSettle,
     type Person, type Settlement, type SettlementShare, type SettleReminder,
+    personLabel,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
@@ -289,7 +290,8 @@ function Card({
                 섞여 남의 정산에 독촉을 눌러 버린다. */}
             {by && (
                 <div className="settle-by">
-                    <Avatar name={names[by]?.name} url={names[by]?.avatar_url} size="sm" />
+                    <Avatar name={names[by]?.name} url={names[by]?.avatar_url}
+                            gender={names[by]?.gender} size="sm" />
                     <span className="truncate">
                         <b>{names[by]?.name ?? '알 수 없음'}</b>님이 올림
                     </span>
@@ -314,8 +316,9 @@ function Card({
                         aria-label={`${names[x.user_id]?.name ?? '알 수 없음'} 입금완료로 바꾸기`}
                     >
                         <Avatar name={names[x.user_id]?.name}
-                                url={names[x.user_id]?.avatar_url} size="sm" />
-                        <span className="truncate">{names[x.user_id]?.name ?? '알 수 없음'}</span>
+                                url={names[x.user_id]?.avatar_url}
+                                gender={names[x.user_id]?.gender} size="sm" />
+                        <span className="truncate">{personLabel(names[x.user_id]) || '알 수 없음'}</span>
                         <b>{formatWon(x.amount)}</b>
                         <span className="settle-tick" aria-hidden="true">✓</span>
                     </button>

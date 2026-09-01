@@ -110,33 +110,75 @@ export type SignupState = 'confirmed' | 'waitlist';
 export const FIND_AT = 12;
 
 /**
- * 이름과 얼굴만 필요한 곳에서 쓰는 가벼운 프로필.
+ * 이름표를 붙이는 곳에서 쓰는 명단 한 줄.
  *
- * **명단 말고는 아무도 전화번호·가입일을 안 본다.** 그런데 거의 모든
- * 화면이 `fetchProfiles()`로 전체 명단을 받으므로, 안 쓰는 칸이 100명분씩
- * 화면마다 따라왔다 — 100명 기준 58KB 중 38KB가 그것이었다.
- * 이름표를 붙이는 곳은 `fetchPeople()`로 이 다섯 칸만 받는다.
+ * **`select('*')`로 통째로 받지 않는다.** 거의 모든 화면이 명단을 받으므로
+ * 안 쓰는 칸이 100명분씩 화면마다 따라온다 — 100명 기준 58KB 중 38KB가
+ * 그것이었다. `fetchPeople()`이 여기 적힌 칸만 받는다.
  *
  * - `role` — 대화에서 `@전체`를 도드라지게 할지 가른다.
- * - `car` — **라운드 상세의 참가자 줄에 보인다**(골프장에 차를 미리
- *   등록할 때 쓴다). 두 화면에서만 쓰지만 짧은 값이라(100명에 2KB)
- *   여기 넣어 두고 명단 타입을 하나로 유지한다.
+ * - `gender` — 얼굴 테두리 색을 가른다.
+ * - `birth_year` · `region` — 이름표가 `83/신성호/광산구`로 적힌다
+ *   (`personLabel`). 이 셋이 **모든 화면에 필요해져서** 예전의 좁은 명단에
+ *   더했다 — 100명에 3.5KB 늘고, 대신 `car`가 빠져 그만큼 상쇄된다.
+ *
+ * **뒤 셋은 없을 수도 있다(`undefined`).** 스키마를 아직 다시 안 돌린
+ * 저장소에는 칸이 아예 없어서, `fetchPeople()`이 좁은 목록으로 물러난다.
+ * 쓰는 쪽은 `null`과 `undefined`를 똑같이 '모른다'로 다루면 된다.
+ *
+ * **전화번호·차량번호는 여기 없다.** 다른 표에 있고 운영진만 본다
+ * (`Contact` · `fetchContacts()`).
  */
-export type Person = Pick<Profile, 'id' | 'name' | 'avatar_url' | 'role' | 'car'>;
+export type Person =
+    Pick<Profile, 'id' | 'name' | 'avatar_url' | 'role'>
+    & Partial<Pick<Profile, 'gender' | 'birth_year' | 'region'>>;
 
 /**
- * 조 편성 화면이 받는 명단. **`Person`에 성별·태어난 해를 더한 것**이다.
- *
- * **`Person`에 그냥 넣지 않는다.** 명단은 거의 모든 화면이 받는데(홈·대화·
- * 투표…), 조 편성 말고는 이 둘을 안 쓴다 — 100명이면 화면마다 3KB가 그냥
- * 따라다닌다. 여기만 넓게 받는다(운영진이 가끔 여는 화면이라 값이 싸다).
+ * 조 편성이 보는 명단. **지금은 `Person`과 같다** — 성별·태어난 해가
+ * 이름표에 쓰이면서 명단에 늘 따라오게 됐기 때문이다. 이름은 남겨 둔다:
+ * `lib/groups.ts`가 무엇을 보고 나누는지 그 이름으로 드러난다.
  */
-export type GroupPerson =
-    Pick<Profile, 'id' | 'name' | 'avatar_url' | 'gender' | 'birth_year'>;
+export type GroupPerson = Person;
 
-/** 성별. 조 편성에서 남녀를 고르게 섞는 데만 쓴다. */
+/**
+ * 전화번호·차량번호. **`profiles`가 아니라 `profile_private`에 있다.**
+ *
+ * RLS는 줄 단위라 한 표 안에서 칸만 가릴 수가 없어, **운영진만 보게 하려면
+ * 표를 나누는 수밖에 없었다**(schema.sql의 `profile_private` 참고).
+ * 받는 쪽은 `fetchContacts()` 하나다 — 회원 누구나 부를 수 있고, 정책이
+ * **본인 것 한 줄**(또는 운영진이면 전부)만 돌려준다.
+ */
+export type Contact = { id: string; phone: string | null; car: string | null };
+
+/** 성별. 조 편성과 얼굴 테두리 색이 본다. */
 export type Gender = 'm' | 'f';
 export const GENDER_LABEL: Record<Gender, string> = { m: '남', f: '여' };
+
+/** 사는곳은 여덟 글자까지. DB의 `profiles_region_check`와 같은 값이다. */
+export const REGION_MAX = 8;
+
+/**
+ * 화면에 적는 이름 — `83/신성호/광산구`.
+ *
+ * **100명 모임에서는 닉네임만으로 누군지 모른다**(사용자 요청). 태어난 해
+ * 뒤 두 자리 · 닉네임 · 사는곳을 `/`로 잇는다.
+ *
+ * **모르는 조각은 그냥 뺀다** — `신성호/광산구`, `83/신성호`, `신성호`가
+ * 모두 정상이다. 아직 안 적은 사람과 스키마를 다시 안 돌린 저장소가 그런데,
+ * 빈칸을 `//`로 남기면 고장 난 것처럼 보인다.
+ *
+ * **`@언급`은 이 값을 쓰지 않는다** — 거기는 `name` 그대로여야 한다
+ * (`lib/mention.ts`). 이름표만 길어지고 부르는 말은 닉네임 그대로다.
+ */
+export function personLabel(p?: {
+    name?: string | null; birth_year?: number | null; region?: string | null;
+} | null): string {
+    if (!p) return '';
+    const name = (p.name ?? '').trim();
+    const year = p.birth_year != null ? String(p.birth_year % 100).padStart(2, '0') : '';
+    const region = (p.region ?? '').trim();
+    return [year, name, region].filter(Boolean).join('/');
+}
 
 /** 태어난 해로 받을 수 있는 범위. DB의 `profiles_birth_year_check`와 같다. */
 export const BIRTH_MIN = 1930;
@@ -159,7 +201,7 @@ export function birthValue(text: string): number | null | false {
 }
 
 /**
- * 이 사람이 성별·태어난 해를 아직 안 적었는가 (로그인 뒤 한 번 막고 받는다).
+ * 이 사람이 성별·태어난 해·사는곳을 아직 안 적었는가 (로그인 뒤 한 번 막고 받는다).
  *
  * **`null`과 `undefined`를 반드시 갈라야 한다.**
  * - `null` — 칸은 있는데 안 적은 것. 받아야 한다.
@@ -173,8 +215,9 @@ export function birthValue(text: string): number | null | false {
  */
 export function needsProfile(p?: Profile | null): boolean {
     if (!p) return false;
-    if (!('gender' in p) || !('birth_year' in p)) return false;   // 칸이 아직 없다
-    return p.gender == null || p.birth_year == null;
+    // 칸이 아직 없는 저장소에서는 아무도 막지 않는다.
+    if (!('gender' in p) || !('birth_year' in p) || !('region' in p)) return false;
+    return p.gender == null || p.birth_year == null || !p.region;
 }
 
 export type Profile = {
@@ -185,8 +228,11 @@ export type Profile = {
     role: Role;
     /** 대화를 언제부터 볼 수 있는가. 승인된 순간이 찍힌다. */
     joined_at: string | null;
-    /** 차량번호. **골프장에 미리 차를 등록할 때** 쓴다(카풀과는 무관). */
-    car: string | null;
+    /**
+     * 사는곳. 이름표에 `83/신성호/광산구`로 함께 적힌다.
+     * **여덟 글자까지**(`REGION_MAX` · DB의 `profiles_region_check`).
+     */
+    region: string | null;
     /**
      * 조 편성에 쓰는 두 칸. **둘 다 비어 있을 수 있다.**
      *
@@ -202,7 +248,6 @@ export type Profile = {
     birth_year: number | null;
     /** 예전에 받던 값. 지금은 화면에서 안 쓰지만 적어 둔 것이 남아 있다. */
     handicap: number | null;
-    phone: string | null;
     memo: string;
     created_at: string;
 };
@@ -465,6 +510,7 @@ export interface Database {
     public: {
         Tables: {
             profiles: Table<Profile>;
+            profile_private: Table<Contact>;
             rounds: Table<Round>;
             signups: Table<Signup>;
             polls: Table<Poll>;

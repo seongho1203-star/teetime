@@ -3,7 +3,10 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { formatWon, timeAgo } from '../lib/format';
 import { readableError } from '../lib/errors';
-import { canSettle, FIND_AT, type Person, type Settlement, type SettlementShare } from '../lib/types';
+import {
+    canSettle, FIND_AT, personLabel,
+    type Person, type Settlement, type SettlementShare,
+} from '../lib/types';
 import { Avatar } from './Avatar';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
@@ -210,8 +213,9 @@ function SettlementCard({
             <div className="settle-people">
                 {shares.map(x => (
                     <span key={x.id} className={`settle-chip${x.paid ? ' paid' : ''}`}>
-                        <Avatar name={names[x.user_id]?.name} url={names[x.user_id]?.avatar_url} size="sm" />
-                        <span className="truncate">{names[x.user_id]?.name ?? '알 수 없음'}</span>
+                        <Avatar name={names[x.user_id]?.name} url={names[x.user_id]?.avatar_url}
+                                gender={names[x.user_id]?.gender} size="sm" />
+                        <span className="truncate">{personLabel(names[x.user_id]) || '알 수 없음'}</span>
                         <b>{formatWon(x.amount)}</b>
                     </span>
                 ))}
@@ -242,8 +246,9 @@ function PersonPill({ person, on, onClick }: {
 }) {
     return (
         <button type="button" className={`settle-pill${on ? ' on' : ''}`} onClick={onClick}>
-            <Avatar name={person.name} url={person.avatar_url} size="sm" />
-            <span className="truncate">{person.name}</span>
+            <Avatar name={person.name} url={person.avatar_url}
+                    gender={person.gender} size="sm" />
+            <span className="truncate">{personLabel(person)}</span>
         </button>
     );
 }
@@ -295,7 +300,8 @@ function SettlementForm({
         const q = find.replace(/\s/g, '').toLowerCase();
         // 고른 사람은 검색어와 상관없이 남긴다 — 사라지면 뺀 것처럼 보인다.
         return rest.filter(p => picked.includes(p.id)
-            || (!!q && String(p.name ?? '').replace(/\s/g, '').toLowerCase().includes(q)));
+            || (!!q && [p.name, p.region].some(v =>
+            String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q))));
     }, [bigList, rest, find, picked]);
 
     const totalNum = Number(total.replace(/[^0-9]/g, '')) || 0;
@@ -467,7 +473,7 @@ function SettlementForm({
                             const p = people.find(x => x.id === id);
                             return (
                                 <div className="settle-row" key={id}>
-                                    <span className="grow truncate">{p?.name ?? '알 수 없음'}</span>
+                                    <span className="grow truncate">{personLabel(p) || '알 수 없음'}</span>
                                     <input
                                         className="input settle-amount" inputMode="numeric"
                                         value={String(amounts[id] ?? 0)}

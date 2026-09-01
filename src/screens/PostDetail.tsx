@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatStamp } from '../lib/format';
-import type { Person, Post, PostComment } from '../lib/types';
+import { personLabel, type Person, type Post, type PostComment } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
@@ -90,7 +90,7 @@ export function PostDetail() {
                     {post.title}
                 </h2>
                 <div className="xs faint">
-                    {names[post.author_id ?? '']?.name ?? '알 수 없음'} · {formatStamp(post.created_at)}
+                    {personLabel(names[post.author_id ?? '']) || '알 수 없음'} · {formatStamp(post.created_at)}
                 </div>
             </div>
 

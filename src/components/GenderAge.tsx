@@ -3,8 +3,11 @@ import type { Gender } from '../lib/types';
 /**
  * 성별과 태어난 해를 받는 두 칸.
  *
- * **가입 화면과 `내 정보`가 같이 쓴다.** 화면마다 따로 만들면 한쪽에만
- * 범위 검사가 붙거나 말이 어긋난다.
+ * **가입 화면·`내 정보`·`FillProfile` 셋이 같이 쓴다.** 화면마다 따로
+ * 만들면 한쪽에만 범위 검사가 붙거나 말이 어긋난다.
+ *
+ * **태어난 해가 성별보다 위에 있다** — 사용자가 정해 준 칸 차례가
+ * `닉네임 · 전화번호 · 태어난 해 · 성별 · 차량번호 · 사는곳`이다.
  *
  * **둘 다 필수다**(사용자가 정한 것이다). 조 편성의 `성별 조합`·`나이 조합`
  * 이 이 값을 보는데, 반이 비어 있으면 그 조건이 반쪽으로 돈다.
@@ -28,6 +31,14 @@ export function GenderAge({
     return (
         <>
             <div className="field">
+                <label htmlFor={`${id}-birth`}>태어난 해</label>
+                <input
+                    id={`${id}-birth`} className="input" value={birth}
+                    onChange={e => onBirth(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                    inputMode="numeric" placeholder="1975" maxLength={4}
+                />
+            </div>
+            <div className="field">
                 <label>성별</label>
                 {/* 누른 것을 다시 누르면 '안 정함'으로 돌아간다 —
                     라운드의 캐디·카트와 같은 손짓이다. */}
@@ -47,14 +58,6 @@ export function GenderAge({
                         </button>
                     ))}
                 </div>
-            </div>
-            <div className="field">
-                <label htmlFor={`${id}-birth`}>태어난 해</label>
-                <input
-                    id={`${id}-birth`} className="input" value={birth}
-                    onChange={e => onBirth(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                    inputMode="numeric" placeholder="1975" maxLength={4}
-                />
             </div>
         </>
     );

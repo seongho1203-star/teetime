@@ -78,6 +78,57 @@ alter table profiles drop constraint if exists profiles_birth_year_check;
 alter table profiles add  constraint profiles_birth_year_check
     check (birth_year is null or birth_year between 1930 and 2020);
 
+-- **사는곳.** 이름표에 `83/신성호/광산구`로 함께 적힌다 — 100명 모임에서
+-- 닉네임만으로는 누가 누군지 모르고, 카톡에서도 다들 앞에 지역을 붙여
+-- 부르던 것을 옮긴 것이다(사용자 요청).
+--
+-- **여덟 글자까지다.** 자유롭게 적게 두되 `광주광역시 광산구`처럼 길게
+-- 적으면 이름표가 줄을 통째로 먹는다. 앱도 여덟 자에서 끊고 여기서 한 번
+-- 더 막는다 — 화면만 막으면 예전 값이나 SQL로 넣은 값이 그대로 새어 든다.
+alter table profiles add column if not exists region text;
+alter table profiles drop constraint if exists profiles_region_check;
+alter table profiles add  constraint profiles_region_check
+    check (region is null or char_length(region) <= 8);
+
+
+/* ── 전화번호·차량번호는 따로 산다 ─────────────────────────────
+ *
+ * **운영진만 남의 것을 볼 수 있다**(사용자 요청). 그런데 RLS는 줄 단위라
+ * 한 표 안에서 칸만 가릴 수가 없다 — `profiles`에 그대로 두면 명단을 받는
+ * 순간 100명분 전화번호가 통째로 딸려 온다(화면에서 감추는 것은 감춘
+ * 시늉일 뿐이다).
+ *
+ * 칸 단위 권한(`grant select (칸)`)으로도 되지만, 그러면 `select('*')`가
+ * 통째로 막혀 **앱이 칸 목록을 하나라도 빠뜨리는 날 조용히 깨진다.**
+ * 표를 나누면 평범한 줄 단위 정책 두 개로 끝난다.
+ *
+ * **`profiles`의 옛 칸은 옮긴 뒤 걷어낸다.** 남겨 두면 아무나 그대로
+ * 읽을 수 있어 표를 나눈 뜻이 없어진다. 아래 `do` 블록이 한 번만 돈다.
+ *
+ * 정책 둘은 **7번 RLS 칸에 있다** — `is_admin()`이 그 앞에서 만들어지기
+ * 때문이다. 표는 여기서 만든다: 바로 아래 `claim_superadmin`이 이 표를
+ * 보고 도므로 그때 이미 있어야 한다.
+ */
+create table if not exists profile_private (
+    id    uuid primary key references profiles(id) on delete cascade,
+    phone text,
+    car   text
+);
+alter table profile_private enable row level security;
+
+do $$
+begin
+    if exists (select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = 'profiles'
+                 and column_name = 'phone') then
+        execute 'insert into profile_private (id, phone, car)
+                 select id, phone, car from profiles
+                 on conflict (id) do nothing';
+        execute 'alter table profiles drop column phone';
+        execute 'alter table profiles drop column car';
+    end if;
+end $$;
+
 -- 이미 있던 회원은 처음 들어온 때부터 본다.
 update profiles set joined_at = created_at
  where joined_at is null
@@ -235,13 +286,25 @@ $$;
  * Supabase의 SQL 편집기에 붙여넣을 때만 채운다 — 아래 그대로 실행하면
  * 조건이 안 맞아 아무도 앱관리자가 되지 않는다(막히기만 할 뿐 탈은 없다).
  * 손으로 한 사람을 올리는 길은 `docs/설치.md` 5번 방법 A에 있다.
+ *
+ * **전화번호가 `profile_private`으로 옮겨 가면서 이 트리거도 그 표로
+ * 옮겼다.** 이름은 `profiles`에 있으므로 여기서 찾아 본다. 앱은 가입·
+ * 프로필 저장에서 두 표를 늘 함께 쓰므로 이름을 고친 직후에도 돈다 —
+ * 다만 **이름만 고치고 전화번호를 안 건드리면 안 돈다**(그때는 다시
+ * 저장하면 된다).
  */
 create or replace function claim_superadmin()
 returns trigger language plpgsql security definer
 set search_path = public as $$
+declare
+    v_name text;
+    v_role text;
 begin
-    if new.role <> 'superadmin'
-       and btrim(coalesce(new.name, '')) = '[이름]'
+    select btrim(coalesce(name, '')), role into v_name, v_role
+      from profiles where id = new.id;
+
+    if v_role is distinct from 'superadmin'
+       and v_name = '[이름]'
        and regexp_replace(coalesce(new.phone, ''), '[^0-9]', '', 'g') = '[숫자만 적은 번호]'
     then
         update profiles set role = 'superadmin' where id = new.id;
@@ -249,11 +312,14 @@ begin
     return null;
 end $$;
 
+-- profiles에 걸려 있던 옛 트리거는 걷어낸다 (칸이 없어져 못 돈다).
 drop trigger if exists claim_superadmin_ins on profiles;
 drop trigger if exists claim_superadmin_upd on profiles;
-create trigger claim_superadmin_ins after insert on profiles
+drop trigger if exists claim_superadmin_ins on profile_private;
+drop trigger if exists claim_superadmin_upd on profile_private;
+create trigger claim_superadmin_ins after insert on profile_private
     for each row execute function claim_superadmin();
-create trigger claim_superadmin_upd after update on profiles
+create trigger claim_superadmin_upd after update on profile_private
     for each row execute function claim_superadmin();
 
 -- 예전에 쓰던 이름. 남아 있으면 같은 일을 두 번 하므로 걷어낸다.
@@ -1048,6 +1114,19 @@ create policy profiles_owner on profiles for update
 create policy profiles_staff_upd on profiles for update
     using (is_admin() and role in ('pending', 'member', 'banned'))
     with check (is_admin() and role in ('pending', 'member', 'banned'));
+
+-- profile_private (전화번호·차량번호) --------------------------
+-- **표를 나눈 것이 곧 가리는 방법이다** (1번 칸 참고). 정책은 여기 있다 —
+-- `is_admin()`이 위에서 만들어지기 때문이다.
+drop policy if exists profile_private_self  on profile_private;
+drop policy if exists profile_private_admin on profile_private;
+-- 본인 것은 본인이 적고 고친다.
+create policy profile_private_self  on profile_private for all
+    using (id = auth.uid()) with check (id = auth.uid());
+-- **운영진**(부운영자·운영자·앱관리자)만 남의 것을 본다. 총무는 안 든다 —
+-- 돈만 만지는 자리라 남의 전화번호를 볼 이유가 없다.
+create policy profile_private_admin on profile_private for all
+    using (is_admin()) with check (is_admin());
 
 -- rounds -----------------------------------------------------
 -- **라운드는 누구나 연다.** 이 앱을 만든 까닭이 그것이다 — 총무 한 사람이

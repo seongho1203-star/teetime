@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, fetchProfiles } from '../lib/db';
+import { useAsync, useRealtime, fetchProfiles, fetchContacts, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate } from '../lib/format';
-import { FIND_AT, ROLE_LABEL, ROLE_TAG, type Profile, type Role } from '../lib/types';
+import {
+    FIND_AT, ROLE_LABEL, ROLE_TAG, personLabel,
+    type Contact, type Profile, type Role,
+} from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
 import { useConfirm } from '../components/Confirm';
@@ -30,7 +33,16 @@ export function Members() {
     const toast = useToast();
     const confirm = useConfirm();
 
-    const { data, loading, error, reload } = useAsync<Profile[]>(fetchProfiles, [], 'members');
+    /* **전화번호·차량번호는 다른 표에 있다**(`profile_private`). 정책이
+       운영진에게만 전원을 돌려주므로, 일반회원이 받으면 자기 한 줄뿐이라
+       아래 `연락처` 줄이 저절로 비고 검색도 안 걸린다 — 화면에서 감추는
+       것이 아니라 **애초에 안 실려 오는 것**이 요점이다. */
+    const { data, loading, error, reload } = useAsync<
+        { list: Profile[]; contacts: Record<string, Contact> }
+    >(async () => {
+        const [list, contacts] = await Promise.all([fetchProfiles(), fetchContacts()]);
+        return { list, contacts: byId(contacts) };
+    }, [], 'members');
     useRealtime('profiles', reload);
 
     // 관리 버튼은 **누른 사람 것만** 펼친다. 줄마다 세 개씩 늘어놓으면
@@ -51,7 +63,8 @@ export function Members() {
         );
     }
 
-    const all = data ?? [];
+    const all = data?.list ?? [];
+    const contacts = data?.contacts ?? {};
     const pending = all.filter(p => p.role === 'pending');
     const members = all.filter(p => p.role !== 'pending' && p.role !== 'banned');
     const banned = all.filter(p => p.role === 'banned');
@@ -65,7 +78,7 @@ export function Members() {
     const bigList = members.length > FIND_AT;
     const q = find.replace(/\s/g, '').toLowerCase();
     const shown = bigList && q
-        ? members.filter(p => [p.name, p.car, p.phone]
+        ? members.filter(p => [p.name, p.region, contacts[p.id]?.car, contacts[p.id]?.phone]
             .some(v => String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q)))
         : members;
 
@@ -133,11 +146,13 @@ export function Members() {
                     <div className="card" style={{ padding: 0, gap: 0 }}>
                         {pending.map(p => (
                             <div className="member-row" key={p.id}>
-                                <Avatar name={p.name} url={p.avatar_url} />
+                                <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
                                 <div className="grow" style={{ minWidth: 0 }}>
-                                    <div className="b truncate">{p.name || '이름 없음'}</div>
+                                    <div className="b truncate">
+                                        {personLabel(p) || '이름 없음'}
+                                    </div>
                                     <div className="xs faint">
-                                        {p.phone ? `${p.phone} · ` : ''}
+                                        {contacts[p.id]?.phone ? `${contacts[p.id].phone} · ` : ''}
                                         {formatDate(p.created_at)} 신청
                                     </div>
                                 </div>
@@ -155,7 +170,10 @@ export function Members() {
 
             {bigList && (
                 <div className="field member-find">
-                    <label htmlFor="m-find">이름 · 차량번호 · 전화번호로 찾기</label>
+                    <label htmlFor="m-find">
+                        {isAdmin ? '이름 · 사는곳 · 차량번호 · 전화번호로 찾기'
+                                 : '이름 · 사는곳으로 찾기'}
+                    </label>
                     <input id="m-find" className="input" value={find}
                            onChange={e => setFind(e.target.value)} />
                 </div>
@@ -177,10 +195,12 @@ export function Members() {
                     return (
                         <div key={p.id}>
                             <div className="member-row">
-                                <Avatar name={p.name} url={p.avatar_url} />
+                                <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
                                 <div className="grow" style={{ minWidth: 0 }}>
                                     <div className="row" style={{ gap: 6 }}>
-                                        <span className="b truncate">{p.name || '이름 없음'}</span>
+                                        <span className="b truncate">
+                                            {personLabel(p) || '이름 없음'}
+                                        </span>
                                         {ROLE_TAG[p.role] && (
                                             <span className={`role-tag ${ROLE_TAG[p.role]}`}>
                                                 {ROLE_LABEL[p.role]}
@@ -188,10 +208,15 @@ export function Members() {
                                         )}
                                         {p.id === me && <span className="xs faint">(나)</span>}
                                     </div>
-                                    <div className="xs faint">
-                                        {p.car || '차량번호 미등록'}
-                                        {isAdmin && p.phone ? ` · ${p.phone}` : ''}
-                                    </div>
+                                    {/* **운영진에게만 값이 있다.** 회원에게는
+                                        빈 줄이 되므로 아예 안 그린다. */}
+                                    {isAdmin && (
+                                        <div className="xs faint">
+                                            {contacts[p.id]?.car || '차량번호 미등록'}
+                                            {contacts[p.id]?.phone
+                                                ? ` · ${contacts[p.id].phone}` : ''}
+                                        </div>
+                                    )}
                                 </div>
                                 {manageable && (
                                     <button className="btn ghost sm"
@@ -242,10 +267,12 @@ export function Members() {
                     <div className="card" style={{ padding: 0, gap: 0 }}>
                         {banned.map(p => (
                             <div className="member-row" key={p.id}>
-                                <Avatar name={p.name} url={p.avatar_url} />
+                                <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
                                 <div className="grow" style={{ minWidth: 0 }}>
                                     <div className="row" style={{ gap: 6 }}>
-                                        <span className="b truncate">{p.name || '이름 없음'}</span>
+                                        <span className="b truncate">
+                                            {personLabel(p) || '이름 없음'}
+                                        </span>
                                         <span className="role-tag role-banned">추방</span>
                                     </div>
                                     <div className="xs faint">다시 신청할 수 없습니다</div>

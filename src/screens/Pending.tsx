@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { supabase, signOut } from '../lib/supabase';
+import { signOut } from '../lib/supabase';
+import { saveMyProfile } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { Avatar } from '../components/Avatar';
 import { Hinted } from '../components/Hinted';
 import { GenderAge } from '../components/GenderAge';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
-import { BIRTH_MAX, BIRTH_MIN, birthValue, type Gender } from '../lib/types';
+import { BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthValue, type Gender } from '../lib/types';
 import { Help } from './Help';
 
 /**
@@ -15,24 +16,29 @@ import { Help } from './Help';
  * 여기서 닉네임을 바로잡아 두면 운영진이 명단에서 누군지 알아본다 —
  * 카카오 닉네임이 `골프왕`이면 승인할 수가 없다.
  *
- * **셋은 필수다**(닉네임·전화번호·차량번호). 전화는 급한 연락에,
- * **차량번호는 골프장에 미리 차를 등록할 때** 쓴다 — 나중에 물어보러
- * 다니느니 처음에 받아 둔다. (카풀 때문이 아니다.)
+ * **여섯 가지를 다 받고 다 필수다** — 사용자가 정해 준 차례 그대로
+ * `닉네임 · 전화번호 · 태어난 해 · 성별 · 차량번호 · 사는곳`이다.
+ * 전화는 급한 연락에, **차량번호는 골프장에 미리 차를 등록할 때** 쓴다
+ * (카풀 때문이 아니다). 성별·태어난 해는 조 편성의 `성별 조합`·`나이 조합`이
+ * 보고, **태어난 해와 사는곳은 이름표에도 적힌다**(`83/신성호/광산구`).
  *
- * **성별과 태어난 해도 필수다.** 조 편성의 `성별 조합`·`나이 조합`이 그
- * 값을 본다 — 여기서 받아 두지 않으면 나중에 100명에게 따로 물어보러
- * 다녀야 한다. 이 기능 이전에 승인된 분들은 이 화면을 다시 안 보므로
- * 로그인 뒤에 따로 받는다(`screens/FillProfile.tsx`).
+ * 여기서 받아 두지 않으면 나중에 100명에게 따로 물어보러 다녀야 한다.
+ * 이 기능 이전에 승인된 분들은 이 화면을 다시 안 보므로 로그인 뒤에
+ * 따로 받는다(`screens/FillProfile.tsx`).
+ *
+ * **전화번호·차량번호는 다른 표에 저장된다**(`profile_private`) — 운영진만
+ * 남의 것을 볼 수 있게 나눠 두었다. 저장은 `saveMyProfile()` 한 곳에서 한다.
  *
  * 운영진이 승인하면 auth.tsx의 실시간 구독이 profiles 변경을 받아
  * 새로고침 없이 앱으로 들어간다.
  */
 export function Pending() {
-    const { profile, session, refresh } = useAuth();
+    const { profile, contact, session, refresh } = useAuth();
     const banned = profile?.role === 'banned';
     const [name, setName] = useState(profile?.name ?? '');
-    const [phone, setPhone] = useState(profile?.phone ?? '');
-    const [car, setCar] = useState(profile?.car ?? '');
+    const [phone, setPhone] = useState(contact?.phone ?? '');
+    const [car, setCar] = useState(contact?.car ?? '');
+    const [region, setRegion] = useState(profile?.region ?? '');
     const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
     const [birth, setBirth] = useState(
         profile?.birth_year ? String(profile.birth_year) : '');
@@ -54,15 +60,14 @@ export function Pending() {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;
         }
+        if (!region.trim()) { toast('사는곳을 적어 주세요.', 'error'); return; }
 
         setSaving(true);
-        const { error } = await supabase
-            .from('profiles')
-            .update({
-                name: trimmed, phone: phone.trim(), car: car.trim(),
-                gender, birth_year: year,
-            })
-            .eq('id', session!.user.id);
+        const error = await saveMyProfile(
+            session!.user.id,
+            { name: trimmed, gender, birth_year: year, region: region.trim() },
+            { phone: phone.trim(), car: car.trim() },
+        );
         setSaving(false);
 
         if (error) { toast(readableError(error), 'error'); return; }
@@ -75,7 +80,8 @@ export function Pending() {
     return (
         <div className="page bare" style={{ gap: 'var(--gap-lg)' }}>
             <div className="row" style={{ paddingTop: 'var(--gap)' }}>
-                <Avatar name={profile?.name} url={profile?.avatar_url} size="lg" />
+                <Avatar name={profile?.name} url={profile?.avatar_url}
+                        gender={profile?.gender} size="lg" />
                 <div className="grow">
                     <div className="b" style={{ fontSize: 'var(--fs-md)' }}>
                         {profile?.name || '닉네임 없음'}
@@ -113,6 +119,10 @@ export function Pending() {
                         placeholder="010-0000-0000" inputMode="tel" maxLength={20}
                     />
                 </div>
+                <GenderAge
+                    id="p" gender={gender} birth={birth}
+                    onGender={setGender} onBirth={setBirth}
+                />
                 <div className="field">
                     <label htmlFor="p-car">차량번호</label>
                     <input
@@ -121,10 +131,16 @@ export function Pending() {
                         placeholder="12가 3456" maxLength={20}
                     />
                 </div>
-                <GenderAge
-                    id="p" gender={gender} birth={birth}
-                    onGender={setGender} onBirth={setBirth}
-                />
+                <div className="field">
+                    <label htmlFor="p-region">사는곳</label>
+                    <Hinted hint="광산구" empty={!region}>
+                        <input
+                            id="p-region" className="input" value={region}
+                            onChange={e => setRegion(e.target.value.slice(0, REGION_MAX))}
+                            maxLength={REGION_MAX}
+                        />
+                    </Hinted>
+                </div>
                 <button className="btn primary block" onClick={save} disabled={saving}>
                     {saving ? '저장 중…' : '저장'}
                 </button>

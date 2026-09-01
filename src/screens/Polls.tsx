@@ -3,7 +3,10 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
-import { pollClosed, type Poll, type PollOption, type PollVoteLite, type Person } from '../lib/types';
+import {
+    personLabel, pollClosed,
+    type Poll, type PollOption, type PollVoteLite, type Person,
+} from '../lib/types';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import { useConfirm } from '../components/Confirm';
@@ -178,7 +181,7 @@ export function PollOptions({
                 const on = votes.filter(v => v.option_id === o.id);
                 const pct = voters ? Math.round((on.length / voters) * 100) : 0;
                 const chosen = mine.has(o.id);
-                const who = on.map(v => names[v.user_id]?.name ?? '?');
+                const who = on.map(v => personLabel(names[v.user_id]) || '?');
                 return (
                     <button
                         key={o.id}
