@@ -161,3 +161,52 @@
 /* 날짜로 항목 넣기. 항목 줄들과 `+ 항목 추가` 아래에 오는 보조 칸이라
    위와 살짝 떼어 놓는다 — 붙여 두면 항목 칸이 하나 더 있는 것처럼 보인다. */
 .poll-date { margin-top: var(--gap-sm); }
+.poll-date-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
+
+/* **달력을 직접 그린다.** 브라우저의 날짜 칸은 아이폰에서 여는 순간
+   오늘 날짜를 한 번 던져서, 고르기도 전에 오늘이 항목으로 들어갔다.
+   여러 날을 눌러 담는 일에도 이쪽이 낫다 — 고른 날이 그대로 칠해져 보인다. */
+.cal {
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    padding: 8px;
+}
+.cal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+.cal-month { font-weight: 800; font-size: var(--fs-sm); }
+/* 누름 자리는 30px 아래로 내리지 않는다(`.dev/audit.mjs`가 본다). */
+.cal-move {
+    width: 34px; height: 30px;
+    border: 0; background: none; cursor: pointer;
+    font-size: 20px; line-height: 1; color: var(--text-dim);
+}
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    text-align: center;
+}
+.cal-dow { font-size: var(--fs-xs); color: var(--text-dim); padding-bottom: 2px; }
+.cal-day {
+    height: 34px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: none;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    cursor: pointer;
+}
+/* 오늘은 테두리로만 알린다 — 고른 것과 헷갈리면 안 된다. */
+.cal-day.today { border-color: var(--line); font-weight: 800; }
+/* 고른 날은 분홍이다. 이 화면에서 지금 누르고 있는 것이 곧 이것이다. */
+.cal-day.on {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--on-brand);
+    font-weight: 800;
+}
