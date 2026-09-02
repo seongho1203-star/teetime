@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
+import { formatDateTime, formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
     CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL,
     personLabel, roundKind,
@@ -32,7 +32,7 @@ interface Loaded {
 
 export function RoundDetail() {
     const { id } = useParams<{ id: string }>();
-    const { session, isAdmin } = useAuth();
+    const { session, isAdmin, profile } = useAuth();
     const me = session!.user.id;
     const nav = useNavigate();
     const toast = useToast();
@@ -194,6 +194,65 @@ export function RoundDetail() {
         nav('/rounds', { replace: true });
     };
 
+    /* ── 대화방에 공유 ──
+     *
+     * **모집을 열면 저절로 한 줄이 남지만, 그때 한 번뿐이다.** 대화가 하루에
+     * 백 마디씩 쌓이면 그 줄은 위로 밀려 사라지고, 자리가 남아도 아무도 모른다.
+     * 이 단추가 그 라운드를 대화방 맨 아래로 다시 올려 준다.
+     *
+     * **`system` 글로 넣는다** — 말풍선이 아니라 눌리는 카드로 그려지고
+     * (`RoundCard` in Chat.tsx), 다른 안내 줄과 같은 자리에 선다.
+     * 그래서 **폰 알림은 안 간다**(발송기가 `system`이면 돌아선다) — 대화 탭의
+     * 안 읽은 숫자는 그대로 오르므로 눈에는 걸린다. 한 번 연 모집으로 100명의
+     * 폰을 몇 번이고 울릴 수 있게 하지 않으려는 것이다.
+     *
+     * **글은 여기서 만든다.** 날짜 문구를 SQL에 또 적으면 화면과 두 벌이 된다.
+     */
+    const canShare = !isPast && r.status !== 'cancelled';
+
+    const share = async () => {
+        const when = formatDateTime(r.tee_at);
+        const ok = await confirm({
+            title: '대화방에 올릴까요?',
+            detail: <>
+                전체 대화방에 이 {KIND_LABEL[kind]} 카드가 올라갑니다.<br />
+                <b>{r.course || r.title}</b> · {when}
+            </>,
+            confirmLabel: '올리기',
+        });
+        if (!ok) return;
+
+        setBusy(true);
+        /* 전체 대화방은 **`round_id`가 없는 방 중 가장 먼저 만든 것**이다
+           (DB의 `chat_notice`와 같은 잣대 — 두 벌이 되면 언젠가 어긋난다). */
+        const room = await supabase.from('rooms').select('id')
+            .is('round_id', null).order('created_at').limit(1).maybeSingle();
+        const roomId = (room.data as { id: string } | null)?.id;
+        if (!roomId) {
+            setBusy(false);
+            toast('전체 대화방이 없습니다.', 'error');
+            return;
+        }
+
+        /* **`필드를` / `스크린을`** — 받침이 있으면 `을`이다. 한 글자로
+           굳혀 두면 둘 중 하나는 늘 어색하다(`스크린를`). */
+        const label = KIND_LABEL[kind];
+        const josa = (label.charCodeAt(label.length - 1) - 0xac00) % 28 ? '을' : '를';
+
+        const body = [
+            `${profile?.name || '누군가'}님이 ${label}${josa} 공유했습니다`,
+            r.course || r.title || KIND_LABEL[kind],
+            `${when} · 정원 ${r.capacity}명`
+                + (openSlots > 0 ? ` · ${openSlots}자리 남음` : ' · 자리 참'),
+        ].join('\n');
+
+        const { error: err } = await supabase.from('messages')
+            .insert({ room_id: roomId, user_id: me, body, system: true, round_id: r.id });
+        setBusy(false);
+        if (err) { toast(readableError(err), 'error'); return; }
+        toast('대화방에 올렸습니다.', 'ok');
+    };
+
     const setStatus = async (status: Round['status']) => {
         const { error: err } = await supabase.from('rounds').update({ status }).eq('id', r.id);
         if (err) { toast(readableError(err), 'error'); return; }
@@ -275,15 +334,24 @@ export function RoundDetail() {
                 )}
             </dl>
 
-            {/* **스크린만 베껴 열 수 있다.** 스크린은 같은 매장에서 같은
-                게임비로 되풀이해 열리므로 매번 처음부터 치는 것이 그대로
-                낭비였다. 필드는 갈 때마다 골프장이 달라 베낄 것이 없다.
-                회원 누구나 모집을 열 수 있으므로 이 단추도 누구에게나 보인다. */}
-            {kind === 'screen' && (
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
-                    <Link className="btn ghost sm" to={`/rounds/new?from=${r.id}`}>
-                        📋 같은 조건으로 새로 열기
-                    </Link>
+            {/* **공유는 누구나, 베끼는 것은 스크린만.**
+                공유는 이 라운드를 대화방에 다시 띄우는 일이라 필드·스크린이
+                같고, 자리가 안 차면 누구든 부를 수 있어야 한다.
+                베끼기는 스크린만이다 — 같은 매장에서 같은 게임비로 되풀이해
+                열리므로 매번 처음부터 치는 것이 낭비였고, 필드는 갈 때마다
+                골프장이 달라 베낄 것이 없다. */}
+            {(canShare || kind === 'screen') && (
+                <div className="row wrap" style={{ justifyContent: 'flex-end', gap: 'var(--gap-sm)' }}>
+                    {canShare && (
+                        <button className="btn ghost sm" onClick={share} disabled={busy}>
+                            📣 대화방에 공유
+                        </button>
+                    )}
+                    {kind === 'screen' && (
+                        <Link className="btn ghost sm" to={`/rounds/new?from=${r.id}`}>
+                            📋 같은 조건으로 새로 열기
+                        </Link>
+                    )}
                 </div>
             )}
 

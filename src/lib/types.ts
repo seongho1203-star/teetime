@@ -523,6 +523,13 @@ export type Message = {
      * 그 투표로 들어간다. 없는 저장소에서는 `undefined`라 예전처럼 한 줄이다.
      */
     poll_id?: string | null;
+    /**
+     * 어느 라운드 이야기인가. **이 값이 있으면 대화에서 눌리는 카드로 그린다** —
+     * 모집을 열면 저절로 붙고(`announce_to_chat`), 라운드 상세의
+     * `📣 대화방에 공유`로 사람이 직접 올릴 때도 붙는다.
+     * 없는 저장소에서는 `undefined`라 예전처럼 가운데 한 줄이다.
+     */
+    round_id?: string | null;
     created_at: string;
 };
 

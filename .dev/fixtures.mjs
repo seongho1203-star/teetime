@@ -231,9 +231,15 @@ export const messages = [
       body: '@전체 집합 시각이 6시 20분으로 바뀌었습니다', created_at: iso(0, 9, 35) },
     { id: 'm10', room_id: 'room1', user_id: uid(2),
       body: '@전체 저도 확인했습니다', created_at: iso(0, 9, 36) },
-    // 앱이 스스로 남긴 안내 줄. 말풍선이 아니라 가운데 한 줄로 나온다.
-    { id: 'sys1', room_id: 'room1', user_id: uid(2), system: true,
+    /* 모집을 열면 저절로 남는 안내. **`round_id`가 붙어 눌리는 카드가 된다** —
+       한 줄짜리라 그 줄이 곧 제목이다. */
+    { id: 'sys1', room_id: 'room1', user_id: uid(2), system: true, round_id: 'r2',
       body: '이관교님이 라운드 모집을 열었습니다 · 함평엘리체CC', created_at: iso(0, 9, 34) },
+    /* 사람이 직접 올린 공유(`📣 대화방에 공유`). 세 줄이라 머리말·제목·곁줄로
+       갈려 그려진다 — 저절로 남는 한 줄과 같은 카드인지 나란히 본다. */
+    { id: 'sys3', room_id: 'room1', user_id: ME, system: true, round_id: 'r4',
+      body: '신성호님이 스크린을 공유했습니다\n골프존파크 상무점\n9월 8일 (화) 오전 7:30 · 정원 6명 · 6자리 남음',
+      created_at: iso(0, 9, 42) },
     /* 투표가 끝났을 때 남는 결과 카드. `poll_id`가 있는 `system` 글이라
        한 줄이 아니라 눌리는 카드로 그려진다. */
     { id: 'sys2', room_id: 'room1', user_id: uid(1), system: true, poll_id: 'p2',

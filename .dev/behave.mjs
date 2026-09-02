@@ -61,6 +61,17 @@ await ctx.route('**/rest/v1/poll_options**', route => {
     writes.push([`poll_options ${m}`, route.request().postDataJSON() ?? null]);
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
 });
+/* 대화방에 올리는 글은 따로 잡는다 — `.select().single()`로 받으므로
+   빈 배열을 돌려주면 화면이 오류로 본다. 넣은 값 그대로 한 줄을 준다. */
+await ctx.route('**/rest/v1/messages**', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const sent = route.request().postDataJSON();
+    writes.push(['messages POST', sent]);
+    route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ id: 'new1', created_at: new Date().toISOString(), ...sent }),
+    });
+});
 for (const t of ['settle_reminders', 'settlement_shares']) {
     await ctx.route(`**/rest/v1/${t}**`, route => {
         const m = route.request().method();
@@ -359,6 +370,55 @@ ok(await page.inputValue('#f-tee') === '',
    `시각만 비어 있다 (실제 ${JSON.stringify(await page.inputValue('#f-tee'))})`);
 ok((await page.textContent('.form-actions') ?? '').includes('모집 열기'),
    '단추가 `수정 저장`이 아니라 `모집 열기`다 — 원본을 안 건드린다');
+
+/* ── 6-1-1. 라운드를 대화방에 공유 ──────────────────────────────
+ *
+ * **모집을 열면 저절로 한 줄이 남지만 그때 한 번뿐이다.** 대화가 하루에
+ * 백 마디씩 쌓이면 그 줄은 위로 밀려 사라진다 — 이 단추가 그 라운드를
+ * 대화방 맨 아래로 다시 올린다.
+ * 보는 것 셋: **지난 라운드에는 없다**(부를 이유가 없다) · `system` 글로
+ * 들어간다(말풍선이 아니라 눌리는 카드다) · **`round_id`가 붙는다**
+ * (그게 없으면 눌러도 아무 데도 안 간다).
+ */
+console.log('\n── 라운드를 대화방에 공유 ──');
+await go('/#/rounds/r1', 700);
+ok((await page.textContent('.page') ?? '').includes('대화방에 공유'),
+   '열려 있는 라운드에는 공유 단추가 있다');
+
+writes.length = 0;
+await page.getByText('📣 대화방에 공유').click();
+await page.getByText('올리기', { exact: true }).click();
+await page.waitForTimeout(600);
+const posted2 = writes.find(([w]) => w === 'messages POST')?.[1];
+ok(posted2?.round_id === 'r1' && posted2?.system === true,
+   `그 라운드를 단 안내 글로 들어간다 (실제 ${JSON.stringify(posted2)})`);
+ok(String(posted2?.body ?? '').split('\n').length === 3,
+   `머리말·골프장·시각 세 줄이다 (실제 ${JSON.stringify(posted2?.body)})`);
+ok(String(posted2?.body ?? '').startsWith('신성호님이 필드를 공유했습니다'),
+   '받침에 맞는 조사를 붙인다 — 스크린이면 `스크린을`이다');
+
+await go('/#/rounds/r4', 700);
+writes.length = 0;
+await page.getByText('📣 대화방에 공유').click();
+await page.getByText('올리기', { exact: true }).click();
+await page.waitForTimeout(600);
+ok(String(writes.find(([w]) => w === 'messages POST')?.[1]?.body ?? '')
+    .startsWith('신성호님이 스크린을 공유했습니다'),
+   `스크린은 \`스크린을\`이다 (실제 ${JSON.stringify(
+       writes.find(([w]) => w === 'messages POST')?.[1]?.body?.split('\n')[0])})`);
+
+await go('/#/rounds/r3', 700);
+ok(!(await page.textContent('.page') ?? '').includes('대화방에 공유'),
+   '지난 라운드에는 없다 — 이제 와서 부를 이유가 없다');
+
+/* 대화방에서 그 줄이 **눌러서 들어가는 카드**인가. 예전에는 가운데 한 줄이라
+   보려면 라운드 탭으로 건너가 목록에서 다시 찾아야 했다. */
+await go('/#/chat', 1200);
+const roundCards = await page.$$eval('.chat-result',
+    e => e.map(x => x.getAttribute('href')));
+ok(roundCards.some(h => h?.includes('/rounds/r4')),
+   `사람이 올린 공유가 카드다 (실제 ${JSON.stringify(roundCards)})`);
+ok(roundCards.some(h => h?.includes('/rounds/r2')), '저절로 남은 모집 안내도 카드다');
 
 /* ── 6-1-2. 홈 카드의 내 조 ─────────────────────────────────────
  *

@@ -684,7 +684,7 @@ begin
     perform chat_notice(
         coalesce(nullif(r.course, ''), nullif(r.title, ''), '라운드')
         || ' 조 편성이 나왔습니다 · ' || v_groups || '개 조',
-        v_actor);
+        v_actor, p_round);
 end;
 $$;
 
@@ -1043,6 +1043,13 @@ alter table messages add column if not exists reply_to uuid references messages 
 -- 대화 알림까지 또 가면 두 번 울린다(`notify`의 planFor 참고).
 alter table messages add column if not exists system boolean not null default false;
 
+-- 어느 라운드 이야기인가. **이 칸이 있는 글은 대화에서 눌리는 카드로
+-- 그려진다**(`Chat.tsx`) — 안내 줄만 덩그러니 있으면 라운드 탭으로 건너가
+-- 다시 찾아야 했다. 모집을 열 때 저절로 붙고(`announce_to_chat`),
+-- 라운드 상세의 `📣 대화방에 공유`로 사람이 직접 올릴 때도 붙는다.
+alter table messages add column if not exists round_id uuid
+    references rounds(id) on delete set null;
+
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
 
 /**
@@ -1082,15 +1089,18 @@ $$;
  * **부르는 곳이 둘이다** — 모집·투표 트리거(`announce_to_chat`)와
  * 조 편성(`set_round_groups`). 방을 찾는 규칙이 두 벌이 되지 않게 모아 두었다.
  */
-create or replace function chat_notice(p_line text, p_actor uuid)
+create or replace function chat_notice(
+    p_line text, p_actor uuid, p_round uuid default null)
 returns void language plpgsql security definer
 set search_path = public as $$
 declare room uuid;
 begin
     select id into room from rooms where round_id is null order by created_at limit 1;
     if room is null then return; end if;
-    insert into messages (room_id, user_id, body, system)
-    values (room, p_actor, p_line, true);
+    -- **`p_round`를 주면 그 줄이 눌리는 카드가 된다**(`Chat.tsx`).
+    -- 안 주면 지금까지처럼 가운데 한 줄이다(투표 안내가 그렇다).
+    insert into messages (room_id, user_id, body, system, round_id)
+    values (room, p_actor, p_line, true, p_round);
 end $$;
 
 create or replace function announce_to_chat()
@@ -1135,7 +1145,10 @@ begin
              || ' · ' || new.title;
     end if;
 
-    perform chat_notice(line, actor);
+    -- 라운드 줄에는 그 라운드를 달아 **눌러서 들어갈 수 있게** 한다.
+    -- 투표 줄은 아직 한 줄 그대로다(투표는 결과 카드가 따로 있다).
+    perform chat_notice(line, actor,
+        case when tg_table_name = 'rounds' then new.id else null end);
     return null;
 end $$;
 
