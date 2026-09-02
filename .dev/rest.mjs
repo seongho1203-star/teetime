@@ -40,6 +40,29 @@ function pick(row, cols) {
  */
 export function handleRest(tables, url, req) {
     const table = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
+
+    /* **DB 함수(rpc)도 흉내 낸다.** 세는 일을 DB에 맡긴 것이 있어서, 여기서
+       안 흉내 내면 화면에 0이 깔린다 — 스크린샷만 보면 앱이 고장 난 것 같은데
+       실제로는 흉내가 뒤처진 것이다(딸린 표에서 칸을 고를 때 겪은 그대로다).
+       나머지 rpc는 값을 안 쓰거나 화면이 오류를 넘기므로 null로 답한다. */
+    if (table?.startsWith('rpc/')) {
+        const name = table.slice(4);
+        if (name === 'attendance_counts') {
+            const since = (req.postDataJSON?.() ?? {}).p_since ?? '';
+            const now = new Date().toISOString();
+            const done = new Set((tables.rounds ?? [])
+                .filter(r => r.status !== 'cancelled' && r.tee_at >= since && r.tee_at < now)
+                .map(r => r.id));
+            const n = {};
+            for (const s of tables.signups ?? []) {
+                if (s.state !== 'confirmed' || !done.has(s.round_id)) continue;
+                n[s.user_id] = (n[s.user_id] ?? 0) + 1;
+            }
+            return Object.entries(n).map(([user_id, count]) => ({ user_id, n: count }));
+        }
+        return null;
+    }
+
     let rows = tables[table] ? [...tables[table]] : [];
 
     for (const [key, raw] of url.searchParams) {

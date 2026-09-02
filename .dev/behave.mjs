@@ -37,10 +37,12 @@ await ctx.route('**/rest/v1/**', restRoute(tables));
 
 const rpc = [];
 await ctx.route('**/rest/v1/rpc/**', route => {
-    rpc.push([
-        new URL(route.request().url()).pathname.split('/').pop(),
-        route.request().postDataJSON() ?? null,
-    ]);
+    const name = new URL(route.request().url()).pathname.split('/').pop();
+    rpc.push([name, route.request().postDataJSON() ?? null]);
+    /* **값을 쓰는 함수는 흉내에 맡긴다.** 여기서 `null`로 답하면 화면이
+       빈 값을 그리게 되어, 앱이 아니라 이 스텁 때문에 검사가 빨개진다
+       (참석 횟수가 실제로 그랬다). 부른 횟수는 위에서 이미 세어 두었다. */
+    if (name === 'attendance_counts') return route.fallback();
     route.fulfill({ status: 200, contentType: 'application/json', body: 'null' });
 });
 const calls = name => rpc.filter(([c]) => c === name);
@@ -434,6 +436,21 @@ ok(tq.get('bank') === '국민', `은행 이름 끝의 \`은행\`을 뗀다 (실�
 ok(/^\d+$/.test(tq.get('accountNo') ?? ''), `계좌번호의 \`-\`는 뺀다 (실제 ${tq.get('accountNo')})`);
 ok(Number(tq.get('amount')) > 0, `내 몫이 금액으로 들어간다 (실제 ${tq.get('amount')})`);
 
+/* ── 6-4. 회원 명단의 참석 횟수 ─────────────────────────────────
+ *
+ * **세는 것은 DB가 한다**(`attendance_counts`). 화면이 신청 기록을 통째로
+ * 받아 세면 100명·1년치가 수백 KB다.
+ * **지난 라운드만 센다** — 앞으로의 라운드에 신청해 둔 것은 아직 나간 것이
+ * 아니다. 고정 자료에서 지난 라운드는 r3 하나이고 세 사람이 나갔다.
+ */
+console.log('\n── 회원 명단의 참석 횟수 ──');
+await go('/#/members', 800);
+const rows = await page.$$eval('.member-row', e => e.map(x => x.textContent));
+const line = n => rows.find(t => t.includes(n)) ?? '';
+ok(line('신성호').includes('올해 1회'), `나간 사람은 횟수가 붙는다 (실제 ${JSON.stringify(line('신성호'))})`);
+ok(line('정우성').includes('올해 0회'),
+   `앞으로의 라운드만 신청한 사람은 0회다 (실제 ${JSON.stringify(line('정우성'))})`);
+
 /* ── 7. 성별·태어난 해를 안 적은 회원 ───────────────────────────
  *
  * **둘 다 필수라 로그인 뒤 한 번 막고 받는다**(`screens/FillProfile.tsx`).
@@ -544,6 +561,13 @@ await oldCtx.route('**/rest/v1/**', async route => {
         return route.fulfill({ status: 404, contentType: 'application/json',
             body: JSON.stringify({ message: 'function post_poll_result does not exist' }) });
     }
+    /* 참석 횟수를 세는 함수도 없다. **그때 `올해 0회`라고 적으면 거짓말이라**
+       화면이 그 줄을 아예 안 적어야 한다(오류를 빈 목록으로 넘기면 모두가
+       0회가 된다). */
+    if (t === 'rpc/attendance_counts') {
+        return route.fulfill({ status: 404, contentType: 'application/json',
+            body: JSON.stringify({ message: 'function attendance_counts does not exist' }) });
+    }
     return restRoute(oldTables)(route);
 });
 await oldCtx.route('**/auth/v1/**', r => r.fulfill({
@@ -574,6 +598,12 @@ for (const [name, hash, must] of [
 
 ok(oldRpc.length === 0,
    `칸이 없으면 결과 알리기를 아예 안 부른다 (실제 ${oldRpc.length}번)`);
+
+// 세는 함수가 없으면 **횟수 줄을 아예 안 적는다** — `올해 0회`는 거짓말이다.
+await oldPage.goto(BASE + '/#/members', { waitUntil: 'networkidle' });
+await oldPage.waitForTimeout(700);
+ok(!((await oldPage.textContent('body') ?? '').includes('올해')),
+   '세는 함수가 없으면 참석 횟수를 안 적는다 — 모두 `올해 0회`가 되면 거짓말이다');
 
 await browser.close();
 

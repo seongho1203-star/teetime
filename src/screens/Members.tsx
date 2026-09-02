@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, fetchProfiles, fetchContacts, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDate } from '../lib/format';
+import { formatDate, kstDate } from '../lib/format';
 import {
     FIND_AT, ROLE_LABEL, ROLE_TAG, personLabel,
     type Contact, type Profile, type Role,
@@ -38,10 +38,24 @@ export function Members() {
        아래 `연락처` 줄이 저절로 비고 검색도 안 걸린다 — 화면에서 감추는
        것이 아니라 **애초에 안 실려 오는 것**이 요점이다. */
     const { data, loading, error, reload } = useAsync<
-        { list: Profile[]; contacts: Record<string, Contact> }
+        { list: Profile[]; contacts: Record<string, Contact>; attend: Record<string, number> | null }
     >(async () => {
-        const [list, contacts] = await Promise.all([fetchProfiles(), fetchContacts()]);
-        return { list, contacts: byId(contacts) };
+        /* **올해 몇 번 나갔나.** 세는 것은 DB가 한다 — 화면이 신청 기록을
+           통째로 받아 세면 100명·1년치가 수백 KB다.
+           **연도는 한국 날짜로 정한다.** 기기 시간대를 따르면 새해 첫날
+           해외에 있는 사람에게만 작년으로 세어진다. */
+        const since = `${kstDate().slice(0, 4)}-01-01T00:00:00+09:00`;
+        const [list, contacts, att] = await Promise.all([
+            fetchProfiles(),
+            fetchContacts(),
+            supabase.rpc('attendance_counts', { p_since: since }),
+        ]);
+        /* **함수가 없는 저장소에서는 아예 안 적는다**(`null`). 오류를 그냥
+           넘겨 빈 목록으로 두면 모두가 `올해 0회`가 되어 **거짓말이 된다.** */
+        const attend = att.error ? null : Object.fromEntries(
+            ((att.data ?? []) as { user_id: string; n: number }[])
+                .map(x => [x.user_id, x.n]));
+        return { list, contacts: byId(contacts), attend };
     }, [], 'members');
     useRealtime('profiles', reload);
 
@@ -65,6 +79,7 @@ export function Members() {
 
     const all = data?.list ?? [];
     const contacts = data?.contacts ?? {};
+    const attend = data?.attend ?? null;
     const pending = all.filter(p => p.role === 'pending');
     const members = all.filter(p => p.role !== 'pending' && p.role !== 'banned');
     const banned = all.filter(p => p.role === 'banned');
@@ -208,12 +223,17 @@ export function Members() {
                                         )}
                                         {p.id === me && <span className="xs faint">(나)</span>}
                                     </div>
-                                    {/* **운영진에게만 값이 있다.** 회원에게는
-                                        빈 줄이 되므로 아예 안 그린다. */}
-                                    {isAdmin && (
+                                    {/* **참석 횟수는 모두에게 보인다.** 누가
+                                        꾸준히 나오는지는 감출 것이 아니고,
+                                        연말에 개근을 챙길 때도 쓰인다.
+                                        **전화번호·차량번호는 운영진에게만**
+                                        — 회원에게는 애초에 안 실려 온다. */}
+                                    {(attend || isAdmin) && (
                                         <div className="xs faint">
-                                            {contacts[p.id]?.car || '차량번호 미등록'}
-                                            {contacts[p.id]?.phone
+                                            {attend && `올해 ${attend[p.id] ?? 0}회`}
+                                            {attend && isAdmin && ' · '}
+                                            {isAdmin && (contacts[p.id]?.car || '차량번호 미등록')}
+                                            {isAdmin && contacts[p.id]?.phone
                                                 ? ` · ${contacts[p.id].phone}` : ''}
                                         </div>
                                     )}

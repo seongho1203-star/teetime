@@ -322,6 +322,21 @@ export const MAX_GROUPS = 20;
 /** 한 조에 몇 명을 넣을까. 필드는 네 명이 한 팀이라 그게 기본이다. */
 export const GROUP_SIZE = 4;
 
+/**
+ * 라운드 알림을 보낸 기록. **한 줄이 곧 한 번의 발송이다.**
+ *
+ * 넣는 것은 크론이 부르는 DB 함수뿐이고, 넣는 순간 웹훅이 폰으로 밀어 준다.
+ * `unique (round_id, kind)`가 있어 크론이 10분마다 돌아도 한 라운드에 한 번만
+ * 간다. 화면은 이 표를 안 읽지만, DB 타입은 스키마와 짝이라 여기 적어 둔다.
+ */
+export type RoundReminder = {
+    id: string;
+    round_id: string;
+    /** `day_before` 전날 저녁 · `soon` 시작 두 시간 전(스크린만) */
+    kind: 'day_before' | 'soon';
+    created_at: string;
+};
+
 /** 입금 독촉을 보낸 기록. 총무만 본다. */
 export type SettleReminder = {
     id: string;
@@ -553,6 +568,7 @@ export interface Database {
             messages: Table<Message>;
             room_reads: Table<RoomRead>;
             push_subscriptions: Table<PushSubscriptionRow>;
+            round_reminders: Table<RoundReminder>;
         };
         Views: Record<string, never>;
         Functions: {
@@ -586,6 +602,14 @@ export interface Database {
              * 동시에 불러도 한 줄만 남는다(행을 잠그고 도장을 본다).
              */
             post_poll_result: { Args: { p_poll: string }; Returns: boolean };
+            /**
+             * 사람마다 **지난 라운드에 몇 번 나갔나**. 회원 명단의 `올해 7회`다.
+             * 화면이 신청 기록을 통째로 받아 세면 1년치가 수백 KB라 DB가 센다.
+             */
+            attendance_counts: {
+                Args: { p_since: string };
+                Returns: { user_id: string; n: number }[];
+            };
         };
         Enums: Record<string, never>;
         CompositeTypes: Record<string, never>;

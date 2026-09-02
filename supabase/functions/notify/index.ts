@@ -11,6 +11,8 @@
  *   rounds · polls (UPDATE)  다시 열림 → 회원 모두
  *   signups (UPDATE)   대기 → 확정 → **올라간 그 사람에게만**
  *   round_groups       조 편성 → **그 라운드의 확정 참가자에게만**
+ *   round_reminders    라운드 전날 · 스크린 시작 2시간 전
+ *                      → **그 라운드의 확정 참가자에게만**, 사람마다 자기 조로
  *   settlement_shares  정산 → **그 몫의 주인 한 사람에게만** (금액이 사람마다 다르다)
  *   settle_reminders   입금 독촉 → **아직 안 낸 사람에게만**
  *
@@ -68,7 +70,23 @@ interface Note {
      * '지금 봐 달라'라서, 그것까지 막히면 부르거나 답할 이유가 없어진다.
      */
     always?: string[];
+    /**
+     * 사람마다 다른 본문. 여기 이름이 있는 사람은 `body` 대신 이걸 받는다.
+     *
+     * **라운드 알림 하나 때문에 있다.** 같은 라운드라도 조와 조별 시각이
+     * 사람마다 달라서, 한 문구로 보내면 `조 편성을 확인하세요`밖에 못 적는다 —
+     * 그러면 앱을 열어 봐야 하니 알림을 보내는 뜻이 반쯤 없어진다.
+     * (정산은 몫 행 하나가 사람 하나라 이게 필요 없었다.)
+     */
+    bodyBy?: Record<string, string>;
 }
+
+/** `오전 7:30` — 발송기에는 앱의 `lib/format`이 없어 여기 따로 둔다. */
+const kstTimeFmt = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul', hour: 'numeric', minute: '2-digit', hour12: true,
+});
+const kstTime = (iso: unknown): string =>
+    typeof iso === 'string' && iso ? kstTimeFmt.format(new Date(iso)) : '';
 
 /** 이름을 붙여 준다. 누가 썼는지가 알림에서 제일 중요하다. */
 async function nameOf(id: unknown): Promise<string> {
@@ -308,6 +326,69 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
+    /* ── 라운드가 코앞이다 ───────────────────────────────────────
+     *
+     * **골프는 새벽에 나간다.** 지금은 몇 시인지·몇 조인지 보려면 앱을 열어
+     * 라운드까지 들어가야 하고, 그래서 깜빡하고 안 나오는 일이 생긴다.
+     *
+     * 두 갈래인데 **무엇을 보낼지는 표의 `kind`가 말해 준다** — 언제 보낼지를
+     * 고르는 규칙은 전부 DB 함수(`queue_round_reminders`)에 있고 여기서는
+     * 다시 안 가린다(라운드·투표의 '다시 열림'이 트리거의 `when`에만 적혀
+     * 있는 것과 같은 규칙이다):
+     *   day_before  전날 저녁 — 필드·스크린 모두
+     *   soon        시작 두 시간 전 — 스크린만
+     *
+     * **사람마다 자기 조와 조 시각을 적어 보낸다**(`bodyBy`). 한 문구로
+     * 보내면 `조 편성을 확인하세요`밖에 못 적는데, 그러면 결국 앱을 열어야
+     * 해서 알림을 보내는 뜻이 반쯤 없어진다. 조를 안 짠 라운드거나 아직
+     * 배정 안 된 사람에게는 그냥 `body`가 간다.
+     *
+     * 확정 참가자가 아무도 없으면 조용히 끝난다.
+     */
+    if (hook.table === 'round_reminders' && hook.type === 'INSERT') {
+        const [{ data: rd }, { data: ups }, { data: grp }] = await Promise.all([
+            db.from('rounds').select('course, title, kind, tee_at')
+              .eq('id', r.round_id).maybeSingle(),
+            db.from('signups').select('user_id, grp')
+              .eq('round_id', r.round_id).eq('state', 'confirmed'),
+            db.from('round_groups').select('tees').eq('round_id', r.round_id).maybeSingle(),
+        ]);
+        if (!rd) return null;
+        const rows = ups ?? [];
+        const only = rows.map(x => x.user_id as string);
+        if (!only.length) return null;
+
+        const screen = rd.kind === 'screen';
+        const where = (rd.course as string) || (rd.title as string)
+            || (screen ? '스크린' : '라운드');
+        const when = kstTime(rd.tee_at);
+        const body = `${when} · ${where}`;
+
+        const tees = (grp?.tees ?? {}) as Record<string, string>;
+        const bodyBy: Record<string, string> = {};
+        for (const u of rows) {
+            if (u.grp === null || u.grp === undefined) continue;
+            const t = kstTime(tees[String(u.grp)]);
+            bodyBy[u.user_id as string] =
+                `${body}\n${u.grp}조${t ? ` · ${t}` : ''}`;
+        }
+
+        return {
+            title: r.kind === 'soon'
+                ? '🎯 2시간 뒤 스크린'
+                : screen ? '🎯 내일 스크린' : '⛳ 내일 라운드',
+            body,
+            /* **모집 알림(`round-`)과 갈라 둔다.** 알림창에서 같은 tag는
+               뒤엣것이 앞엣것을 덮는데, 이건 그 모집과 별개로 읽어야 할
+               소식이다. 두 갈래끼리는 같은 tag를 쓴다 — 전날 알림을 아직
+               안 지웠으면 두 시간 전 알림이 그 자리를 대신하는 것이 맞다. */
+            tag: `remind-${r.round_id}`,
+            url: `#/rounds/${r.round_id}`,
+            only,
+            bodyBy,
+        };
+    }
+
     if (hook.table === 'posts' && hook.type === 'INSERT') {
         return {
             title: '📢 새 공지',
@@ -433,8 +514,13 @@ Deno.serve(async req => {
     const { data: subs, error } = await q;
     if (error) return new Response(error.message, { status: 500 });
 
-    const payload = JSON.stringify({
-        title: note.title, body: note.body, tag: note.tag, url: note.url,
+    /* **본문은 기기마다 다를 수 있다.** 라운드 알림이 사람마다 자기 조를
+       실어 보내기 때문이다(`bodyBy`). 없으면 지금까지처럼 다 같은 문구다. */
+    const payloadFor = (uid: unknown) => JSON.stringify({
+        title: note.title,
+        body: (typeof uid === 'string' && note.bodyBy?.[uid]) || note.body,
+        tag: note.tag,
+        url: note.url,
     });
 
     // 못 쓰게 된 구독은 404/410으로 돌아온다. 그때 지워 두지 않으면
@@ -446,7 +532,7 @@ Deno.serve(async req => {
         try {
             await webpush.sendNotification(
                 { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-                payload,
+                payloadFor(s.user_id),
             );
             sent++;
         } catch (e) {

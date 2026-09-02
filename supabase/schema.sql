@@ -689,6 +689,127 @@ end;
 $$;
 
 
+-- ── 라운드 알림 (필드·스크린 전날 · 스크린은 2시간 전에 한 번 더) ──
+--
+-- **이 앱에서 유일하게 '정해진 시각에 도는' 일이다.** 나머지 알림은 전부
+-- 누가 무언가를 눌렀을 때 나가지만, 이건 시간이 흐르는 것만으로 나가야 한다.
+-- 시간이 흐르는 것은 DB에게 사건이 아니므로 pg_cron이 이 함수를 부른다
+-- (맨 아래 9번). 골프는 새벽에 나가는데 지금은 앱을 직접 열어야 몇 시인지
+-- 알 수 있고, 그래서 깜빡하고 안 나오는 일이 실제로 생긴다.
+--
+-- **알림은 이 표에 한 줄이 들어갈 때 나간다**(`notify_push()` 트리거).
+-- 발송기가 아니라 표에 거는 것은 다른 알림과 같은 규칙이고, 덕분에
+-- **한 라운드에 한 번만** 간다 — `unique (round_id, kind)`가 그 자물쇠라
+-- 크론이 10분마다 돌아도 두 번째부터는 아무 일도 안 일어난다.
+create table if not exists round_reminders (
+    id         uuid primary key default gen_random_uuid(),
+    round_id   uuid        not null references rounds(id) on delete cascade,
+    -- `day_before` 전날 저녁 · `soon` 시작 두 시간 전(스크린만)
+    kind       text        not null,
+    created_at timestamptz not null default now(),
+    unique (round_id, kind)
+);
+
+alter table round_reminders drop constraint if exists round_reminders_kind_check;
+alter table round_reminders add constraint round_reminders_kind_check
+    check (kind in ('day_before', 'soon'));
+
+alter table round_reminders enable row level security;
+
+-- **알릴 때가 된 라운드를 골라 표에 넣는다.** 넣는 것이 곧 보내는 것이다.
+--
+-- 두 갈래다:
+--   day_before  필드·스크린 모두. **전날 한국 시각 20시가 지나서** 한 번.
+--               저녁에 받아야 다음 날 준비를 한다 — 아침에 오면 이미 늦다.
+--   soon        **스크린만.** 시작 두 시간 전. 스크린은 저녁에 모이는 일이
+--               많아 전날 알림만으로는 그날 하루를 다 보내고 잊는다.
+--
+-- **한국 날짜로 견준다.** 기기도 서버도 UTC라, 날짜를 UTC로 자르면
+-- 한국 시각 새벽 라운드가 하루 밀린다(화면의 `daysUntil`과 같은 이유다).
+--
+-- **취소된 라운드는 뺀다.** 마감(`closed`)은 뺄 것이 없다 — 모집을 닫았을
+-- 뿐 그날 라운드는 그대로 있다.
+-- **`p_now`는 시험 때문에 있다.** 크론은 그냥 부르고 기본값이 `now()`다.
+-- 이 함수가 하는 일의 전부가 '지금이 언제인가'를 보는 것이라, 지금을 못
+-- 바꾸면 전날 20시 규칙을 확인할 길이 아예 없다.
+create or replace function queue_round_reminders(p_now timestamptz default now())
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_now  timestamp := (p_now at time zone 'Asia/Seoul');
+    v_made int := 0;
+    v_n    int;
+begin
+    -- 전날 저녁 (필드 · 스크린)
+    insert into round_reminders (round_id, kind)
+    select r.id, 'day_before'
+      from rounds r
+     where r.status <> 'cancelled'
+       and (r.tee_at at time zone 'Asia/Seoul')::date = (v_now::date + 1)
+       and v_now::time >= time '20:00'
+    on conflict (round_id, kind) do nothing;
+    get diagnostics v_n = row_count;
+    v_made := v_made + v_n;
+
+    -- 시작 두 시간 전 (스크린만)
+    --
+    -- **'두 시간 전부터 지금까지'가 아니라 '앞으로 두 시간 안'이다.**
+    -- 크론이 10분마다 도니 실제로는 시작 2시간~1시간 50분 전에 한 번 걸린다.
+    -- 두 시간이 안 남았을 때 연 스크린은 그 자리에서 바로 나간다 — 그게 맞다.
+    insert into round_reminders (round_id, kind)
+    select r.id, 'soon'
+      from rounds r
+     where r.status <> 'cancelled'
+       and coalesce(r.kind, 'field') = 'screen'
+       and r.tee_at >  p_now
+       and r.tee_at <= p_now + interval '2 hours'
+    on conflict (round_id, kind) do nothing;
+    get diagnostics v_n = row_count;
+    v_made := v_made + v_n;
+
+    return v_made;
+end;
+$$;
+
+-- 크론이 부르는 것이라 사람에게는 열지 않는다.
+revoke all on function queue_round_reminders(timestamptz) from public;
+
+
+-- ── 참석 횟수 ─────────────────────────────────────────────────
+--
+-- 회원 명단에 `올해 7회`를 적으려고 센다. **자료는 이미 다 있으므로 세기만
+-- 하면 된다** — 100명 모임에서 누가 꾸준히 나오는지는 운영진이 늘 궁금해하는
+-- 값이고, 연말에 개근을 챙길 때도 쓰인다.
+--
+-- **화면이 직접 세지 않는다.** 신청 기록을 통째로 받아 세면 1년치가 수백 KB다
+-- (`node .dev/scale.mjs 100`). 여기서 세면 사람마다 한 줄, 100명이면 몇 KB다.
+--
+-- **지난 라운드만 센다**(`tee_at < now()`). 신청해 둔 앞으로의 라운드는
+-- 아직 나간 것이 아니다. 취소된 라운드도 뺀다.
+create or replace function attendance_counts(p_since timestamptz)
+returns table (user_id uuid, n integer)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select s.user_id, count(*)::int
+      from signups s
+      join rounds  r on r.id = s.round_id
+     where s.state = 'confirmed'
+       and r.status <> 'cancelled'
+       and r.tee_at >= p_since
+       and r.tee_at <  now()
+     group by s.user_id
+$$;
+
+revoke all on function attendance_counts(timestamptz) from public;
+grant execute on function attendance_counts(timestamptz) to authenticated;
+
+
 -- ═══ 4. 투표 ═══════════════════════════════════════════════════
 
 create table if not exists polls (
@@ -1338,6 +1459,15 @@ create policy round_comments_add   on round_comments for insert with check (is_m
 create policy round_comments_own   on round_comments for delete using (author_id = auth.uid());
 create policy round_comments_admin on round_comments for all    using (is_admin()) with check (is_admin());
 
+-- ── 라운드 알림 기록 ──────────────────────────────────────────
+--
+-- **읽기만 연다.** 넣는 것은 크론이 부르는 `queue_round_reminders()` 하나뿐이고
+-- 그건 `security definer`라 정책을 안 탄다. 사람에게 insert를 열면 아무나
+-- 줄을 하나 넣어 **100명의 폰을 울릴 수 있다** — `signups`에 직접 insert를
+-- 안 여는 것과 같은 이유다.
+drop policy if exists round_reminders_read on round_reminders;
+create policy round_reminders_read on round_reminders for select using (is_member());
+
 -- ── 정산 ──────────────────────────────────────────────────────
 --
 -- **회원 누구나 정산을 만든다**(사용자가 정한 것이다). 100명 모임에서
@@ -1654,3 +1784,27 @@ begin
         end if;
     end loop;
 end $$;
+
+
+-- ═══ 9. 정해진 시각에 도는 것 (pg_cron) ════════════════════════
+--
+-- **이 앱에서 시각에 맞춰 저절로 도는 일은 이것 하나다.** 나머지는 전부
+-- 누가 무언가를 눌렀을 때 일어난다. 라운드 알림만은 시간이 흐르는 것만으로
+-- 나가야 하는데, 시간이 흐르는 것은 DB에게 사건이 아니다.
+--
+-- **10분마다 돈다.** 실제로 보내는 때는 함수가 정하므로(전날 20시 이후 ·
+-- 시작 두 시간 전) 크론은 자주 들여다보기만 하면 된다. 하는 일이 없을 때는
+-- `insert ... on conflict do nothing` 두 번이라 사실상 공짜다.
+--
+-- `cron.schedule`은 **같은 이름이면 덮어쓴다** — 여러 번 실행해도 일이
+-- 두 개가 되지 않는다(이 파일의 다른 곳과 같은 규칙이다).
+--
+-- 확장이 안 켜져 있으면 Supabase 화면의 **Database → Extensions**에서
+-- `pg_cron`을 켜고 이 블록만 다시 돌리면 된다.
+create extension if not exists pg_cron;
+
+select cron.schedule(
+    'round-reminders',
+    '*/10 * * * *',
+    $cron$ select queue_round_reminders() $cron$
+);

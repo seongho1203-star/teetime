@@ -95,6 +95,13 @@ export const signups = [
     /* **조가 정해진 뒤에 대기에서 올라온 사람.** `미배정`으로 뜨는지 본다 —
        자리가 나면 실제로 이 상태가 되고, 그걸 못 보면 조가 하나 빈 채로 나간다. */
     { id: 's13', round_id: 'r2', user_id: uid(5),  state: 'confirmed', seq: 8, grp: null, note: '', created_at: iso(-1) },
+
+    /* **지난 라운드(r3)의 참가자.** 회원 명단의 `올해 N회`가 여기서 나온다 —
+       앞으로의 라운드는 아직 나간 것이 아니라 안 센다. 몇 사람만 넣어 두어
+       **사람마다 숫자가 다른지**도 보이게 한다. */
+    { id: 's14', round_id: 'r3', user_id: uid(1), state: 'confirmed', seq: 1, grp: null, note: '', created_at: iso(-20) },
+    { id: 's15', round_id: 'r3', user_id: uid(2), state: 'confirmed', seq: 2, grp: null, note: '', created_at: iso(-20) },
+    { id: 's16', round_id: 'r3', user_id: uid(3), state: 'confirmed', seq: 3, grp: null, note: '', created_at: iso(-20) },
 ];
 
 /* 조 편성이 공개된 라운드 하나. 조별 시각이 8분씩 밀리는 흔한 모양이다. */
