@@ -256,11 +256,25 @@ export function RoundDetail() {
                 + (openSlots > 0 ? ` · ${openSlots}자리 남음` : ' · 자리 참'),
         ].join('\n');
 
-        const row = { room_id: roomId, user_id: me, body, system: true, round_id: r.id };
-        let { error: err } = await supabase.from('messages')
-            .insert({ ...row, notify: true });
-        // 아직 `notify` 칸이 없는 저장소 — 알림만 빼고 공유는 되게 한다.
-        if (err?.code === '42703') ({ error: err } = await supabase.from('messages').insert(row));
+        /* **없는 칸을 하나씩 빼면서 다시 넣는다.**
+           `notify`(알림)와 `round_id`(눌리는 카드)는 **있으면 좋은 것**이지
+           공유 자체를 막을 것이 아니다. 앱은 푸시하면 몇 분 뒤 올라가는데
+           `schema.sql`은 사람이 손으로 붙여넣으므로 그 사이가 있고,
+           실제로 그 사이에 `round_id`가 없어 공유가 통째로 실패했다.
+           **오류 코드가 둘이다** — Postgres는 `42703`을 주지만 PostgREST는
+           칸 목록을 제가 들고 있어서 DB에 닿기도 전에 `PGRST204`로 물린다.
+           하나만 보면 안 걸린다. */
+        const extra = { round_id: r.id, notify: true };
+        // 뺄 차례 — 덜 아쉬운 것부터다(알림 먼저, 눌리는 카드는 마지막).
+        const drops: (keyof typeof extra)[] = ['notify', 'round_id'];
+        let err = null;
+        for (let i = 0; i <= drops.length; i++) {
+            const opt = { ...extra };
+            for (const k of drops.slice(0, i)) delete opt[k];
+            ({ error: err } = await supabase.from('messages')
+                .insert({ room_id: roomId, user_id: me, body, system: true, ...opt }));
+            if (!err || (err.code !== '42703' && err.code !== 'PGRST204')) break;
+        }
         setBusy(false);
         if (err) { toast(readableError(err), 'error'); return; }
         toast('대화방에 올렸습니다.', 'ok');

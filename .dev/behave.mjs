@@ -63,18 +63,23 @@ await ctx.route('**/rest/v1/poll_options**', route => {
 });
 /* 대화방에 올리는 글은 따로 잡는다 — `.select().single()`로 받으므로
    빈 배열을 돌려주면 화면이 오류로 본다. 넣은 값 그대로 한 줄을 준다. */
-/* 켜 두면 `notify` 칸이 아직 없는 저장소인 척한다 — 그 칸을 실어 보내면
-   진짜 PostgREST처럼 42703으로 물린다. 앱이 칸을 빼고 다시 넣는지를 본다. */
-let noNotifyColumn = false;
+/* 여기 적은 칸이 아직 없는 저장소인 척한다. 그 칸을 실어 보내면
+   **진짜 PostgREST처럼 `PGRST204`로 물린다** — PostgREST는 칸 목록을 제가
+   들고 있어서 DB에 닿기도 전에 거절하므로, Postgres의 `42703`이 아니라
+   이 코드가 온다(실기기에서 `round_id`가 이 코드로 막혀 공유가 통째로
+   실패했다). 앱이 그 칸만 빼고 다시 넣는지를 본다. */
+let missingColumns = [];
 await ctx.route('**/rest/v1/messages**', route => {
     if (route.request().method() !== 'POST') return route.fallback();
     const sent = route.request().postDataJSON();
     writes.push(['messages POST', sent]);
-    if (noNotifyColumn && sent && 'notify' in sent) {
+    const bad = missingColumns.find(c => sent && c in sent);
+    if (bad) {
         return route.fulfill({
             status: 400, contentType: 'application/json',
             body: JSON.stringify({
-                code: '42703', message: `column messages.notify does not exist` }),
+                code: 'PGRST204',
+                message: `Could not find the '${bad}' column of 'messages' in the schema cache` }),
         });
     }
     route.fulfill({
@@ -422,21 +427,35 @@ ok(String(writes.find(([w]) => w === 'messages POST')?.[1]?.body ?? '')
    `스크린은 \`스크린을\`이다 (실제 ${JSON.stringify(
        writes.find(([w]) => w === 'messages POST')?.[1]?.body?.split('\n')[0])})`);
 
-/* **`notify` 칸이 없는 저장소에서도 공유는 된다.** 앱은 푸시하면 몇 분 뒤
-   올라가지만 `schema.sql`은 사람이 손으로 붙여넣으므로 그 사이가 있다 —
-   그때 통째로 실패하면 단추가 고장 난 것처럼 보인다. 알림만 안 간다. */
-noNotifyColumn = true;
-await go('/#/rounds/r1', 700);
-writes.length = 0;
-await page.getByText('📣 대화방에 공유').click();
-await page.getByText('올리기', { exact: true }).click();
-await page.waitForTimeout(700);
-const tries = writes.filter(([w]) => w === 'messages POST').map(([, v]) => v);
-ok(tries.length === 2 && !('notify' in (tries[1] ?? {})),
-   `칸이 없으면 그 칸을 빼고 다시 넣는다 (실제 ${JSON.stringify(tries.map(t => 'notify' in (t ?? {})))})`);
+/* **칸이 없는 저장소에서도 공유는 된다.** 앱은 푸시하면 몇 분 뒤 올라가지만
+   `schema.sql`은 사람이 손으로 붙여넣으므로 그 사이가 있다 — 그때 통째로
+   실패하면 단추가 고장 난 것처럼 보인다(실기기에서 `round_id`가 없어 실제로
+   그랬다). 알림과 눌리는 카드만 빠지고 글은 올라간다. */
+const share = async (round) => {
+    await go(`/#/rounds/${round}`, 700);
+    writes.length = 0;
+    await page.getByText('📣 대화방에 공유').click();
+    await page.getByText('올리기', { exact: true }).click();
+    await page.waitForTimeout(800);
+    return writes.filter(([w]) => w === 'messages POST').map(([, v]) => v);
+};
+
+missingColumns = ['notify'];
+let tries = await share('r1');
+ok(tries.length === 2 && !('notify' in (tries[1] ?? {})) && 'round_id' in (tries[1] ?? {}),
+   `알림 칸만 없으면 그것만 뺀다 — 눌리는 카드는 살린다 (실제 ${
+       JSON.stringify(tries.map(t => Object.keys(t ?? {}).filter(k => k === 'notify' || k === 'round_id')))})`);
 ok((await page.textContent('body') ?? '').includes('대화방에 올렸습니다'),
    '옛 저장소에서도 공유는 성공으로 끝난다');
-noNotifyColumn = false;
+
+/* 둘 다 없는 저장소 — 여기서 통째로 실패하던 것이 사용자가 겪은 그 오류다. */
+missingColumns = ['notify', 'round_id'];
+tries = await share('r1');
+ok(tries.length === 3 && !('notify' in (tries[2] ?? {})) && !('round_id' in (tries[2] ?? {})),
+   `둘 다 없으면 하나씩 빼며 세 번째에 들어간다 (실제 ${tries.length}번)`);
+ok((await page.textContent('body') ?? '').includes('대화방에 올렸습니다'),
+   '`round_id`도 없는 저장소에서 공유가 통째로 실패하지 않는다');
+missingColumns = [];
 
 await go('/#/rounds/r3', 700);
 ok(!(await page.textContent('.page') ?? '').includes('대화방에 공유'),
