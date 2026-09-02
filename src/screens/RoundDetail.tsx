@@ -202,9 +202,18 @@ export function RoundDetail() {
      *
      * **`system` 글로 넣는다** — 말풍선이 아니라 눌리는 카드로 그려지고
      * (`RoundCard` in Chat.tsx), 다른 안내 줄과 같은 자리에 선다.
-     * 그래서 **폰 알림은 안 간다**(발송기가 `system`이면 돌아선다) — 대화 탭의
-     * 안 읽은 숫자는 그대로 오르므로 눈에는 걸린다. 한 번 연 모집으로 100명의
-     * 폰을 몇 번이고 울릴 수 있게 하지 않으려는 것이다.
+     *
+     * **폰 알림도 함께 간다**(`notify: true`). `system` 줄은 원래 안 울리는데
+     * (모집을 열 때 저절로 남는 줄은 `⛳ 새 모집`이 이미 나간 뒤다) 이것만
+     * 뚫는다 — **자리가 남았다고 다시 알리는 것이 이 단추의 목적**이라,
+     * 대화방에만 남으면 묻히는 그 문제가 그대로 되풀이된다.
+     * **알림 문구는 발송기가 라운드에서 다시 짠다** — 여기서 만든 글은
+     * 대화방에 보이는 카드 몫이다.
+     *
+     * **`notify` 칸이 없는 저장소에서도 올라가야 한다.** 앱은 푸시하면 몇 분
+     * 뒤 올라가지만 `schema.sql`은 사람이 손으로 붙여넣으므로 그 사이가 있다 —
+     * 42703(그런 칸 없음)이면 그 칸을 빼고 한 번 더 넣는다. 알림만 안 가고
+     * 공유는 된다.
      *
      * **글은 여기서 만든다.** 날짜 문구를 SQL에 또 적으면 화면과 두 벌이 된다.
      */
@@ -215,7 +224,8 @@ export function RoundDetail() {
         const ok = await confirm({
             title: '대화방에 올릴까요?',
             detail: <>
-                전체 대화방에 이 {KIND_LABEL[kind]} 카드가 올라갑니다.<br />
+                전체 대화방에 이 {KIND_LABEL[kind]} 카드가 올라가고,
+                회원들에게 알림도 갑니다.<br />
                 <b>{r.course || r.title}</b> · {when}
             </>,
             confirmLabel: '올리기',
@@ -246,8 +256,11 @@ export function RoundDetail() {
                 + (openSlots > 0 ? ` · ${openSlots}자리 남음` : ' · 자리 참'),
         ].join('\n');
 
-        const { error: err } = await supabase.from('messages')
-            .insert({ room_id: roomId, user_id: me, body, system: true, round_id: r.id });
+        const row = { room_id: roomId, user_id: me, body, system: true, round_id: r.id };
+        let { error: err } = await supabase.from('messages')
+            .insert({ ...row, notify: true });
+        // 아직 `notify` 칸이 없는 저장소 — 알림만 빼고 공유는 되게 한다.
+        if (err?.code === '42703') ({ error: err } = await supabase.from('messages').insert(row));
         setBusy(false);
         if (err) { toast(readableError(err), 'error'); return; }
         toast('대화방에 올렸습니다.', 'ok');

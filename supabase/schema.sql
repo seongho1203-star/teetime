@@ -1050,6 +1050,18 @@ alter table messages add column if not exists system boolean not null default fa
 alter table messages add column if not exists round_id uuid
     references rounds(id) on delete set null;
 
+-- **이 안내 줄은 그래도 폰을 울려야 한다.**
+-- `system` 줄은 알림을 안 보내는 것이 기본이다 — 모집을 열 때 저절로 남는
+-- 줄은 `⛳ 새 모집`이 이미 나간 뒤라 또 울리면 두 번 울린다. 그런데
+-- 라운드 상세의 `📣 대화방에 공유`는 **사람이 자리가 남았다고 다시 알리려고
+-- 누르는 것**이라, 대화방에만 남으면 그 하루에 백 마디가 쌓이는 방에서
+-- 또 묻힌다. 그래서 그때만 이 칸을 세운다.
+-- **`chat_notice()`는 이 칸을 안 건드린다**(기본값 false) — 저절로 남는
+-- 줄과 사람이 누른 줄을 가르는 것이 이 칸의 전부다.
+-- 발송기는 `system`이면서 이 칸이 선 글만 울리고, 문구는 **글이 아니라
+-- 라운드에서 다시 짜서** 보낸다(`notify`의 planFor).
+alter table messages add column if not exists notify boolean not null default false;
+
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
 
 /**

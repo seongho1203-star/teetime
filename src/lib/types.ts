@@ -530,6 +530,12 @@ export type Message = {
      * 없는 저장소에서는 `undefined`라 예전처럼 가운데 한 줄이다.
      */
     round_id?: string | null;
+    /**
+     * **이 `system` 줄은 그래도 폰을 울린다.** 사람이 `📣 대화방에 공유`를
+     * 눌러 올린 줄에만 선다 — 저절로 남는 안내 줄(`chat_notice`)은 기본값
+     * false 그대로다. 화면은 이 값을 읽지 않는다(발송기 몫이다).
+     */
+    notify?: boolean;
     created_at: string;
 };
 

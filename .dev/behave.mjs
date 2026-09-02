@@ -63,10 +63,20 @@ await ctx.route('**/rest/v1/poll_options**', route => {
 });
 /* 대화방에 올리는 글은 따로 잡는다 — `.select().single()`로 받으므로
    빈 배열을 돌려주면 화면이 오류로 본다. 넣은 값 그대로 한 줄을 준다. */
+/* 켜 두면 `notify` 칸이 아직 없는 저장소인 척한다 — 그 칸을 실어 보내면
+   진짜 PostgREST처럼 42703으로 물린다. 앱이 칸을 빼고 다시 넣는지를 본다. */
+let noNotifyColumn = false;
 await ctx.route('**/rest/v1/messages**', route => {
     if (route.request().method() !== 'POST') return route.fallback();
     const sent = route.request().postDataJSON();
     writes.push(['messages POST', sent]);
+    if (noNotifyColumn && sent && 'notify' in sent) {
+        return route.fulfill({
+            status: 400, contentType: 'application/json',
+            body: JSON.stringify({
+                code: '42703', message: `column messages.notify does not exist` }),
+        });
+    }
     route.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify({ id: 'new1', created_at: new Date().toISOString(), ...sent }),
@@ -396,6 +406,11 @@ ok(String(posted2?.body ?? '').split('\n').length === 3,
    `머리말·골프장·시각 세 줄이다 (실제 ${JSON.stringify(posted2?.body)})`);
 ok(String(posted2?.body ?? '').startsWith('신성호님이 필드를 공유했습니다'),
    '받침에 맞는 조사를 붙인다 — 스크린이면 `스크린을`이다');
+/* **이 줄만 폰을 울린다.** `system` 줄은 원래 안 울리는데(모집을 열 때
+   저절로 남는 줄은 `⛳ 새 모집`이 이미 나갔다), 사람이 눌러 올린 이것은
+   자리가 남았다고 다시 알리는 것이 목적이라 뚫는다. */
+ok(posted2?.notify === true,
+   `사람이 올린 공유에는 알림 표가 선다 (실제 ${JSON.stringify(posted2?.notify)})`);
 
 await go('/#/rounds/r4', 700);
 writes.length = 0;
@@ -406,6 +421,22 @@ ok(String(writes.find(([w]) => w === 'messages POST')?.[1]?.body ?? '')
     .startsWith('신성호님이 스크린을 공유했습니다'),
    `스크린은 \`스크린을\`이다 (실제 ${JSON.stringify(
        writes.find(([w]) => w === 'messages POST')?.[1]?.body?.split('\n')[0])})`);
+
+/* **`notify` 칸이 없는 저장소에서도 공유는 된다.** 앱은 푸시하면 몇 분 뒤
+   올라가지만 `schema.sql`은 사람이 손으로 붙여넣으므로 그 사이가 있다 —
+   그때 통째로 실패하면 단추가 고장 난 것처럼 보인다. 알림만 안 간다. */
+noNotifyColumn = true;
+await go('/#/rounds/r1', 700);
+writes.length = 0;
+await page.getByText('📣 대화방에 공유').click();
+await page.getByText('올리기', { exact: true }).click();
+await page.waitForTimeout(700);
+const tries = writes.filter(([w]) => w === 'messages POST').map(([, v]) => v);
+ok(tries.length === 2 && !('notify' in (tries[1] ?? {})),
+   `칸이 없으면 그 칸을 빼고 다시 넣는다 (실제 ${JSON.stringify(tries.map(t => 'notify' in (t ?? {})))})`);
+ok((await page.textContent('body') ?? '').includes('대화방에 올렸습니다'),
+   '옛 저장소에서도 공유는 성공으로 끝난다');
+noNotifyColumn = false;
 
 await go('/#/rounds/r3', 700);
 ok(!(await page.textContent('.page') ?? '').includes('대화방에 공유'),

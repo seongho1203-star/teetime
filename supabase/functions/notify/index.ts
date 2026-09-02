@@ -5,6 +5,8 @@
  * 앱에는 서버가 없으므로 **밀어 주는 일은 여기 한 곳에서만** 한다.
  *
  *   messages           새 글  → 쓴 사람 빼고 회원 모두
+ *                      (앱이 저절로 남긴 `system` 줄은 안 울린다 —
+ *                       사람이 누른 `📣 대화방에 공유`만 예외다)
  *   profiles           새 가입 → 운영진 모두 ('pending'으로 들어온 행)
  *   rounds             새 모집 → 연 사람 빼고 회원 모두
  *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
@@ -87,6 +89,14 @@ const kstTimeFmt = new Intl.DateTimeFormat('ko-KR', {
 });
 const kstTime = (iso: unknown): string =>
     typeof iso === 'string' && iso ? kstTimeFmt.format(new Date(iso)) : '';
+
+/** `9월 5일 (토) 오전 7:30` — 공유 알림처럼 날짜까지 필요한 자리에 쓴다. */
+const kstWhenFmt = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+});
+const kstWhen = (iso: unknown): string =>
+    typeof iso === 'string' && iso ? kstWhenFmt.format(new Date(iso)) : '';
 
 /** 이름을 붙여 준다. 누가 썼는지가 알림에서 제일 중요하다. */
 async function nameOf(id: unknown): Promise<string> {
@@ -178,6 +188,38 @@ async function alwaysFor(r: Record<string, unknown>): Promise<string[]> {
     return [...ids];
 }
 
+/**
+ * 사람이 `📣 대화방에 공유`로 올린 라운드 줄.
+ *
+ * `system` 줄은 원래 안 울리는데(위 planFor 참고) 이것만 뚫는다 —
+ * **자리가 남았다고 다시 알리는 것이 그 단추의 목적**이라, 대화방에만
+ * 남으면 하루 백 마디가 쌓이는 방에서 또 묻힌다.
+ *
+ * **문구를 글에서 가져오지 않는다.** 대화 글은 회원이 손으로도 넣을 수
+ * 있는 값이라, 라운드를 다시 읽어 거기서 짠다 — 무엇을 적어 보내든
+ * 알림에는 그 라운드의 사실만 나간다.
+ *
+ * `tag`는 모집 알림과 **같은** `round-`다. 같은 라운드 이야기라 알림창에
+ * 두 줄이 쌓일 이유가 없고, 뒤엣것이 앞엣것을 대신하는 것이 맞다.
+ */
+async function shareNote(r: Record<string, unknown>): Promise<Note | null> {
+    if (r.notify !== true || typeof r.round_id !== 'string') return null;
+    const { data: rd } = await db.from('rounds')
+        .select('course, title, kind, tee_at, capacity').eq('id', r.round_id).maybeSingle();
+    if (!rd) return null;
+    const screen = rd.kind === 'screen';
+    const where = (rd.course as string) || (rd.title as string)
+        || (screen ? '스크린' : '라운드');
+    const who = await nameOf(r.user_id);
+    return {
+        title: screen ? '🎯 스크린 공유' : '⛳ 라운드 공유',
+        body: `${who}님이 올렸습니다\n${where} · ${kstWhen(rd.tee_at)}`,
+        tag: `round-${r.round_id}`,
+        url: `#/rounds/${r.round_id}`,
+        except: typeof r.user_id === 'string' ? r.user_id : null,
+    };
+}
+
 async function planFor(hook: Hook): Promise<Note | null> {
     const r = hook.record ?? {};
 
@@ -185,8 +227,16 @@ async function planFor(hook: Hook): Promise<Note | null> {
         /* **앱이 스스로 남긴 줄에는 알림을 안 보낸다.** 라운드·투표가
            올라오면 DB 트리거가 대화방에도 한 줄 적는데(`announce_to_chat`),
            그 건은 `⛳ 새 모집` 알림이 이미 나간 뒤다 — 여기서 또 보내면
-           같은 일로 두 번 울린다. */
-        if (r.system === true) return null;
+           같은 일로 두 번 울린다.
+
+           **딱 하나 예외가 `notify`가 선 줄이다** — 라운드 상세의
+           `📣 대화방에 공유`로 **사람이 눌러서** 올린 것이라, 자리가 남았다고
+           다시 알리는 것이 그 단추의 목적이다. 대화방에만 남으면 하루에
+           백 마디가 쌓이는 방에서 또 묻힌다.
+           **문구는 글이 아니라 라운드에서 다시 짠다** — 대화 글은 회원이
+           손으로도 넣을 수 있는 값이라, 거기 적힌 것을 그대로 백 명의
+           알림창에 띄우지 않으려는 것이다. */
+        if (r.system === true) return shareNote(r);
 
         const who = await nameOf(r.user_id);
         const text = typeof r.body === 'string' && r.body.trim()
