@@ -142,6 +142,9 @@
     text-align: center;
     line-height: 1.45;
     width: fit-content;
+    /* 안내 글도 두 줄로 온다(`지웠습니다` + 이름). 안 주면 줄바꿈이 공백이
+       되어 `모집을 지웠습니다 영광웰빙CC`처럼 한 문장으로 이어져 읽힌다. */
+    white-space: pre-line;
 }
 
 .chat-day {

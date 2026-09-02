@@ -783,10 +783,12 @@ export function Chat() {
                                 말풍선으로 그리면 누가 말을 건 것처럼 보이고
                                 답장·밀기까지 붙는다 — 안내는 가운데 한 줄이다. */}
                             {m.system && (
-                                m.poll_id
-                                    ? <PollResult body={m.body} pollId={m.poll_id} />
-                                    : m.round_id
-                                        ? <RoundCard body={m.body} roundId={m.round_id} />
+                                m.round_id
+                                    ? <LinkCard body={m.body} to={`/rounds/${m.round_id}`}
+                                                go="라운드 보러 가기 ›" rest="chat-result-note" />
+                                    : m.poll_id
+                                        ? <LinkCard body={m.body} to={`/polls/${m.poll_id}`}
+                                                    go="투표 보러 가기 ›" rest="chat-result-win" />
                                         : <div className="chat-notice">{m.body}</div>
                             )}
                             {m.id === unreadFrom && (
@@ -1124,55 +1126,39 @@ function Body({ text, names, me, allowAll }: {
 }
 
 /**
- * 투표가 끝났을 때 대화방에 남는 결과 카드 (카톡이 하던 것을 옮겼다).
+ * 대화방에 남는 **눌리는 카드** — 라운드와 투표가 같이 쓴다.
  *
- * 글은 DB가 만들어 넣는다(`post_poll_result`) — 첫 줄이 머리말이고 그 아래가
- * 제목과 1위다. **줄 수를 세지 않는다**: 첫 줄만 갈라 흐리게 놓고 나머지는
- * 있는 대로 그리므로, 문구가 늘거나 줄어도 카드가 안 깨진다.
+ * **안내 줄을 눌러서 바로 들어갈 수 있어야 한다**(사용자 요청). 예전에는
+ * 가운데 한 줄짜리 글이라, 모집이 열린 것을 대화에서 보고도 라운드 탭으로
+ * 건너가 목록에서 다시 찾아야 했다 — 그러면 그 줄을 남기는 뜻이 반쯤 없어진다.
  *
- * `poll_id`가 없는 예전 안내 줄은 지금처럼 가운데 한 줄로 그려진다.
+ * 넣는 곳이 셋이다: 모집·투표를 열 때 저절로(`announce_to_chat`), 투표가
+ * 끝났을 때(`post_poll_result`), 그리고 라운드 상세의 `📣 대화방에 공유`.
+ * **셋을 한 코드로 그린다** — 따로 만들면 한쪽만 고치게 된다.
+ *
+ * **줄 수를 세지 않는다.** 첫 줄만 갈라 흐리게 놓고 나머지는 있는 대로
+ * 그리므로 문구가 늘거나 줄어도 안 깨진다. 다만 **한 줄짜리는 그 줄이 곧
+ * 내용이라** 머리말로 흐리게 깔지 않고 제목으로 세운다.
+ *
+ * 어느 칸도 없는 예전 안내 줄은 지금처럼 가운데 한 줄로 그려진다.
  */
-function PollResult({ body, pollId }: { body: string; pollId: string }) {
-    const [head, ...rest] = body.split('\n');
-    return (
-        <Link className="chat-result" to={`/polls/${pollId}`}>
-            <span className="chat-result-head">{head}</span>
-            {rest.map((line, i) => (
-                <span key={i} className={i === 0 ? 'chat-result-title' : 'chat-result-win'}>
-                    {line}
-                </span>
-            ))}
-            <span className="chat-result-go">투표결과 확인하기 ›</span>
-        </Link>
-    );
-}
-
-/**
- * 라운드 이야기가 대화방에 남을 때의 카드.
- *
- * **모집을 열면 저절로 한 줄이 남는데, 예전에는 눌리지 않았다** — 보려면
- * 라운드 탭으로 건너가 목록에서 다시 찾아야 했다. 그 줄에 라운드를 달아
- * 눌러서 바로 들어가게 한 것이 이 카드다. 라운드 상세의 `📣 대화방에 공유`가
- * 올리는 글도 같은 모양으로 그려진다.
- *
- * **줄 수를 세지 않는다**(투표 결과 카드와 같은 규칙). 다만 한 줄짜리는
- * 그 줄이 곧 내용이므로 **머리말로 흐리게 깔지 않고 제목으로 세운다** —
- * 저절로 남는 안내가 그렇고, 사람이 공유한 것은 세 줄이다.
- */
-function RoundCard({ body, roundId }: { body: string; roundId: string }) {
+function LinkCard({ body, to, go, rest: restClass }: {
+    body: string; to: string; go: string; rest: string;
+}) {
     const lines = body.split('\n').filter(Boolean);
     const [head, ...rest] = lines;
     return (
-        <Link className="chat-result" to={`/rounds/${roundId}`}>
+        <Link className="chat-result" to={to}>
             <span className={lines.length > 1 ? 'chat-result-head' : 'chat-result-title'}>
                 {head}
             </span>
             {rest.map((line, i) => (
-                <span key={i} className={i === 0 ? 'chat-result-title' : 'chat-result-note'}>
+                <span key={i} className={i === 0 ? 'chat-result-title' : restClass}>
                     {line}
                 </span>
             ))}
-            <span className="chat-result-go">라운드 보러 가기 ›</span>
+            <span className="chat-result-go">{go}</span>
         </Link>
     );
 }
+

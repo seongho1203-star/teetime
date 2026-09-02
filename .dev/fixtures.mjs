@@ -232,9 +232,16 @@ export const messages = [
     { id: 'm10', room_id: 'room1', user_id: uid(2),
       body: '@전체 저도 확인했습니다', created_at: iso(0, 9, 36) },
     /* 모집을 열면 저절로 남는 안내. **`round_id`가 붙어 눌리는 카드가 된다** —
-       한 줄짜리라 그 줄이 곧 제목이다. */
+       두 줄이라 머리말·제목으로 갈려, 사람이 올린 공유와 같은 모양이다. */
     { id: 'sys1', room_id: 'room1', user_id: uid(2), system: true, round_id: 'r2',
-      body: '이관교님이 라운드 모집을 열었습니다 · 함평엘리체CC', created_at: iso(0, 9, 34) },
+      body: '이관교님이 라운드 모집을 열었습니다\n함평엘리체CC', created_at: iso(0, 9, 34) },
+    /* 투표를 올려도 같은 카드가 된다. 예전에는 `poll_id`가 안 붙어 눌리지
+       않았고, 투표 탭으로 건너가 목록에서 다시 찾아야 했다. */
+    { id: 'sys4', room_id: 'room1', user_id: uid(3), system: true, poll_id: 'p1',
+      body: '박승수님이 투표를 올렸습니다\n9월 라운드 날짜', created_at: iso(0, 9, 35) },
+    /* 지운 것은 **갈 곳이 없어 카드가 아니다** — 가운데 한 줄로 남는다. */
+    { id: 'sys5', room_id: 'room1', user_id: uid(4), system: true,
+      body: '김지명님이 라운드 모집을 지웠습니다\n영광웰빙CC', created_at: iso(0, 9, 43) },
     /* 사람이 직접 올린 공유(`📣 대화방에 공유`). 세 줄이라 머리말·제목·곁줄로
        갈려 그려진다 — 저절로 남는 한 줄과 같은 카드인지 나란히 본다. */
     { id: 'sys3', room_id: 'room1', user_id: ME, system: true, round_id: 'r4',

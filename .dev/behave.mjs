@@ -462,13 +462,26 @@ ok(!(await page.textContent('.page') ?? '').includes('대화방에 공유'),
    '지난 라운드에는 없다 — 이제 와서 부를 이유가 없다');
 
 /* 대화방에서 그 줄이 **눌러서 들어가는 카드**인가. 예전에는 가운데 한 줄이라
-   보려면 라운드 탭으로 건너가 목록에서 다시 찾아야 했다. */
+   보려면 라운드·투표 탭으로 건너가 목록에서 다시 찾아야 했다(사용자 제보 —
+   대화를 보다가 바로 들어가지는 것이 이 카드의 전부다). */
 await go('/#/chat', 1200);
-const roundCards = await page.$$eval('.chat-result',
+const chatCards = await page.$$eval('.chat-result',
     e => e.map(x => x.getAttribute('href')));
-ok(roundCards.some(h => h?.includes('/rounds/r4')),
-   `사람이 올린 공유가 카드다 (실제 ${JSON.stringify(roundCards)})`);
-ok(roundCards.some(h => h?.includes('/rounds/r2')), '저절로 남은 모집 안내도 카드다');
+ok(chatCards.some(h => h?.includes('/rounds/r4')),
+   `사람이 올린 공유가 카드다 (실제 ${JSON.stringify(chatCards)})`);
+ok(chatCards.some(h => h?.includes('/rounds/r2')), '저절로 남은 모집 안내도 카드다');
+ok(chatCards.some(h => h?.includes('/polls/p1')), '투표를 올린 안내도 카드다');
+ok(chatCards.some(h => h?.includes('/polls/p2')), '투표 결과도 그대로 카드다');
+/* 갈 곳에 맞는 말이 붙는가 — 라운드 카드에 `투표 보러 가기`가 붙으면
+   눌러 놓고 딴 데로 간 줄 안다. */
+const goes = await page.$$eval('.chat-result', e => e.map(x => [
+    x.getAttribute('href'), x.querySelector('.chat-result-go')?.textContent]));
+ok(goes.every(([h, g]) => h?.includes('/rounds/') ? g?.includes('라운드') : g?.includes('투표')),
+   `카드마다 갈 곳에 맞는 말이 붙는다 (실제 ${JSON.stringify(goes)})`);
+/* **지운 것은 카드가 아니다** — 갈 곳이 이미 없다. */
+const notices = await page.$$eval('.chat-notice', e => e.map(x => x.textContent));
+ok(notices.some(t => t?.includes('지웠습니다')),
+   `지운 안내는 가운데 한 줄로 남는다 (실제 ${JSON.stringify(notices)})`);
 
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *

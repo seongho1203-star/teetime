@@ -1101,18 +1101,25 @@ $$;
  * **부르는 곳이 둘이다** — 모집·투표 트리거(`announce_to_chat`)와
  * 조 편성(`set_round_groups`). 방을 찾는 규칙이 두 벌이 되지 않게 모아 두었다.
  */
+/* **인자가 셋이던 옛 판을 먼저 지운다.** `create or replace`는 인자 수가
+   다르면 새 함수를 하나 더 만들 뿐이라, 기본값을 단 넷짜리와 셋짜리가
+   함께 남으면 `chat_notice(글, 사람, 라운드)`가 **어느 쪽인지 몰라 오류**가
+   난다(`set_round_groups`가 그렇게 부른다). */
+drop function if exists chat_notice(text, uuid, uuid);
+
 create or replace function chat_notice(
-    p_line text, p_actor uuid, p_round uuid default null)
+    p_line text, p_actor uuid,
+    p_round uuid default null, p_poll uuid default null)
 returns void language plpgsql security definer
 set search_path = public as $$
 declare room uuid;
 begin
     select id into room from rooms where round_id is null order by created_at limit 1;
     if room is null then return; end if;
-    -- **`p_round`를 주면 그 줄이 눌리는 카드가 된다**(`Chat.tsx`).
-    -- 안 주면 지금까지처럼 가운데 한 줄이다(투표 안내가 그렇다).
-    insert into messages (room_id, user_id, body, system, round_id)
-    values (room, p_actor, p_line, true, p_round);
+    -- **`p_round`나 `p_poll`을 주면 그 줄이 눌리는 카드가 된다**(`Chat.tsx`) —
+    -- 눌러서 바로 그 라운드·투표로 들어간다. 둘 다 없으면 가운데 한 줄이다.
+    insert into messages (room_id, user_id, body, system, round_id, poll_id)
+    values (room, p_actor, p_line, true, p_round, p_poll);
 end $$;
 
 create or replace function announce_to_chat()
@@ -1123,18 +1130,28 @@ declare
     line  text;
     actor uuid;
     again boolean := false;
+    shut  boolean := false;   -- 모집을 닫았다
+    off   boolean := false;   -- 라운드를 취소했다
+    what  text;               -- `라운드` / `스크린`
 begin
-    /* **다시 연 것도 알린다.** 예전에는 새로 올릴 때만(`after insert`) 적어서,
-       마감했던 투표를 다시 열면 대화방에 아무 말도 안 남았다 — 열어 둔 줄
-       모르고 지나간다. 고친 것이 그것뿐일 때는 조용히 지나간다. */
+    /* **열린 것만 알리던 것을 닫는 쪽까지 넓혔다**(사용자 요청).
+       예전에는 새로 올릴 때와 다시 열 때만 적어서, **마감하거나 취소하면
+       대화방에 아무 말도 안 남았다** — 사람들은 그 라운드가 아직 살아 있는
+       줄 알고 신청하러 들어갔다.
+       고친 것이 그것뿐일 때(제목·정원만 바꿈)는 그대로 조용히 지나간다. */
     if tg_op = 'UPDATE' then
         if tg_table_name = 'rounds' then
-            again := old.status <> 'open' and new.status = 'open';
+            again := old.status <> 'open'      and new.status = 'open';
+            shut  := old.status =  'open'      and new.status = 'closed';
+            off   := old.status <> 'cancelled' and new.status = 'cancelled';
         else
+            /* **투표 마감은 여기서 안 적는다** — 끝나는 순간
+               `post_poll_result`가 결과 카드를 남기므로(1위까지 적힌다),
+               여기서 또 적으면 같은 일로 두 줄이 쌓인다. */
             again := poll_shut(old.closed, old.closes_at)
                  and not poll_shut(new.closed, new.closes_at);
         end if;
-        if not again then return null; end if;
+        if not (again or shut or off) then return null; end if;
     end if;
 
     /* 누가 한 일인가. 새로 올린 것은 **올린 사람**, 다시 연 것은 **지금 누른
@@ -1145,22 +1162,37 @@ begin
     select name into who from profiles where id = actor;
     who := coalesce(nullif(who, ''), '누군가');
 
+    /* **두 줄로 적는다** — 첫 줄이 흐린 머리말, 둘째 줄이 제목이 되어
+       `📣 대화방에 공유`가 올리는 카드와 같은 모양이 된다(`Chat.tsx`).
+       한 줄로 이어 붙였을 때는 카드가 밋밋해 그냥 안내문처럼 보였고,
+       사용자가 **눌러서 들어가는 것**을 알아채길 바란 자리다.
+       이름이 비어 있을 수 있으므로(골프장 미정·매장 미정) 그때는
+       첫 줄만 남고 카드는 그대로 선다. */
     if tg_table_name = 'rounds' then
-        line := who || '님이 '
-             || case when new.kind = 'screen' then '스크린' else '라운드' end
-             || case when again then ' 모집을 다시 열었습니다'
-                                 else ' 모집을 열었습니다' end
-             || case when coalesce(new.course, '') <> '' then ' · ' || new.course else '' end;
+        what := case when new.kind = 'screen' then '스크린' else '라운드' end;
+        line := who || '님이 ' || what
+             /* **취소는 조사를 받침으로 고른다** — `라운드를` / `스크린을`.
+                하나로 굳히면 둘 중 하나는 늘 어색하다(화면의 공유 글과 같은
+                규칙이다). 마감·열기는 뒤에 `모집을`이 붙어 조사가 없다. */
+             || case when off   then case when what = '스크린' then '을' else '를' end
+                                     || ' 취소했습니다'
+                     when shut  then ' 모집을 마감했습니다'
+                     when again then ' 모집을 다시 열었습니다'
+                                else ' 모집을 열었습니다' end
+             || case when coalesce(new.course, '') <> ''
+                     then E'\n' || new.course else '' end;
     else
         line := who || '님이 투표를 '
              || case when again then '다시 열었습니다' else '올렸습니다' end
-             || ' · ' || new.title;
+             || E'\n' || new.title;
     end if;
 
-    -- 라운드 줄에는 그 라운드를 달아 **눌러서 들어갈 수 있게** 한다.
-    -- 투표 줄은 아직 한 줄 그대로다(투표는 결과 카드가 따로 있다).
+    /* **라운드도 투표도 눌리는 카드가 된다**(사용자 요청). 대화를 보다가
+       바로 들어갈 수 있어야지, 탭을 옮겨 목록에서 다시 찾게 하면 그 줄을
+       남기는 뜻이 반쯤 없어진다. 어느 칸을 채우느냐로 갈린다. */
     perform chat_notice(line, actor,
-        case when tg_table_name = 'rounds' then new.id else null end);
+        case when tg_table_name = 'rounds' then new.id end,
+        case when tg_table_name = 'polls'  then new.id end);
     return null;
 end $$;
 
@@ -1182,6 +1214,55 @@ create trigger rounds_reopen after update on rounds
 drop trigger if exists polls_reopen on polls;
 create trigger polls_reopen after update on polls
     for each row execute function announce_to_chat();
+
+
+/* ── 지웠을 때도 한 줄 남긴다 ──────────────────────────────────
+ *
+ * **지워지면 대화방에 아무 말도 안 남았다**(사용자 제보). 그 라운드를
+ * 알리던 카드는 `round_id`가 `on delete set null`이라 조용히 안 눌리는
+ * 줄이 될 뿐이어서, 사람들은 **왜 안 들어가지는지 모른 채** 라운드 탭으로
+ * 건너가 목록에서 찾다가 없어진 것을 뒤늦게 알았다.
+ *
+ * **눌리는 카드로 만들지 않는다** — 갈 곳이 이미 없다. 가운데 한 줄이다.
+ * (`chat_notice`에 id를 안 주면 저절로 그렇게 그려진다.)
+ *
+ * `after delete`라 딸린 것들이 다 정리된 뒤에 돈다. 새로 넣는 줄은
+ * 그 라운드를 안 달고 있으므로 정리에 휩쓸리지 않는다.
+ */
+create or replace function announce_gone()
+returns trigger language plpgsql security definer
+set search_path = public as $$
+declare
+    who   text;
+    actor uuid;
+    line  text;
+begin
+    -- 지운 사람. SQL 편집기에서 지우면 `auth.uid()`가 없어 만든 사람이 된다.
+    actor := coalesce(auth.uid(), old.created_by);
+    select name into who from profiles where id = actor;
+    who := coalesce(nullif(who, ''), '누군가');
+
+    if tg_table_name = 'rounds' then
+        line := who || '님이 '
+             || case when old.kind = 'screen' then '스크린' else '라운드' end
+             || ' 모집을 지웠습니다'
+             || case when coalesce(old.course, '') <> ''
+                     then E'\n' || old.course else '' end;
+    else
+        line := who || '님이 투표를 지웠습니다' || E'\n' || old.title;
+    end if;
+
+    perform chat_notice(line, actor);
+    return null;
+end $$;
+
+drop trigger if exists rounds_gone on rounds;
+create trigger rounds_gone after delete on rounds
+    for each row execute function announce_gone();
+
+drop trigger if exists polls_gone on polls;
+create trigger polls_gone after delete on polls
+    for each row execute function announce_gone();
 
 
 /* ── 투표가 끝나면 결과를 대화방에 남긴다 ──────────────────────
