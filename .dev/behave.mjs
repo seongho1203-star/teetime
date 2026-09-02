@@ -104,20 +104,32 @@ ok(calls('mark_room_read').length === 1,
    지난 마감 시각이 그대로라 열리지 않는다. */
 console.log('\n── 투표 마감 · 다시 열기 ──');
 
-/* **이 검사가 이 칸에서 제일 먼저 와야 한다** — 아래에서 상세 화면을
-   열면 거기서도 같은 함수를 부르는데 **같은 투표는 한 번만** 부르므로,
-   뒤에서 재면 늘 0번이 나온다(실제로 그렇게 짰다가 빨갛게 떴다).
-
-   **끝난 투표의 결과를 대화방에 알리게 하는가.**
+/* **끝난 투표의 결과를 대화방에 알리게 하는가.**
    손으로 마감한 것은 DB 트리거가 하지만, **마감 시각이 지나 끝난 것은 DB에서
    아무 일도 안 일어나므로** 앱이 봐 주지 않으면 영영 안 남는다.
    p3가 그런 것이고(`result_at`이 null), p2는 이미 알린 것이다 — 그건 다시
-   부르면 안 된다(헛걸음이 100명분 쌓인다). */
-rpc.length = 0;
-await go('/#/polls', 700);
-const posted = calls('post_poll_result').map(([, b]) => b?.p_poll);
-ok(posted.includes('p3'), `끝났는데 안 알린 투표는 결과를 남기게 한다 (실제 ${JSON.stringify(posted)})`);
-ok(!posted.includes('p2'), '이미 알린 투표는 다시 안 부른다');
+   부르면 안 된다(헛걸음이 100명분 쌓인다).
+
+   **잴 때마다 문서를 새로 열어야 한다.** `go()`는 주소의 `#`만 바뀌면
+   화면을 새로 만들지 않아서, **같은 투표는 한 번만** 부른다는 규칙에 걸려
+   두 번째 화면에서는 늘 0번이 나온다(실제로 그렇게 짰다가 빨갛게 떴다).
+   그래서 갈 곳으로 옮긴 **뒤에** 세기를 비우고 `reload()`로 다시 연다. */
+const countPosts = async hash => {
+    await go(hash, 200);
+    rpc.length = 0;
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(700);
+    return calls('post_poll_result').map(([, b]) => b?.p_poll);
+};
+
+/* **홈에서도 부른다.** 홈은 모두가 처음 닿는 화면이라, 투표 탭에서만
+   부르면 아무도 그 탭을 안 여는 날 결과가 하루 종일 안 남는다. */
+const athome = await countPosts('/#/');
+ok(athome.includes('p3'), `홈만 열어도 끝난 투표의 결과를 남기게 한다 (실제 ${JSON.stringify(athome)})`);
+ok(!athome.includes('p2'), '이미 알린 투표는 다시 안 부른다');
+
+const posted = await countPosts('/#/polls');
+ok(posted.includes('p3'), `투표 탭에서도 결과를 남기게 한다 (실제 ${JSON.stringify(posted)})`);
 
 for (const [id, label, want] of [
     ['p1', '마감 시각이 앞으로 남은 투표', '마감'],

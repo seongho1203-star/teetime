@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchPeople } from '../lib/db';
+import { useAsync, useRealtime, unwrap, fetchPeople, announceClosedPolls } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
 import { lastSeen } from '../lib/unread';
@@ -17,6 +17,11 @@ interface Loaded {
     people: Person[];
     /** 내가 아직 표를 안 던진 투표 */
     openPolls: Poll[];
+    /**
+     * 아직 손으로 안 닫은 투표 전부. **화면에는 안 쓰고 결과 알리기에만 쓴다** —
+     * 마감 시각이 지나 끝난 것이 여기 들어 있다(그때도 `closed`는 false다).
+     */
+    livePolls: Poll[];
     pendingCount: number;
 }
 
@@ -66,7 +71,8 @@ export function Home() {
         const now = Date.now();
         const voted = new Set(((unwrap(votes) ?? []) as Pick<PollVote, 'poll_id'>[])
             .map(v => v.poll_id));
-        const openPolls = ((unwrap(polls) ?? []) as Poll[])
+        const livePolls = (unwrap(polls) ?? []) as Poll[];
+        const openPolls = livePolls
             .filter(p => !p.closes_at || new Date(p.closes_at).getTime() > now)
             .filter(p => !voted.has(p.id));
 
@@ -83,11 +89,24 @@ export function Home() {
             signups,
             people,
             openPolls,
+            livePolls,
             pendingCount: pending.count ?? 0,
         };
     }, [me, isAdmin], 'home');
 
     useRealtime(['rounds', 'signups', 'polls', 'poll_votes', 'profiles'], reload);
+
+    /* **마감 시각이 지나 끝난 투표의 결과를 대화방에 남긴다.**
+       손으로 `마감`을 누르면 DB가 곧바로 남기지만, 시각이 지나 끝나는 것은
+       DB에서 아무 일도 안 일어난다 — 누군가 앱을 열 때 그 자리에서 남긴다.
+       **투표 탭이 아니라 여기서도 부르는 이유**는 홈이 모두가 처음 닿는
+       화면이기 때문이다. 투표 탭에서만 부르면 아무도 그 탭을 안 여는 날
+       결과가 하루 종일 안 남는다.
+       홈은 이미 투표를 받고 있으므로 조회가 늘지 않는다. 이미 남긴 것과
+       아직 안 끝난 것은 `announceClosedPolls`가 걸러 낸다. */
+    useEffect(() => {
+        if (data?.livePolls?.length) void announceClosedPolls(data.livePolls);
+    }, [data]);
 
     /* **안 읽은 대화는 따로 센다.** 예전에는 위 조회에 끼워 두어, 대화가
        한 마디 올 때마다 **라운드·신청·명단까지 통째로 다시 받았다** —
