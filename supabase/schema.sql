@@ -689,7 +689,7 @@ end;
 $$;
 
 
--- ── 라운드 알림 (필드·스크린 전날 · 스크린은 2시간 전에 한 번 더) ──
+-- ── 라운드 알림 (필드는 전날 저녁 · 스크린은 시작 2시간 전) ──
 --
 -- **이 앱에서 유일하게 '정해진 시각에 도는' 일이다.** 나머지 알림은 전부
 -- 누가 무언가를 눌렀을 때 나가지만, 이건 시간이 흐르는 것만으로 나가야 한다.
@@ -718,11 +718,11 @@ alter table round_reminders enable row level security;
 
 -- **알릴 때가 된 라운드를 골라 표에 넣는다.** 넣는 것이 곧 보내는 것이다.
 --
--- 두 갈래다:
---   day_before  필드·스크린 모두. **전날 한국 시각 20시가 지나서** 한 번.
+-- 두 갈래인데 **라운드 종류마다 하나씩**이다:
+--   day_before  **필드만.** 전날 한국 시각 20시가 지나서 한 번.
 --               저녁에 받아야 다음 날 준비를 한다 — 아침에 오면 이미 늦다.
---   soon        **스크린만.** 시작 두 시간 전. 스크린은 저녁에 모이는 일이
---               많아 전날 알림만으로는 그날 하루를 다 보내고 잊는다.
+--   soon        **스크린만.** 시작 두 시간 전. 스크린은 저녁에 잠깐 모이는
+--               자리라 하루 전에 알려 봐야 그날 하루를 다 보내고 잊는다.
 --
 -- **한국 날짜로 견준다.** 기기도 서버도 UTC라, 날짜를 UTC로 자르면
 -- 한국 시각 새벽 라운드가 하루 밀린다(화면의 `daysUntil`과 같은 이유다).
@@ -743,11 +743,16 @@ declare
     v_made int := 0;
     v_n    int;
 begin
-    -- 전날 저녁 (필드 · 스크린)
+    -- 전날 저녁 (**필드만**)
+    --
+    -- **스크린은 전날 알림을 안 받는다**(사용자가 정했다). 저녁에 잠깐
+    -- 모이는 자리라 하루 전에 알려 봐야 그날 하루를 다 보내고 잊는다 —
+    -- 스크린에는 아래 '두 시간 전' 하나면 충분하다.
     insert into round_reminders (round_id, kind)
     select r.id, 'day_before'
       from rounds r
      where r.status <> 'cancelled'
+       and coalesce(r.kind, 'field') = 'field'
        and (r.tee_at at time zone 'Asia/Seoul')::date = (v_now::date + 1)
        and v_now::time >= time '20:00'
     on conflict (round_id, kind) do nothing;
