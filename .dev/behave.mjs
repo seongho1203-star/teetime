@@ -103,6 +103,22 @@ ok(calls('mark_room_read').length === 1,
    단추에 `마감`이라고 적히고(이미 끝난 것을 또 마감한다), 그 뒤에 눌러도
    지난 마감 시각이 그대로라 열리지 않는다. */
 console.log('\n── 투표 마감 · 다시 열기 ──');
+
+/* **이 검사가 이 칸에서 제일 먼저 와야 한다** — 아래에서 상세 화면을
+   열면 거기서도 같은 함수를 부르는데 **같은 투표는 한 번만** 부르므로,
+   뒤에서 재면 늘 0번이 나온다(실제로 그렇게 짰다가 빨갛게 떴다).
+
+   **끝난 투표의 결과를 대화방에 알리게 하는가.**
+   손으로 마감한 것은 DB 트리거가 하지만, **마감 시각이 지나 끝난 것은 DB에서
+   아무 일도 안 일어나므로** 앱이 봐 주지 않으면 영영 안 남는다.
+   p3가 그런 것이고(`result_at`이 null), p2는 이미 알린 것이다 — 그건 다시
+   부르면 안 된다(헛걸음이 100명분 쌓인다). */
+rpc.length = 0;
+await go('/#/polls', 700);
+const posted = calls('post_poll_result').map(([, b]) => b?.p_poll);
+ok(posted.includes('p3'), `끝났는데 안 알린 투표는 결과를 남기게 한다 (실제 ${JSON.stringify(posted)})`);
+ok(!posted.includes('p2'), '이미 알린 투표는 다시 안 부른다');
+
 for (const [id, label, want] of [
     ['p1', '마감 시각이 앞으로 남은 투표', '마감'],
     ['p2', '손으로 마감한 투표', '다시 열기'],
@@ -376,12 +392,23 @@ oldTables.signups = tables.signups.map(({ grp, ...rest }) => rest);
    **회원 모두가 갇힌다**(`needsProfile`이 `null`과 `undefined`를 가르는 이유). */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 oldTables.profiles = tables.profiles.map(({ gender, birth_year, region, ...rest }) => rest);
+/* 투표 결과 알리기가 없던 때. `result_at`이 `undefined`면 앱이 아무것도
+   안 불러야 한다 — 없는 함수를 부르면 오류만 쌓인다. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+oldTables.polls = tables.polls.map(({ result_at, ...rest }) => rest);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+oldTables.messages = tables.messages.map(({ poll_id, ...rest }) => rest);
 const MISSING = ['round_groups', 'settle_reminders', 'profile_private'];
 /* **없는 칸을 달라고 하면 진짜 PostgREST는 400을 준다.** 흉내가 그냥
    빼고 주면 `fetchPeople()`이 좁은 목록으로 물러나는 길을 아예 안 타서,
    이 시험이 통과해도 실제로는 명단을 받는 화면이 전부 죽는다. */
-const GONE_COLS = ['gender', 'birth_year', 'region'];
+const GONE_COLS = {
+    profiles: ['gender', 'birth_year', 'region'],
+    polls:    ['result_at'],
+    messages: ['poll_id'],
+};
 
+const oldRpc = [];
 const oldCtx = await browser.newContext({
     viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
 await oldCtx.route('**/rest/v1/**', async route => {
@@ -392,11 +419,17 @@ await oldCtx.route('**/rest/v1/**', async route => {
             body: JSON.stringify({ message: `relation "public.${t}" does not exist` }) });
     }
     const sel = new URL(route.request().url()).searchParams.get('select') ?? '';
-    const gone = t === 'profiles' && GONE_COLS.find(c => sel.split(/[\s,()]+/).includes(c));
+    const gone = (GONE_COLS[t] ?? []).find(c => sel.split(/[\s,()]+/).includes(c));
     if (gone) {
         return route.fulfill({ status: 400, contentType: 'application/json',
             body: JSON.stringify({
-                message: `column profiles.${gone} does not exist`, code: '42703' }) });
+                message: `column ${t}.${gone} does not exist`, code: '42703' }) });
+    }
+    /* 함수도 없다. 불렀으면 여기 걸려 아래 시험이 빨갛게 뜬다. */
+    if (t?.startsWith('rpc/post_poll_result')) {
+        oldRpc.push(t);
+        return route.fulfill({ status: 404, contentType: 'application/json',
+            body: JSON.stringify({ message: 'function post_poll_result does not exist' }) });
     }
     return restRoute(oldTables)(route);
 });
@@ -425,6 +458,9 @@ for (const [name, hash, must] of [
     ok(txt.includes(must) && !txt.includes('does not exist'),
        `${name} — 그대로 열린다${txt.includes('does not exist') ? ` (${txt.slice(0, 80)})` : ''}`);
 }
+
+ok(oldRpc.length === 0,
+   `칸이 없으면 결과 알리기를 아예 안 부른다 (실제 ${oldRpc.length}번)`);
 
 await browser.close();
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDate, formatTime, kstDate, kstMinute } from '../lib/format';
@@ -782,7 +783,9 @@ export function Chat() {
                                 말풍선으로 그리면 누가 말을 건 것처럼 보이고
                                 답장·밀기까지 붙는다 — 안내는 가운데 한 줄이다. */}
                             {m.system && (
-                                <div className="chat-notice">{m.body}</div>
+                                m.poll_id
+                                    ? <PollResult body={m.body} pollId={m.poll_id} />
+                                    : <div className="chat-notice">{m.body}</div>
                             )}
                             {m.id === unreadFrom && (
                                 <div className="chat-unread">여기까지 읽으셨습니다</div>
@@ -1115,5 +1118,29 @@ function Body({ text, names, me, allowAll }: {
                       </span>
                     : <span key={i}>{p.text}</span>)}
         </>
+    );
+}
+
+/**
+ * 투표가 끝났을 때 대화방에 남는 결과 카드 (카톡이 하던 것을 옮겼다).
+ *
+ * 글은 DB가 만들어 넣는다(`post_poll_result`) — 첫 줄이 머리말이고 그 아래가
+ * 제목과 1위다. **줄 수를 세지 않는다**: 첫 줄만 갈라 흐리게 놓고 나머지는
+ * 있는 대로 그리므로, 문구가 늘거나 줄어도 카드가 안 깨진다.
+ *
+ * `poll_id`가 없는 예전 안내 줄은 지금처럼 가운데 한 줄로 그려진다.
+ */
+function PollResult({ body, pollId }: { body: string; pollId: string }) {
+    const [head, ...rest] = body.split('\n');
+    return (
+        <Link className="chat-result" to={`/polls/${pollId}`}>
+            <span className="chat-result-head">{head}</span>
+            {rest.map((line, i) => (
+                <span key={i} className={i === 0 ? 'chat-result-title' : 'chat-result-win'}>
+                    {line}
+                </span>
+            ))}
+            <span className="chat-result-go">투표결과 확인하기 ›</span>
+        </Link>
     );
 }

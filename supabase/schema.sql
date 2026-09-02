@@ -1032,6 +1032,112 @@ drop trigger if exists polls_reopen on polls;
 create trigger polls_reopen after update on polls
     for each row execute function announce_to_chat();
 
+
+/* ── 투표가 끝나면 결과를 대화방에 남긴다 ──────────────────────
+ *
+ * 카톡이 하던 것을 옮긴 것이다(사용자 요청) — 마감된 줄 모르고 지나가면
+ * 무엇으로 정해졌는지 물어보러 다녀야 한다.
+ *
+ * **끝나는 길이 둘인데 하나만 DB 사건이다.**
+ *   · 손으로 `마감`을 누르면 → `polls`가 갱신되므로 트리거가 곧바로 돈다.
+ *   · **마감 시각이 지나 끝나는 것은 아무 일도 안 일어난다** — 시간이
+ *     흐르는 것은 사건이 아니다. 그래서 앱이 투표 목록을 받아 보다가
+ *     '끝났는데 아직 안 알린 것'을 보면 이 함수를 부른다(`Polls.tsx`).
+ *     정해진 시각에 도는 것(pg_cron)을 새로 켜지 않으려는 것이다 —
+ *     아무도 앱을 안 열었으면 볼 사람도 없으므로 늦어도 탈이 없다.
+ *
+ * **두 길이 겹쳐도 한 번만 남는다.** 행을 잠그고(`for update`)
+ * `result_at` 도장을 보고 나서 넣는다 — 백 명이 동시에 앱을 열어도
+ * 먼저 든 하나만 쓰고 나머지는 그냥 돌아선다.
+ *
+ * **다시 열면 도장을 지운다** — 다시 마감하면 그때 또 알려야 한다.
+ */
+alter table polls add column if not exists result_at timestamptz;
+
+-- 어느 투표의 결과인가. **이 칸이 있는 `system` 글은 대화에서 카드로
+-- 그려진다**(`Chat.tsx`) — 눌러서 그 투표로 들어간다.
+alter table messages add column if not exists poll_id uuid
+    references polls(id) on delete set null;
+
+create or replace function post_poll_result(p_poll uuid)
+returns boolean language plpgsql security definer
+set search_path = public as $$
+declare
+    p       polls%rowtype;
+    room    uuid;
+    top     int;
+    labels  text;
+    winners int;
+    line    text;
+begin
+    -- 잠그고 나서 본다. 안 그러면 동시에 연 두 사람이 둘 다 '아직 안 알렸다'를
+    -- 읽어 같은 결과가 두 줄 남는다.
+    select * into p from polls where id = p_poll for update;
+    if not found then return false; end if;
+    if p.result_at is not null then return false; end if;          -- 이미 알렸다
+    if not poll_shut(p.closed, p.closes_at) then return false; end if;  -- 아직 진행중
+
+    select id into room from rooms where round_id is null order by created_at limit 1;
+
+    -- 1위가 몇 표인가. 표가 하나도 없으면 null이 된다.
+    select max(n) into top from (
+        select count(*) as n from poll_votes v
+         where v.poll_id = p_poll group by v.option_id
+    ) t;
+
+    if top is null then
+        line := '아무도 투표하지 않았습니다';
+    else
+        -- **동점이면 다 적는다.** 하나를 골라 버리면 거짓말이 된다.
+        select string_agg(o.label, ', ' order by o.sort), count(*)
+          into labels, winners
+          from poll_options o
+         where o.poll_id = p_poll
+           and (select count(*) from poll_votes v where v.option_id = o.id) = top;
+        line := case when winners > 1 then '공동 1위 · ' else '1위 · ' end
+             || labels || ' (' || top || '표)';
+    end if;
+
+    if room is not null then
+        insert into messages (room_id, user_id, body, system, poll_id)
+        values (room, p.created_by,
+                -- **머리말에 이모지를 안 넣는다.** 알림 제목(`🗳 새 투표`)은
+                -- 폰이 제 글꼴로 그리지만 이 줄은 브라우저가 그린다 —
+                -- `🗳`가 없는 기기에서는 네모난 두부가 나온다(헤드리스에서
+                -- 실제로 그랬다).
+                '투표가 끝났습니다' || E'\n' || p.title || E'\n' || line,
+                true, p_poll);
+    end if;
+
+    update polls set result_at = now() where id = p_poll;
+    return true;
+end $$;
+
+-- **회원이면 부를 수 있다.** 안이 잠겨 있고 끝난 투표에만 한 번 도므로
+-- 아무나 불러도 탈이 없다 — 앱이 '끝났는데 아직 안 알린 것'을 볼 때 부른다.
+revoke all on function post_poll_result(uuid) from public;
+grant execute on function post_poll_result(uuid) to authenticated;
+
+create or replace function poll_result_sync()
+returns trigger language plpgsql security definer
+set search_path = public as $$
+begin
+    if poll_shut(new.closed, new.closes_at)
+       and not poll_shut(old.closed, old.closes_at) then
+        perform post_poll_result(new.id);
+    elsif not poll_shut(new.closed, new.closes_at) and new.result_at is not null then
+        -- 다시 열렸다. 도장을 지워 다음 마감 때 또 알리게 한다.
+        update polls set result_at = null where id = new.id;
+    end if;
+    return null;
+end $$;
+
+/* 안쪽 `update`가 이 트리거를 다시 부르지만 그때는 **끝난 상태가 안 바뀌어**
+   두 갈래 모두 안 걸린다 — 거기서 멈춘다. */
+drop trigger if exists polls_result on polls;
+create trigger polls_result after update on polls
+    for each row execute function poll_result_sync();
+
 -- 전체 채팅방 하나는 항상 있어야 한다.
 insert into rooms (name)
 select '전체 대화'

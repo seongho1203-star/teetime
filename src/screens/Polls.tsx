@@ -1,6 +1,9 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
+import {
+    useAsync, useRealtime, unwrap, fetchPeople, byId, announceClosedPolls,
+} from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
 import {
@@ -76,6 +79,14 @@ export function Polls() {
     }, [], 'polls');
 
     useRealtime(['poll_votes', 'polls', 'poll_options'], reload);
+
+    /* **끝난 투표의 결과를 대화방에 남긴다.** 손으로 `마감`을 누르면 DB가
+       곧바로 남기지만, **마감 시각이 지나 끝나는 것은 DB에서 아무 일도
+       안 일어난다** — 여기서 그런 것을 보면 한 번 부른다.
+       `announceClosedPolls`가 이미 부른 것과 아직 안 끝난 것을 걸러 낸다. */
+    useEffect(() => {
+        if (data?.polls?.length) void announceClosedPolls(data.polls);
+    }, [data]);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;

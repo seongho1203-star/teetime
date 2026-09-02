@@ -109,13 +109,15 @@ export const polls = [
       created_by: uid(1), created_at: iso(-2) },
     { id: 'p2', title: '가을 워크숍 장소', body: '',
       multi: false, anonymous: false, closes_at: null, closed: true,
-      created_by: uid(1), created_at: iso(-30) },
+      result_at: iso(-30, 12, 0), created_by: uid(1), created_at: iso(-30) },
     /* **마감 시각이 지나 끝난 투표.** `closed`는 아직 false다 — 이 상태에서
        단추가 `마감`으로 보이면(옛 코드가 그랬다) 이미 끝난 것을 또 마감하는
        셈이고, 그 뒤에 눌러도 마감 시각이 그대로라 안 열린다. */
     { id: 'p3', title: '12월 송년 모임 날짜', body: '',
       multi: true, anonymous: false, closes_at: iso(-3, 23, 59), closed: false,
-      created_by: uid(1), created_at: iso(-20) },
+      /* **끝났는데 아직 결과를 안 알린 것.** `announceClosedPolls`가 이걸
+         보고 `post_poll_result`를 부르는지 `behave.mjs`가 확인한다. */
+      result_at: null, created_by: uid(1), created_at: iso(-20) },
 ];
 
 export const poll_options = [
@@ -222,6 +224,11 @@ export const messages = [
     // 앱이 스스로 남긴 안내 줄. 말풍선이 아니라 가운데 한 줄로 나온다.
     { id: 'sys1', room_id: 'room1', user_id: uid(2), system: true,
       body: '이관교님이 라운드 모집을 열었습니다 · 함평엘리체CC', created_at: iso(0, 9, 34) },
+    /* 투표가 끝났을 때 남는 결과 카드. `poll_id`가 있는 `system` 글이라
+       한 줄이 아니라 눌리는 카드로 그려진다. */
+    { id: 'sys2', room_id: 'room1', user_id: uid(1), system: true, poll_id: 'p2',
+      body: '투표가 끝났습니다\n가을 워크숍 장소\n1위 · 담양 리조트 (7표)',
+      created_at: iso(0, 9, 41) },
     // 이모지만 보낸 글은 말풍선 없이 크게 나온다. 남·나 양쪽과, 글자가
     // 섞이면 평소대로 돌아오는 것까지 나란히 둔다.
     { id: 'm11', room_id: 'room1', user_id: uid(3), body: '👍', created_at: iso(0, 9, 37) },

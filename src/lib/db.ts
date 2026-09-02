@@ -230,6 +230,36 @@ export async function fetchContacts(): Promise<Contact[]> {
 }
 
 /**
+ * **끝났는데 아직 결과를 안 알린 투표**를 대화방에 알리게 한다.
+ *
+ * 손으로 `마감`을 누르면 DB 트리거가 곧바로 남기지만, **마감 시각이 지나
+ * 끝나는 것은 DB에서 아무 일도 안 일어난다** — 시간이 흐르는 것은 사건이
+ * 아니다. 그래서 투표를 받아 보는 화면이 그런 것을 보면 여기서 부른다.
+ * 정해진 시각에 도는 것(pg_cron)을 새로 켜지 않으려는 것이고, 아무도 앱을
+ * 안 열었으면 볼 사람도 없으므로 늦어도 탈이 없다.
+ *
+ * **여러 사람이 동시에 열어도 한 줄만 남는다** — DB 함수가 행을 잠그고
+ * 도장(`result_at`)을 보고 나서 넣는다. 여기 `tried`는 그 위에 얹은
+ * 예의일 뿐이다: 실시간 이벤트로 화면이 다시 그려질 때마다 같은 투표에
+ * 헛걸음을 보내지 않게 한다.
+ *
+ * **`result_at`이 `undefined`면 아무것도 안 한다** — 스키마를 아직 다시
+ * 안 돌린 저장소라 그 함수도 없다.
+ */
+const tried = new Set<string>();
+export async function announceClosedPolls(
+    polls: { id: string; closed: boolean; closes_at: string | null; result_at?: string | null }[],
+) {
+    for (const p of polls) {
+        if (p.result_at !== null) continue;          // 이미 알렸거나 칸이 없다
+        if (!(p.closed || (p.closes_at && p.closes_at < new Date().toISOString()))) continue;
+        if (tried.has(p.id)) continue;
+        tried.add(p.id);
+        await supabase.rpc('post_poll_result', { p_poll: p.id });
+    }
+}
+
+/**
  * 내 프로필을 저장한다. **두 표에 나뉘어 있으므로 여기 한 곳에서만 쓴다** —
  * 가입 화면 · `내 정보` · 로그인 뒤 `FillProfile` 셋이 같이 부른다.
  * 화면마다 따로 적으면 한쪽만 고치게 된다.

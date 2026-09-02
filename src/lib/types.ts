@@ -363,6 +363,16 @@ export type Poll = {
     anonymous: boolean;
     closes_at: string | null;
     closed: boolean;
+    /**
+     * 끝난 결과를 대화방에 남긴 시각. **`null`이면 아직 안 남긴 것**이다.
+     *
+     * 손으로 마감하면 트리거가 곧바로 남기지만, **마감 시각이 지나 끝나는
+     * 것은 DB에서 아무 일도 안 일어난다** — 그래서 투표 목록이 '끝났는데
+     * 이 값이 비어 있는 것'을 보면 `post_poll_result`를 부른다.
+     * 스키마를 아직 다시 안 돌린 저장소에는 칸이 없어 `undefined`가 온다 —
+     * 그때는 아무것도 안 부른다(`roundKind`와 같은 사정이다).
+     */
+    result_at?: string | null;
     created_by: string | null;
     created_at: string;
 };
@@ -483,6 +493,12 @@ export type Message = {
     image_url: string | null;
     /** 답장이면 원본 글의 id. 원본이 지워지면 null이 된다. */
     reply_to: string | null;
+    /**
+     * 투표 결과를 알리는 `system` 글이면 그 투표의 id.
+     * **이 값이 있으면 대화에서 한 줄이 아니라 카드로 그린다** — 눌러서
+     * 그 투표로 들어간다. 없는 저장소에서는 `undefined`라 예전처럼 한 줄이다.
+     */
+    poll_id?: string | null;
     created_at: string;
 };
 
@@ -555,6 +571,12 @@ export interface Database {
             is_owner: { Args: Record<string, never>; Returns: boolean };
             can_settle: { Args: Record<string, never>; Returns: boolean };
             mark_room_read: { Args: { p_room: string }; Returns: void };
+            /**
+             * 끝난 투표의 결과를 대화방에 한 번 남긴다. 이미 남겼거나 아직
+             * 안 끝났으면 아무 일도 안 하고 `false`를 돌려준다 — 여러 사람이
+             * 동시에 불러도 한 줄만 남는다(행을 잠그고 도장을 본다).
+             */
+            post_poll_result: { Args: { p_poll: string }; Returns: boolean };
         };
         Enums: Record<string, never>;
         CompositeTypes: Record<string, never>;

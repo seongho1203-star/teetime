@@ -92,6 +92,40 @@
    말풍선이 아니라 **가운데 한 줄**이다 — 사람이 한 말과 섞이면 누가
    말을 건 줄 알고 답장하게 된다. 날짜 칸과 같은 자리·같은 모양이되
    글자만 한 톤 진하다(지나가는 안내가 아니라 알림이라서). */
+/* 투표가 끝났을 때 남는 결과 카드 (카톡이 하던 것을 옮겼다).
+   안내 줄(`.chat-notice`)과 달리 **눌러서 그 투표로 들어간다** — 결과만
+   보고 마는 게 아니라 누가 무엇을 골랐는지까지 가 볼 수 있어야 한다.
+   가운데에 두고 폭을 묶어 말풍선과 안 헷갈리게 한다. */
+.chat-result {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-self: center;
+    width: fit-content;
+    max-width: 88%;
+    margin: var(--gap-sm) auto 2px;
+    padding: 9px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--text);
+    text-align: center;
+    text-decoration: none;
+}
+.chat-result-head { font-size: 10px; font-weight: 800; color: var(--text-faint); }
+.chat-result-title { font-size: 13px; font-weight: 800; line-height: 1.35; }
+/* 1위 줄. **분홍을 안 쓴다** — 분홍은 '지금 눌러야 할 것' 자리이고 이건
+   알려 주는 값이다. 좋은 결과라 잔디색이 뜻에 맞는다. */
+.chat-result-win { font-size: 12px; font-weight: 800; color: var(--grass-deep); }
+.chat-result-go {
+    margin-top: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--line);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+}
+
 .chat-notice {
     align-self: center;
     max-width: 88%;

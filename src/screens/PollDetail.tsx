@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
+import {
+    useAsync, useRealtime, unwrap, fetchPeople, byId, announceClosedPolls,
+} from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
 import {
@@ -71,6 +73,12 @@ export function PollDetail() {
     }, [id], `poll:${id}`);
 
     useRealtime(['polls', 'poll_options', 'poll_votes', 'poll_comments'], reload);
+
+    /* 목록과 같은 이유로 여기서도 한 번 본다 — 알림을 눌러 바로 들어오는
+       사람이 있어서, 목록을 안 거치고도 결과가 대화방에 남게 한다. */
+    useEffect(() => {
+        if (data?.poll) void announceClosedPolls([data.poll]);
+    }, [data]);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
