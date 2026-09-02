@@ -153,10 +153,11 @@
 }
 .chat-row.mine .chat-col { align-items: flex-end; }
 
-/* 이름은 말풍선 글씨의 0.82배쯤 — 카톡과 같은 비율이다. */
+/* 이름은 말풍선 글씨의 0.82배쯤 — 카톡과 같은 비율이다.
+   말풍선이 14px로 내려가면서 이 값도 함께 내렸다(14 × 0.81 = 11.4). */
 .chat-who {
     padding-left: 2px;
-    font-size: 12.2px;
+    font-size: 11.4px;
     color: var(--text-dim);
 }
 
@@ -169,8 +170,12 @@
 
 /* 말풍선 크기는 **카톡 화면을 픽셀로 재서** 맞췄다. 같은 폰에서 카톡은
    한 줄짜리 말풍선이 30px, 우리는 38.5px이라 눈에 띄게 굵어 보였다.
-   글자는 15px 그대로 두고 줄높이와 안쪽 여백을 조여 30px에 맞춘다
-   (15 × 1.34 + 5 + 5 = 30.1). **숫자를 올릴 땐 이 합을 다시 셀 것.** */
+   줄높이와 안쪽 여백을 조여 그 30px에 맞춰 두었다(15 × 1.34 + 5 + 5 = 30.1).
+   **지금은 사용자 요청으로 한 단계 내려 14px이다** — 한 줄이
+   `14 × 1.34 + 5 + 5 = 28.8px`가 된다(카톡보다 1.2px 얇다).
+   이름·시각·안 읽은 수도 같은 비율로 함께 내렸다.
+   **숫자를 만질 땐 이 합을 다시 셀 것.** 15px로 되돌리지 말 것 —
+   사용자가 작은 쪽을 골랐다. */
 .chat-bubble {
     padding: 5px 11px;
     /* 스티커처럼 통통한 모서리. 높이에는 영향이 없으니 위의 셈은 그대로다. */
@@ -180,7 +185,7 @@
        밝은 바탕에서 흐려지지 않게 잡아 주는 구실도 함께 한다. */
     border: 1px solid var(--line);
     color: var(--text);
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.34;
     white-space: pre-wrap;
     word-break: break-word;
@@ -229,7 +234,7 @@
    그 뜻에 맞고, 분홍(지금 눌러야 할 것)과도 안 부딪힌다.
    카톡도 이 자리에 노란 숫자를 쓴다. */
 .chat-unread-n {
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 800;
     line-height: 1;
     color: var(--warn);
@@ -238,7 +243,7 @@
 
 .chat-time {
     flex: 0 0 auto;
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-faint);
     padding-bottom: 2px;
     white-space: nowrap;
@@ -439,8 +444,8 @@ body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap
     border-left: 0;
     border-right: 3px solid #edc82c;
 }
-.chat-quote-who { font-size: 11px; font-weight: 800; color: var(--text-dim); }
-.chat-quote-text { font-size: 12px; max-width: 100%; }
+.chat-quote-who { font-size: 10.5px; font-weight: 800; color: var(--text-dim); }
+.chat-quote-text { font-size: 11.5px; max-width: 100%; }
 .chat-quote:disabled { opacity: 0.7; }
 
 /* 인용을 눌러 원본으로 갔을 때 어디인지 알려 주는 한 번짜리 깜빡임.
