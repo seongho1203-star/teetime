@@ -263,7 +263,7 @@ export function Me() {
                     {/* 처음 들어온 분이 찾을 자리다. 공지로 올리면 새 글이
                         쌓일 때 묻히므로 늘 같은 자리에 둔다. */}
                     <Link className="menu-item" to="/help">
-                        <span className="grow">까꿍 사용법</span>
+                        <span className="grow">앱 사용자 가이드</span>
                         <span className="chev">›</span>
                     </Link>
                     <Link className="menu-item" to="/members">

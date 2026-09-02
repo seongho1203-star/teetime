@@ -150,7 +150,7 @@ export function Pending() {
             {/* 기다리는 동안 미리 읽어 두면 승인되자마자 쓸 수 있다. */}
             {!banned && (
                 <button className="btn block" onClick={() => setHelp(true)}>
-                    📖 기다리는 동안 사용법 보기
+                    📖 기다리는 동안 사용자 가이드 보기
                 </button>
             )}
 
