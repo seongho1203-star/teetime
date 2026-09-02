@@ -275,6 +275,18 @@ export function RoundDetail() {
                 )}
             </dl>
 
+            {/* **스크린만 베껴 열 수 있다.** 스크린은 같은 매장에서 같은
+                게임비로 되풀이해 열리므로 매번 처음부터 치는 것이 그대로
+                낭비였다. 필드는 갈 때마다 골프장이 달라 베낄 것이 없다.
+                회원 누구나 모집을 열 수 있으므로 이 단추도 누구에게나 보인다. */}
+            {kind === 'screen' && (
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                    <Link className="btn ghost sm" to={`/rounds/new?from=${r.id}`}>
+                        📋 같은 조건으로 새로 열기
+                    </Link>
+                </div>
+            )}
+
             {/* 흰 카드가 이어지면 안내가 묻힌다. 모이는 곳·계좌처럼 **꼭
                 읽어야 할 줄**이라 노란 쪽지처럼 띄운다 — 공지가 노랑인 것과
                 같은 결이다(색 규칙은 CLAUDE.md 참고). */}

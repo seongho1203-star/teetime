@@ -57,6 +57,11 @@
 
 .settle-undo { margin: -2px 0 0; text-align: center; }
 
+/* 송금 지름길. 계좌 바로 밑에 붙여 **계좌 → 보내기**로 눈이 흐르게 한다.
+   한 줄짜리 안내는 단추에 바짝 붙인다(따로 떨어지면 무엇에 대한 말인지 흐려진다). */
+.settle-toss { display: flex; flex-direction: column; gap: 3px; margin-top: -4px; }
+.settle-toss p { margin: 0; text-align: center; }
+
 /* 계좌는 **복사가 목적**이다. 손으로 옮겨 적다가 틀리면 돈이 엉뚱한 데로 간다. */
 .settle-account {
     display: flex;

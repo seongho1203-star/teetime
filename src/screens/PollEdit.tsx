@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { toKstInput, fromKstInput } from '../lib/format';
+import { toKstInput, fromKstInput, dateLabel } from '../lib/format';
 import type { Poll, PollOption } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Hinted } from '../components/Hinted';
@@ -122,6 +122,31 @@ function Form({
         setRows(prev => prev.map((r, j) => (j === i ? { ...r, label: v } : r)));
 
     const addRow = () => setRows(prev => [...prev, { label: '', votes: 0 }]);
+
+    /**
+     * 달력에서 고른 날짜를 항목으로 넣는다.
+     *
+     * **모임 투표의 거의 전부가 날짜 정하기다.** `10월 4일 (토)`를 손으로
+     * 치면 요일을 세어 봐야 하고 오타도 난다 — 달력에서 고르면 요일이 저절로
+     * 붙는다.
+     *
+     * **빈 줄부터 채운다.** 새 투표는 빈 칸 두 개로 시작하는데, 그걸 두고
+     * 아래에 새 줄을 붙이면 저장할 때 빈 줄이 걸러지긴 해도 **화면에는 빈
+     * 칸이 남아** 안 적은 것처럼 보인다.
+     */
+    const addDate = (ymd: string) => {
+        if (!ymd) return;
+        const label = dateLabel(ymd);
+        if (rows.some(r => r.label.trim() === label)) {
+            toast('이미 넣은 날짜입니다.', 'error');
+            return;
+        }
+        setRows(prev => {
+            const at = prev.findIndex(r => !r.label.trim());
+            if (at < 0) return [...prev, { label, votes: 0 }];
+            return prev.map((r, i) => (i === at ? { ...r, label } : r));
+        });
+    };
 
     const removeRow = async (i: number) => {
         if (rows.length <= 2) return;
@@ -267,6 +292,19 @@ function Form({
                     </div>
                 ))}
                 <button className="btn ghost block sm" onClick={addRow}>+ 항목 추가</button>
+
+                {/* **날짜는 달력에서 고른다.** 고르는 즉시 `10월 4일 (토)`로
+                    항목이 들어가고 칸은 다시 비어, 여러 날을 이어서 담을 수 있다.
+                    `추가` 단추를 따로 두지 않은 것은 한 번 더 누르게 하지
+                    않으려는 것이다 — 조 편성 조건을 누르면 바로 나뉘는 것과 같다. */}
+                <div className="field poll-date">
+                    <label htmlFor="v-date">📅 날짜로 항목 넣기</label>
+                    <input id="v-date" className="input" type="date" value=""
+                           onChange={e => addDate(e.target.value)} />
+                    <span className="xs faint">
+                        고르면 바로 항목이 됩니다. 여러 날은 이어서 고르세요.
+                    </span>
+                </div>
                 {locked && (
                     <p className="xs faint">
                         항목 글자를 고치면 이미 그 항목을 고른 분들의 표가 그대로 따라갑니다.

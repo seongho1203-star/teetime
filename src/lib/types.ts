@@ -345,6 +345,15 @@ export type SettleReminder = {
 export type SignupLite = Pick<Signup, 'round_id' | 'user_id' | 'state' | 'seq'>;
 
 /**
+ * 홈이 받는 신청 기록. **조 번호가 하나 더 붙는다.**
+ *
+ * 홈의 다음 라운드 카드가 `3조 · 07:30`을 적으려면 내 조를 알아야 한다 —
+ * 새벽에 나가면서 몇 조인지 보려고 라운드 상세까지 들어갈 일이 없어야 한다.
+ * 라운드 목록은 조를 안 적으므로 그쪽은 좁은 `SignupLite` 그대로다.
+ */
+export type SignupHome = SignupLite & Pick<Signup, 'grp'>;
+
+/**
  * 마감된 투표인가. 손으로 마감했거나 마감 시각이 지났으면 끝난 것이다.
  * **목록·상세·탭 숫자가 같은 잣대를 써야 한다** — 한 곳만 고치면 목록에는
  * 진행중인데 눌러 들어가면 마감인 일이 생긴다. (`roundKind`와 같은 이유로

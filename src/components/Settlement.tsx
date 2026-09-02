@@ -26,6 +26,27 @@ import './Settlement.css';
  * 발송기가 각자의 몫을 실어 보낸다(`settlement_shares` 웹훅).
  */
 
+/**
+ * 토스 송금 화면을 여는 주소.
+ *
+ * 계좌를 손으로 옮겨 적다 틀리면 **돈이 엉뚱한 데로 간다.** 복사 단추가
+ * 그 대비였지만, 복사한 뒤에도 은행 앱을 열어 붙여넣고 금액을 다시 쳐야 했다.
+ * 이 주소로 열면 은행·계좌·금액이 채워진 채로 송금 화면이 뜬다.
+ *
+ * - **토스 앱이 깔려 있어야 열린다.** 없으면 아무 일도 안 일어나므로
+ *   복사 단추를 그대로 둔다 — 이건 지름길이지 대체가 아니다.
+ * - 은행 이름은 사람이 손으로 친 값이라 `국민은행`처럼 적히기도 한다.
+ *   토스는 `국민`으로 받으므로 끝의 `은행`만 떼어 준다
+ *   (`카카오뱅크`·`토스뱅크`는 `뱅크`로 끝나 안 걸린다).
+ * - 계좌번호의 `-`는 뺀다. 못 알아보면 토스가 은행만 고른 채로 열린다.
+ */
+function tossUrl(bank: string, account: string, amount?: number): string {
+    const no = account.replace(/[^0-9]/g, '');
+    const q = new URLSearchParams({ bank: bank.trim().replace(/은행$/, ''), accountNo: no });
+    if (amount && amount > 0) q.set('amount', String(amount));
+    return `supertoss://send?${q.toString()}`;
+}
+
 /** 남는 원 단위를 어떻게 할지. 1/N이 딱 안 떨어지면 마지막 사람이 더 낸다. */
 function splitEvenly(total: number, ids: string[], fixed: Record<string, number>): Record<string, number> {
     const out: Record<string, number> = {};
@@ -207,6 +228,21 @@ function SettlementCard({
                             .then(() => toast('계좌를 복사했습니다.', 'ok'))
                             .catch(() => toast('복사가 안 됩니다. 길게 눌러 주세요.', 'error'));
                     }}>복사</button>
+                </div>
+            )}
+
+            {/* **송금 지름길.** 누르면 은행·계좌·내 몫까지 채워진 토스 송금
+                화면이 뜬다. 계좌번호가 있을 때만 나오고, **토스가 없는 폰에서는
+                아무 일도 안 일어나므로** 위의 복사 단추를 그대로 둔다.
+                분홍을 안 쓰는 것도 그래서다 — '지금 눌러야 할 것'은 `입금완료`
+                하나이고 이건 있으면 편한 길이다. */}
+            {s.account && (
+                <div className="settle-toss">
+                    <a className="btn ghost block sm"
+                       href={tossUrl(s.bank, s.account, mine?.amount)}>
+                        토스로 보내기
+                    </a>
+                    <p className="xs faint">토스 앱이 깔려 있을 때만 열립니다.</p>
                 </div>
             )}
 

@@ -157,3 +157,7 @@
 /* 참여 인원 글이 길어져도 버튼을 밀어내지 않게. */
 .poll-foot { align-items: flex-start; gap: var(--gap-sm); }
 .poll-foot .grow { line-height: 1.5; padding-top: 4px; }
+
+/* 날짜로 항목 넣기. 항목 줄들과 `+ 항목 추가` 아래에 오는 보조 칸이라
+   위와 살짝 떼어 놓는다 — 붙여 두면 항목 칸이 하나 더 있는 것처럼 보인다. */
+.poll-date { margin-top: var(--gap-sm); }

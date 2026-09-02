@@ -161,8 +161,11 @@ export const settlements = [
     { id: 'st3', round_id: 'r2', title: '함평엘리체CC 그린피',
       body: '', bank: '농협', account: '302-1234-5678-01',
       total: 40000, created_by: uid(4), created_at: iso(-2) },
+    /* **은행 이름을 `국민은행`으로 적어 둔다.** 사람이 손으로 치는 칸이라
+       실제로 이렇게 적힌다 — 토스 송금 주소를 만들 때 끝의 `은행`을 떼는지
+       여기서 확인된다(`국민`으로 보내야 토스가 알아본다). */
     { id: 'st2', round_id: 'r3', title: '해피니스CC 뒤풀이',
-      body: '', bank: '국민', account: '123456-78-901234',
+      body: '', bank: '국민은행', account: '123456-78-901234',
       total: 30000, created_by: uid(4), created_at: iso(-20) },
 ];
 

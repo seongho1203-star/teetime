@@ -3,17 +3,17 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, announceClosedPolls } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDateTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
+import { formatDateTime, formatTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
 import { lastSeen } from '../lib/unread';
 import { fetchWeather, type Weather } from '../lib/weather';
-import { KIND_ICON, roundKind, type Poll, type PollVote, type Person, type Round, type SignupLite } from '../lib/types';
+import { KIND_ICON, TEE_LABEL, roundKind, type Poll, type PollVote, type Person, type Round, type RoundGroup, type SignupHome, type SignupLite } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import './Home.css';
 
 interface Loaded {
     rounds: Round[];
-    signups: SignupLite[];
+    signups: SignupHome[];
     people: Person[];
     /** 내가 아직 표를 안 던진 투표 */
     openPolls: Poll[];
@@ -55,7 +55,9 @@ export function Home() {
         const [rounds, people, polls, votes, pending] = await Promise.all([
             /* 신청 기록을 라운드에 딸려 받는다. 따로 부르면 **모든 라운드의**
                신청이 다 와서, 지난 것까지 해마다 쌓인다. */
-            supabase.from('rounds').select('*, signups(round_id, user_id, state, seq)')
+            /* `grp`까지 받는 것은 카드에 `3조`를 적기 위해서다. 정수 한 칸이라
+               통신량은 그대로다(`node .dev/scale.mjs 100`에서 안 움직였다). */
+            supabase.from('rounds').select('*, signups(round_id, user_id, state, seq, grp)')
                     .neq('status', 'cancelled')
                     .gte('tee_at', upcomingSince())
                     .order('tee_at', { ascending: true }),
@@ -81,7 +83,7 @@ export function Home() {
            **`unknown`을 거쳐 형을 바꾼다.** `types.ts`의 `Database`에는 표
            사이의 관계가 안 적혀 있어, 딸려 오는 `signups`를 타입이 오류로
            본다 — 실제로는 PostgREST가 외래키를 보고 채워 준다. */
-        const rows = (unwrap(rounds) ?? []) as unknown as (Round & { signups?: SignupLite[] })[];
+        const rows = (unwrap(rounds) ?? []) as unknown as (Round & { signups?: SignupHome[] })[];
         const signups = rows.flatMap(r => r.signups ?? []);
 
         return {
@@ -219,12 +221,23 @@ function NextRound({
     round: r, signups, people, me,
 }: {
     round: Round;
-    signups: SignupLite[];
+    signups: SignupHome[];
     people: Person[];
     me: string;
 }) {
     const [weather, setWeather] = useState<Weather | null>(null);
     const kind = roundKind(r);
+
+    /* **조별 시각만 따로 받는다.** 조 번호는 위의 신청 기록에 딸려 왔지만
+       시각은 `round_groups`에 있고, 그 표는 라운드 목록 조회에 매달 수가
+       없다(칸이 없는 저장소에서 400이 나면 홈이 통째로 죽는다).
+       한 줄짜리 조회라 카드는 먼저 그려지고 시각만 뒤따라 붙는다.
+       **오류는 그냥 넘긴다** — 시각을 못 읽는다고 홈이 비어서는 안 된다. */
+    const { data: groups } = useAsync<RoundGroup | null>(async () => {
+        const res = await supabase.from('round_groups')
+            .select('round_id, tees').eq('round_id', r.id).maybeSingle();
+        return res.error ? null : (res.data as RoundGroup | null);
+    }, [r.id], `home:groups:${r.id}`);
 
     useEffect(() => {
         // 스크린은 실내다. 좌표를 안 넣었으니 이름으로 찾는 예비 길에
@@ -247,6 +260,13 @@ function NextRound({
        대기 첫 사람이 `5`가 된다. 라운드 상세는 대기자를 1번부터 세는데
        홈만 5라고 적어, **같은 사람이 화면마다 다른 번호**로 보였다.
        사람이 늘수록 벌어진다(100명이면 `대기 24번`까지 갔다). */
+    /* 내 조의 시각과 같은 조 사람들. 조가 없으면 둘 다 비어 아래 줄이 안 뜬다. */
+    const myTee = my?.grp != null ? groups?.tees?.[String(my.grp)] ?? null : null;
+    const mates = my?.grp == null ? [] : confirmed
+        .filter(s => s.grp === my.grp && s.user_id !== me)
+        .map(s => byId.get(s.user_id)?.name)
+        .filter((n): n is string => Boolean(n));
+
     const waitRank = my?.state === 'waitlist'
         ? mine.filter(s => s.state === 'waitlist')
               .sort((a, b) => a.seq - b.seq)
@@ -268,6 +288,21 @@ function NextRound({
                 <div className="next-when">{formatDateTime(r.tee_at)}</div>
                 <div className="next-where">{r.course || r.title}</div>
             </div>
+
+            {/* **내 조는 여기서 끝나야 한다.** 새벽에 나가면서 몇 조인지·몇 시에
+                치는지 보려고 라운드 상세까지 들어갈 일이 없어야 한다.
+                조가 안 짜였으면 이 줄이 통째로 없다 — 대부분의 라운드가 그렇다.
+                **이름은 닉네임 그대로 적는다**(`83/신성호/광산구`가 아니라) —
+                긴 이름표는 목록의 이름 자리 몫이고, 여기는 문장에 가깝다. */}
+            {my?.grp != null && (
+                <div className="next-grp">
+                    <b>{my.grp}조</b>
+                    {myTee && <span>· {TEE_LABEL[kind]} {formatTime(myTee)}</span>}
+                    {mates.length > 0 && (
+                        <span className="truncate">· {mates.join(', ')}</span>
+                    )}
+                </div>
+            )}
 
             {kind === 'field' && weather && (
                 <div className="next-weather">

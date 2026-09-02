@@ -35,6 +35,21 @@ export const formatStamp = (iso: string) => stampFmt.format(new Date(iso));
 export const formatWon = (n: number) => `${n.toLocaleString('ko-KR')}원`;
 
 /**
+ * `10월 4일 (토)` — `<input type="date">`가 주는 `2026-10-04`를 읽는 말로.
+ *
+ * **시간대를 태우지 않는다.** 날짜 칸의 값에는 시각도 시간대도 없는데
+ * `new Date('2026-10-04')`로 읽으면 UTC 자정으로 해석돼, 한국에서 보면
+ * 하루가 밀린다. 그래서 숫자를 직접 갈라 **그 지역의 그 날**로 만든다 —
+ * 요일만 뽑아 쓰므로 이 방법이 맞다.
+ */
+export function dateLabel(ymd: string): string {
+    const [y, m, d] = ymd.split('-').map(Number);
+    if (!y || !m || !d) return ymd;
+    const week = ['일', '월', '화', '수', '목', '금', '토'][new Date(y, m - 1, d).getDay()];
+    return `${m}월 ${d}일 (${week})`;
+}
+
+/**
  * 한국 날짜 기준 D-day.
  * 양수면 남은 날, 0이면 오늘, 음수면 지난 날.
  *

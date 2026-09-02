@@ -74,6 +74,24 @@
     margin-top: 1px;
 }
 
+/* 내 조. 날씨줄과 같은 흰 알약이지만 **글자를 굵게 세워** 먼저 읽히게 한다 —
+   새벽에 이 카드에서 보고 싶은 것이 조와 시각이다. 조가 안 짜였으면 없다. */
+.next-grp {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: fit-content;
+    max-width: 100%;
+    padding: 5px 10px;
+    border-radius: var(--r-sm);
+    background: rgba(255, 255, 255, 0.22);
+    font-size: var(--fs-sm);
+    color: #fff;
+}
+.next-grp b { color: #fff; font-weight: 800; }
+/* 같은 조 사람 이름은 길면 잘린다 — 조와 시각이 밀려나면 안 된다. */
+.next-grp .truncate { min-width: 0; }
+
 /* 날씨는 좌표가 있고 예보가 잡힐 때만 붙는다. 없으면 이 줄이 통째로 없다. */
 .next-weather {
     display: flex;

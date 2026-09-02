@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
@@ -11,24 +11,38 @@ import { Hinted } from '../components/Hinted';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 
-/** 라운드 모집 열기 / 수정. 회원 누구나 열고, 고치는 것은 연 사람과 운영진이다. */
+/**
+ * 라운드 모집 열기 / 수정. 회원 누구나 열고, 고치는 것은 연 사람과 운영진이다.
+ *
+ * **`?from=<id>`로 들어오면 그 모집을 베껴 온다**(스크린 상세의
+ * `같은 조건으로 새로 열기`). 매장·게임비·정원·전달 내용이 채워진 채로
+ * 열리고 **시각만 비어 있다** — 스크린은 같은 매장에서 되풀이해 열리므로
+ * 매번 처음부터 치는 것이 그대로 낭비였다.
+ * 베낀 것은 어디까지나 **새 모집**이다: `round`는 null이라 저장하면
+ * insert로 간다. 원본은 손대지 않는다.
+ */
 export function RoundEdit() {
     const { id } = useParams<{ id: string }>();
+    const [params] = useSearchParams();
+    const from = id ? null : params.get('from');
     const editing = Boolean(id);
     const { isAdmin, session } = useAuth();
     const nav = useNavigate();
     const toast = useToast();
 
     const { data, loading } = useAsync<Round | null>(async () => {
-        if (!id) return null;
-        return unwrap(await supabase.from('rounds').select('*').eq('id', id).maybeSingle());
-    }, [id]);
+        const which = id ?? from;
+        if (!which) return null;
+        return unwrap(await supabase.from('rounds').select('*').eq('id', which).maybeSingle());
+    }, [id, from]);
 
-    if (editing && loading) {
+    if ((editing || from) && loading) {
         return <div className="page center-fill"><div className="spinner" /></div>;
     }
 
     // 모집은 회원 누구나 연다. 다만 남이 올린 것을 고치지는 못한다.
+    // **베껴 여는 것은 누구나 된다** — 새로 여는 것과 같은 일이라, 원본을
+    // 고칠 수 있는지와는 상관이 없다.
     if (editing && data && data.created_by !== session!.user.id && !isAdmin) {
         return (
             <div className="page">
@@ -40,8 +54,9 @@ export function RoundEdit() {
 
     return (
         <Form
-            key={data?.id ?? 'new'}
-            round={data}
+            key={(editing ? data?.id : from ? `copy:${from}` : null) ?? 'new'}
+            round={editing ? data : null}
+            preset={editing ? null : data}
             onDone={rid => nav(`/rounds/${rid}`, { replace: true })}
             authorId={session!.user.id}
             toast={toast}
@@ -50,21 +65,27 @@ export function RoundEdit() {
 }
 
 function Form({
-    round, onDone, authorId, toast,
+    round, preset, onDone, authorId, toast,
 }: {
+    /** 고치는 중인 라운드. **null이면 새로 여는 것이다.** */
     round: Round | null;
+    /** 베껴 올 라운드(`?from=`). 값만 가져오고 저장은 새 모집으로 간다. */
+    preset: Round | null;
     onDone: (id: string) => void;
     authorId: string;
     toast: (t: string, k?: 'ok' | 'error' | 'info') => void;
 }) {
-    const [kind, setKind] = useState<RoundKind>(round ? roundKind(round) : 'field');
-    const [course, setCourse] = useState(round?.course ?? '');
-    const [teeAt, setTeeAt] = useState(toKstInput(round?.tee_at));
-    const [capacity, setCapacity] = useState(String(round?.capacity ?? 4));
-    const [fee, setFee] = useState(String(round?.fee ?? 0));
-    const [note, setNote] = useState(round?.note ?? '');
-    const [caddie, setCaddie] = useState<Round['caddie']>(round?.caddie ?? null);
-    const [cart, setCart] = useState<Round['cart']>(round?.cart ?? null);
+    /* 칸을 채우는 값은 둘 중 어느 쪽에서 와도 같다. **시각만 예외로**
+       베낄 때 비워 둔다 — 지난 날짜가 채워져 있으면 그대로 저장해 버린다. */
+    const base = round ?? preset;
+    const [kind, setKind] = useState<RoundKind>(base ? roundKind(base) : 'field');
+    const [course, setCourse] = useState(base?.course ?? '');
+    const [teeAt, setTeeAt] = useState(round ? toKstInput(round.tee_at) : '');
+    const [capacity, setCapacity] = useState(String(base?.capacity ?? 4));
+    const [fee, setFee] = useState(String(base?.fee ?? 0));
+    const [note, setNote] = useState(base?.note ?? '');
+    const [caddie, setCaddie] = useState<Round['caddie']>(base?.caddie ?? null);
+    const [cart, setCart] = useState<Round['cart']>(base?.cart ?? null);
     const [saving, setSaving] = useState(false);
     const [picking, setPicking] = useState(false);
 
@@ -122,6 +143,15 @@ function Form({
     return (
         <div className="page">
             <TopBar title={round ? '라운드 수정' : '모집 열기'} fallback="/rounds" />
+
+            {/* 베껴 온 것이라고 밝혀 둔다 — 안 그러면 값이 채워져 있는 것이
+                고치는 화면처럼 보여, 원본을 건드리는 줄 안다. */}
+            {preset && (
+                <div className="notice">
+                    <b>{preset.course || '지난 모집'}</b>의 조건을 그대로 가져왔습니다.<br />
+                    {TEE_LABEL[kind]} 시각만 정하면 <b>새 모집</b>으로 열립니다.
+                </div>
+            )}
 
             <div className="card">
                 {/* **맨 위에서 종류부터 고른다.** 아래 칸들의 말과 있고 없음이

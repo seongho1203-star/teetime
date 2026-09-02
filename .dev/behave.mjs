@@ -333,6 +333,107 @@ ok(mText.includes('아직 만든 정산이 없습니다'),
    `내가 올린 것이 없으면 만들라고 알려 준다 (실제 ${JSON.stringify(mText.slice(0, 60))})`);
 await mCtx.close();
 
+/* ── 6-1. 스크린 모집 베껴 열기 ─────────────────────────────────
+ *
+ * **스크린만 베낀다.** 같은 매장에서 같은 게임비로 되풀이해 열리므로
+ * 매번 처음부터 치는 것이 낭비였다 — 필드는 갈 때마다 골프장이 달라
+ * 베낄 것이 없다. 베낀 것은 **새 모집**이라 원본을 안 건드려야 하고,
+ * **시각만 비어 있어야** 한다(지난 날짜가 채워져 있으면 그대로 저장한다).
+ */
+console.log('\n── 스크린 모집 베껴 열기 ──');
+await go('/#/rounds/r4', 600);
+ok((await page.textContent('.page') ?? '').includes('같은 조건으로 새로 열기'),
+   '스크린 상세에는 베껴 여는 단추가 있다');
+await go('/#/rounds/r1', 600);
+ok(!(await page.textContent('.page') ?? '').includes('같은 조건으로 새로 열기'),
+   '필드 상세에는 없다 — 골프장이 매번 달라 베낄 것이 없다');
+
+await go('/#/rounds/new?from=r4', 700);
+ok(await page.inputValue('#f-course') === '골프존파크 상무점',
+   `매장을 베껴 온다 (실제 ${JSON.stringify(await page.inputValue('#f-course'))})`);
+ok(await page.inputValue('#f-cap') === '6' && await page.inputValue('#f-fee') === '25000',
+   '정원·게임비도 함께 온다');
+ok(await page.inputValue('#f-tee') === '',
+   `시각만 비어 있다 (실제 ${JSON.stringify(await page.inputValue('#f-tee'))})`);
+ok((await page.textContent('.form-actions') ?? '').includes('모집 열기'),
+   '단추가 `수정 저장`이 아니라 `모집 열기`다 — 원본을 안 건드린다');
+
+/* ── 6-1-2. 홈 카드의 내 조 ─────────────────────────────────────
+ *
+ * 새벽에 나가면서 몇 조인지·몇 시에 치는지 보려고 라운드 상세까지 들어갈
+ * 일이 없어야 한다. **조 번호는 신청 기록에 딸려 오고 시각은 `round_groups`에
+ * 따로 있다** — 둘 다 있어야 줄이 뜬다.
+ *
+ * **r1은 고정 자료에서 조를 안 짠 라운드다**(그 상태도 확인해야 하므로 그대로
+ * 둔다). 그래서 여기서만 잠깐 조를 붙였다가 **되돌린다** — 안 되돌리면
+ * 아래 `조를 안 짠 라운드` 검사가 헛돈다. */
+console.log('\n── 홈 카드의 내 조 ──');
+await go('/#/', 700);
+ok(!(await page.textContent('.next') ?? '').includes('조 ·'),
+   '조를 안 짠 라운드에는 이 줄이 아예 없다');
+
+const mySignup = tables.signups.find(s => s.id === 's3');   // r1 · 나
+const mate = tables.signups.find(s => s.id === 's4');       // r1 · 박승수
+mySignup.grp = 2; mate.grp = 2;
+/* 고정 자료의 r1은 사흘 뒤 한국 시각 7:30이다. 2조를 8분 뒤로 둔다 —
+   라운드 시각(7:30)이 아니라 **조 시각**을 적는지 그래야 갈린다. */
+const kst = (dayOffset, h, m) => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    d.setUTCHours(h - 9, m, 0, 0);
+    return d.toISOString();
+};
+tables.round_groups.push({
+    round_id: 'r1', tees: { 1: kst(3, 7, 30), 2: kst(3, 7, 38) },
+    posted_by: ME, posted_at: kst(-1, 12, 0),
+});
+/* **같은 주소로 `go()`하면 아무 일도 안 일어난다** — 이미 `/#/`에 있어서
+   화면이 다시 안 만들어지고, 방금 붙인 조가 영영 안 보인다. 문서를 새로 연다. */
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(900);
+const nextCard = await page.textContent('.next-grp') ?? '';
+ok(nextCard.includes('2조'), `내 조를 적는다 (실제 ${JSON.stringify(nextCard)})`);
+ok(nextCard.includes('7:38'), '내 조의 시각을 적는다 — 라운드 시각(7:30)이 아니다');
+ok(nextCard.includes('박승수'), '같은 조 사람을 닉네임으로 적는다');
+mySignup.grp = null; mate.grp = null;
+tables.round_groups = tables.round_groups.filter(g => g.round_id !== 'r1');
+
+/* ── 6-2. 투표에 날짜로 항목 넣기 ───────────────────────────────
+ *
+ * 모임 투표의 거의 전부가 날짜 정하기다. 손으로 치면 요일을 세어 봐야 하고
+ * 오타도 난다. **빈 줄부터 채우는지**가 핵심이다 — 새 투표는 빈 칸 두 개로
+ * 시작하는데 아래에 새 줄을 붙이면 화면에 빈 칸이 남아 안 적은 것처럼 보인다.
+ */
+console.log('\n── 투표에 날짜 넣기 ──');
+await go('/#/polls/new', 600);
+await page.fill('#v-date', '2026-10-04');
+await page.waitForTimeout(200);
+await page.fill('#v-date', '2026-10-11');
+await page.waitForTimeout(200);
+const opts = await page.$$eval('.option-row .input', e => e.map(x => x.value));
+ok(opts[0] === '10월 4일 (일)' && opts[1] === '10월 11일 (일)',
+   `고른 날짜가 요일까지 붙어 항목이 된다 (실제 ${JSON.stringify(opts)})`);
+ok(opts.length === 2, `빈 줄부터 채운다 — 줄이 늘지 않는다 (실제 ${opts.length}줄)`);
+await page.fill('#v-date', '2026-10-04');
+await page.waitForTimeout(300);
+ok((await page.$$eval('.option-row .input', e => e.map(x => x.value))).length === 2,
+   '같은 날짜를 또 고르면 안 늘어난다');
+
+/* ── 6-3. 정산 송금 링크 ────────────────────────────────────────
+ *
+ * 계좌를 손으로 옮겨 적다 틀리면 돈이 엉뚱한 데로 간다. 이 주소로 열면
+ * 은행·계좌·**내 몫**까지 채워진 채로 토스 송금 화면이 뜬다.
+ * 은행 이름은 사람이 친 값이라 `국민은행`처럼 적히므로 끝의 `은행`을 뗀다.
+ */
+console.log('\n── 정산 송금 링크 ──');
+await go('/#/rounds/r3', 800);
+const toss = await page.getAttribute('.settle-toss a', 'href');
+ok(toss?.startsWith('supertoss://send?'), `토스 송금 주소로 건다 (실제 ${toss})`);
+const tq = new URLSearchParams((toss ?? '').split('?')[1] ?? '');
+ok(tq.get('bank') === '국민', `은행 이름 끝의 \`은행\`을 뗀다 (실제 ${JSON.stringify(tq.get('bank'))})`);
+ok(/^\d+$/.test(tq.get('accountNo') ?? ''), `계좌번호의 \`-\`는 뺀다 (실제 ${tq.get('accountNo')})`);
+ok(Number(tq.get('amount')) > 0, `내 몫이 금액으로 들어간다 (실제 ${tq.get('amount')})`);
+
 /* ── 7. 성별·태어난 해를 안 적은 회원 ───────────────────────────
  *
  * **둘 다 필수라 로그인 뒤 한 번 막고 받는다**(`screens/FillProfile.tsx`).
