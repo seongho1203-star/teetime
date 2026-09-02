@@ -146,9 +146,16 @@ export function Home() {
                     <div className="sm faint">안녕하세요</div>
                     <h1 className="page-title">{profile?.name || '회원'}님</h1>
                 </div>
-                <Link to="/me" aria-label="내 정보">
-                    <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
-                </Link>
+                {/* **가이드는 얼굴 옆에 둔다**(사용자 요청). `내 정보` 안에
+                    있을 때는 메뉴를 열어야 보여서, 처음 들어온 분이 정작
+                    못 찾았다 — 홈은 모두가 처음 닿는 화면이다.
+                    분홍을 안 쓴다: '지금 눌러야 할 것'은 다음 라운드 카드다. */}
+                <div className="head-side">
+                    <Link to="/help" className="btn ghost sm">📖 앱 가이드</Link>
+                    <Link to="/me" aria-label="내 정보">
+                        <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
+                    </Link>
+                </div>
             </div>
 
             {next

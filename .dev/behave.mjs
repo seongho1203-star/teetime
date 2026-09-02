@@ -470,6 +470,26 @@ ok(roundCards.some(h => h?.includes('/rounds/r4')),
    `사람이 올린 공유가 카드다 (실제 ${JSON.stringify(roundCards)})`);
 ok(roundCards.some(h => h?.includes('/rounds/r2')), '저절로 남은 모집 안내도 카드다');
 
+/* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
+ *
+ * **홈 머리말의 얼굴 옆에 있다**(사용자 요청). `내 정보` 메뉴 안에 있을
+ * 때는 메뉴를 열어야 보여서 처음 들어온 분이 정작 못 찾았다 — 홈은
+ * 모두가 처음 닿는 화면이다. 두 자리를 함께 본다: 홈에 있는가,
+ * 그리고 `내 정보`에서 **빠졌는가**(양쪽에 두면 다시 헷갈린다).
+ */
+console.log('\n── 앱 가이드로 들어가는 문 ──');
+await go('/#/', 900);
+const guide = await page.$$eval('.head-side a', e => e.map(x => x.getAttribute('href')));
+ok(guide.some(h => h?.includes('/help')),
+   `홈 머리말에 가이드 단추가 있다 (실제 ${JSON.stringify(guide)})`);
+ok(guide.some(h => h?.includes('/me')), '얼굴은 그대로 내 정보로 간다');
+await go('/#/me', 900);
+ok(!(await page.textContent('.page') ?? '').includes('가이드'),
+   '내 정보 메뉴에서는 빠졌다 — 두 자리에 두면 다시 헷갈린다');
+await go('/#/help', 900);
+ok((await page.textContent('.page') ?? '').includes('앱 사용자 가이드'),
+   '눌러 들어가면 가이드가 열린다');
+
 /* ── 6-1-2. 홈 카드의 내 조 ─────────────────────────────────────
  *
  * 새벽에 나가면서 몇 조인지·몇 시에 치는지 보려고 라운드 상세까지 들어갈

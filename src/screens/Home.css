@@ -5,6 +5,15 @@
  * 눈이 먼저 갈 곳이 없어 목록처럼 읽혔다.
  */
 
+/* 머리말 오른쪽 — 가이드 단추와 얼굴. **`flex: 0 0 auto`로 붙들어 둔다**:
+   이름이 길면 왼쪽이 밀고 들어와 단추 글자가 세로로 접힌다(320px에서). */
+.head-side {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+}
+
 /* 묶음 하나 = 작은 제목 + 줄 몇 개. 줄 사이는 6px로 바짝 붙인다. */
 .home-block {
     display: flex;

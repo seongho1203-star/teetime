@@ -260,12 +260,9 @@ export function Me() {
                         <span className="grow">프로필 수정</span>
                         <span className="chev">›</span>
                     </button>
-                    {/* 처음 들어온 분이 찾을 자리다. 공지로 올리면 새 글이
-                        쌓일 때 묻히므로 늘 같은 자리에 둔다. */}
-                    <Link className="menu-item" to="/help">
-                        <span className="grow">앱 사용자 가이드</span>
-                        <span className="chev">›</span>
-                    </Link>
+                    {/* **가이드는 여기 없다** — 홈 머리말의 `📖 앱 가이드`로
+                        옮겼다(사용자 요청). 메뉴 안에 있으면 열어야 보여서
+                        처음 들어온 분이 정작 못 찾았다. 되돌리지 말 것. */}
                     <Link className="menu-item" to="/members">
                         <span className="grow">회원 명단</span>
                         <span className="chev">›</span>

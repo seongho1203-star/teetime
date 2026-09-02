@@ -7,8 +7,10 @@ import './Help.css';
  *
  * **처음 들어온 분에게 보여 줄 곳이다.** 공지로 올리는 길도 있었지만
  * 새 공지가 쌓이면 묻힌다 — 앱 안에 두면 언제든 같은 자리에서 찾는다.
- * 들어가는 문은 둘이다: `내 정보 → 앱 사용자 가이드`, 그리고
+ * 들어가는 문은 둘이다: **홈 머리말의 `📖 앱 가이드`**(얼굴 왼쪽), 그리고
  * **승인 대기 화면** — 기다리는 동안 읽어 두면 승인되자마자 쓸 수 있다.
+ * `내 정보` 메뉴에 있던 것은 **걷어냈다**(사용자 요청) — 메뉴를 열어야
+ * 보여서 처음 들어온 분이 정작 못 찾았다.
  *
  * **말투는 사용자가 정한 것이다**(전문적인 안내문). 임의로 구어체로
  * 되돌리지 말 것.
@@ -56,7 +58,7 @@ export function Help({ onBack }: { onBack?: () => void }) {
         <div className="page help">
             {/* `onBack`은 **승인 대기 화면**에서 띄울 때 쓴다 — 거기서는
                 라우터로 옮겨 봐야 같은 화면이 다시 나온다. */}
-            <TopBar title="앱 사용자 가이드" fallback="/me" onBack={onBack} />
+            <TopBar title="앱 사용자 가이드" fallback="/" onBack={onBack} />
 
             <p className="help-intro">
                 카카오톡 단체방에서 유실되기 쉬운 <b>라운드 모집·참가 신청, 조 편성,
@@ -239,7 +241,7 @@ export function Help({ onBack }: { onBack?: () => void }) {
                 </p>
                 {onBack
                     ? <button className="btn block" onClick={onBack}>닫기</button>
-                    : <Link to="/me" className="btn block">내 정보로 가기</Link>}
+                    : <Link to="/" className="btn block">홈으로 가기</Link>}
             </div>
         </div>
     );
