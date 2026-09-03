@@ -337,6 +337,27 @@ export function Chat() {
     const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0 });
 
     /**
+     * **키보드가 내려가 목록이 커지면 굴러간 자리를 다시 앉힌다.**
+     *
+     * 키보드가 올라와 있는 동안 목록은 짧고(464px) 맨 아래까지 굴러가 있다
+     * (`scrollTop`이 그 짧은 높이 기준의 끝값이다). 키보드가 내려가 목록이
+     * 682px로 커지면 그 끝값은 **더는 갈 수 없는 자리**가 된다 — 크로미움은
+     * 그때 알아서 끝으로 당겨 주는데 **iOS 사파리는 그냥 둔다.** 그러면
+     * 보이는 창이 글 아래로 넘어가 앉아, 말풍선은 화면 위에 붙고 그 아래가
+     * 통째로 비어 보인다(실기기 제보 — 사용자가 **대화를 한 번 굴리면
+     * 제자리로 돌아온다**고 한 것이 바로 브라우저가 그때 당겨 주는 것이다).
+     *
+     * **맨 아래를 보고 있었으면 끝으로, 아니면 넘어간 만큼만 되돌린다** —
+     * 옛 글을 읽으려고 올려 둔 자리를 키보드가 내려갔다고 빼앗으면 안 된다.
+     */
+    const settleList = useCallback(() => {
+        const el = listRef.current;
+        if (!el) return;
+        const max = el.scrollHeight - el.clientHeight;   // 안 넘치면 0이다
+        if (atBottom.current || el.scrollTop > max) el.scrollTop = max;
+    }, []);
+
+    /**
      * 대화 화면을 **지금 보이는 높이**에 맞춘다.
      *
      * **가린 높이(`innerHeight - vv.height`)로 키보드를 알아채면 안 된다.**
@@ -388,8 +409,13 @@ export function Chat() {
             // 키보드가 없을 때는 지운다 — 남겨 두면 옛 높이가 굳는다.
             root.removeProperty('--vvh');
             root.setProperty('--kb', '0px');
+            /* 목록이 커진 만큼 굴러간 자리를 다시 앉힌다. **두 번 부른다** —
+               지금은 아직 옛 높이라 한 번 더 프레임을 넘겨야 커진 뒤 값으로
+               잰다(높이를 정하는 것이 CSS 변수라 이 자리에서 안 끝난다). */
+            settleList();
+            requestAnimationFrame(settleList);
         }
-    }, []);
+    }, [settleList]);
 
     /** 한 프레임에 한 번만 재도록 모은다. 끄는 동안 이벤트가 쏟아진다. */
     const syncKeyboard = useCallback(() => {
@@ -492,6 +518,40 @@ export function Chat() {
             window.removeEventListener('pageshow', back);
         };
     }, [applyKeyboard]);
+
+    /**
+     * ⚠️ **임시 진단 줄.** 키보드 자리가 남는 것을 폰에서 재려고 넣었다.
+     * 헤드리스에는 키보드가 없어 이 자리는 흉내로 안 잡힌다(크로미움은
+     * 굴러간 자리를 알아서 당겨 줘서 아예 재현이 안 된다) — 그래서
+     * 값을 화면에 적어 두고 사람이 읽어 주는 편이 결국 빠르다.
+     * **끝나면 이 효과와 위의 `kb-probe`, CSS를 함께 지울 것.**
+     * 리액트를 안 거치고 DOM에 직접 적는다 — 말풍선을 다시 그리게 하면
+     * 재려는 것을 흔든다.
+     */
+    const probeRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const tick = () => {
+            const box = probeRef.current;
+            const el = listRef.current;
+            if (!box || !el) return;
+            const root = getComputedStyle(document.documentElement);
+            const vv = window.visualViewport;
+            box.textContent = [
+                `판${__BUILD__}`,
+                `문서${document.documentElement.clientHeight}`,
+                `보임${Math.round(vv ? vv.height : window.innerHeight)}`,
+                `창${window.innerHeight}`,
+                `kb${root.getPropertyValue('--kb').trim().replace('px', '') || '-'}`,
+                `vvh${root.getPropertyValue('--vvh').trim().replace('px', '') || '-'}`,
+                `열림${document.body.classList.contains('kb-open') ? 'O' : 'X'}`,
+                `목록${Math.round(el.clientHeight)}`,
+                `자리${Math.round(el.scrollTop)}/${Math.round(el.scrollHeight - el.clientHeight)}`,
+            ].join(' ');
+        };
+        tick();
+        const id = window.setInterval(tick, 400);
+        return () => clearInterval(id);
+    }, []);
 
     const blurTimer = useRef(0);
 
@@ -1018,6 +1078,10 @@ export function Chat() {
                     );
                 })}
             </div>
+
+            {/* ⚠️ 임시 진단 줄. 키보드 자리가 남는 것을 폰에서 재려고 넣었다.
+                끝나면 이 줄과 아래 `kb-probe` 효과·CSS를 함께 지울 것. */}
+            <div className="kb-probe" ref={probeRef} />
 
             <div className="chat-input" ref={barRef}>
                 {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**
