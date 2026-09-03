@@ -684,7 +684,7 @@ begin
     perform chat_notice(
         coalesce(nullif(r.course, ''), nullif(r.title, ''), '라운드')
         || ' 조 편성이 나왔습니다 · ' || v_groups || '개 조',
-        v_actor, p_round);
+        v_actor, p_round, null);
 end;
 $$;
 
@@ -1101,10 +1101,14 @@ $$;
  * **부르는 곳이 둘이다** — 모집·투표 트리거(`announce_to_chat`)와
  * 조 편성(`set_round_groups`). 방을 찾는 규칙이 두 벌이 되지 않게 모아 두었다.
  */
-/* **인자가 셋이던 옛 판을 먼저 지운다.** `create or replace`는 인자 수가
-   다르면 새 함수를 하나 더 만들 뿐이라, 기본값을 단 넷짜리와 셋짜리가
-   함께 남으면 `chat_notice(글, 사람, 라운드)`가 **어느 쪽인지 몰라 오류**가
-   난다(`set_round_groups`가 그렇게 부른다). */
+/* **옛 판을 남김없이 지운다.** `create or replace`는 인자 수가 다르면
+   **새 함수를 하나 더 만들 뿐**이라, 인자를 늘려 온 자취가 그대로 쌓인다 —
+   둘짜리 → 셋짜리 → 넷짜리. 기본값이 달려 있어 **적은 인자로 부르면 여럿이
+   한꺼번에 맞아** `function chat_notice(text, uuid) is not unique`로 터진다
+   (실기기에서 `지우기`가 이렇게 막혔다).
+   **아래 부르는 곳들은 인자 넷을 다 적는다** — 그래야 어쩌다 남은 판이
+   있어도 딱 하나만 맞는다. */
+drop function if exists chat_notice(text, uuid);
 drop function if exists chat_notice(text, uuid, uuid);
 
 create or replace function chat_notice(
@@ -1192,7 +1196,7 @@ begin
        남기는 뜻이 반쯤 없어진다. 어느 칸을 채우느냐로 갈린다. */
     perform chat_notice(line, actor,
         case when tg_table_name = 'rounds' then new.id end,
-        case when tg_table_name = 'polls'  then new.id end);
+        case when tg_table_name = 'polls'  then new.id end);   -- 인자 넷 고정
     return null;
 end $$;
 
@@ -1252,7 +1256,9 @@ begin
         line := who || '님이 투표를 지웠습니다' || E'\n' || old.title;
     end if;
 
-    perform chat_notice(line, actor);
+    -- **인자를 넷 다 적는다.** 둘만 주면 기본값 달린 옛 판까지 맞아
+    -- `is not unique`로 터진다(실기기에서 `지우기`가 그렇게 막혔다).
+    perform chat_notice(line, actor, null, null);
     return null;
 end $$;
 

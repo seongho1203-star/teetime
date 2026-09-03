@@ -974,10 +974,18 @@ JSON으로 담지 않았다** — 그러면 '내 것만 보냈다고 표시'가 
     카드를 남기므로(1위까지 적힌다) 또 적으면 두 줄이 쌓인다.
   - **폰은 안 울린다.** 웹훅의 `when`은 '다시 열림'만 고르므로(`docs/설치.md` 3번)
     닫는 소식은 대화방 줄로만 간다 — 마감은 급히 알릴 일이 아니다.
-- **`chat_notice`의 인자를 늘릴 때는 옛 판을 먼저 `drop`할 것.**
+- **`chat_notice`의 인자를 늘릴 때는 옛 판을 남김없이 `drop`할 것.**
   `create or replace`는 인자 수가 다르면 **함수를 하나 더 만들 뿐**이라,
-  기본값을 단 넷짜리와 셋짜리가 함께 남으면 `chat_notice(글, 사람, 라운드)`가
-  어느 쪽인지 몰라 오류가 난다(`set_round_groups`가 그렇게 부른다).
+  인자를 늘려 온 자취가 그대로 쌓인다 — 둘짜리 → 셋짜리 → 넷짜리.
+  기본값이 달려 있어 **적은 인자로 부르면 여럿이 한꺼번에 맞고**,
+  Postgres는 `function chat_notice(text, uuid) is not unique`로 거절한다.
+  실기기에서 `지우기`가 이렇게 통째로 막혔다(`announce_gone`이 둘로 불렀다) —
+  **DB에 쌓인 자취는 저장소 파일만 봐서는 안 보인다**는 것이 이 자리의 교훈이다.
+  지금은 `drop`을 둘 다 적어 두었고, **부르는 곳도 인자 넷을 다 적는다** —
+  그래야 어쩌다 남은 판이 있어도 딱 하나만 맞는다.
+  `pg_proc`을 한 번 훑어 보면 남은 판이 바로 나온다:
+  `select p.oid::regprocedure from pg_proc p join pg_namespace n
+   on n.oid = p.pronamespace where n.nspname='public' and p.proname='chat_notice';`
 - **이 글에는 푸시를 안 보낸다** — 발송기가 `r.system === true`면 바로
   돌아선다. 라운드·투표는 이미 자기 알림(`⛳ 새 모집` / `🗳 새 투표`)이
   나가므로, 안 막으면 한 번 여는데 알림이 두 번 온다.
