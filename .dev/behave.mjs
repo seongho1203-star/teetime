@@ -531,96 +531,100 @@ ok(await page.getAttribute('.chat-send', 'disabled') === null,
 await page.fill('.chat-input .textarea', '');
 await page.waitForTimeout(200);
 
-/* ── 6-1-1-1. 조합 중에는 입력칸을 안 건드린다 ─────────────────────
+/* ── 6-1-1-1. 친 그 순간에는 칸을 재지도 고치지도 않는다 ──────────────
  *
- * `광`을 칠 때 **글씨가 깜빡인다**는 제보가 있었다. 원인은 `growDraft()`가
- * 글자마다 `height: auto`로 되돌렸다 다시 넣은 것이다 — 조합 중인 칸의
- * 배치를 다시 잡게 하니 WebKit이 조합 중인 글자를 다시 그렸다.
- * 지금은 **조합 중에는 아예 손을 떼고**(`onCompositionStart`), 조합이
- * 끝날 때 한 번 잰다. 여기서 그걸 숫자로 붙든다.
+ * `광`을 칠 때 **글씨가 깜빡인다**는 제보를 쫓아 세 번 만에 여기까지 왔다.
  *
- * **읽는 것도 함께 센다.** `scrollHeight`를 읽기만 해도 브라우저는 그
- * 자리에서 배치를 다시 잡는데, 그 칸이 하필 조합 중인 글자를 들고 있는
- * 칸이다. 쓰기만 막고 읽기를 남겼더니 실기기 영상에서 여전히 두 프레임
- * 동안 글자가 사라졌다 — 그래서 둘 다 0이어야 한다.
+ * 원인은 **글자를 치는 그 순간에 `scrollHeight`를 읽는 것**이다. 한글 한
+ * 글자를 고쳐 쓸 때 WebKit은 칸을 **비웠다가 다시 채우는데**(실기기 영상에서
+ * 깜빡이는 두 프레임 동안 커서가 맨 앞으로 돌아가는 것으로 확인했다), 그
+ * 사이에 배치를 다시 잡게 하면 **빈 칸이 한 프레임 그대로 그려진다.**
  *
- * 헤드리스에는 한글 IME가 없어 CDP의 조합 API로 `ㄱ→고→과→광`을 흉내 낸다.
- * `style` 속성이 건드려질 때마다 관찰자가 센다 — setter를 가로채는 방법은
- * 크로미움에서 원래 것을 못 찾아 값이 아예 안 먹는다(실제로 그렇게 헛짚었다). */
+ * **`onCompositionStart`로 막는 것으로는 모자랐다** — 조합 이벤트를 안 주는
+ * 자판이 있어서, 아이폰 쿼티는 멀쩡한데 **천지인에서 모음을 칠 때만**
+ * 깜빡였다(판까지 확인하고도 그대로였다). 그래서 지금은 조합인지 아닌지를
+ * 아예 안 보고, **재는 일을 다음 프레임으로 미룬다.**
+ *
+ * 그러니 여기서 볼 것은 `한 번도 안 잰다`가 아니라
+ * **`입력 이벤트가 도는 그 순간에는 안 잰다`**이다. `input`을 window에서
+ * 캡처(맨 처음)와 버블(맨 마지막)로 집어 그 사이를 표시해 두고, 그 안에서
+ * 일어난 읽기·쓰기만 센다.
+ *
+ * 헤드리스에는 한글 IME가 없어 CDP의 조합 API로 흉내 낸다 — 쿼티 모양
+ * (`ㄱ→고→과→광`, 내내 한 글자)과 천지인 모양(`ㄱ→ㄱ·→고`, 글자 수가
+ * 1↔2를 오감) **둘 다** 본다. 자판마다 갈렸던 자리라 하나만 봐서는 못 잡는다. */
 const ta = '.chat-input .textarea';
 await page.evaluate(sel => {
     const el = document.querySelector(sel);
-    window.__touch = 0;
-    new MutationObserver(ms => { window.__touch += ms.length; })
+    window.__sync = false;        // 지금 입력 이벤트가 도는 중인가
+    window.__hit = 0;             // 그 안에서 칸을 재거나 고친 횟수
+    addEventListener('input', () => { window.__sync = true; }, true);   // 맨 처음
+    addEventListener('input', () => { window.__sync = false; }, false); // 맨 마지막
+
+    new MutationObserver(ms => { if (window.__sync) window.__hit += ms.length; })
         .observe(el, { attributes: true, attributeFilter: ['style'] });
 
-    /* 배치를 강제로 다시 잡게 하는 읽기를 센다. 이쪽은 진짜 접근자가
-       있어서 가로채도 원래 것을 부를 수 있다(`style`과 다른 점이다). */
-    window.__read = 0;
+    /* 배치를 강제로 다시 잡게 하는 읽기도 같은 잣대로 센다. 이쪽은 진짜
+       접근자가 있어 가로채도 원래 것을 부를 수 있다(`style`과 다른 점이다). */
     for (const key of ['scrollHeight', 'offsetHeight', 'clientHeight']) {
         const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)
                ?? Object.getOwnPropertyDescriptor(Element.prototype, key);
-        Object.defineProperty(el, key, { get() { window.__read++; return d.get.call(this); } });
+        Object.defineProperty(el, key, {
+            get() { if (window.__sync) window.__hit++; return d.get.call(this); } });
     }
 }, ta);
 const cdp = await page.context().newCDPSession(page);
-const touched = () => page.evaluate(() => window.__touch);
-const reads = () => page.evaluate(() => window.__read);
+const hits = () => page.evaluate(() => window.__hit);
 /* 재는 김에 세지 않도록 관찰 대상이 아닌 길로 잰다. */
 const boxH = () => page.evaluate(sel =>
     Math.round(document.querySelector(sel).getBoundingClientRect().height), ta);
 
+const compose = async steps => {
+    for (const t of steps) {
+        await cdp.send('Input.imeSetComposition',
+                       { text: t, selectionStart: t.length, selectionEnd: t.length });
+        await page.waitForTimeout(60);
+    }
+};
+
 await page.click(ta);
 await page.waitForTimeout(250);
 
-const t0 = await touched(), r0 = await reads();
-for (const step of ['ㄱ', '고', '과', '광']) {
-    await cdp.send('Input.imeSetComposition',
-                   { text: step, selectionStart: step.length, selectionEnd: step.length });
-    await page.waitForTimeout(60);
-}
-const midTouch = await touched() - t0, midRead = await reads() - r0;
+const h0 = await hits();
+await compose(['ㄱ', '고', '과', '광']);
 await cdp.send('Input.insertText', { text: '광' });
 await page.waitForTimeout(200);
-ok(midTouch === 0, `쿼티로 \`광\`을 조합하는 동안 칸 높이를 안 고친다 (실제 ${midTouch}번)`);
-ok(midRead === 0, `쿼티로 \`광\`을 조합하는 동안 칸 높이를 재지도 않는다 (실제 ${midRead}번)`);
+ok(await hits() - h0 === 0,
+   `쿼티로 \`광\`을 칠 때 그 자리에서 칸을 안 건드린다 (실제 ${await hits() - h0}번)`);
 
-/* **천지인 자판은 조합 중인 글자 수가 오르내린다.** `ㄱ` → `ㄱ·` → `고` —
-   `ㅗ`를 `·`와 `ㅡ` 두 번에 나눠 치기 때문이다(쿼티는 내내 한 글자다).
-   **`글자 수가 줄었나`로만 가르면 여기서 새어 나간다** — 실제로 쿼티에서는
-   멀쩡한데 천지인에서만 글씨가 깜빡인다는 제보로 드러났다.
-   그래서 지금은 길이가 아니라 **조합 중인가**로 막는다. */
 await page.fill(ta, '');
 await page.waitForTimeout(200);
 await page.click(ta);
 await page.waitForTimeout(200);
-const t2 = await touched(), r2 = await reads();
-for (const step of ['ㄱ', 'ㄱ·', '고', '고·', '과', '광']) {
-    await cdp.send('Input.imeSetComposition',
-                   { text: step, selectionStart: step.length, selectionEnd: step.length });
-    await page.waitForTimeout(60);
-}
-const cheonTouch = await touched() - t2, cheonRead = await reads() - r2;
+
+const h1 = await hits();
+await compose(['ㄱ', 'ㄱ·', '고', '고·', '과', '광']);
 await cdp.send('Input.insertText', { text: '광' });
 await page.waitForTimeout(200);
-ok(cheonTouch === 0,
-   `천지인으로 \`광\`을 조합할 때도 안 고친다 — 글자 수가 1↔2를 오간다 (실제 ${cheonTouch}번)`);
-ok(cheonRead === 0,
-   `천지인으로 조합할 때도 재지 않는다 (실제 ${cheonRead}번)`);
+ok(await hits() - h1 === 0,
+   `천지인으로 칠 때도 안 건드린다 — 글자 수가 1↔2를 오간다 (실제 ${await hits() - h1}번)`);
 
-const t1 = await touched();
+const h2 = await hits();
 await cdp.send('Input.insertText', { text: '주에서 만나요' });
 await page.waitForTimeout(200);
-ok(await touched() - t1 === 0,
-   `한 줄에 들어가는 동안에는 안 건드린다 (실제 ${await touched() - t1}번)`);
+ok(await hits() - h2 === 0, `이어 칠 때도 안 건드린다 (실제 ${await hits() - h2}번)`);
 
-/* 길어지면 **늘어나기는 해야 한다** — 안 늘어나면 앞줄이 위로 잘려 안 보인다. */
+/* 길어지면 **늘어나기는 해야 한다** — 안 늘어나면 앞줄이 위로 잘려 안 보인다.
+   한 프레임 미뤄 재므로 여기서 잠깐 기다렸다 본다. */
 const oneLine = await boxH();
+const h3 = await hits();
 await cdp.send('Input.insertText', {
     text: '. 오늘은 바람이 많이 부니 겉옷을 꼭 챙겨 오시고 티오프보다 삼십 분 일찍 도착해 주세요.' });
 await page.waitForTimeout(300);
 const grown = await boxH();
 ok(grown > oneLine, `여러 줄이 되면 칸이 늘어난다 (${oneLine} → ${grown}px)`);
+ok(await hits() - h3 === 0,
+   `늘어날 때도 그 자리에서가 아니라 다음 프레임에 잰다 (실제 ${await hits() - h3}번)`);
 
 await page.fill(ta, '');
 await page.waitForTimeout(300);

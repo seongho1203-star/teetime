@@ -603,21 +603,14 @@ export function Chat() {
      */
     /** 지난번에 잰 글자 수. **줄어들 때만** 높이를 되돌려 다시 잰다. */
     const lastLen = useRef(0);
-    /** 한글을 조합하는 중인가. 그동안에는 칸을 **읽지도 쓰지도** 않는다. */
-    const composing = useRef(false);
+    /** 다음 프레임에 재기로 예약해 둔 것. 0이면 예약이 없다. */
+    const growAt = useRef(0);
 
-    const growDraft = useCallback(() => {
+    /** 실제로 재고 고치는 곳. **`growDraft`를 거쳐서만 부른다** — 글자를
+        치는 그 순간에 이걸 직접 부르면 아래 꼭지의 그 깜빡임이 돌아온다. */
+    const measureDraft = useCallback(() => {
         const el = taRef.current;
         if (!el) return;
-        /* **조합 중에는 아예 손을 뗀다.**
-           `scrollHeight`·`offsetHeight`를 읽는 것만으로도 브라우저는 그
-           자리에서 배치를 다시 잡는데, 그 칸이 하필 지금 조합 중인 글자를
-           들고 있는 칸이다. 실기기 영상에서 `ㄱ·` 다음 두 프레임(33ms)
-           동안 **글자가 통째로 사라졌다가** `고`가 나왔다 — 카톡은 같은
-           자리에서 한 번도 안 사라진다(0번 대 5번으로 셌다).
-           한 글자를 조합하는 동안에는 줄 수가 바뀔 일이 없으므로 늦춰도
-           탈이 없고, 조합이 끝나는 순간(`onCompositionEnd`) 한 번 잰다. */
-        if (composing.current) return;
         /* `box-sizing: border-box`라 height에 테두리가 포함된다. `scrollHeight`는
            안 그래서 그냥 넣으면 2px이 모자라 잔스크롤이 남는다. 그 차이를 잰다. */
         const border = () => el.offsetHeight - el.clientHeight;
@@ -627,13 +620,9 @@ export function Chat() {
         lastLen.current = len;
 
         if (!shrank) {
-            /* **글자가 늘 때는 칸을 아예 안 건드린다.** 넘칠 때만 한 번 늘린다.
-               예전에는 글자마다 `height: auto`로 되돌렸다 다시 넣었는데,
-               **그게 조합 중인 한글을 다시 그리게 했다** — `광`을 칠 때
-               글씨가 깜빡인다는 제보가 그것이다(사용자가 카톡과 견줘 짚어
-               줬다. 카톡은 네이티브 칸이라 이런 일이 없다).
-               읽기만 하는 것은 괜찮다 — 방금 친 글자를 그리느라 브라우저가
-               어차피 배치를 다시 잡은 뒤다. */
+            /* **글자가 늘 때는 넘칠 때만 한 번 늘린다.** 예전에는 글자마다
+               `height: auto`로 되돌렸다 다시 넣어, 안 그래도 되는 자리에서
+               칸을 두 번씩 고쳤다. */
             const need = el.scrollHeight + border();
             if (need > el.offsetHeight) {
                 el.style.height = `${need}px`;
@@ -642,14 +631,42 @@ export function Chat() {
             return;
         }
 
-        /* 지웠을 때만 되돌려 다시 잰다. **조합 중에는 여기로 안 온다** —
-           `ㄱ→고→과→광`은 글자 수가 그대로다. */
+        /* 지웠을 때만 되돌려 다시 잰다(안 되돌리면 한 번 커진 뒤 안 줄어든다). */
         const was = el.style.height;
         el.style.height = 'auto';
         const now = `${el.scrollHeight + border()}px`;
         el.style.height = now;
         if (now !== was) pinBottom();
     }, [pinBottom]);
+
+    /**
+     * 칸 높이를 **다음 프레임에** 잰다. 글자를 치는 그 순간에는 절대 안 잰다.
+     *
+     * **이게 이 자리의 핵심이다.** 한글 한 글자를 고쳐 쓸 때 WebKit은 칸을
+     * **비웠다가 다시 채운다** — 실기기 영상에서 깜빡이는 두 프레임 동안
+     * 커서가 맨 앞(x=20)으로 돌아가는 것으로 확인했다. 글꼴이 늦게 와서
+     * 글자만 안 보이는 것이었다면 커서는 제자리에 있었을 것이다.
+     * 비우기와 채우기는 원래 한 번에 끝나 화면에 안 보이는데, **그 사이에
+     * 우리가 `scrollHeight`를 읽으면** 브라우저가 거기서 배치를 다시 잡아
+     * **빈 칸이 그대로 한 프레임 그려진다.** 그게 `글씨가 깜빡인다`의 정체다.
+     *
+     * 그래서 재는 일을 다음 프레임으로 미룬다 — 그때는 비웠다 채우는 일이
+     * 이미 끝나 있어 빈 칸이 보일 틈 자체가 없다. 칸은 한 프레임 늦게
+     * 늘어나지만 눈에는 안 보인다. 여러 번 불려도 한 번만 예약한다.
+     *
+     * **`onCompositionStart`로 막는 것만으로는 모자랐다.** 조합 이벤트를
+     * 안 주는 자판이 있다 — 아이폰 쿼티는 멀쩡한데 **천지인에서 모음을 칠
+     * 때만** 깜빡인다는 제보가 그것이었다(자음은 글자 수가 그대로고, 모음은
+     * `ㄱ → ㄱ· → 고`로 오르내린다). 판을 확인하고도 그대로였다.
+     * 이 방식은 **자판도 조합 이벤트도 안 탄다** — 되돌리지 말 것.
+     */
+    const growDraft = useCallback(() => {
+        if (growAt.current) return;              // 이미 예약돼 있다
+        growAt.current = requestAnimationFrame(() => {
+            growAt.current = 0;
+            measureDraft();
+        });
+    }, [measureDraft]);
 
     /**
      * 글자가 있는지를 **곁에 적어 두기만** 한다(리액트를 안 거친다).
@@ -670,7 +687,9 @@ export function Chat() {
         }
         markText('');
         lastLen.current = 0;
-        composing.current = false;   // 조합 중에 보냈어도 다음 글자는 재야 한다
+        /* 예약해 둔 재기를 걷어낸다 — 방금 한 줄로 되돌려 놨는데 한 프레임
+           뒤에 옛 글자로 잰 높이가 덮어쓰면 빈 칸이 늘어난 채로 남는다. */
+        if (growAt.current) { cancelAnimationFrame(growAt.current); growAt.current = 0; }
         setMention(null);
     };
 
@@ -1043,11 +1062,6 @@ export function Chat() {
                         onChange={e => {
                             markText(e.target.value);
                             syncMention();
-                            growDraft();
-                        }}
-                        onCompositionStart={() => { composing.current = true; }}
-                        onCompositionEnd={() => {
-                            composing.current = false;
                             growDraft();
                         }}
                         onSelect={syncMention}

@@ -127,24 +127,26 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         state에 넣으면 댓글 목록이 통째로 다시 그려진다. 읽는 곳(안내
         글씨·`등록` 단추)은 둘 다 초점이 오갈 때만 본다. */
     const hasText = useRef(false);
-    /** 한글을 조합하는 중인가. 그동안에는 칸을 읽지도 쓰지도 않는다. */
-    const composing = useRef(false);
     /** 지난번 글자 수. 줄어들 때만 되돌려 다시 잰다. */
     const lastLen = useRef(0);
+    /** 다음 프레임에 재기로 예약해 둔 것. 0이면 예약이 없다. */
+    const growAt = useRef(0);
 
     /**
      * 적은 글에 맞춰 칸을 늘린다. `textarea`는 스스로 안 늘어나서, 놔두면
      * 여러 줄을 적을 때 앞줄이 위로 잘려 안 보인다.
-     * **대화 입력칸(`growDraft` in Chat.tsx)과 같은 방식이다** — 조합
-     * 중에는 손을 떼고, 늘 때는 넘칠 때만 한 번 늘리고, 지웠을 때만
-     * `auto`로 되돌려 다시 잰다. 한쪽만 고치지 말 것.
+     *
+     * **대화 입력칸(`growDraft` in Chat.tsx)과 같은 방식이다. 한쪽만 고치지
+     * 말 것.** 재는 일을 **다음 프레임으로 미루는 것이 핵심이다** — 글자를
+     * 치는 그 순간에 `scrollHeight`를 읽으면, 한글을 고쳐 쓰느라 WebKit이
+     * 칸을 비웠다 채우는 그 사이에 배치가 다시 잡혀 **빈 칸이 한 프레임
+     * 그려진다**(글씨가 깜빡이는 것으로 보인다).
      * `box-sizing: border-box`라 테두리 두께를 더해 줘야 잔스크롤이 안 남는다.
      * 위 한도는 CSS(`max-height`)가 잡는다.
      */
-    const grow = () => {
+    const measure = () => {
         const el = ref.current;
         if (!el) return;
-        if (composing.current) return;
         const border = () => el.offsetHeight - el.clientHeight;
 
         const len = el.value.length;
@@ -160,6 +162,14 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         el.style.height = `${el.scrollHeight + border()}px`;
     };
 
+    const grow = () => {
+        if (growAt.current) return;
+        growAt.current = requestAnimationFrame(() => {
+            growAt.current = 0;
+            measure();
+        });
+    };
+
     const submit = async () => {
         const body = (ref.current?.value ?? '').trim();
         if (!body || sending) return;
@@ -173,7 +183,8 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         }
         hasText.current = false;
         lastLen.current = 0;
-        composing.current = false;
+        // 예약해 둔 재기를 걷어낸다 — 안 그러면 비운 칸이 다시 늘어난다.
+        if (growAt.current) { cancelAnimationFrame(growAt.current); growAt.current = 0; }
     };
 
     return (
@@ -183,8 +194,6 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                     ref={ref}
                     className="textarea"
                     onChange={e => { hasText.current = e.target.value.trim() !== ''; grow(); }}
-                    onCompositionStart={() => { composing.current = true; }}
-                    onCompositionEnd={() => { composing.current = false; grow(); }}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
                     rows={1} maxLength={500}
