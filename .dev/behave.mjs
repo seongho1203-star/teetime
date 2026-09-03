@@ -582,8 +582,31 @@ for (const step of ['ㄱ', '고', '과', '광']) {
 const midTouch = await touched() - t0, midRead = await reads() - r0;
 await cdp.send('Input.insertText', { text: '광' });
 await page.waitForTimeout(200);
-ok(midTouch === 0, `\`광\`을 조합하는 동안 칸 높이를 안 고친다 (실제 ${midTouch}번)`);
-ok(midRead === 0, `\`광\`을 조합하는 동안 칸 높이를 재지도 않는다 (실제 ${midRead}번)`);
+ok(midTouch === 0, `쿼티로 \`광\`을 조합하는 동안 칸 높이를 안 고친다 (실제 ${midTouch}번)`);
+ok(midRead === 0, `쿼티로 \`광\`을 조합하는 동안 칸 높이를 재지도 않는다 (실제 ${midRead}번)`);
+
+/* **천지인 자판은 조합 중인 글자 수가 오르내린다.** `ㄱ` → `ㄱ·` → `고` —
+   `ㅗ`를 `·`와 `ㅡ` 두 번에 나눠 치기 때문이다(쿼티는 내내 한 글자다).
+   **`글자 수가 줄었나`로만 가르면 여기서 새어 나간다** — 실제로 쿼티에서는
+   멀쩡한데 천지인에서만 글씨가 깜빡인다는 제보로 드러났다.
+   그래서 지금은 길이가 아니라 **조합 중인가**로 막는다. */
+await page.fill(ta, '');
+await page.waitForTimeout(200);
+await page.click(ta);
+await page.waitForTimeout(200);
+const t2 = await touched(), r2 = await reads();
+for (const step of ['ㄱ', 'ㄱ·', '고', '고·', '과', '광']) {
+    await cdp.send('Input.imeSetComposition',
+                   { text: step, selectionStart: step.length, selectionEnd: step.length });
+    await page.waitForTimeout(60);
+}
+const cheonTouch = await touched() - t2, cheonRead = await reads() - r2;
+await cdp.send('Input.insertText', { text: '광' });
+await page.waitForTimeout(200);
+ok(cheonTouch === 0,
+   `천지인으로 \`광\`을 조합할 때도 안 고친다 — 글자 수가 1↔2를 오간다 (실제 ${cheonTouch}번)`);
+ok(cheonRead === 0,
+   `천지인으로 조합할 때도 재지 않는다 (실제 ${cheonRead}번)`);
 
 const t1 = await touched();
 await cdp.send('Input.insertText', { text: '주에서 만나요' });
