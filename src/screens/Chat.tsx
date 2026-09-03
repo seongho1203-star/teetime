@@ -251,6 +251,31 @@ export function Chat() {
     // 그리기가 끝난 프레임에 해야 높이가 확정된다.
     useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
 
+    /* **이모티콘 서랍이 열리면 목록이 그만큼 줄어든다.** 그대로 두면 방금
+       읽던 마지막 글이 위로 밀려 안 보인다 — 자리가 좁아진 것이지 가려진
+       것이 아니게 하려면 다시 맨 아래로 내려 줘야 한다.
+       **`pinBottom`으로는 안 된다** — 목록이 줄어드는 순간 브라우저가 스크롤
+       이벤트를 던지고 `onScroll`이 '맨 아래가 아니다'로 내려 버려서, 뒤이어
+       도는 `pinBottom`이 아무 일도 안 한다(58px 모자란 채로 멈췄다).
+       그래서 여기서는 **조건 없이** 내리고 표시도 함께 되돌린다. */
+    useLayoutEffect(() => {
+        const el = listRef.current;
+        if (!tray || !el) return;
+    /* **높이가 한 번에 정해지지 않는다.** 서랍이 붙는 프레임의 목록 높이는
+       아직 중간값이라(492px), 거기서 맨 아래로 내려 봐야 최종 높이(434px)
+       기준으로는 58px 모자란 자리에 멈춘다 — 실제로 그렇게 어긋났고,
+       몇 프레임 따라 내리는 것으로도 안 잡혔다(글칸의 초점이 풀리며 도는
+       일이 그보다 늦게 끝난다).
+       그래서 **목록이 다시 재어질 때마다** 따라 내리고, 0.6초 뒤에 손을
+       뗀다 — 그 뒤로는 사람이 굴리는 것이라 건드리면 안 된다. */
+        const drop = () => { atBottom.current = true; el.scrollTop = el.scrollHeight; };
+        drop();
+        const ro = new ResizeObserver(drop);
+        ro.observe(el);
+        const off = window.setTimeout(() => ro.disconnect(), 600);
+        return () => { ro.disconnect(); clearTimeout(off); };
+    }, [tray]);
+
     /* **줄이 그어진 자리로 옮겨 준다.** 100~200개가 밀린 사람을 맨 아래에
        내려놓으면 어디부터 읽어야 할지 스스로 찾아 올라가야 한다.
        줄을 화면 위쪽에 두어 거기서부터 아래로 읽게 한다.
@@ -406,6 +431,9 @@ export function Chat() {
 
     const onComposerFocus = () => {
         clearTimeout(blurTimer.current);
+        // **글칸을 누르면 서랍이 닫힌다** — 키보드가 그 자리에 올라오므로
+        // 열어 둔 채로는 둘이 겹친다. 카톡도 그렇게 맞바뀐다.
+        setTray(false);
         const s = kbRef.current;
         s.typing = true;
         s.locked = false;
@@ -699,9 +727,12 @@ export function Chat() {
     /**
      * 이모티콘 서랍을 여닫는다.
      *
-     * **열 때 키보드를 내린다.** 서랍은 입력칸 위에 서는데, 키보드가 올라와
-     * 있으면 그 위로 밀려 화면 밖으로 나간다. 닫을 때는 되돌려 놓아야
-     * 하던 말을 이어 칠 수 있다.
+     * **키보드와 자리를 맞바꾼다.** 서랍은 입력칸 아래, 키보드가 서던 그
+     * 자리에 뜬다 — 열 때 키보드를 내리고 닫을 때 도로 올린다(닫으면
+     * 하던 말을 이어 칠 수 있어야 한다). 글칸을 직접 누를 때도 서랍이
+     * 닫히는데, 그건 `onComposerFocus`가 맡는다.
+     *
+     * 열고 나서 대화를 맨 아래로 붙이는 일은 위의 `useLayoutEffect`가 한다.
      */
     const toggleTray = () => {
         setTray(open => {
@@ -895,23 +926,6 @@ export function Chat() {
                     onChange={onPickPhoto} hidden
                 />
 
-                {/* 이모티콘 서랍. **누르면 곧바로 나간다** — 고르고 나서
-                    `보내기`를 또 눌러야 하면 한 마디에 두 번이다(투표의
-                    날짜 고르기·조 편성 조건과 같은 결이다).
-                    그림은 화면에 보이는 것만 받아 온다(`loading="lazy"`) —
-                    예순일곱 장을 한꺼번에 받으면 LTE에서 서랍이 늦게 뜬다. */}
-                {tray && (
-                    <div className="sticker-tray">
-                        {STICKERS.map(s => (
-                            <button key={s.id} className="sticker-btn"
-                                    onClick={() => sendSticker(s.id)}
-                                    disabled={sending} aria-label={s.label}>
-                                <img src={stickerSrc(stickerRef(s.id))}
-                                     alt="" loading="lazy" />
-                            </button>
-                        ))}
-                    </div>
-                )}
 
                 {/* 사진 · 입력칸 · 보내기 한 줄. 위의 인용과 언급 목록이
                     같은 상자 안에 쌓이므로 이 줄만 따로 묶는다. */}
@@ -954,16 +968,28 @@ export function Chat() {
                         오른쪽은 보내는 쪽이라 뜻으로도 그 편이 맞다.
                         여러 줄로 늘어나면 아래쪽 끝에 붙어 따라 내려간다.
                         **`onMouseDown`을 막지 않는다** — 여는 순간 키보드를
-                        내리는 것이 이 단추가 할 일이다(`toggleTray`). */}
+                        내리는 것이 이 단추가 할 일이다(`toggleTray`).
+                        **서랍이 열려 있는 동안에는 자판 그림이 된다** — 그
+                        자리에 다시 키보드를 부르는 단추가 되기 때문이다.
+                        얼굴 그림 그대로 두면 눌러도 다시 이모티콘이 나올 것
+                        같아 보인다(카톡도 이렇게 바꾼다). */}
                     <button className={`chat-sticker-btn${tray ? ' on' : ''}`}
                             onClick={toggleTray}
-                            aria-label="이모티콘" aria-pressed={tray}>
-                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9"
-                             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="9" />
-                            <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
-                            <path d="M9 9.5h.01M15 9.5h.01" />
-                        </svg>
+                            aria-label={tray ? '자판으로' : '이모티콘'} aria-pressed={tray}>
+                        {tray
+                            ? <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8"
+                                   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
+                                  <path d="M6 9.5h.01M9.5 9.5h.01M13 9.5h.01M16.5 9.5h.01
+                                           M6 12.8h.01M9.5 12.8h.01M13 12.8h.01M16.5 12.8h.01
+                                           M8.5 15.6h7" />
+                              </svg>
+                            : <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9"
+                                   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="9" />
+                                  <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+                                  <path d="M9 9.5h.01M15 9.5h.01" />
+                              </svg>}
                     </button>
                 </div>
                 {/* 보내기 버튼은 **적은 게 있을 때만** 나온다 — 카톡이 그렇다.
@@ -982,6 +1008,30 @@ export function Chat() {
                     </button>
                 )}
                 </div>
+
+                {/* 이모티콘 서랍은 **입력칸 아래**, 키보드가 서던 자리에 뜬다
+                    (사용자가 보여 준 카톡 모양이다). 위에 두었더니 대화가
+                    가려졌고, 무엇보다 **글칸이 서랍에 밀려 올라가** 이모티콘을
+                    고르면서 글을 이어 칠 수가 없었다.
+                    여기 두면 `.chat-input`이 그만큼 두꺼워지고 `.chat-list`가
+                    저절로 줄어든다 — 대화는 가려지는 게 아니라 접힌다.
+                    **누르면 곧바로 나간다** — 고르고 나서 `보내기`를 또
+                    눌러야 하면 한 마디에 두 번이다(투표의 날짜 고르기·조 편성
+                    조건과 같은 결이다).
+                    그림은 화면에 보이는 것만 받아 온다(`loading="lazy"`) —
+                    아흔 장을 한꺼번에 받으면 LTE에서 서랍이 늦게 뜬다. */}
+                {tray && (
+                    <div className="sticker-tray">
+                        {STICKERS.map(s => (
+                            <button key={s.id} className="sticker-btn"
+                                    onClick={() => sendSticker(s.id)}
+                                    disabled={sending} aria-label={s.label}>
+                                <img src={stickerSrc(stickerRef(s.id))}
+                                     alt="" loading="lazy" />
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

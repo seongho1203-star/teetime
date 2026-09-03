@@ -519,9 +519,17 @@ ok(stuck?.image_url?.startsWith('sticker:'),
    `누르면 곧바로 sticker: 값으로 나간다 (실제 ${JSON.stringify(stuck?.image_url)})`);
 ok(stuck?.body === '', '이모티콘 글에는 글자가 안 붙는다');
 
+/* **글칸을 누르면 서랍이 닫힌다.** 서랍은 키보드가 서던 자리에 뜨므로
+   열어 둔 채로 글을 치면 둘이 겹친다 — 자리를 맞바꿔야 한다. */
+await page.click('.chat-input .textarea');
+await page.waitForTimeout(400);
+ok(await page.$('.sticker-tray') === null, '글칸을 누르면 서랍이 닫힌다');
+
 /* **적어 두던 글은 안 지운다.** 사진과 달리 이모티콘은 그 자체로 한
    마디라, 치던 글을 딸려 보내거나 지워 버리면 안 된다. */
 await page.fill('.chat-input .textarea', '이따 봬요');
+await page.click('[aria-label="이모티콘"]');
+await page.waitForTimeout(400);
 writes.length = 0;
 await page.click('.sticker-btn');
 await page.waitForTimeout(500);
@@ -529,6 +537,21 @@ const kept = await page.inputValue('.chat-input .textarea');
 ok(kept === '이따 봬요', `이모티콘을 보내도 치던 글이 남는다 (실제 ${JSON.stringify(kept)})`);
 ok(writes.find(([w]) => w === 'messages POST')?.[1]?.body === '',
    '치던 글이 이모티콘에 딸려 나가지도 않는다');
+
+/* **서랍은 입력칸 아래, 키보드 자리에 뜬다**(사용자가 보여 준 카톡 모양).
+   위에 두면 대화가 가려지고 글칸이 밀려 올라가 이어 칠 수가 없다.
+   그리고 목록이 그만큼 줄어드니 **맨 아래로 다시 붙여** 방금 읽던 글이
+   위로 밀려나지 않게 한다(높이가 한 번에 안 정해져 실제로 58px 어긋났다). */
+const trayGeo = await page.evaluate(() => {
+    const t = document.querySelector('.sticker-tray')?.getBoundingClientRect();
+    const bar = document.querySelector('.chat-bar').getBoundingClientRect();
+    const l = document.querySelector('.chat-list');
+    return t ? { below: t.top >= bar.bottom - 1,
+                 gap: Math.round(l.scrollHeight - l.scrollTop - l.clientHeight) } : null;
+});
+ok(trayGeo?.below === true, '서랍이 입력칸 아래에 선다');
+ok((trayGeo?.gap ?? 999) <= 2,
+   `서랍을 열면 대화가 맨 아래로 붙는다 (실제 ${trayGeo?.gap}px 남음)`);
 
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *

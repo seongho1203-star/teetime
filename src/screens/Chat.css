@@ -378,21 +378,33 @@
 .chat-sticker-btn.on { background: var(--brand-soft); color: var(--brand); }
 .chat-sticker-btn:active { transform: scale(0.92); }
 
-/* 이모티콘 서랍. 입력칸 **위에** 서므로 키보드와 겹치지 않는다
-   (여는 순간 `toggleTray`가 키보드를 내린다).
-   높이를 화면의 1/3쯤으로 묶어 두고 안에서 굴린다 — 예순일곱 장을 다
-   펴면 대화가 통째로 가린다. */
+/* 이모티콘 서랍은 입력칸 **아래**, 키보드가 서던 그 자리에 뜬다
+   (사용자가 보여 준 카톡 모양이다). 위에 두었더니 대화가 가려졌고,
+   무엇보다 **글칸이 서랍에 밀려 올라가** 이모티콘을 고르면서 글을 이어
+   칠 수가 없었다.
+   `.chat-input`이 그만큼 두꺼워지고 `.chat-list`는 `flex: 1`이라 저절로
+   줄어든다 — 대화는 가려지는 게 아니라 접힌다.
+   **높이는 키보드만 하게 잡는다**(화면의 38%쯤). 더 키우면 대화가 두 줄만
+   남고, 줄이면 한 줄 반짜리 서랍이 된다. 넘치는 것은 안에서 굴린다.
+
+   `margin`으로 좌우·아래 여백을 되무는 것은 `.chat-input`의 안쪽 여백
+   때문이다 — 서랍은 화면 폭을 꽉 채우고 탭바까지 닿아야 키보드 자리처럼
+   보인다. 아래는 탭바가 가리므로 그만큼 안쪽 여백으로 되돌려 준다. */
 .sticker-tray {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
+    align-content: start;
     gap: 2px;
-    max-height: min(38vh, 300px);
+    height: min(38vh, 300px);
+    margin: var(--gap-sm) calc(var(--gap) * -1)
+            calc((var(--tabbar-h) + var(--safe-b) + var(--gap-sm)) * -1);
+    padding: var(--gap-xs) var(--gap-xs)
+             calc(var(--tabbar-h) + var(--safe-b) + var(--gap-xs));
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     /* 굴리다 손을 떼도 뒤의 대화가 따라 움직이지 않게 한다. */
     overscroll-behavior: contain;
-    padding: var(--gap-xs) 2px;
-    border-radius: var(--r);
+    border-top: 1px solid var(--line);
     background: var(--surface-2);
 }
 .sticker-btn {
