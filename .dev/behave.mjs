@@ -616,6 +616,57 @@ ok(line('신성호').includes('올해 1회'), `나간 사람은 횟수가 붙는
 ok(line('정우성').includes('올해 0회'),
    `앞으로의 라운드만 신청한 사람은 0회다 (실제 ${JSON.stringify(line('정우성'))})`);
 
+/* ── 6-4-1. 회원 명단 차례 고르기 ───────────────────────────────
+ *
+ * 100명 명단은 화면 여덟 장이라, 나이나 지역으로 묶어 보고 싶은 자리가
+ * 있다(사용자 요청). **모르는 값은 늘 뒤로 보낸다** — 안 적은 사람이 맨
+ * 앞에 몰리면 정렬이 고장 난 것처럼 보인다(오세훈이 그 사람이다).
+ * 고정 자료의 회원 여덟 명으로 본다.
+ */
+console.log('\n── 회원 명단 차례 ──');
+/* **회원 줄만 본다.** 화면에는 위에 `가입 신청`, 아래에 `추방` 묶음이 함께
+   있고 셋 다 `.member-row`다 — 안 갈라내면 대기자가 맨 앞에 섞여 들어와
+   앱이 멀쩡한데도 검사가 빨개진다(실제로 그렇게 짰다가 다섯 건이 떴다).
+   차례를 매기는 것은 **회원 묶음뿐**이므로 고정 자료로 걸러 낸다. */
+const memberNames = new Set(tables.profiles
+    .filter(p => p.role !== 'pending' && p.role !== 'banned').map(p => p.name));
+/** 지금 명단에 보이는 회원 이름들. 이름표가 `72/신성호/광산구`라 닉네임만 뽑는다. */
+const names = async () => (await page.$$eval('.member-row .b.truncate',
+    e => e.map(x => (x.textContent ?? '').split('/')[1] ?? x.textContent)))
+    .filter(n => memberNames.has(n));
+const pick = async label => {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await page.waitForTimeout(250);
+    return names();
+};
+
+await go('/#/members', 800);
+const byNameOrder = await names();
+ok(byNameOrder[0] === '김지명' && byNameOrder.at(-1) === '정우성',
+   `기본은 이름 가나다순이다 (실제 ${JSON.stringify(byNameOrder)})`);
+
+const byAge = await pick('나이');
+ok(byAge[0] === '임채원' && byAge[1] === '이관교',
+   `나이는 연장자가 앞이다 — 58년생·68년생 차례 (실제 ${JSON.stringify(byAge)})`);
+ok(byAge.at(-1) === '오세훈',
+   '태어난 해를 안 적은 사람은 맨 뒤다 — 모르는 값이 앞에 오면 고장 나 보인다');
+
+const byRegion = await pick('지역');
+ok(byRegion[0] === '신성호' && byRegion[1] === '박승수',
+   `지역 가나다순이다 — 광산구·남구 차례 (실제 ${JSON.stringify(byRegion)})`);
+ok(byRegion.at(-1) === '오세훈',
+   '거주지역을 안 적은 사람도 맨 뒤다');
+
+const byAttend = await pick('참석');
+ok(byAttend.slice(0, 3).sort().join() === ['김지명', '신성호', '이관교'].sort().join(),
+   `참석은 많이 나온 사람이 앞이다 — r3에 나간 셋 (실제 ${JSON.stringify(byAttend)})`);
+
+/* 고른 차례가 **눌린 것으로 보이는가.** 안 보이면 지금 무슨 차례인지
+   알 수 없어 같은 칩을 또 누르게 된다. */
+const on = await page.$$eval('.sort-chip[aria-pressed="true"]', e => e.map(x => x.textContent));
+ok(on.length === 1 && on[0] === '참석',
+   `지금 고른 차례 하나만 켜져 보인다 (실제 ${JSON.stringify(on)})`);
+
 /* ── 7. 성별·태어난 해를 안 적은 회원 ───────────────────────────
  *
  * **둘 다 필수라 로그인 뒤 한 번 막고 받는다**(`screens/FillProfile.tsx`).

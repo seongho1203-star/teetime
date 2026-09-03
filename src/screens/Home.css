@@ -279,3 +279,30 @@
    100명이면 명단이 화면 여덟 장이라, 훑어서는 한 사람을 못 찾는다.
    카드 밖에 두어 목록이 스크롤돼도 무엇을 찾는 칸인지 헷갈리지 않게 했다. */
 .member-find { margin-bottom: var(--gap-sm); }
+
+/* 명단 차례 고르기 — 라운드 목록의 종류 가리개(`.kind-chip`)와 같은 모양이다.
+   **한 화면에 칩이 두 벌 서지 않으므로** 생김새를 나누지 않고 값만 맞췄다.
+   `flex: 1`이라 넷이든 셋이든(`참석`은 세는 함수가 있을 때만) 고르게 나뉜다.
+   높이는 34px — `node .dev/audit.mjs`가 30px보다 작은 누름 자리를 잡아낸다. */
+.sort-row {
+    display: flex;
+    gap: var(--gap-xs);
+    margin-bottom: var(--gap-sm);
+}
+.sort-chip {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    white-space: nowrap;
+}
+.sort-chip.on {
+    border-color: var(--brand-deep);
+    background: var(--brand-soft);
+    color: var(--brand-deep);
+}
+.sort-chip:active { transform: scale(0.985); }

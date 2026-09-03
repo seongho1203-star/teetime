@@ -14,6 +14,47 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import './Home.css';
 
+/** 명단을 어떤 차례로 볼 것인가. `참석`은 세는 함수가 있을 때만 나온다. */
+type SortKey = 'name' | 'age' | 'region' | 'attend';
+
+/** 이름 가나다. **다른 차례의 마지막 잣대이기도 하다** — 같은 값끼리
+    차례가 흔들리면 다시 그릴 때마다 줄이 뒤바뀌어 보인다. */
+const byName = (a: Profile, b: Profile) =>
+    (a.name || '').localeCompare(b.name || '', 'ko');
+
+/**
+ * 명단 차례를 정한다.
+ *
+ * **모르는 값은 늘 뒤로 보낸다.** 태어난 해나 거주지역을 아직 안 적은
+ * 사람이 맨 앞에 몰리면 정렬이 고장 난 것처럼 보인다 — `null`은 빈 글자나
+ * 0이 아니라 **모른다**는 뜻이라 순서에서 빼는 것이 맞다.
+ *
+ * 화면 밖으로 뺄 만큼 크지 않아 여기 두었지만, **내보내지는 말 것** —
+ * 화면 파일에서 함수를 내보내면 fast refresh가 깨진다(`pollClosed`와 같은 이유).
+ */
+function sortPeople(
+    list: Profile[], key: SortKey, attend: Record<string, number> | null,
+): Profile[] {
+    const rows = [...list];
+    if (key === 'age') {
+        // 태어난 해가 이를수록 손윗사람 — **연장자가 앞**이다.
+        return rows.sort((a, b) =>
+            (a.birth_year ?? 9999) - (b.birth_year ?? 9999) || byName(a, b));
+    }
+    if (key === 'region') {
+        return rows.sort((a, b) =>
+            (a.region ? 0 : 1) - (b.region ? 0 : 1)
+            || (a.region || '').localeCompare(b.region || '', 'ko')
+            || byName(a, b));
+    }
+    if (key === 'attend') {
+        // 많이 나온 사람이 앞. 연말에 개근을 챙기는 자리다.
+        return rows.sort((a, b) =>
+            ((attend?.[b.id] ?? 0) - (attend?.[a.id] ?? 0)) || byName(a, b));
+    }
+    return rows.sort(byName);
+}
+
 /**
  * 회원 명단. 운영진에게는 여기가 **가입 승인 창구**이자 **임명 창구**다.
  *
@@ -64,6 +105,10 @@ export function Members() {
     const [openId, setOpenId] = useState<string | null>(null);
     /** 이름·차량번호·전화번호로 찾기. 사람이 많을 때만 칸이 나온다. */
     const [find, setFind] = useState('');
+    /* **차례는 기본이 이름순이다**(`fetchProfiles`도 이름으로 받아 온다) —
+       누구를 찾을 때 가장 먼저 떠올리는 것이 이름이라서다. 기억해 두지
+       않으므로 나갔다 오면 이름순으로 돌아온다. */
+    const [sort, setSort] = useState<SortKey>('name');
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
@@ -92,10 +137,22 @@ export function Members() {
        누구 것인지 되짚는 자리가 실제로 있다. */
     const bigList = members.length > FIND_AT;
     const q = find.replace(/\s/g, '').toLowerCase();
-    const shown = bigList && q
+    const found = bigList && q
         ? members.filter(p => [p.name, p.region, contacts[p.id]?.car, contacts[p.id]?.phone]
             .some(v => String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q)))
         : members;
+    /* **거른 뒤에 줄 세운다.** 반대로 하면 찾기로 좁힐 때마다 차례가
+       다시 잡히는 것처럼 보인다 — 순서는 그대로고 몇 줄만 빠져야 한다. */
+    const shown = sortPeople(found, sort, attend);
+
+    /* 고를 수 있는 차례. **`참석`은 세는 함수가 있을 때만 내놓는다** —
+       칸이 없는 저장소에서 누르면 모두가 0회라 아무 데도 안 움직인다. */
+    const sorts: { key: SortKey; label: string }[] = [
+        { key: 'name', label: '이름' },
+        { key: 'age', label: '나이' },
+        { key: 'region', label: '지역' },
+        ...(attend ? [{ key: 'attend' as const, label: '참석' }] : []),
+    ];
 
     const setRole = async (p: Profile, role: Role) => {
         const { error: err } = await supabase.from('profiles')
@@ -182,6 +239,23 @@ export function Members() {
             )}
 
             <div className="section-title">회원 {members.length}명</div>
+
+            {/* **차례 고르기.** 100명 명단은 화면 여덟 장이라, 나이나 지역으로
+                묶어 보고 싶은 자리가 실제로 있다(사용자 요청).
+                라운드 목록의 종류 가리개와 같은 모양이다 — 한 화면에 칩이
+                두 벌이 되지 않으므로 생김새를 나누지 않았다. */}
+            {members.length > 1 && (
+                <div className="sort-row" role="group" aria-label="명단 차례">
+                    {sorts.map(s => (
+                        <button key={s.key} type="button"
+                                className={`sort-chip${sort === s.key ? ' on' : ''}`}
+                                aria-pressed={sort === s.key}
+                                onClick={() => setSort(s.key)}>
+                            {s.label}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {bigList && (
                 <div className="field member-find">
