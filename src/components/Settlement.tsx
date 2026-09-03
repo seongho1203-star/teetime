@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { formatWon, timeAgo } from '../lib/format';
@@ -331,14 +331,18 @@ function SettlementForm({
        했다. 그래서 사람이 많으면 **찾아서 고른다** — 적을 때는 예전처럼
        그냥 다 보여 준다(칸이 하나 더 생겨 봐야 성가시기만 하다). */
     const bigList = rest.length > FIND_AT;
+    /* **거르는 값만 한 박자 늦춘다** — 회원 명단의 찾기 칸과 같은 이유다
+       (`node .dev/type-bench.mjs`). 글자는 즉시 찍히고 알약 목록만 다음
+       프레임에 따라온다. */
+    const lazyFind = useDeferredValue(find);
     const shownRest = useMemo(() => {
         if (!bigList) return rest;
-        const q = find.replace(/\s/g, '').toLowerCase();
+        const q = lazyFind.replace(/\s/g, '').toLowerCase();
         // 고른 사람은 검색어와 상관없이 남긴다 — 사라지면 뺀 것처럼 보인다.
         return rest.filter(p => picked.includes(p.id)
             || (!!q && [p.name, p.region].some(v =>
             String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q))));
-    }, [bigList, rest, find, picked]);
+    }, [bigList, rest, lazyFind, picked]);
 
     const totalNum = Number(total.replace(/[^0-9]/g, '')) || 0;
     const amounts = useMemo(

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap } from '../lib/db';
@@ -95,8 +95,13 @@ function Form({
     // 남아 있으면 다음 칸을 가린다.
     // **스크린은 찾아 주지 않는다.** `courses.ts`는 필드 골프장 목록이고,
     // 스크린골프방은 만들 때 일부러 걸러 낸 것들이라 쳐도 안 나온다.
-    const hits = screen || courseGeo(course)?.name === course.trim()
-        ? [] : searchCourses(course);
+    /* **찾는 값만 한 박자 늦춘다**(`useDeferredValue`). 574곳을 훑어
+       목록을 다시 그리는 일이 글자마다 도는 자리라, 칸에 글자가 찍히는
+       것부터 밀린다(`node .dev/type-bench.mjs`). 늦는 것은 아래 목록이지
+       글자가 아니다. 저장에 쓰는 값은 그대로 `course`다. */
+    const typed = useDeferredValue(course);
+    const hits = screen || courseGeo(typed)?.name === typed.trim()
+        ? [] : searchCourses(typed);
 
     const save = async () => {
         const tee = fromKstInput(teeAt);
