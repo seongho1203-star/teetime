@@ -603,10 +603,21 @@ export function Chat() {
      */
     /** 지난번에 잰 글자 수. **줄어들 때만** 높이를 되돌려 다시 잰다. */
     const lastLen = useRef(0);
+    /** 한글을 조합하는 중인가. 그동안에는 칸을 **읽지도 쓰지도** 않는다. */
+    const composing = useRef(false);
 
     const growDraft = useCallback(() => {
         const el = taRef.current;
         if (!el) return;
+        /* **조합 중에는 아예 손을 뗀다.**
+           `scrollHeight`·`offsetHeight`를 읽는 것만으로도 브라우저는 그
+           자리에서 배치를 다시 잡는데, 그 칸이 하필 지금 조합 중인 글자를
+           들고 있는 칸이다. 실기기 영상에서 `ㄱ·` 다음 두 프레임(33ms)
+           동안 **글자가 통째로 사라졌다가** `고`가 나왔다 — 카톡은 같은
+           자리에서 한 번도 안 사라진다(0번 대 5번으로 셌다).
+           한 글자를 조합하는 동안에는 줄 수가 바뀔 일이 없으므로 늦춰도
+           탈이 없고, 조합이 끝나는 순간(`onCompositionEnd`) 한 번 잰다. */
+        if (composing.current) return;
         /* `box-sizing: border-box`라 height에 테두리가 포함된다. `scrollHeight`는
            안 그래서 그냥 넣으면 2px이 모자라 잔스크롤이 남는다. 그 차이를 잰다. */
         const border = () => el.offsetHeight - el.clientHeight;
@@ -659,6 +670,7 @@ export function Chat() {
         }
         markText('');
         lastLen.current = 0;
+        composing.current = false;   // 조합 중에 보냈어도 다음 글자는 재야 한다
         setMention(null);
     };
 
@@ -1031,6 +1043,11 @@ export function Chat() {
                         onChange={e => {
                             markText(e.target.value);
                             syncMention();
+                            growDraft();
+                        }}
+                        onCompositionStart={() => { composing.current = true; }}
+                        onCompositionEnd={() => {
+                            composing.current = false;
                             growDraft();
                         }}
                         onSelect={syncMention}

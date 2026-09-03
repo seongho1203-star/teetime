@@ -536,34 +536,54 @@ await page.waitForTimeout(200);
  * `광`을 칠 때 **글씨가 깜빡인다**는 제보가 있었다. 원인은 `growDraft()`가
  * 글자마다 `height: auto`로 되돌렸다 다시 넣은 것이다 — 조합 중인 칸의
  * 배치를 다시 잡게 하니 WebKit이 조합 중인 글자를 다시 그렸다.
- * 지금은 **넘칠 때만** 한 번 늘린다. 여기서 그걸 숫자로 붙든다.
+ * 지금은 **조합 중에는 아예 손을 떼고**(`onCompositionStart`), 조합이
+ * 끝날 때 한 번 잰다. 여기서 그걸 숫자로 붙든다.
+ *
+ * **읽는 것도 함께 센다.** `scrollHeight`를 읽기만 해도 브라우저는 그
+ * 자리에서 배치를 다시 잡는데, 그 칸이 하필 조합 중인 글자를 들고 있는
+ * 칸이다. 쓰기만 막고 읽기를 남겼더니 실기기 영상에서 여전히 두 프레임
+ * 동안 글자가 사라졌다 — 그래서 둘 다 0이어야 한다.
  *
  * 헤드리스에는 한글 IME가 없어 CDP의 조합 API로 `ㄱ→고→과→광`을 흉내 낸다.
  * `style` 속성이 건드려질 때마다 관찰자가 센다 — setter를 가로채는 방법은
  * 크로미움에서 원래 것을 못 찾아 값이 아예 안 먹는다(실제로 그렇게 헛짚었다). */
 const ta = '.chat-input .textarea';
 await page.evaluate(sel => {
+    const el = document.querySelector(sel);
     window.__touch = 0;
     new MutationObserver(ms => { window.__touch += ms.length; })
-        .observe(document.querySelector(sel), { attributes: true, attributeFilter: ['style'] });
+        .observe(el, { attributes: true, attributeFilter: ['style'] });
+
+    /* 배치를 강제로 다시 잡게 하는 읽기를 센다. 이쪽은 진짜 접근자가
+       있어서 가로채도 원래 것을 부를 수 있다(`style`과 다른 점이다). */
+    window.__read = 0;
+    for (const key of ['scrollHeight', 'offsetHeight', 'clientHeight']) {
+        const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)
+               ?? Object.getOwnPropertyDescriptor(Element.prototype, key);
+        Object.defineProperty(el, key, { get() { window.__read++; return d.get.call(this); } });
+    }
 }, ta);
 const cdp = await page.context().newCDPSession(page);
 const touched = () => page.evaluate(() => window.__touch);
-const boxH = () => page.evaluate(sel => document.querySelector(sel).offsetHeight, ta);
+const reads = () => page.evaluate(() => window.__read);
+/* 재는 김에 세지 않도록 관찰 대상이 아닌 길로 잰다. */
+const boxH = () => page.evaluate(sel =>
+    Math.round(document.querySelector(sel).getBoundingClientRect().height), ta);
 
 await page.click(ta);
 await page.waitForTimeout(250);
 
-const t0 = await touched();
+const t0 = await touched(), r0 = await reads();
 for (const step of ['ㄱ', '고', '과', '광']) {
     await cdp.send('Input.imeSetComposition',
                    { text: step, selectionStart: step.length, selectionEnd: step.length });
     await page.waitForTimeout(60);
 }
+const midTouch = await touched() - t0, midRead = await reads() - r0;
 await cdp.send('Input.insertText', { text: '광' });
 await page.waitForTimeout(200);
-ok(await touched() - t0 === 0,
-   `\`광\`을 조합하는 동안 칸 높이를 안 건드린다 (실제 ${await touched() - t0}번)`);
+ok(midTouch === 0, `\`광\`을 조합하는 동안 칸 높이를 안 고친다 (실제 ${midTouch}번)`);
+ok(midRead === 0, `\`광\`을 조합하는 동안 칸 높이를 재지도 않는다 (실제 ${midRead}번)`);
 
 const t1 = await touched();
 await cdp.send('Input.insertText', { text: '주에서 만나요' });

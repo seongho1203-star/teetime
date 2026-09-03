@@ -114,24 +114,50 @@ export function Comments({
  * `onSubmit`이 `true`를 돌려주면 칸을 비운다. 실패했으면 적은 글을 남겨
  * 다시 쓰지 않게 한다.
  */
+/* 아래 화면은 `hasText`를 **그리는 중에** 읽는다. 일부러다 — 안내 글씨와
+   `등록` 단추는 둘 다 **초점이 오갈 때만** 다시 그려지고, 그때 읽는 값은
+   늘 최신이다. 글자마다 state에 넣으면 댓글 목록이 통째로 다시 그려져
+   치는 것이 끊긴다(Chat.tsx의 `hasText`와 같은 방식이다). */
+/* oxlint-disable react/refs */
 function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean> }) {
     const ref = useRef<HTMLTextAreaElement>(null);
-    const [draft, setDraft] = useState('');
     const [focused, setFocused] = useState(false);
     const [sending, setSending] = useState(false);
+    /** 적은 글이 있는가. **state가 아니라 곁에 적어 둔다** — 글자마다
+        state에 넣으면 댓글 목록이 통째로 다시 그려진다. 읽는 곳(안내
+        글씨·`등록` 단추)은 둘 다 초점이 오갈 때만 본다. */
+    const hasText = useRef(false);
+    /** 한글을 조합하는 중인가. 그동안에는 칸을 읽지도 쓰지도 않는다. */
+    const composing = useRef(false);
+    /** 지난번 글자 수. 줄어들 때만 되돌려 다시 잰다. */
+    const lastLen = useRef(0);
 
     /**
      * 적은 글에 맞춰 칸을 늘린다. `textarea`는 스스로 안 늘어나서, 놔두면
-     * 여러 줄을 적을 때 앞줄이 위로 잘려 안 보인다. 높이를 `auto`로
-     * 되돌렸다가 내용 높이로 다시 준다(되돌리지 않으면 안 줄어든다).
+     * 여러 줄을 적을 때 앞줄이 위로 잘려 안 보인다.
+     * **대화 입력칸(`growDraft` in Chat.tsx)과 같은 방식이다** — 조합
+     * 중에는 손을 떼고, 늘 때는 넘칠 때만 한 번 늘리고, 지웠을 때만
+     * `auto`로 되돌려 다시 잰다. 한쪽만 고치지 말 것.
      * `box-sizing: border-box`라 테두리 두께를 더해 줘야 잔스크롤이 안 남는다.
      * 위 한도는 CSS(`max-height`)가 잡는다.
      */
     const grow = () => {
         const el = ref.current;
         if (!el) return;
+        if (composing.current) return;
+        const border = () => el.offsetHeight - el.clientHeight;
+
+        const len = el.value.length;
+        const shrank = len < lastLen.current;
+        lastLen.current = len;
+
+        if (!shrank) {
+            const need = el.scrollHeight + border();
+            if (need > el.offsetHeight) el.style.height = `${need}px`;
+            return;
+        }
         el.style.height = 'auto';
-        el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`;
+        el.style.height = `${el.scrollHeight + border()}px`;
     };
 
     const submit = async () => {
@@ -145,7 +171,9 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             ref.current.value = '';
             ref.current.style.height = '';   // 한 줄로 돌아온다
         }
-        setDraft('');
+        hasText.current = false;
+        lastLen.current = 0;
+        composing.current = false;
     };
 
     return (
@@ -154,17 +182,19 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 <textarea
                     ref={ref}
                     className="textarea"
-                    onChange={e => { setDraft(e.target.value); grow(); }}
+                    onChange={e => { hasText.current = e.target.value.trim() !== ''; grow(); }}
+                    onCompositionStart={() => { composing.current = true; }}
+                    onCompositionEnd={() => { composing.current = false; grow(); }}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
                     rows={1} maxLength={500}
                     aria-label="댓글 입력"
                 />
-                {!focused && !draft && <span className="comment-hint">댓글 남기기</span>}
+                {!focused && !hasText.current && <span className="comment-hint">댓글 남기기</span>}
             </div>
             <button className="btn primary" onClick={submit}
                     onMouseDown={e => e.preventDefault()}
-                    disabled={sending || (!focused && !draft.trim())}>
+                    disabled={sending || (!focused && !hasText.current)}>
                 등록
             </button>
         </div>
