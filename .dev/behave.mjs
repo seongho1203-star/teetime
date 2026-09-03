@@ -490,6 +490,27 @@ ok(notices.some(t => t?.includes('지웠습니다')),
  * 깨지면 보내는 쪽과 그리는 쪽이 조용히 어긋난다.
  * 화면으로는 안 보이는 것 셋을 여기서 붙든다.
  */
+/* ── 6-1-1-0. 보내기 단추는 CSS가 띄운다 ────────────────────────
+ *
+ * **리액트로 붙였다 떼면 첫 글자에서 화면이 통째로 다시 그려진다** —
+ * 말풍선 쉰 개가 다시 그려지느라 거기서만 56ms가 났고, 그게 '치면
+ * 끊긴다'는 제보였다(`node .dev/type-bench.mjs`로 잰 값이다).
+ * 지금은 단추가 늘 DOM에 있고 `.chat-input.has-text`가 보이게 한다 —
+ * **있는지만 보면 늘 통과하므로 눈에 보이는지를 봐야 한다.**
+ */
+console.log('\n── 보내기 단추 ──');
+await go('/#/chat', 1200);
+ok(await page.$('.chat-send') !== null && !(await page.isVisible('.chat-send')),
+   '빈칸일 때는 보내기 단추가 안 보인다');
+await page.fill('.chat-input .textarea', '안녕하세요');
+await page.waitForTimeout(300);
+ok(await page.isVisible('.chat-send'), '글을 치면 보내기 단추가 나온다');
+await page.fill('.chat-input .textarea', '   ');
+await page.waitForTimeout(300);
+ok(!(await page.isVisible('.chat-send')), '공백만 남으면 다시 사라진다');
+await page.fill('.chat-input .textarea', '');
+await page.waitForTimeout(200);
+
 console.log('\n── 이모티콘 ──');
 await go('/#/chat', 1200);
 

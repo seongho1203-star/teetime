@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
@@ -41,7 +41,23 @@ export function Chat() {
     const toast = useToast();
 
     const [messages, setMessages] = useState<Message[]>([]);
-    const [draft, setDraft] = useState('');
+    /**
+     * **글자가 있는가.** `state`가 아니라 `ref`이고, 화면에는 입력칸 상자의
+     * `has-text` 클래스로만 알린다.
+     *
+     * 예전에는 친 글을 통째로 state에 복사했다. 그러면 **한 글자마다 화면
+     * 전체가 다시 그려져** 말풍선 쉰 개가 매번 다시 그려졌다 — 19글자 중
+     * 9글자가 한 프레임(16ms)을 넘겼고 그게 '치면 끊긴다'는 제보였다.
+     * 참/거짓으로 줄여도 **첫 글자에서 한 번은 다시 그려져**(빈칸 → 글 있음)
+     * 거기서만 56ms가 났다 — 글을 치기 시작하는 바로 그 순간이라 제일
+     * 눈에 띈다. 그래서 아예 리액트를 거치지 않는다.
+     *
+     * 이 값이 정하는 것은 **보내기 단추를 띄울까** 하나뿐이다(안내 글씨는
+     * 초점만 보므로 치는 동안 바뀔 일이 없다). 그건 CSS로 충분하다 —
+     * 밀어서 답장할 때 위치를 state가 아니라 요소에 직접 주는 것과 같은 결이다.
+     * **state로 되돌리지 말 것.**
+     */
+    const hasText = useRef(false);
     const [sending, setSending] = useState(false);
     const [hasMore, setHasMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -588,13 +604,30 @@ export function Chat() {
     const growDraft = useCallback(() => {
         const el = taRef.current;
         if (!el) return;
+        const was = el.style.height;
         el.style.height = 'auto';
         /* `box-sizing: border-box`라 height에 테두리가 포함된다. `scrollHeight`는
            안 그래서 그냥 넣으면 2px이 모자라 잔스크롤이 남는다. 그 차이를 잰다. */
         const border = el.offsetHeight - el.clientHeight;
-        el.style.height = `${el.scrollHeight + border}px`;
-        pinBottom();
+        const now = `${el.scrollHeight + border}px`;
+        el.style.height = now;
+        /* **높이가 그대로면 목록은 안 건드린다.** `pinBottom()`이 목록의
+           `scrollHeight`를 읽어 배치를 한 번 더 다시 재게 하는데, 글자를 칠
+           때 줄 수가 바뀌는 일은 드물다 — 스무 글자에 한 번쯤이다. */
+        if (now !== was) pinBottom();
     }, [pinBottom]);
+
+    /**
+     * 글자가 있는지를 **입력칸 상자의 클래스로만** 알린다.
+     *
+     * 리액트를 거치지 않으므로 글자를 쳐도 화면이 다시 그려지지 않는다.
+     * 보내기 단추가 뜨고 지는 것은 CSS(`.chat-input.has-text .chat-send`)가 한다.
+     */
+    const markText = useCallback((value: string) => {
+        const on = value.trim() !== '';
+        hasText.current = on;
+        barRef.current?.classList.toggle('has-text', on);
+    }, []);
 
     const clearDraft = () => {
         if (taRef.current) {
@@ -602,7 +635,7 @@ export function Chat() {
             // 보내고 나면 한 줄로 돌아와야 한다.
             taRef.current.style.height = '';
         }
-        setDraft('');
+        markText('');
         setMention(null);
     };
 
@@ -630,7 +663,7 @@ export function Chat() {
         const head = el.value.slice(0, found.at) + inserted;
         el.value = head + el.value.slice(caret);
         el.setSelectionRange(head.length, head.length);
-        setDraft(el.value);
+        markText(el.value);
         setMention(null);
         growDraft();
         // 고르고 나서도 키보드가 그대로 있어야 이어 칠 수 있다.
@@ -652,14 +685,14 @@ export function Chat() {
     ].slice(0, 6);
 
     /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
-    const jumpTo = (id: string) => {
+    const jumpTo = useCallback((id: string) => {
         const el = listRef.current?.querySelector<HTMLElement>(`[data-mid="${id}"]`);
         if (!el) { toast('지난 대화에 있습니다. 위로 올려 주세요.'); return; }
         atBottom.current = false;
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
         el.classList.add('flash');
         setTimeout(() => el.classList.remove('flash'), 1300);
-    };
+    }, [toast]);
 
     /** 답장을 시작한다. 밀어서든 눌러서든 여기로 온다. */
     const startReply = useCallback((m: Message) => {
@@ -669,11 +702,13 @@ export function Chat() {
 
     /** id → 글. 인용할 원본을 찾는다. 지난 묶음에 있으면 없을 수 있다. */
     const byMid = new Map(messages.map(m => [m.id, m]));
-    const mentionNames = mentionable.map(p => p.name);
+    /* **매번 새 배열을 만들면 안 된다** — 말풍선이 이걸 그대로 받으므로,
+       내용이 같아도 배열이 새것이면 쉰 개가 전부 다시 그려진다. */
+    const mentionNames = useMemo(() => mentionable.map(p => p.name), [mentionable]);
 
-    /** 지금 칸에 적힌 글. 칸이 값의 주인이므로 보낼 때는 칸에서 직접 읽는다 —
-     *  한글 마지막 글자가 조합 중이면 `draft`에는 아직 안 와 있을 수 있다. */
-    const currentDraft = () => (taRef.current?.value ?? draft).trim();
+    /** 지금 칸에 적힌 글. **칸이 값의 주인이라 늘 칸에서 직접 읽는다** —
+     *  곁에 두는 것은 `hasText`(참/거짓) 하나뿐이다. */
+    const currentDraft = () => (taRef.current?.value ?? '').trim();
 
     /**
      * 글 한 줄(또는 사진 한 장, 이모티콘 하나)을 보낸다.
@@ -883,7 +918,7 @@ export function Chat() {
                 })}
             </div>
 
-            <div className="chat-input" ref={barRef}>
+            <div className={`chat-input${picked ? ' has-pick' : ''}`} ref={barRef}>
                 {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**
                     (사용자 요청) — 글을 마저 적어 한 마디로 함께 보낸다.
                     그림을 누르면 그대로 나가고(글이 없어도 된다), `✕`로 뗀다.
@@ -970,7 +1005,11 @@ export function Chat() {
                     <textarea
                         ref={taRef}
                         className="textarea"
-                        onChange={e => { setDraft(e.target.value); syncMention(); growDraft(); }}
+                        onChange={e => {
+                            markText(e.target.value);
+                            syncMention();
+                            growDraft();
+                        }}
                         onSelect={syncMention}
                         onKeyDown={onKeyDown}
                         onFocus={onComposerFocus}
@@ -978,7 +1017,7 @@ export function Chat() {
                         rows={1} maxLength={1000}
                         aria-label="메시지 입력"
                     />
-                    {!focused && !draft && <span className="chat-hint">메시지</span>}
+                    {!focused && !hasText.current && <span className="chat-hint">메시지</span>}
                     {/* 이모티콘 단추는 **입력칸 안 오른쪽 끝**에 얹는다
                         (사용자가 보여 준 모양이다). 왼쪽 `+` 옆에 나란히
                         두었더니 눌러야 할 것이 왼쪽에 둘로 몰렸다 —
@@ -1011,19 +1050,20 @@ export function Chat() {
                 </div>
                 {/* 보내기 버튼은 **적은 게 있을 때만** 나온다 — 카톡이 그렇다.
                     늘 놓아 두면 눌리지도 않는 버튼이 자리만 차지한다.
+                    **뜨고 지는 것은 CSS가 한다**(`.chat-input.has-text`) —
+                    리액트로 붙였다 떼면 첫 글자에서 화면이 통째로 다시
+                    그려져 거기서만 56ms가 났다(`.dev/type-bench.mjs`).
                     onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
                     내려가지 않는 이유가 이 한 줄이다. 누르는 것 자체는 그대로
                     onClick으로 온다. */}
-                {(draft.trim() || picked) && (
-                    <button className="btn primary chat-send" onClick={send}
-                            onMouseDown={e => e.preventDefault()}
-                            disabled={sending} aria-label="보내기">
-                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
-                             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M4 12h15M13 6l6 6-6 6" />
-                        </svg>
-                    </button>
-                )}
+                <button className="btn primary chat-send" onClick={send}
+                        onMouseDown={e => e.preventDefault()}
+                        disabled={sending} aria-label="보내기">
+                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 12h15M13 6l6 6-6 6" />
+                    </svg>
+                </button>
                 </div>
 
                 {/* 이모티콘 서랍은 **입력칸 아래**, 키보드가 서던 자리에 뜬다
@@ -1086,7 +1126,17 @@ function Stamp({ at, showTime, unread }: { at: string; showTime: boolean; unread
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 72;
 
-function Bubble({
+/**
+ * 말풍선 하나.
+ *
+ * **`memo`로 감싸 둔다.** 이 화면은 글을 치거나 초점이 오갈 때마다 다시
+ * 그려지는데, 그때마다 쉰 개가 통째로 다시 그려지면 치는 것이 눈에 띄게
+ * 끊긴다(실제 제보다). 넘기는 값이 그대로면 여기서 멈춘다.
+ * **그래서 넘기는 것들이 매번 같아야 한다** — `jumpTo`·`startReply`·
+ * `pinBottom`은 `useCallback`, `mentionNames`는 `useMemo`로 붙박아 두었다.
+ * 새 값을 넘길 일이 생기면 그것도 함께 붙박을 것.
+ */
+const Bubble = memo(function Bubble({
     message, who, mine, grouped, showTime, unread, onImageLoad,
     quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName, allowAll,
 }: {
@@ -1254,7 +1304,7 @@ function Bubble({
             </button>
         </div>
     );
-}
+});
 
 /** 글 한 덩어리. `@이름`만 도드라지게 그린다. */
 function Body({ text, names, me, allowAll }: {
