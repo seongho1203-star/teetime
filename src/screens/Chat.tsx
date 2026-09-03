@@ -519,40 +519,6 @@ export function Chat() {
         };
     }, [applyKeyboard]);
 
-    /**
-     * ⚠️ **임시 진단 줄.** 키보드 자리가 남는 것을 폰에서 재려고 넣었다.
-     * 헤드리스에는 키보드가 없어 이 자리는 흉내로 안 잡힌다(크로미움은
-     * 굴러간 자리를 알아서 당겨 줘서 아예 재현이 안 된다) — 그래서
-     * 값을 화면에 적어 두고 사람이 읽어 주는 편이 결국 빠르다.
-     * **끝나면 이 효과와 위의 `kb-probe`, CSS를 함께 지울 것.**
-     * 리액트를 안 거치고 DOM에 직접 적는다 — 말풍선을 다시 그리게 하면
-     * 재려는 것을 흔든다.
-     */
-    const probeRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        const tick = () => {
-            const box = probeRef.current;
-            const el = listRef.current;
-            if (!box || !el) return;
-            const root = getComputedStyle(document.documentElement);
-            const vv = window.visualViewport;
-            box.textContent = [
-                `판${__BUILD__}`,
-                `문서${document.documentElement.clientHeight}`,
-                `보임${Math.round(vv ? vv.height : window.innerHeight)}`,
-                `창${window.innerHeight}`,
-                `kb${root.getPropertyValue('--kb').trim().replace('px', '') || '-'}`,
-                `vvh${root.getPropertyValue('--vvh').trim().replace('px', '') || '-'}`,
-                `열림${document.body.classList.contains('kb-open') ? 'O' : 'X'}`,
-                `목록${Math.round(el.clientHeight)}`,
-                `자리${Math.round(el.scrollTop)}/${Math.round(el.scrollHeight - el.clientHeight)}`,
-            ].join(' ');
-        };
-        tick();
-        const id = window.setInterval(tick, 400);
-        return () => clearInterval(id);
-    }, []);
-
     const blurTimer = useRef(0);
 
     const onComposerFocus = () => {
@@ -1078,10 +1044,6 @@ export function Chat() {
                     );
                 })}
             </div>
-
-            {/* ⚠️ 임시 진단 줄. 키보드 자리가 남는 것을 폰에서 재려고 넣었다.
-                끝나면 이 줄과 아래 `kb-probe` 효과·CSS를 함께 지울 것. */}
-            <div className="kb-probe" ref={probeRef} />
 
             <div className="chat-input" ref={barRef}>
                 {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**

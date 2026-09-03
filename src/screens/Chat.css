@@ -304,24 +304,6 @@
     white-space: nowrap;
 }
 
-/* ⚠️ **임시 진단 줄.** 키보드 자리가 남는 것을 폰에서 재려고 넣었다.
-   화면 맨 위에 붙여 둔 것은 키보드가 올라와도 가려지지 않게 하려는 것이다.
-   **끝나면 이 규칙과 Chat.tsx의 `kb-probe`를 함께 지울 것.** */
-.kb-probe {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 99;
-    padding: 2px 4px;
-    font-size: 9px;
-    line-height: 1.3;
-    color: #fff;
-    background: rgba(0, 0, 0, .72);
-    pointer-events: none;
-    word-break: break-all;
-}
-
 /* 입력칸 상자. 인용(답장)과 언급 목록이 그 줄 **위에** 쌓이므로
    세로 상자이고, 사진·글칸·보내기는 `.chat-bar` 한 줄로 묶여 있다. */
 .chat-input {
