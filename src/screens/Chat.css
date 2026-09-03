@@ -419,6 +419,52 @@
 }
 .sticker-btn img { width: 100%; height: 100%; object-fit: contain; }
 .sticker-btn:active { background: var(--surface-3); transform: scale(0.94); }
+/* 골라 둔 것. 미리보기가 위에 떠 있지만, 서랍에서도 어느 것을 골랐는지
+   보여야 다른 것으로 바꿀 때 헤매지 않는다. */
+.sticker-btn.on { background: var(--brand-soft); }
+
+/* 골라 둔 이모티콘 미리보기 — 입력칸 **위에 뜨는 작은 창**이다
+   (사용자가 보여 준 카톡 모양). 곧바로 보내지 않고 여기 물려 두어야
+   글을 마저 적어 함께 보낼 수 있다.
+   대화를 가리지 않게 폭도 높이도 그림 하나만큼만 차지한다. */
+.sticker-peek {
+    position: relative;
+    align-self: center;
+    width: fit-content;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    line-height: 0;
+}
+.sticker-peek-img {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    line-height: 0;
+}
+/* 서랍까지 함께 떠 있으면 좁은 화면(320px)에서 대화가 두 줄만 남는다.
+   무엇을 골랐는지 알아볼 만큼만 크면 된다. */
+.sticker-peek-img img { width: 86px; height: 86px; object-fit: contain; }
+.sticker-peek-img:active { transform: scale(0.96); }
+/* `✕`는 창 모서리에 걸친다. 30px이라 손가락으로 눌린다. */
+.sticker-peek-x {
+    position: absolute;
+    top: -9px;
+    right: -9px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    box-shadow: var(--shadow);
+}
 
 /* 보낸 이모티콘. 사진보다 작게 — 말풍선 자리에 그림 하나가 서는 것이라
    사진만 해지면 한 마디가 화면을 다 먹는다. 말풍선은 두르지 않는다

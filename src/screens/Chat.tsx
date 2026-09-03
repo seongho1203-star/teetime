@@ -58,6 +58,9 @@ export function Chat() {
     const [mention, setMention] = useState<string | null>(null);
     /** 이모티콘 서랍이 열려 있는가. 열면 키보드를 내린다(아래 `toggleTray`). */
     const [tray, setTray] = useState(false);
+    /** 골라 둔 이모티콘. 곧바로 나가지 않고 **입력칸 위에 미리보기로 물려
+     *  둔다** — 글을 마저 적어 함께 보낼 수 있어야 한다(사용자 요청). */
+    const [picked, setPicked] = useState<string | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
 
     const chatRef = useRef<HTMLDivElement>(null);
@@ -675,11 +678,8 @@ export function Chat() {
     /**
      * 글 한 줄(또는 사진 한 장, 이모티콘 하나)을 보낸다.
      * 보내기 · 사진 올리기 · 이모티콘이 같이 쓴다.
-     *
-     * `keepDraft`는 이모티콘 몫이다 — 그건 치던 글과 상관없는 한 마디라,
-     * 보냈다고 적어 두던 글을 지워 버리면 안 된다.
      */
-    const push = async (body: string, imageUrl: string | null, keepDraft = false) => {
+    const push = async (body: string, imageUrl: string | null) => {
         if (!roomId) return false;
         const { data: row, error: err } = await supabase
             .from('messages')
@@ -695,7 +695,7 @@ export function Chat() {
         if (err) { toast(readableError(err), 'error'); return false; }
 
         setReplyTo(null);
-        if (!keepDraft) clearDraft();
+        clearDraft();
         atBottom.current = true;
         // 실시간 이벤트가 오기 전에 먼저 그린다. 내 글이 늦게 뜨면 답답하다.
         if (row) setMessages(prev =>
@@ -716,10 +716,12 @@ export function Chat() {
      */
     const send = async () => {
         const body = currentDraft();
-        if (!body || !roomId) return;
+        // **이모티콘만 골라도 보낼 수 있다** — 글은 없어도 된다.
+        if ((!body && !picked) || !roomId) return;
         taRef.current?.focus();
         setSending(true);
-        await push(body, null);
+        const ok = await push(body, picked ? stickerRef(picked) : null);
+        if (ok) setPicked(null);
         setSending(false);
         taRef.current?.focus();
     };
@@ -743,18 +745,14 @@ export function Chat() {
     };
 
     /**
-     * 이모티콘 한 장을 보낸다.
+     * 이모티콘을 고른다. **곧바로 나가지 않는다**(사용자 요청).
      *
-     * **적어 둔 글은 건드리지 않는다** — 사진과 달리 이모티콘은 그 자체로
-     * 한 마디라, 치던 글을 딸려 보내면 엉뚱한 곳에 붙는다.
-     * 서랍은 열어 둔다(카톡이 그렇다). 잇달아 보내는 일이 흔하다.
+     * 입력칸 위에 미리보기로 물려 두고, 거기서 글을 마저 적어 **한 마디로
+     * 함께 보낸다.** 예전에는 누르는 즉시 나갔는데, 그러면 `나이스 샷!` 같은
+     * 이모티콘에 한마디 덧붙이려면 두 마디로 갈라 보내야 했다.
+     * 서랍은 열어 둔다 — 고른 것을 바꾸는 일이 흔하다.
      */
-    const sendSticker = async (id: string) => {
-        if (!roomId || sending) return;
-        setSending(true);
-        await push('', stickerRef(id), true);
-        setSending(false);
-    };
+    const pickSticker = (id: string) => setPicked(id);
 
     /**
      * 사진을 골라 보낸다.
@@ -886,6 +884,25 @@ export function Chat() {
             </div>
 
             <div className="chat-input" ref={barRef}>
+                {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**
+                    (사용자 요청) — 글을 마저 적어 한 마디로 함께 보낸다.
+                    그림을 누르면 그대로 나가고(글이 없어도 된다), `✕`로 뗀다.
+                    `onMouseDown`을 막아 키보드가 안 내려가게 한다 — 글을 치던
+                    중에 누르는 자리라 보내기 단추와 같은 사정이다. */}
+                {picked && (
+                    <div className="sticker-peek">
+                        <button className="sticker-peek-img" onClick={send}
+                                onMouseDown={e => e.preventDefault()}
+                                disabled={sending}
+                                aria-label={`${stickerLabel(stickerRef(picked))} 보내기`}>
+                            <img src={stickerSrc(stickerRef(picked))} alt="" />
+                        </button>
+                        <button className="sticker-peek-x" onClick={() => setPicked(null)}
+                                onMouseDown={e => e.preventDefault()}
+                                aria-label="이모티콘 빼기">✕</button>
+                    </div>
+                )}
+
                 {/* 답장할 글을 입력칸 위에 물려 둔다. ✕로 뗀다.
                     입력칸 안이라 키보드가 올라와도 함께 따라 올라간다. */}
                 {replyTo && (
@@ -997,7 +1014,7 @@ export function Chat() {
                     onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
                     내려가지 않는 이유가 이 한 줄이다. 누르는 것 자체는 그대로
                     onClick으로 온다. */}
-                {draft.trim() && (
+                {(draft.trim() || picked) && (
                     <button className="btn primary chat-send" onClick={send}
                             onMouseDown={e => e.preventDefault()}
                             disabled={sending} aria-label="보내기">
@@ -1023,9 +1040,10 @@ export function Chat() {
                 {tray && (
                     <div className="sticker-tray">
                         {STICKERS.map(s => (
-                            <button key={s.id} className="sticker-btn"
-                                    onClick={() => sendSticker(s.id)}
-                                    disabled={sending} aria-label={s.label}>
+                            <button key={s.id}
+                                    className={`sticker-btn${picked === s.id ? ' on' : ''}`}
+                                    onClick={() => pickSticker(s.id)}
+                                    aria-label={s.label}>
                                 <img src={stickerSrc(stickerRef(s.id))}
                                      alt="" loading="lazy" />
                             </button>
@@ -1101,9 +1119,10 @@ function Bubble({
     const big = !message.image_url && emojiOnly(message.body);
     /** 이모티콘인가. 사진과 같은 칸(`image_url`)에 `sticker:`로 들어 있다. */
     const sticker = isSticker(message.image_url);
-    /** 사진에 함께 적은 글. 있으면 그 줄이 이 덩어리의 마지막 줄이 된다.
-     *  이모티콘에는 글이 안 붙으므로(`sendSticker`) 여기 걸릴 일이 없다. */
-    const caption = !!message.image_url && !sticker && !!message.body;
+    /** 사진·이모티콘에 함께 적은 글. 있으면 그 줄이 이 덩어리의 마지막 줄이
+     *  된다. **이모티콘에도 붙는다** — 골라 두고 글을 마저 적어 한 마디로
+     *  함께 보내기 때문이다(`pickSticker` 참고). */
+    const caption = !!message.image_url && !!message.body;
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });

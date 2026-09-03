@@ -267,6 +267,10 @@ export const messages = [
       image_url: 'sticker:fighting', created_at: iso(0, 9, 42) },
     { id: 'm15', room_id: 'room1', user_id: ME, body: '',
       image_url: 'sticker:goodshot', created_at: iso(0, 9, 43) },
+    /* 이모티콘에 글을 함께 보낸 것. 골라 두고 글을 마저 적어 한 마디로
+       나가므로(`pickSticker`), 사진처럼 그림 아래 한 줄이 붙는다. */
+    { id: 'm16', room_id: 'room1', user_id: uid(3), body: '내일 봬요!',
+      image_url: 'sticker:ballhi', created_at: iso(0, 9, 44) },
 ];
 
 /* 알림 받는 기기 한 대. `내 정보`의 대화 알림 스위치가 이 행의 `chat`을

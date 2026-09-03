@@ -495,11 +495,14 @@ await go('/#/chat', 1200);
 
 /* 그린 것부터. 말풍선을 두르지 않는다(이모지만 보낸 글과 같은 결이다). */
 const stickerShots = await page.$$eval('.chat-sticker', e => e.map(x => x.getAttribute('src')));
-ok(stickerShots.length === 2 && stickerShots.every(s => s?.includes('/stickers/')),
+ok(stickerShots.length === 3 && stickerShots.every(s => s?.includes('/stickers/')),
    `보낸 이모티콘은 그림으로 그려진다 (실제 ${JSON.stringify(stickerShots)})`);
-ok(await page.$('.chat-sticker + .chat-bubble') === null
-   && (await page.$$eval('.chat-bubble', e => e.map(x => x.textContent))).every(t => t?.trim()),
-   '이모티콘에는 빈 말풍선이 안 붙는다');
+ok((await page.$$eval('.chat-bubble', e => e.map(x => x.textContent))).every(t => t?.trim()),
+   '글 없이 보낸 이모티콘에는 빈 말풍선이 안 붙는다');
+/* 글을 함께 보낸 것은 **그림 아래 한 줄**로 붙는다(사진과 같은 자리). */
+ok(await page.$('.chat-sticker') !== null
+   && (await page.textContent('.chat-list'))?.includes('내일 봬요!'),
+   '이모티콘에 함께 적은 글이 그림 아래에 붙는다');
 
 /* 서랍은 **닫힌 채로 시작한다** — 열려 있으면 대화가 반쯤 가린 채 열린다. */
 ok(await page.$('.sticker-tray') === null, '이모티콘 서랍은 닫힌 채로 시작한다');
@@ -509,34 +512,38 @@ await page.waitForTimeout(400);
 const trayCount = await page.$$eval('.sticker-btn', e => e.length);
 ok(trayCount > 30, `서랍을 열면 이모티콘이 늘어선다 (실제 ${trayCount}장)`);
 
-/* **누르면 곧바로 나간다.** 고르고 나서 `보내기`를 또 눌러야 하면 한
-   마디에 두 번이다. 보내는 값이 `sticker:`로 시작하는지까지 본다. */
+/* **누르면 곧바로 안 나간다**(사용자 요청). 입력칸 위에 미리보기로
+   물려 두고, 글을 마저 적어 **한 마디로 함께** 보낸다 — 예전에는 누르는
+   즉시 나가서 `나이스 샷!`에 한마디 덧붙이려면 두 마디로 갈라야 했다. */
 writes.length = 0;
 await page.click('.sticker-btn');
 await page.waitForTimeout(500);
-const stuck = writes.find(([w]) => w === 'messages POST')?.[1];
-ok(stuck?.image_url?.startsWith('sticker:'),
-   `누르면 곧바로 sticker: 값으로 나간다 (실제 ${JSON.stringify(stuck?.image_url)})`);
-ok(stuck?.body === '', '이모티콘 글에는 글자가 안 붙는다');
+ok(writes.filter(([w]) => w === 'messages POST').length === 0,
+   `고르기만 해서는 안 나간다 (실제 ${writes.filter(([w]) => w === 'messages POST').length}번)`);
+ok(await page.$('.sticker-peek') !== null, '고른 이모티콘이 입력칸 위에 뜬다');
 
-/* **글칸을 누르면 서랍이 닫힌다.** 서랍은 키보드가 서던 자리에 뜨므로
-   열어 둔 채로 글을 치면 둘이 겹친다 — 자리를 맞바꿔야 한다. */
-await page.click('.chat-input .textarea');
-await page.waitForTimeout(400);
-ok(await page.$('.sticker-tray') === null, '글칸을 누르면 서랍이 닫힌다');
-
-/* **적어 두던 글은 안 지운다.** 사진과 달리 이모티콘은 그 자체로 한
-   마디라, 치던 글을 딸려 보내거나 지워 버리면 안 된다. */
+/* 글을 마저 적고 보내면 **한 줄로 함께** 나간다. */
 await page.fill('.chat-input .textarea', '이따 봬요');
+await page.waitForTimeout(300);
+writes.length = 0;
+await page.click('.chat-send');
+await page.waitForTimeout(600);
+const both = writes.find(([w]) => w === 'messages POST')?.[1];
+ok(both?.image_url?.startsWith('sticker:') && both?.body === '이따 봬요',
+   `이모티콘과 글이 한 마디로 나간다 (실제 ${JSON.stringify(both?.image_url)} / ${JSON.stringify(both?.body)})`);
+ok(await page.$('.sticker-peek') === null
+   && (await page.inputValue('.chat-input .textarea')) === '',
+   '보내고 나면 미리보기와 글칸이 함께 비워진다');
+
+/* **`✕`로 뗄 수 있다.** 잘못 골랐을 때 되돌릴 길이 없으면 창을 나갔다
+   와야 한다. */
 await page.click('[aria-label="이모티콘"]');
 await page.waitForTimeout(400);
-writes.length = 0;
 await page.click('.sticker-btn');
-await page.waitForTimeout(500);
-const kept = await page.inputValue('.chat-input .textarea');
-ok(kept === '이따 봬요', `이모티콘을 보내도 치던 글이 남는다 (실제 ${JSON.stringify(kept)})`);
-ok(writes.find(([w]) => w === 'messages POST')?.[1]?.body === '',
-   '치던 글이 이모티콘에 딸려 나가지도 않는다');
+await page.waitForTimeout(300);
+await page.click('[aria-label="이모티콘 빼기"]');
+await page.waitForTimeout(300);
+ok(await page.$('.sticker-peek') === null, '✕로 골라 둔 이모티콘을 뗀다');
 
 /* **서랍은 입력칸 아래, 키보드 자리에 뜬다**(사용자가 보여 준 카톡 모양).
    위에 두면 대화가 가려지고 글칸이 밀려 올라가 이어 칠 수가 없다.
