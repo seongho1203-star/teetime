@@ -339,15 +339,8 @@ export function Me() {
 
             {/* 빌드 시각·뱃지 진단 줄은 걷어냈다(사용자 요청). 그때그때
                 필요하면 다시 넣더라도, 평소에 회원이 볼 화면에는 두지 않는다.
-                **지금은 잠시 도로 붙여 두었다** — 글칸이 깜빡인다는 제보를
-                쫓는 중인데, 폰에 옛 화면이 남은 것인지 코드가 아직 틀린
-                것인지 가릴 방법이 그것뿐이다. 가려지면 이 한 줄만 지운다. */}
-            {/* 임시 — 글칸 깜빡임을 가리는 시험 화면. 가려지면 이 줄과
-                위의 판 표시, `screens/KbTest.tsx`, route를 함께 지운다. */}
-            <Link className="btn ghost block" to="/kbtest"
-                  style={{ marginTop: 10 }}>⌨️ 글칸 시험</Link>
-
-            <p className="xs faint me-foot">앱제작: 악마제리 · 판 {__BUILD__}</p>
+                (글칸 깜빡임을 쫓을 때 잠시 도로 붙였다가 원인이 가려져 다시 뺐다.) */}
+            <p className="xs faint me-foot">앱제작: 악마제리</p>
         </div>
     );
 }
