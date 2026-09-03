@@ -312,7 +312,9 @@
 .chat-input .textarea {
     min-height: 38px;
     max-height: 120px;
-    padding: 7px 14px;
+    /* 오른쪽만 넓은 것은 **이모티콘 단추가 그 안에 얹혀 있어서다**
+       (아래 `.chat-sticker-btn`). 줄이면 글자가 단추 밑으로 지나간다. */
+    padding: 7px 40px 7px 14px;
     /* **한 줄 높이의 절반**(38/2). 한 줄일 때는 알약과 똑같이 보이고,
        여러 줄로 늘어나면 저절로 둥근 네모가 된다 — `--r-pill`로 두면
        키가 커질수록 옆구리가 과하게 둥글어진다. */
@@ -351,21 +353,30 @@
 }
 .chat-photo svg { width: 23px; height: 23px; stroke: currentColor; }
 
-/* 이모티콘 단추. 사진 단추와 같은 결이라 값을 그대로 물려받는다 —
-   나란히 선 둘이 다르게 생기면 눌러야 할 것이 둘로 보인다. */
-.chat-input .btn.chat-sticker-btn {
-    width: 34px; height: 38px;
-    flex: 0 0 auto;
+/* 이모티콘 단추는 **입력칸 안 오른쪽 끝**에 얹혀 있다(사용자가 보여 준
+   모양이다). 흐름에서 빼 두었으므로 글자가 그 밑으로 지나가지 않게
+   `.chat-input .textarea`에 오른쪽 여백을 함께 줬다 — 둘은 한 쌍이다.
+   여러 줄로 늘어나면 `bottom`으로 붙어 아래쪽 끝을 따라 내려간다. */
+.chat-sticker-btn {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    /* **30px 아래로 내리지 말 것** — `node .dev/audit.mjs`가 그보다 작은
+       누름 자리를 잡아낸다(손가락으로 못 누른다). 딱 맞춰 두었다. */
+    width: 30px;
+    height: 30px;
     padding: 0;
     border: 0;
-    background: transparent;
+    border-radius: 50%;
+    background: var(--surface-2);
     color: var(--text-dim);
     display: grid;
     place-items: center;
 }
-.chat-sticker-btn svg { width: 23px; height: 23px; stroke: currentColor; }
+.chat-sticker-btn svg { width: 19px; height: 19px; stroke: currentColor; }
 /* 열려 있는 동안만 켠다. 서랍에는 제목 줄이 없어 이 색이 곧 표시다. */
-.chat-input .btn.chat-sticker-btn.on { color: var(--brand); }
+.chat-sticker-btn.on { background: var(--brand-soft); color: var(--brand); }
+.chat-sticker-btn:active { transform: scale(0.92); }
 
 /* 이모티콘 서랍. 입력칸 **위에** 서므로 키보드와 겹치지 않는다
    (여는 순간 `toggleTray`가 키보드를 내린다).

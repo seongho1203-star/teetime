@@ -22,6 +22,17 @@ export type Sticker = { id: string; label: string };
 
 /** 이모티콘 한 벌. 화면의 순서가 곧 이 차례다 — 자주 쓸 것을 앞에 둔다. */
 export const STICKERS: Sticker[] = [
+    // 골프공 — 이 앱의 주제라 맨 앞에 둔다.
+    { id: 'ballhi', label: '안녕!' },
+    { id: 'ballcall', label: 'OK 콜!' },
+    { id: 'ballfighting', label: '파이팅!' },
+    { id: 'ballniceshot', label: '나이스 샷!' },
+    { id: 'ballbest', label: '최고야!' },
+    { id: 'ballkkkk', label: 'ㅋㅋㅋㅋ' },
+    { id: 'ballsorry', label: '미안…' },
+    { id: 'ballwait', label: '잠깐' },
+    { id: 'ballhard', label: '어려워…' },
+
     // 코알라 — 말이 적힌 것이라 가장 자주 쓴다.
     { id: 'annyeong', label: '안녕!' },
     { id: 'haengbok', label: '행복해!' },

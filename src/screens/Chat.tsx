@@ -925,20 +925,6 @@ export function Chat() {
                               <path d="M12 5.5v13M5.5 12h13" />
                           </svg>}
                 </button>
-                {/* 이모티콘 단추. 사진 단추와 같은 결(테두리 없는 글자색)이라
-                    나란히 서도 눌러야 할 것이 둘로 보이지 않는다.
-                    열려 있는 동안만 분홍으로 켜 둔다 — 지금 무엇이 떠 있는지가
-                    그 색뿐이다(서랍에는 제목 줄이 없다). */}
-                <button className={`btn ghost chat-sticker-btn${tray ? ' on' : ''}`}
-                        onClick={toggleTray}
-                        aria-label="이모티콘" aria-pressed={tray}>
-                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9"
-                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" />
-                        <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
-                        <path d="M9 9.5h.01M15 9.5h.01" />
-                    </svg>
-                </button>
                 {/* **`value`로 묶지 않는다.** React가 값을 되돌려 쓰면 한글
                     조합 중인 글자를 iOS가 놓친다. 값은 칸이 스스로 들고 있고,
                     우리는 보내기 단추를 띄우려고 따로 적어 둘 뿐이다
@@ -962,6 +948,23 @@ export function Chat() {
                         aria-label="메시지 입력"
                     />
                     {!focused && !draft && <span className="chat-hint">메시지</span>}
+                    {/* 이모티콘 단추는 **입력칸 안 오른쪽 끝**에 얹는다
+                        (사용자가 보여 준 모양이다). 왼쪽 `+` 옆에 나란히
+                        두었더니 눌러야 할 것이 왼쪽에 둘로 몰렸다 —
+                        오른쪽은 보내는 쪽이라 뜻으로도 그 편이 맞다.
+                        여러 줄로 늘어나면 아래쪽 끝에 붙어 따라 내려간다.
+                        **`onMouseDown`을 막지 않는다** — 여는 순간 키보드를
+                        내리는 것이 이 단추가 할 일이다(`toggleTray`). */}
+                    <button className={`chat-sticker-btn${tray ? ' on' : ''}`}
+                            onClick={toggleTray}
+                            aria-label="이모티콘" aria-pressed={tray}>
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9"
+                             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+                            <path d="M9 9.5h.01M15 9.5h.01" />
+                        </svg>
+                    </button>
                 </div>
                 {/* 보내기 버튼은 **적은 게 있을 때만** 나온다 — 카톡이 그렇다.
                     늘 놓아 두면 눌리지도 않는 버튼이 자리만 차지한다.
