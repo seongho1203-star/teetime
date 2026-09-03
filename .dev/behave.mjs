@@ -483,6 +483,53 @@ const notices = await page.$$eval('.chat-notice', e => e.map(x => x.textContent)
 ok(notices.some(t => t?.includes('지웠습니다')),
    `지운 안내는 가운데 한 줄로 남는다 (실제 ${JSON.stringify(notices)})`);
 
+/* ── 6-1-1-1. 이모티콘 ──────────────────────────────────────────
+ *
+ * **사진이 쓰던 `messages.image_url`을 같이 쓴다** — `sticker:<id>`로
+ * 시작하면 이모티콘이다. DB에 칸을 새로 만들지 않으려는 것이라, 그 약속이
+ * 깨지면 보내는 쪽과 그리는 쪽이 조용히 어긋난다.
+ * 화면으로는 안 보이는 것 셋을 여기서 붙든다.
+ */
+console.log('\n── 이모티콘 ──');
+await go('/#/chat', 1200);
+
+/* 그린 것부터. 말풍선을 두르지 않는다(이모지만 보낸 글과 같은 결이다). */
+const stickerShots = await page.$$eval('.chat-sticker', e => e.map(x => x.getAttribute('src')));
+ok(stickerShots.length === 2 && stickerShots.every(s => s?.includes('/stickers/')),
+   `보낸 이모티콘은 그림으로 그려진다 (실제 ${JSON.stringify(stickerShots)})`);
+ok(await page.$('.chat-sticker + .chat-bubble') === null
+   && (await page.$$eval('.chat-bubble', e => e.map(x => x.textContent))).every(t => t?.trim()),
+   '이모티콘에는 빈 말풍선이 안 붙는다');
+
+/* 서랍은 **닫힌 채로 시작한다** — 열려 있으면 대화가 반쯤 가린 채 열린다. */
+ok(await page.$('.sticker-tray') === null, '이모티콘 서랍은 닫힌 채로 시작한다');
+
+await page.click('[aria-label="이모티콘"]');
+await page.waitForTimeout(400);
+const trayCount = await page.$$eval('.sticker-btn', e => e.length);
+ok(trayCount > 30, `서랍을 열면 이모티콘이 늘어선다 (실제 ${trayCount}장)`);
+
+/* **누르면 곧바로 나간다.** 고르고 나서 `보내기`를 또 눌러야 하면 한
+   마디에 두 번이다. 보내는 값이 `sticker:`로 시작하는지까지 본다. */
+writes.length = 0;
+await page.click('.sticker-btn');
+await page.waitForTimeout(500);
+const stuck = writes.find(([w]) => w === 'messages POST')?.[1];
+ok(stuck?.image_url?.startsWith('sticker:'),
+   `누르면 곧바로 sticker: 값으로 나간다 (실제 ${JSON.stringify(stuck?.image_url)})`);
+ok(stuck?.body === '', '이모티콘 글에는 글자가 안 붙는다');
+
+/* **적어 두던 글은 안 지운다.** 사진과 달리 이모티콘은 그 자체로 한
+   마디라, 치던 글을 딸려 보내거나 지워 버리면 안 된다. */
+await page.fill('.chat-input .textarea', '이따 봬요');
+writes.length = 0;
+await page.click('.sticker-btn');
+await page.waitForTimeout(500);
+const kept = await page.inputValue('.chat-input .textarea');
+ok(kept === '이따 봬요', `이모티콘을 보내도 치던 글이 남는다 (실제 ${JSON.stringify(kept)})`);
+ok(writes.find(([w]) => w === 'messages POST')?.[1]?.body === '',
+   '치던 글이 이모티콘에 딸려 나가지도 않는다');
+
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
  * **홈 머리말의 얼굴 옆에 있다**(사용자 요청). `내 정보` 메뉴 안에 있을

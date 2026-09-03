@@ -351,6 +351,61 @@
 }
 .chat-photo svg { width: 23px; height: 23px; stroke: currentColor; }
 
+/* 이모티콘 단추. 사진 단추와 같은 결이라 값을 그대로 물려받는다 —
+   나란히 선 둘이 다르게 생기면 눌러야 할 것이 둘로 보인다. */
+.chat-input .btn.chat-sticker-btn {
+    width: 34px; height: 38px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    display: grid;
+    place-items: center;
+}
+.chat-sticker-btn svg { width: 23px; height: 23px; stroke: currentColor; }
+/* 열려 있는 동안만 켠다. 서랍에는 제목 줄이 없어 이 색이 곧 표시다. */
+.chat-input .btn.chat-sticker-btn.on { color: var(--brand); }
+
+/* 이모티콘 서랍. 입력칸 **위에** 서므로 키보드와 겹치지 않는다
+   (여는 순간 `toggleTray`가 키보드를 내린다).
+   높이를 화면의 1/3쯤으로 묶어 두고 안에서 굴린다 — 예순일곱 장을 다
+   펴면 대화가 통째로 가린다. */
+.sticker-tray {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 2px;
+    max-height: min(38vh, 300px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* 굴리다 손을 떼도 뒤의 대화가 따라 움직이지 않게 한다. */
+    overscroll-behavior: contain;
+    padding: var(--gap-xs) 2px;
+    border-radius: var(--r);
+    background: var(--surface-2);
+}
+.sticker-btn {
+    /* 정사각이라 그림이 찌그러지지 않는다. 한 칸 64px 언저리가 되어
+       `node .dev/audit.mjs`의 30px 바닥을 넉넉히 넘는다. */
+    aspect-ratio: 1;
+    padding: 3px;
+    border: 0;
+    background: transparent;
+    border-radius: var(--r-sm);
+    line-height: 0;
+}
+.sticker-btn img { width: 100%; height: 100%; object-fit: contain; }
+.sticker-btn:active { background: var(--surface-3); transform: scale(0.94); }
+
+/* 보낸 이모티콘. 사진보다 작게 — 말풍선 자리에 그림 하나가 서는 것이라
+   사진만 해지면 한 마디가 화면을 다 먹는다. 말풍선은 두르지 않는다
+   (이모지만 보낸 글을 크게 그리는 것과 같은 결이다). */
+.chat-sticker {
+    width: 118px;
+    height: 118px;
+    object-fit: contain;
+}
+
 /* 보낸 사진. 말풍선을 두르지 않고 사진만 둥글게 보여 준다.
    높이를 미리 잡아 두지 않으면 다 받은 뒤에 목록이 아래로 밀려
    읽던 자리가 튄다 — 세로 사진을 넉넉히 담을 만큼만 허용한다. */

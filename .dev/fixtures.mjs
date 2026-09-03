@@ -260,6 +260,13 @@ export const messages = [
     // 사진 말풍선 확인용. 바깥으로 요청이 나가지 않게 data URI로 둔다.
     { id: 'm6', room_id: 'room1', user_id: uid(2), body: '어제 18번 홀',
       image_url: 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22640%22%20height=%22420%22%3E%3Crect%20width=%22640%22%20height=%22420%22%20fill=%22%232c7a52%22/%3E%3Ccircle%20cx=%22500%22%20cy=%2290%22%20r=%2245%22%20fill=%22%23f6e27a%22/%3E%3Cpath%20d=%22M0%20320%20L200%20220%20L380%20320%20L640%20200%20L640%20420%20L0%20420Z%22%20fill=%22%231d5a3a%22/%3E%3C/svg%3E', created_at: iso(0, 9, 40) },
+    /* 이모티콘. 사진과 같은 칸(`image_url`)에 `sticker:`로 들어 있고,
+       말풍선 없이 그림만 그려진다. 남·나 양쪽을 둔다 — 내 쪽은 노란
+       말풍선이 사라지는 것까지 봐야 한다. */
+    { id: 'm14', room_id: 'room1', user_id: uid(2), body: '',
+      image_url: 'sticker:fighting', created_at: iso(0, 9, 42) },
+    { id: 'm15', room_id: 'room1', user_id: ME, body: '',
+      image_url: 'sticker:goodshot', created_at: iso(0, 9, 43) },
 ];
 
 /* 알림 받는 기기 한 대. `내 정보`의 대화 알림 스위치가 이 행의 `chat`을

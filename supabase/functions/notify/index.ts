@@ -239,9 +239,16 @@ async function planFor(hook: Hook): Promise<Note | null> {
         if (r.system === true) return shareNote(r);
 
         const who = await nameOf(r.user_id);
+        /* 사진과 이모티콘은 `messages.image_url` 한 칸을 같이 쓴다 —
+           `sticker:`로 시작하면 이모티콘이다(`src/lib/stickers.ts`).
+           **어느 이모티콘인지는 안 적는다** — 이름 목록을 발송기에도 두면
+           그림을 갈 때 양쪽을 고쳐야 한다. 알림창에서 궁금한 것은
+           '누가 뭘 보냈나'까지다. */
+        const pic = typeof r.image_url === 'string' ? r.image_url : '';
         const text = typeof r.body === 'string' && r.body.trim()
             ? r.body.trim()
-            : (r.image_url ? '사진을 보냈습니다' : '');
+            : (pic.startsWith('sticker:') ? '이모티콘을 보냈습니다'
+               : pic ? '사진을 보냈습니다' : '');
         return {
             // **무엇에 대한 알림인지 제목 첫머리에 세운다.** 알림창에는 제목
             // 한 줄만 보이는 때가 많아, 이름만 있으면 대화인지 모집인지

@@ -13,6 +13,7 @@ import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { emojiOnly } from '../lib/emoji';
+import { isSticker, stickerLabel, stickerRef, stickerSrc, STICKERS } from '../lib/stickers';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -55,6 +56,8 @@ export function Chat() {
     const [replyTo, setReplyTo] = useState<Message | null>(null);
     /** 캐럿 앞에 `@무엇`을 치고 있으면 그 글자. 아니면 null. */
     const [mention, setMention] = useState<string | null>(null);
+    /** 이모티콘 서랍이 열려 있는가. 열면 키보드를 내린다(아래 `toggleTray`). */
+    const [tray, setTray] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
 
     const chatRef = useRef<HTMLDivElement>(null);
@@ -641,8 +644,14 @@ export function Chat() {
      *  한글 마지막 글자가 조합 중이면 `draft`에는 아직 안 와 있을 수 있다. */
     const currentDraft = () => (taRef.current?.value ?? draft).trim();
 
-    /** 글 한 줄(또는 사진 한 장)을 보낸다. 보내기와 사진 올리기가 같이 쓴다. */
-    const push = async (body: string, imageUrl: string | null) => {
+    /**
+     * 글 한 줄(또는 사진 한 장, 이모티콘 하나)을 보낸다.
+     * 보내기 · 사진 올리기 · 이모티콘이 같이 쓴다.
+     *
+     * `keepDraft`는 이모티콘 몫이다 — 그건 치던 글과 상관없는 한 마디라,
+     * 보냈다고 적어 두던 글을 지워 버리면 안 된다.
+     */
+    const push = async (body: string, imageUrl: string | null, keepDraft = false) => {
         if (!roomId) return false;
         const { data: row, error: err } = await supabase
             .from('messages')
@@ -658,7 +667,7 @@ export function Chat() {
         if (err) { toast(readableError(err), 'error'); return false; }
 
         setReplyTo(null);
-        clearDraft();
+        if (!keepDraft) clearDraft();
         atBottom.current = true;
         // 실시간 이벤트가 오기 전에 먼저 그린다. 내 글이 늦게 뜨면 답답하다.
         if (row) setMessages(prev =>
@@ -685,6 +694,35 @@ export function Chat() {
         await push(body, null);
         setSending(false);
         taRef.current?.focus();
+    };
+
+    /**
+     * 이모티콘 서랍을 여닫는다.
+     *
+     * **열 때 키보드를 내린다.** 서랍은 입력칸 위에 서는데, 키보드가 올라와
+     * 있으면 그 위로 밀려 화면 밖으로 나간다. 닫을 때는 되돌려 놓아야
+     * 하던 말을 이어 칠 수 있다.
+     */
+    const toggleTray = () => {
+        setTray(open => {
+            if (open) taRef.current?.focus();
+            else taRef.current?.blur();
+            return !open;
+        });
+    };
+
+    /**
+     * 이모티콘 한 장을 보낸다.
+     *
+     * **적어 둔 글은 건드리지 않는다** — 사진과 달리 이모티콘은 그 자체로
+     * 한 마디라, 치던 글을 딸려 보내면 엉뚱한 곳에 붙는다.
+     * 서랍은 열어 둔다(카톡이 그렇다). 잇달아 보내는 일이 흔하다.
+     */
+    const sendSticker = async (id: string) => {
+        if (!roomId || sending) return;
+        setSending(true);
+        await push('', stickerRef(id), true);
+        setSending(false);
     };
 
     /**
@@ -857,6 +895,24 @@ export function Chat() {
                     onChange={onPickPhoto} hidden
                 />
 
+                {/* 이모티콘 서랍. **누르면 곧바로 나간다** — 고르고 나서
+                    `보내기`를 또 눌러야 하면 한 마디에 두 번이다(투표의
+                    날짜 고르기·조 편성 조건과 같은 결이다).
+                    그림은 화면에 보이는 것만 받아 온다(`loading="lazy"`) —
+                    예순일곱 장을 한꺼번에 받으면 LTE에서 서랍이 늦게 뜬다. */}
+                {tray && (
+                    <div className="sticker-tray">
+                        {STICKERS.map(s => (
+                            <button key={s.id} className="sticker-btn"
+                                    onClick={() => sendSticker(s.id)}
+                                    disabled={sending} aria-label={s.label}>
+                                <img src={stickerSrc(stickerRef(s.id))}
+                                     alt="" loading="lazy" />
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {/* 사진 · 입력칸 · 보내기 한 줄. 위의 인용과 언급 목록이
                     같은 상자 안에 쌓이므로 이 줄만 따로 묶는다. */}
                 <div className="chat-bar">
@@ -868,6 +924,20 @@ export function Chat() {
                                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <path d="M12 5.5v13M5.5 12h13" />
                           </svg>}
+                </button>
+                {/* 이모티콘 단추. 사진 단추와 같은 결(테두리 없는 글자색)이라
+                    나란히 서도 눌러야 할 것이 둘로 보이지 않는다.
+                    열려 있는 동안만 분홍으로 켜 둔다 — 지금 무엇이 떠 있는지가
+                    그 색뿐이다(서랍에는 제목 줄이 없다). */}
+                <button className={`btn ghost chat-sticker-btn${tray ? ' on' : ''}`}
+                        onClick={toggleTray}
+                        aria-label="이모티콘" aria-pressed={tray}>
+                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+                        <path d="M9 9.5h.01M15 9.5h.01" />
+                    </svg>
                 </button>
                 {/* **`value`로 묶지 않는다.** React가 값을 되돌려 쓰면 한글
                     조합 중인 글자를 iOS가 놓친다. 값은 칸이 스스로 들고 있고,
@@ -914,10 +984,11 @@ export function Chat() {
     );
 }
 
-/** 인용에 보일 한 줄. 사진만 보낸 글은 글자가 없다. */
+/** 인용에 보일 한 줄. 사진·이모티콘만 보낸 글은 글자가 없다. */
 function preview(m: Message): string {
     const text = m.body.trim();
     if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
+    if (isSticker(m.image_url)) return stickerLabel(m.image_url!);
     return m.image_url ? '사진' : '';
 }
 
@@ -975,8 +1046,11 @@ function Bubble({
        사진에 함께 적은 글은 그대로 둔다 — 사진 아래 붙는 한 줄이라
        거기서만 글자가 커지면 짜임이 무너진다. */
     const big = !message.image_url && emojiOnly(message.body);
-    /** 사진에 함께 적은 글. 있으면 그 줄이 이 덩어리의 마지막 줄이 된다. */
-    const caption = !!message.image_url && !!message.body;
+    /** 이모티콘인가. 사진과 같은 칸(`image_url`)에 `sticker:`로 들어 있다. */
+    const sticker = isSticker(message.image_url);
+    /** 사진에 함께 적은 글. 있으면 그 줄이 이 덩어리의 마지막 줄이 된다.
+     *  이모티콘에는 글이 안 붙으므로(`sendSticker`) 여기 걸릴 일이 없다. */
+    const caption = !!message.image_url && !sticker && !!message.body;
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
@@ -1057,7 +1131,14 @@ function Bubble({
                 )}
                 {quote}
                 <div className="chat-line">
-                    {message.image_url
+                    {sticker
+                        // 이모티콘. 사진과 달리 **누르는 곳이 아니다** —
+                        // 원본을 새 창에 띄워 봐야 같은 그림이고, 앱에 딸린
+                        // 그림이라 저장할 것도 없다.
+                        ? <img className="chat-sticker" src={stickerSrc(message.image_url!)}
+                               alt={stickerLabel(message.image_url!)}
+                               loading="lazy" onLoad={onImageLoad} />
+                        : message.image_url
                         // 사진은 말풍선 없이 그 자체로 보여 준다. 눌러서 원본을
                         // 새 창에 띄운다 — 저장은 거기서 길게 눌러 한다.
                         ? <a className="chat-photo-link" href={message.image_url}
