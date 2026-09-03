@@ -52,9 +52,9 @@ export function Chat() {
      * 거기서만 56ms가 났다 — 글을 치기 시작하는 바로 그 순간이라 제일
      * 눈에 띈다. 그래서 아예 리액트를 거치지 않는다.
      *
-     * 이 값이 정하는 것은 **보내기 단추를 띄울까** 하나뿐이다(안내 글씨는
-     * 초점만 보므로 치는 동안 바뀔 일이 없다). 그건 CSS로 충분하다 —
-     * 밀어서 답장할 때 위치를 state가 아니라 요소에 직접 주는 것과 같은 결이다.
+     * 이 값을 보는 곳은 둘 다 **다시 그려지는 순간에만** 본다 — 초점이
+     * 떠날 때의 안내 글씨와, 초점이 오갈 때의 보내기 단추다. 그래서 글자를
+     * 치는 동안에는 아무 일도 안 일어난다.
      * **state로 되돌리지 말 것.**
      */
     const hasText = useRef(false);
@@ -618,15 +618,14 @@ export function Chat() {
     }, [pinBottom]);
 
     /**
-     * 글자가 있는지를 **입력칸 상자의 클래스로만** 알린다.
+     * 글자가 있는지를 **곁에 적어 두기만** 한다(리액트를 안 거친다).
      *
-     * 리액트를 거치지 않으므로 글자를 쳐도 화면이 다시 그려지지 않는다.
-     * 보내기 단추가 뜨고 지는 것은 CSS(`.chat-input.has-text .chat-send`)가 한다.
+     * 읽는 곳은 둘 다 **다시 그려지는 순간에만** 본다 — 안내 글씨(초점이
+     * 떠날 때)와 보내기 단추(초점이 오갈 때)다. 그래서 글자를 쳐도 화면이
+     * 다시 그려지지 않는다.
      */
     const markText = useCallback((value: string) => {
-        const on = value.trim() !== '';
-        hasText.current = on;
-        barRef.current?.classList.toggle('has-text', on);
+        hasText.current = value.trim() !== '';
     }, []);
 
     const clearDraft = () => {
@@ -918,7 +917,7 @@ export function Chat() {
                 })}
             </div>
 
-            <div className={`chat-input${picked ? ' has-pick' : ''}`} ref={barRef}>
+            <div className="chat-input" ref={barRef}>
                 {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**
                     (사용자 요청) — 글을 마저 적어 한 마디로 함께 보낸다.
                     그림을 누르면 그대로 나가고(글이 없어도 된다), `✕`로 뗀다.
@@ -1048,17 +1047,25 @@ export function Chat() {
                               </svg>}
                     </button>
                 </div>
-                {/* 보내기 버튼은 **적은 게 있을 때만** 나온다 — 카톡이 그렇다.
-                    늘 놓아 두면 눌리지도 않는 버튼이 자리만 차지한다.
-                    **뜨고 지는 것은 CSS가 한다**(`.chat-input.has-text`) —
-                    리액트로 붙였다 떼면 첫 글자에서 화면이 통째로 다시
-                    그려져 거기서만 56ms가 났다(`.dev/type-bench.mjs`).
+                {/* 보내기 버튼은 **늘 그 자리에 있다**(사용자 제보 — 카톡은
+                    부드러운데 여기는 깜빡였다). 붙였다 떼면 두 가지가 같이
+                    나빠진다: 단추가 생길 때마다 글칸이 좁아져 **치던 글이
+                    옆으로 밀리고**, 한글 조합 중에 값이 잠깐 비어 보이는
+                    순간마다 **깜빡인다**. 뒤엣것은 댓글의 `등록` 단추에서
+                    이미 겪은 그것이다.
+                    그래서 **켜지는 기준도 거기와 같은 초점**이다 — 글자로
+                    정하면 조합 중에 다시 깜빡인다. 초점이 떠 있어도 적어 둔
+                    글이나 골라 둔 이모티콘이 있으면 켜 둔다.
+                    빈칸일 때 눌러도 `send()`가 그냥 돌아선다.
+                    **글자마다 도는 값이 아니다** — `focused`는 초점이 오갈
+                    때만 바뀌므로 치는 동안에는 화면이 다시 안 그려진다.
                     onMouseDown을 막아야 입력칸이 초점을 안 놓친다 — 키보드가
                     내려가지 않는 이유가 이 한 줄이다. 누르는 것 자체는 그대로
                     onClick으로 온다. */}
                 <button className="btn primary chat-send" onClick={send}
                         onMouseDown={e => e.preventDefault()}
-                        disabled={sending} aria-label="보내기">
+                        disabled={sending || (!focused && !hasText.current && !picked)}
+                        aria-label="보내기">
                     <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
                          strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="M4 12h15M13 6l6 6-6 6" />

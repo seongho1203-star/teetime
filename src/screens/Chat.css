@@ -494,20 +494,20 @@
    하나뿐이라 강조색이 제자리를 찾는다 — 말풍선까지 분홍으로 칠하면
    그 뜻이 없어진다. `.btn.primary`가 이미 분홍이라 색은 물려받고
    모양만 잡는다. */
-/* 보내기 단추. **적은 게 있거나 이모티콘을 골랐을 때만 보인다** —
-   그 판단을 리액트가 아니라 여기서 한다. 붙였다 떼면 첫 글자에서 화면이
-   통째로 다시 그려져 거기서만 56ms가 났다(`.dev/type-bench.mjs`).
-   글자가 들어오는 순간 `Chat.tsx`의 `markText()`가 `has-text`만 켠다. */
+/* 보내기 단추는 **늘 그 자리에 있다**(사용자 제보 — 카톡은 부드러운데
+   여기는 깜빡였다). 붙였다 떼면 생길 때마다 글칸이 좁아져 치던 글이 옆으로
+   밀리고, 한글 조합 중에는 깜빡인다. 보낼 것이 없을 때는 흐려질 뿐이다
+   (`.btn.primary:disabled` — 회색 바탕에 흐린 글자).
+   **`display`로 감추지 말 것.** 자리가 없어졌다 생기는 것이 곧 그 밀림이다. */
 .chat-input .btn.chat-send {
     width: 34px; height: 34px;
     flex: 0 0 auto;
     padding: 0;
     margin-bottom: 2px;
     border-radius: 50%;
-    display: none;
+    /* 켜지고 꺼질 때 색만 부드럽게 넘어간다 — 자리는 안 움직인다. */
+    transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
-.chat-input.has-text .btn.chat-send,
-.chat-input.has-pick .btn.chat-send { display: grid; }
 .chat-send svg { width: 18px; height: 18px; stroke: currentColor; }
 
 /* 알약 모양 입력칸 안에서는 크기 조절 손잡이가 어색하다.

@@ -490,24 +490,44 @@ ok(notices.some(t => t?.includes('지웠습니다')),
  * 깨지면 보내는 쪽과 그리는 쪽이 조용히 어긋난다.
  * 화면으로는 안 보이는 것 셋을 여기서 붙든다.
  */
-/* ── 6-1-1-0. 보내기 단추는 CSS가 띄운다 ────────────────────────
+/* ── 6-1-1-0. 보내기 단추는 늘 그 자리에 있다 ───────────────────
  *
- * **리액트로 붙였다 떼면 첫 글자에서 화면이 통째로 다시 그려진다** —
- * 말풍선 쉰 개가 다시 그려지느라 거기서만 56ms가 났고, 그게 '치면
- * 끊긴다'는 제보였다(`node .dev/type-bench.mjs`로 잰 값이다).
- * 지금은 단추가 늘 DOM에 있고 `.chat-input.has-text`가 보이게 한다 —
- * **있는지만 보면 늘 통과하므로 눈에 보이는지를 봐야 한다.**
+ * **붙였다 떼면 두 가지가 같이 나빠진다**(사용자 제보 — 카톡은 부드러운데
+ * 여기는 깜빡였다): 단추가 생길 때마다 글칸이 44px 좁아져 **치던 글이 옆으로
+ * 밀리고**, 한글 조합 중에 값이 잠깐 비어 보이는 순간마다 **깜빡인다**.
+ * 그래서 늘 두고 흐려질 뿐이며, 켜지는 기준은 **초점**이다(댓글의 `등록`과 같다).
  */
 console.log('\n── 보내기 단추 ──');
 await go('/#/chat', 1200);
-ok(await page.$('.chat-send') !== null && !(await page.isVisible('.chat-send')),
-   '빈칸일 때는 보내기 단추가 안 보인다');
-await page.fill('.chat-input .textarea', '안녕하세요');
+const width = () => page.evaluate(
+    () => Math.round(document.querySelector('.chat-input .textarea').getBoundingClientRect().width));
+
+ok(await page.isVisible('.chat-send'), '아무것도 안 적어도 단추는 그 자리에 있다');
+ok(await page.getAttribute('.chat-send', 'disabled') !== null,
+   '보낼 것이 없으면 꺼져 있다');
+
+const w0 = await width();
+await page.click('.chat-input .textarea');
 await page.waitForTimeout(300);
-ok(await page.isVisible('.chat-send'), '글을 치면 보내기 단추가 나온다');
-await page.fill('.chat-input .textarea', '   ');
-await page.waitForTimeout(300);
-ok(!(await page.isVisible('.chat-send')), '공백만 남으면 다시 사라진다');
+ok(await page.getAttribute('.chat-send', 'disabled') === null,
+   '글칸을 누르면 켜진다 — 글자로 정하면 한글 조합 중에 깜빡인다');
+
+/* **치는 동안 글칸 너비가 안 바뀌어야 한다.** 예전에는 첫 글자에서
+   314 → 270으로 튀었고 그게 '치던 글이 밀리는' 정체였다. */
+const widths = [w0];
+for (const ch of '무등산에서 만나요') {
+    await page.type('.chat-input .textarea', ch);
+    await page.waitForTimeout(40);
+    widths.push(await width());
+}
+ok(widths.every(w => w === widths[0]),
+   `치는 동안 글칸 너비가 안 바뀐다 (실제 ${[...new Set(widths)].join('→')})`);
+
+/* 딴 데 눌렀다 와도 적어 둔 글이 있으면 켜져 있어야 한다. */
+await page.click('.chat-list');
+await page.waitForTimeout(500);
+ok(await page.getAttribute('.chat-send', 'disabled') === null,
+   '초점이 떠도 적어 둔 글이 있으면 켜져 있다');
 await page.fill('.chat-input .textarea', '');
 await page.waitForTimeout(200);
 
