@@ -446,6 +446,53 @@ export function Chat() {
         };
     }, [applyKeyboard, syncKeyboard, watchViewport]);
 
+    /**
+     * **홈으로 나갔다 돌아오면 키보드 자리가 그대로 남던 것.**
+     *
+     * 키보드를 올려 둔 채 홈으로 나갔다 조금 있다 돌아오면, 키보드는
+     * 사라졌는데 **입력칸이 키보드가 있던 자리에 그대로 떠 있고** 그
+     * 아래가 텅 빈 채로 굳었다(실기기 제보 · 사진으로 확인).
+     *
+     * 우리가 그 사실을 알 길이 없어서다 — 초점은 입력칸에 그대로 남아
+     * `blur`가 안 오므로 `typing`이 계속 참이고, 게다가 키보드가 다
+     * 올라온 뒤 **붙박아 둔(`locked`)** 상태라 크기가 바뀌어도 다시 안 잰다.
+     * 그래서 `--kb`·`--vvh`가 옛 키보드 높이 그대로 남는다.
+     *
+     * 돌아오는 순간 **붙박기를 풀고 실제 높이로 다시 판단한다.** 키보드가
+     * 정말로 내려가 있으면 초점도 함께 뗀다 — 안 떼면 `typing`이 계속
+     * 거짓말을 해서 다음에 또 같은 자리에 갇힌다.
+     *
+     * **두 번 본다.** 돌아온 첫 프레임에는 iOS가 아직 크기를 되돌리는
+     * 중이라, 0.25초 뒤에 한 번 더 봐야 제 높이가 나온다.
+     */
+    useEffect(() => {
+        const check = () => {
+            const s = kbRef.current;
+            const vv = window.visualViewport;
+            const vh = Math.round(vv ? vv.height : window.innerHeight);
+            const gap = document.documentElement.clientHeight - vh;
+            if (gap <= 120) {              // 키보드가 정말로 없다
+                s.typing = false;
+                setFocused(false);
+                if (document.activeElement === taRef.current) taRef.current?.blur();
+            }
+            applyKeyboard(true);
+        };
+        const back = () => {
+            if (document.visibilityState !== 'visible') return;
+            kbRef.current.locked = false;   // 먼저 풀어야 다시 잰다
+            check();
+            setTimeout(check, 250);
+        };
+        document.addEventListener('visibilitychange', back);
+        // 뒤로 가기로 되살아난 화면(bfcache)에도 같은 일이 생긴다.
+        window.addEventListener('pageshow', back);
+        return () => {
+            document.removeEventListener('visibilitychange', back);
+            window.removeEventListener('pageshow', back);
+        };
+    }, [applyKeyboard]);
+
     const blurTimer = useRef(0);
 
     const onComposerFocus = () => {

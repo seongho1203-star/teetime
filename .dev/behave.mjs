@@ -631,6 +631,38 @@ await page.waitForTimeout(300);
 ok(await boxH() === oneLine,
    `다 지우면 한 줄로 돌아온다 (실제 ${await boxH()}px, 한 줄은 ${oneLine}px)`);
 
+/* ── 6-1-1-2. 홈으로 나갔다 오면 키보드 자리가 안 남는가 ──────────
+ *
+ * 키보드를 올려 둔 채 홈으로 나갔다 돌아오면, 키보드는 사라졌는데
+ * **입력칸이 그 자리에 그대로 떠 있고 아래가 텅 비었다**(실기기 제보).
+ * 초점이 입력칸에 남아 `blur`가 안 오므로 `typing`이 계속 참이고,
+ * 키보드가 다 올라온 뒤 붙박아 둔 탓에 다시 재지도 않아서다.
+ *
+ * 헤드리스에는 키보드가 없지만 **그 상태 자체는 그대로 만들 수 있다** —
+ * 글칸을 눌러 `kb-open`이 서고 붙박일 때까지 기다린 뒤, 돌아온 것처럼
+ * `visibilitychange`를 던진다. 되살아나면 `kb-open`이 걷혀야 한다. */
+console.log('\n── 홈에 갔다 돌아오기 ──');
+await go('/#/chat', 1200);
+await page.click('.chat-input .textarea');
+await page.waitForTimeout(800);                       // 붙박일 때까지(650ms)
+ok(await page.evaluate(() => document.body.classList.contains('kb-open')),
+   '글칸을 누르면 키보드 자리가 선다');
+
+await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+await page.waitForTimeout(500);                       // 두 번째 확인(250ms)까지
+const stuck = await page.evaluate(() => ({
+    open: document.body.classList.contains('kb-open'),
+    kb: document.documentElement.style.getPropertyValue('--kb'),
+    vvh: document.documentElement.style.getPropertyValue('--vvh'),
+    focused: document.activeElement?.className ?? '',
+}));
+ok(!stuck.open,
+   `돌아오면 키보드 자리가 걷힌다 (실제 ${stuck.open ? '그대로 남음' : '걷힘'})`);
+ok(stuck.vvh === '',
+   `돌아오면 옛 화면 높이가 안 남는다 (실제 ${JSON.stringify(stuck.vvh)})`);
+ok(!stuck.focused.includes('textarea'),
+   `돌아오면 글칸 초점도 뗀다 — 안 떼면 다음에 또 갇힌다 (실제 ${JSON.stringify(stuck.focused)})`);
+
 console.log('\n── 이모티콘 ──');
 await go('/#/chat', 1200);
 
