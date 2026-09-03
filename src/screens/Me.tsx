@@ -338,8 +338,11 @@ export function Me() {
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
             {/* 빌드 시각·뱃지 진단 줄은 걷어냈다(사용자 요청). 그때그때
-                필요하면 다시 넣더라도, 평소에 회원이 볼 화면에는 두지 않는다. */}
-            <p className="xs faint me-foot">앱제작: 악마제리</p>
+                필요하면 다시 넣더라도, 평소에 회원이 볼 화면에는 두지 않는다.
+                **지금은 잠시 도로 붙여 두었다** — 글칸이 깜빡인다는 제보를
+                쫓는 중인데, 폰에 옛 화면이 남은 것인지 코드가 아직 틀린
+                것인지 가릴 방법이 그것뿐이다. 가려지면 이 한 줄만 지운다. */}
+            <p className="xs faint me-foot">앱제작: 악마제리 · 판 {__BUILD__}</p>
         </div>
     );
 }
