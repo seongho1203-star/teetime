@@ -27,6 +27,8 @@ import { Me } from './screens/Me';
 import { Members } from './screens/Members';
 import { Settle } from './screens/Settle';
 import { Help } from './screens/Help';
+// 임시 — 글칸 깜빡임을 폰에서 가리려고 둔 화면. 가려지면 지운다.
+import { KbTest } from './screens/KbTest';
 
 /**
  * 라우팅은 **해시 방식**(`/#/rounds`)을 쓴다.
@@ -81,6 +83,7 @@ function Gate() {
                 <Route path="/members" element={<Members />} />
                 <Route path="/settle" element={<Settle />} />
                 <Route path="/help" element={<Help />} />
+                <Route path="/kbtest" element={<KbTest />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             <TabBar />

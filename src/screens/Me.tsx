@@ -342,6 +342,11 @@ export function Me() {
                 **지금은 잠시 도로 붙여 두었다** — 글칸이 깜빡인다는 제보를
                 쫓는 중인데, 폰에 옛 화면이 남은 것인지 코드가 아직 틀린
                 것인지 가릴 방법이 그것뿐이다. 가려지면 이 한 줄만 지운다. */}
+            {/* 임시 — 글칸 깜빡임을 가리는 시험 화면. 가려지면 이 줄과
+                위의 판 표시, `screens/KbTest.tsx`, route를 함께 지운다. */}
+            <Link className="btn ghost block" to="/kbtest"
+                  style={{ marginTop: 10 }}>⌨️ 글칸 시험</Link>
+
             <p className="xs faint me-foot">앱제작: 악마제리 · 판 {__BUILD__}</p>
         </div>
     );
