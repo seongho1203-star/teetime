@@ -531,6 +531,59 @@ ok(await page.getAttribute('.chat-send', 'disabled') === null,
 await page.fill('.chat-input .textarea', '');
 await page.waitForTimeout(200);
 
+/* ── 6-1-1-1. 조합 중에는 입력칸을 안 건드린다 ─────────────────────
+ *
+ * `광`을 칠 때 **글씨가 깜빡인다**는 제보가 있었다. 원인은 `growDraft()`가
+ * 글자마다 `height: auto`로 되돌렸다 다시 넣은 것이다 — 조합 중인 칸의
+ * 배치를 다시 잡게 하니 WebKit이 조합 중인 글자를 다시 그렸다.
+ * 지금은 **넘칠 때만** 한 번 늘린다. 여기서 그걸 숫자로 붙든다.
+ *
+ * 헤드리스에는 한글 IME가 없어 CDP의 조합 API로 `ㄱ→고→과→광`을 흉내 낸다.
+ * `style` 속성이 건드려질 때마다 관찰자가 센다 — setter를 가로채는 방법은
+ * 크로미움에서 원래 것을 못 찾아 값이 아예 안 먹는다(실제로 그렇게 헛짚었다). */
+const ta = '.chat-input .textarea';
+await page.evaluate(sel => {
+    window.__touch = 0;
+    new MutationObserver(ms => { window.__touch += ms.length; })
+        .observe(document.querySelector(sel), { attributes: true, attributeFilter: ['style'] });
+}, ta);
+const cdp = await page.context().newCDPSession(page);
+const touched = () => page.evaluate(() => window.__touch);
+const boxH = () => page.evaluate(sel => document.querySelector(sel).offsetHeight, ta);
+
+await page.click(ta);
+await page.waitForTimeout(250);
+
+const t0 = await touched();
+for (const step of ['ㄱ', '고', '과', '광']) {
+    await cdp.send('Input.imeSetComposition',
+                   { text: step, selectionStart: step.length, selectionEnd: step.length });
+    await page.waitForTimeout(60);
+}
+await cdp.send('Input.insertText', { text: '광' });
+await page.waitForTimeout(200);
+ok(await touched() - t0 === 0,
+   `\`광\`을 조합하는 동안 칸 높이를 안 건드린다 (실제 ${await touched() - t0}번)`);
+
+const t1 = await touched();
+await cdp.send('Input.insertText', { text: '주에서 만나요' });
+await page.waitForTimeout(200);
+ok(await touched() - t1 === 0,
+   `한 줄에 들어가는 동안에는 안 건드린다 (실제 ${await touched() - t1}번)`);
+
+/* 길어지면 **늘어나기는 해야 한다** — 안 늘어나면 앞줄이 위로 잘려 안 보인다. */
+const oneLine = await boxH();
+await cdp.send('Input.insertText', {
+    text: '. 오늘은 바람이 많이 부니 겉옷을 꼭 챙겨 오시고 티오프보다 삼십 분 일찍 도착해 주세요.' });
+await page.waitForTimeout(300);
+const grown = await boxH();
+ok(grown > oneLine, `여러 줄이 되면 칸이 늘어난다 (${oneLine} → ${grown}px)`);
+
+await page.fill(ta, '');
+await page.waitForTimeout(300);
+ok(await boxH() === oneLine,
+   `다 지우면 한 줄로 돌아온다 (실제 ${await boxH()}px, 한 줄은 ${oneLine}px)`);
+
 console.log('\n── 이모티콘 ──');
 await go('/#/chat', 1200);
 

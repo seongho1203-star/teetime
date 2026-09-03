@@ -601,19 +601,42 @@ export function Chat() {
      * 위 한도(`max-height` 120px)는 CSS가 잡고, 거기 닿으면 그때부터
      * 안에서 스크롤된다. 늘어난 만큼 목록이 밀리므로 바닥에 다시 붙인다.
      */
+    /** 지난번에 잰 글자 수. **줄어들 때만** 높이를 되돌려 다시 잰다. */
+    const lastLen = useRef(0);
+
     const growDraft = useCallback(() => {
         const el = taRef.current;
         if (!el) return;
-        const was = el.style.height;
-        el.style.height = 'auto';
         /* `box-sizing: border-box`라 height에 테두리가 포함된다. `scrollHeight`는
            안 그래서 그냥 넣으면 2px이 모자라 잔스크롤이 남는다. 그 차이를 잰다. */
-        const border = el.offsetHeight - el.clientHeight;
-        const now = `${el.scrollHeight + border}px`;
+        const border = () => el.offsetHeight - el.clientHeight;
+
+        const len = el.value.length;
+        const shrank = len < lastLen.current;
+        lastLen.current = len;
+
+        if (!shrank) {
+            /* **글자가 늘 때는 칸을 아예 안 건드린다.** 넘칠 때만 한 번 늘린다.
+               예전에는 글자마다 `height: auto`로 되돌렸다 다시 넣었는데,
+               **그게 조합 중인 한글을 다시 그리게 했다** — `광`을 칠 때
+               글씨가 깜빡인다는 제보가 그것이다(사용자가 카톡과 견줘 짚어
+               줬다. 카톡은 네이티브 칸이라 이런 일이 없다).
+               읽기만 하는 것은 괜찮다 — 방금 친 글자를 그리느라 브라우저가
+               어차피 배치를 다시 잡은 뒤다. */
+            const need = el.scrollHeight + border();
+            if (need > el.offsetHeight) {
+                el.style.height = `${need}px`;
+                pinBottom();
+            }
+            return;
+        }
+
+        /* 지웠을 때만 되돌려 다시 잰다. **조합 중에는 여기로 안 온다** —
+           `ㄱ→고→과→광`은 글자 수가 그대로다. */
+        const was = el.style.height;
+        el.style.height = 'auto';
+        const now = `${el.scrollHeight + border()}px`;
         el.style.height = now;
-        /* **높이가 그대로면 목록은 안 건드린다.** `pinBottom()`이 목록의
-           `scrollHeight`를 읽어 배치를 한 번 더 다시 재게 하는데, 글자를 칠
-           때 줄 수가 바뀌는 일은 드물다 — 스무 글자에 한 번쯤이다. */
         if (now !== was) pinBottom();
     }, [pinBottom]);
 
@@ -635,6 +658,7 @@ export function Chat() {
             taRef.current.style.height = '';
         }
         markText('');
+        lastLen.current = 0;
         setMention(null);
     };
 
