@@ -13,7 +13,7 @@ import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { emojiOnly } from '../lib/emoji';
-import { isSticker, stickerLabel, stickerRef, stickerSrc, STICKERS } from '../lib/stickers';
+import { isSticker, stickerLabel, stickerRef, stickerSrc, STICKER_GROUPS } from '../lib/stickers';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -74,6 +74,9 @@ export function Chat() {
     const [mention, setMention] = useState<string | null>(null);
     /** 이모티콘 서랍이 열려 있는가. 열면 키보드를 내린다(아래 `toggleTray`). */
     const [tray, setTray] = useState(false);
+    /** 서랍에서 보고 있는 묶음. **기억해 두지 않는다** — 나갔다 오면 첫
+     *  묶음(골프)으로 돌아간다(회원 명단의 차례 고르기와 같은 결이다). */
+    const [group, setGroup] = useState(STICKER_GROUPS[0].id);
     /** 골라 둔 이모티콘. 곧바로 나가지 않고 **입력칸 위에 미리보기로 물려
      *  둔다** — 글을 마저 적어 함께 보낼 수 있어야 한다(사용자 요청). */
     const [picked, setPicked] = useState<string | null>(null);
@@ -1211,18 +1214,46 @@ export function Chat() {
                     눌러야 하면 한 마디에 두 번이다(투표의 날짜 고르기·조 편성
                     조건과 같은 결이다).
                     그림은 화면에 보이는 것만 받아 온다(`loading="lazy"`) —
-                    아흔 장을 한꺼번에 받으면 LTE에서 서랍이 늦게 뜬다. */}
+                    백예순 장을 한꺼번에 받으면 LTE에서 서랍이 늦게 뜬다.
+
+                    **묶음마다 탭이 하나다**(사용자 요청 — 카카오톡처럼).
+                    한 줄로 늘어놓았더니 백예순 장 가운데 아래쪽 것은 아무도
+                    끝까지 굴려 보지 않았다. 탭은 **위**에 둔다 — 카톡은 아래에
+                    두지만 이 앱은 화면 맨 아래가 탭바(홈·공지·…) 자리라
+                    서랍이 그 밑으로 깔려 가려진다.
+                    그림글자만 두지 않고 **이름을 함께 적는다** — 그림 하나로는
+                    무슨 묶음인지 알 수 없고, 그림글자가 없는 기기에서는 네모난
+                    두부만 남는다. 일곱 개가 좁은 화면에서 넘치므로 옆으로
+                    굴러가게 두었다. */}
                 {tray && (
                     <div className="sticker-tray">
-                        {STICKERS.map(s => (
-                            <button key={s.id}
-                                    className={`sticker-btn${picked === s.id ? ' on' : ''}`}
-                                    onClick={() => pickSticker(s.id)}
-                                    aria-label={s.label}>
-                                <img src={stickerSrc(stickerRef(s.id))}
-                                     alt="" loading="lazy" />
-                            </button>
-                        ))}
+                        <div className="sticker-tabs" role="tablist"
+                             aria-label="이모티콘 묶음">
+                            {STICKER_GROUPS.map(gr => (
+                                <button key={gr.id} type="button" role="tab"
+                                        className={`sticker-tab${gr.id === group ? ' on' : ''}`}
+                                        aria-selected={gr.id === group}
+                                        onClick={() => setGroup(gr.id)}>
+                                    <span aria-hidden="true">{gr.tab}</span>
+                                    {gr.name}
+                                </button>
+                            ))}
+                        </div>
+                        {/* **`key`가 묶음이라 탭을 옮기면 새로 만들어진다** —
+                            굴려 둔 자리가 그대로 남으면 장수가 적은 묶음으로
+                            옮겼을 때 빈 칸만 보인다. */}
+                        <div className="sticker-grid" key={group}>
+                            {(STICKER_GROUPS.find(gr => gr.id === group)
+                              ?? STICKER_GROUPS[0]).stickers.map(s => (
+                                <button key={s.id}
+                                        className={`sticker-btn${picked === s.id ? ' on' : ''}`}
+                                        onClick={() => pickSticker(s.id)}
+                                        aria-label={s.label}>
+                                    <img src={stickerSrc(stickerRef(s.id))}
+                                         alt="" loading="lazy" />
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

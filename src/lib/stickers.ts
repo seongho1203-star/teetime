@@ -2,7 +2,7 @@
  * 이모티콘(스티커).
  *
  * **그림은 `public/stickers/`에 있고 GitHub Pages가 그대로 내준다.**
- * Supabase Storage에 올리지 않는다 — 예순일곱 장을 거기 두면 무료 통신량
+ * Supabase Storage에 올리지 않는다 — 백예순 장을 거기 두면 무료 통신량
  * (월 5GB)을 대화 사진과 나눠 쓰게 되는데, 이건 회원이 올린 것이 아니라
  * 앱에 딸린 붙박이 그림이라 저장소에 두는 것이 맞다.
  *
@@ -14,123 +14,221 @@
  * 같이 쓴다(`sticker:`로 시작하면 이모티콘). 사용자가 손으로 붙여넣어야
  * 하는 SQL이 늘지 않고, 스키마를 아직 안 돌린 저장소에서도 사진과 똑같이
  * 동작한다.
+ *
+ * **묶음(카테고리)이 곧 서랍의 탭이다**(사용자 요청 — 카카오톡처럼).
+ * 백예순 장을 한 줄로 늘어놓으면 아래쪽 것은 아무도 못 본다. 카톡이
+ * 이모티콘 '세트'마다 탭을 두는 것과 같은 방식이라, 여기 묶음도
+ * **그림이 나온 세트**를 따른다 — 뜻으로 나누면 `화이팅!`이 어느 탭에
+ * 있는지를 매번 헷갈린다.
+ * **묶음의 차례가 곧 탭의 차례다.** 앱의 주제인 골프를 맨 앞에 둔다.
  */
 
 export const STICKER_MARK = 'sticker:';
 
 export type Sticker = { id: string; label: string };
 
-/** 이모티콘 한 벌. 화면의 순서가 곧 이 차례다 — 자주 쓸 것을 앞에 둔다. */
-export const STICKERS: Sticker[] = [
-    // 골프공 — 이 앱의 주제라 맨 앞에 둔다.
-    { id: 'ballhi', label: '안녕!' },
-    { id: 'ballcall', label: 'OK 콜!' },
-    { id: 'ballfighting', label: '파이팅!' },
-    { id: 'ballniceshot', label: '나이스 샷!' },
-    { id: 'ballbest', label: '최고야!' },
-    { id: 'ballkkkk', label: 'ㅋㅋㅋㅋ' },
-    { id: 'ballsorry', label: '미안…' },
-    { id: 'ballsad', label: '미안… (눈물)' },
-    { id: 'ballheart', label: '사랑해♥' },
-    { id: 'ballgo', label: '가자!' },
-    { id: 'ballangry', label: '에잇!' },
-    { id: 'ballwait', label: '잠깐' },
-    { id: 'ballhard', label: '어려워…' },
-    { id: 'niceshot2', label: '나이스 샷!' },
-    { id: 'call2', label: '콜!' },
-    { id: 'together', label: '같이 가요!' },
-    { id: 'whenwego', label: '언제 가요?' },
-    { id: 'congrats', label: '축하해!' },
-    { id: 'hwaiting', label: '화이팅!' },
-    { id: 'thanks', label: '감사합니다' },
-    { id: 'thanks2', label: '감사합니다 (윙크)' },
-    { id: 'kkkk2', label: 'ㅋㅋㅋㅋ' },
-    { id: 'putting', label: '이 퍼팅만…' },
-    { id: 'whymiss', label: '왜 안 맞아!' },
-    { id: 'whymiss2', label: '왜 안 맞아! (버럭)' },
-    { id: 'bunker', label: '벙커에…' },
-    { id: 'bunker2', label: '벙커에… (한숨)' },
-    { id: 'sleepy', label: '졸려…' },
+/**
+ * 이모티콘 묶음. `tab`은 탭에 그릴 그림글자 하나, `name`은 그 탭의 이름
+ * (소리로 읽히는 값이자 눌린 탭 아래에 적히는 말)이다.
+ */
+export type StickerGroup = { id: string; tab: string; name: string; stickers: Sticker[] };
 
-    // 코알라 — 말이 적힌 것이라 가장 자주 쓴다.
-    { id: 'annyeong', label: '안녕!' },
-    { id: 'haengbok', label: '행복해!' },
-    { id: 'saranghae', label: '사랑해!' },
-    { id: 'saranghae2', label: '사랑해! (윙크)' },
-    { id: 'kkkk', label: 'ㅋㅋㅋㅋ' },
-    { id: 'fighting', label: '파이팅!' },
-    { id: 'fighting2', label: '파이팅! (경례)' },
-    { id: 'heol', label: '헐!' },
-    { id: 'heukheuk', label: '흑흑…' },
-    { id: 'euaak', label: '으아악!' },
-    { id: 'eotteokhaji', label: '어떡하지?' },
-    { id: 'maijjeong', label: '마이쩡!' },
-    { id: 'andwae', label: '안돼!' },
-    { id: 'sujubda', label: '수줍어요…' },
-    { id: 'chukha', label: '축하해!' },
-    { id: 'chukha2', label: '축하해! (폭죽)' },
-    { id: 'wanryo', label: '완료!' },
-    { id: 'mwohae', label: '뭐해?' },
+const g = (id: string, tab: string, name: string, ...stickers: Sticker[]): StickerGroup =>
+    ({ id, tab, name, stickers });
+const s = (id: string, label: string): Sticker => ({ id, label });
 
-    // 대답·맞장구
-    { id: 'call', label: '콜!' },
-    { id: 'gazua', label: '가즈아!' },
-    { id: 'goodshot', label: '굿샷!' },
-    { id: 'thumbsup', label: '엄지척' },
-    { id: 'chickenno', label: '싫어요' },
-    { id: 'hi', label: '하이' },
-    { id: 'hmm', label: '음…?' },
-    { id: 'manse', label: '만세' },
-    { id: 'manse2', label: '만세!' },
-    { id: 'firehero', label: '불타는 의지' },
-    { id: 'mangsse', label: '아… 망해따' },
-    { id: 'cake', label: '케이크' },
-
-    // 표정
-    { id: 'star', label: '별' },
-    { id: 'fox', label: '여우' },
-    { id: 'foxsweat', label: '진땀 여우' },
-    { id: 'panda', label: '판다' },
-    { id: 'penguin', label: '펭귄 엄지' },
-    { id: 'cloudlove', label: '하트 구름' },
-    { id: 'catshock', label: '놀란 고양이' },
-    { id: 'koalarain', label: '비 맞는 코알라' },
-    { id: 'koalasulk', label: '뿌루퉁 코알라' },
-    { id: 'hamster', label: '응원 햄스터' },
-    { id: 'owl', label: '부엉이' },
-    { id: 'sloth', label: '나무늘보' },
-    { id: 'beaver', label: '노트북 비버' },
-    { id: 'dogwow', label: '놀란 강아지' },
-    { id: 'birdidea', label: '아이디어 새' },
-    { id: 'ghost', label: '유령' },
-    { id: 'robot', label: '로봇' },
-    { id: 'mushroomcry', label: '우는 버섯' },
-    { id: 'mushroomsad', label: '시무룩 버섯' },
-    { id: 'bearstretch', label: '기지개 곰' },
-
-    // 먹을 것
-    { id: 'coffee', label: '커피' },
-    { id: 'burger', label: '햄버거' },
-    { id: 'donut', label: '도넛' },
-    { id: 'apple', label: '사과' },
-    { id: 'toast', label: '아침밥' },
-    { id: 'toastsmile', label: '아침밥 (웃음)' },
-
-    // 아침·밤
-    { id: 'goodmorning', label: '좋은 아침!' },
-    { id: 'wakeup', label: '기상!' },
-    { id: 'yawn', label: '하암~' },
-    { id: 'goodnight', label: '굿나잇!' },
-    { id: 'sleepwell', label: '잘 자요!' },
-    { id: 'cloudzzz', label: '쿨쿨 구름' },
-    { id: 'bearsleep', label: '자는 곰' },
-    { id: 'bearnap', label: '낮잠 곰' },
-    { id: 'penguinsleep', label: '자는 펭귄' },
-    { id: 'penguinnight', label: '밤하늘 펭귄' },
-    { id: 'owlnight', label: '밤 부엉이' },
+export const STICKER_GROUPS: StickerGroup[] = [
+    /* 골프 — 이 앱의 주제라 맨 앞이다. 골프공 한 벌과 사람 한 벌이 같이 있다. */
+    g('golf', '⛳', '골프',
+        s('ballhi', '안녕!'),
+        s('ballcall', 'OK 콜!'),
+        s('ballfighting', '파이팅!'),
+        s('ballniceshot', '나이스 샷!'),
+        s('ballbest', '최고야!'),
+        s('ballkkkk', 'ㅋㅋㅋㅋ'),
+        s('ballsorry', '미안…'),
+        s('ballsad', '미안… (눈물)'),
+        s('ballheart', '사랑해♥'),
+        s('ballgo', '가자!'),
+        s('ballangry', '에잇!'),
+        s('ballwait', '잠깐'),
+        s('ballhard', '어려워…'),
+        s('niceshot2', '나이스 샷! (공)'),
+        s('call2', '콜!'),
+        s('together', '같이 가요!'),
+        s('whenwego', '언제 가요?'),
+        s('congrats', '축하해!'),
+        s('hwaiting', '화이팅!'),
+        s('thanks', '감사합니다'),
+        s('thanks2', '감사합니다 (윙크)'),
+        s('kkkk2', 'ㅋㅋㅋㅋ (공)'),
+        s('putting', '이 퍼팅만…'),
+        s('whymiss', '왜 안 맞아!'),
+        s('whymiss2', '왜 안 맞아! (버럭)'),
+        s('bunker', '벙커에…'),
+        s('bunker2', '벙커에… (한숨)'),
+        s('sleepy', '졸려…'),
+        s('kkakkung', '까꿍!'),
+        s('carpool', '카풀 구해요'),
+        s('treasurer', '총무님 최고!'),
+        s('ssangthumb', '쌍따봉!'),
+        s('notice', '공지 확인 필수!'),
+        s('mulligan', '멀리건 굽신굽신'),
+        s('bigdrive', '장타!'),
+        s('ohjalgong', '오잘공!'),
+        s('shade', '그늘집 고고~'),
+        s('jjageol', '짜걸해!'),
+        s('mental', '멘탈 바사삭…'),
+        s('mental2', '멘탈 바사삭… (그로기)'),
+        s('fore', '볼~!!! 조심해'),
+        s('lifebest', '라베 달성!'),
+        s('escape100', '백돌이 탈출!'),
+        s('weatherfairy', '날씨 요정 강림'),
+        s('raincancel', '우천 취소 ㅠㅠ'),
+        s('soreness', '몸살 예약'),
+    ),
+    /* 곰돌이 — 말이 적혀 있어 대화에서 가장 자주 쓴다. */
+    g('bear', '🐻', '곰돌이',
+        s('bearhi', '안녕!'),
+        s('bearthanks', '고마워!'),
+        s('bearlove', '사랑해'),
+        s('bearfight', '화이팅! (불꽃)'),
+        s('bearfight2', '화이팅!'),
+        s('bearyum', '맛있어!'),
+        s('bearyum2', '맛있어! (밥)'),
+        s('beargood', '좋아!'),
+        s('bearokay', '괜찮아'),
+        s('bearcongrats', '축하해!'),
+        s('bearpromise', '약속!'),
+        s('beargo', '나가자!'),
+        s('bearbusy', '바빠!'),
+        s('bearwait', '기다려'),
+        s('bearcurious', '궁금해'),
+        s('bearomg', '깜짝이야'),
+        s('beargasp', '헉!'),
+        s('bearcareful', '조심해'),
+        s('bearsorry', '미안해'),
+        s('bearupset', '속상해'),
+        s('beardown', '우울해'),
+        s('beartired', '피곤해'),
+        s('bearmad', '화나!'),
+        s('bearangry', '짜증나'),
+    ),
+    /* 동물 — 곰돌이와 같은 말인데 그림만 여러 동물이다. */
+    g('zoo', '🦊', '동물',
+        s('zoohi', '안녕!'),
+        s('zoothanks', '고마워!'),
+        s('zoolove', '사랑해'),
+        s('zoofight', '화이팅! (사자)'),
+        s('zoofight2', '화이팅! (여우)'),
+        s('zooyum', '맛있어!'),
+        s('zoohungry', '배고파'),
+        s('zooook', '알았어!'),
+        s('zoopromise', '약속!'),
+        s('zoogo', '나가자!'),
+        s('zoobusy', '바빠!'),
+        s('zoowait', '기다려'),
+        s('zoocurious', '궁금해'),
+        s('zooomg', '깜짝이야'),
+        s('zoogasp', '헉!'),
+        s('zoocareful', '조심해'),
+        s('zoosorry', '미안해'),
+        s('zoosorry2', '미안해 (양)'),
+        s('zooupset', '속상해'),
+        s('zoodown', '우울해'),
+        s('zootired', '피곤해'),
+        s('zoomad', '화나!'),
+        s('zooangry', '짜증나'),
+        s('zoonight', '잘 자!'),
+    ),
+    /* 코알라 — 먼저 있던 한 벌이다. */
+    g('koala', '🐨', '코알라',
+        s('annyeong', '안녕!'),
+        s('haengbok', '행복해!'),
+        s('saranghae', '사랑해!'),
+        s('saranghae2', '사랑해! (윙크)'),
+        s('kkkk', 'ㅋㅋㅋㅋ'),
+        s('fighting', '파이팅!'),
+        s('fighting2', '파이팅! (경례)'),
+        s('heol', '헐!'),
+        s('heukheuk', '흑흑…'),
+        s('euaak', '으아악!'),
+        s('eotteokhaji', '어떡하지?'),
+        s('maijjeong', '마이쩡!'),
+        s('andwae', '안돼!'),
+        s('sujubda', '수줍어요…'),
+        s('chukha', '축하해!'),
+        s('chukha2', '축하해! (폭죽)'),
+        s('wanryo', '완료!'),
+        s('mwohae', '뭐해?'),
+    ),
+    /* 표정·맞장구 — 말이 없거나 짧은 것들. */
+    g('face', '😀', '표정',
+        s('call', '콜!'),
+        s('gazua', '가즈아!'),
+        s('goodshot', '굿샷!'),
+        s('thumbsup', '엄지척'),
+        s('chickenno', '싫어요'),
+        s('hi', '하이'),
+        s('hmm', '음…?'),
+        s('manse', '만세'),
+        s('manse2', '만세!'),
+        s('firehero', '불타는 의지'),
+        s('mangsse', '아… 망해따'),
+        s('cake', '케이크'),
+        s('star', '별'),
+        s('fox', '여우'),
+        s('foxsweat', '진땀 여우'),
+        s('panda', '판다'),
+        s('penguin', '펭귄 엄지'),
+        s('cloudlove', '하트 구름'),
+        s('catshock', '놀란 고양이'),
+        s('koalarain', '비 맞는 코알라'),
+        s('koalasulk', '뿌루퉁 코알라'),
+        s('hamster', '응원 햄스터'),
+        s('owl', '부엉이'),
+        s('sloth', '나무늘보'),
+        s('beaver', '노트북 비버'),
+        s('dogwow', '놀란 강아지'),
+        s('birdidea', '아이디어 새'),
+        s('ghost', '유령'),
+        s('robot', '로봇'),
+        s('mushroomcry', '우는 버섯'),
+        s('mushroomsad', '시무룩 버섯'),
+        s('bearstretch', '기지개 곰'),
+    ),
+    /* 아침·밤 — 인사와 잘 자요. */
+    g('night', '🌙', '아침·밤',
+        s('goodmorning', '좋은 아침!'),
+        s('wakeup', '기상!'),
+        s('yawn', '하암~'),
+        s('goodnight', '굿나잇!'),
+        s('sleepwell', '잘 자요!'),
+        s('cloudzzz', '쿨쿨 구름'),
+        s('bearsleep', '자는 곰'),
+        s('bearnap', '낮잠 곰'),
+        s('penguinsleep', '자는 펭귄'),
+        s('penguinnight', '밤하늘 펭귄'),
+        s('owlnight', '밤 부엉이'),
+    ),
+    /* 먹을 것. */
+    g('food', '🍔', '먹을 것',
+        s('coffee', '커피'),
+        s('burger', '햄버거'),
+        s('donut', '도넛'),
+        s('apple', '사과'),
+        s('toast', '아침밥'),
+        s('toastsmile', '아침밥 (웃음)'),
+    ),
 ];
 
-const BY_ID = new Map(STICKERS.map(s => [s.id, s]));
+/**
+ * 이모티콘 한 벌을 펼친 것. **묶음을 이어 붙인 값이라 차례가 곧 그 차례다.**
+ * 이름을 찾는 데 쓰이므로 묶음이 늘어도 이 값만 보면 된다.
+ */
+export const STICKERS: Sticker[] = STICKER_GROUPS.flatMap(x => x.stickers);
+
+const BY_ID = new Map(STICKERS.map(x => [x.id, x]));
 
 /** `sticker:안녕` 꼴인가. 사진과 가르는 잣대는 이것 하나다. */
 export const isSticker = (url: string | null | undefined): boolean =>

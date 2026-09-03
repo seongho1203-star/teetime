@@ -685,6 +685,32 @@ await page.waitForTimeout(400);
 const trayCount = await page.$$eval('.sticker-btn', e => e.length);
 ok(trayCount > 30, `서랍을 열면 이모티콘이 늘어선다 (실제 ${trayCount}장)`);
 
+/* **묶음마다 탭이 하나다**(사용자 요청 — 카카오톡처럼). 백예순 장을 한 줄로
+   늘어놓으면 아래쪽 것은 아무도 끝까지 굴려 보지 않는다.
+   그림글자만 두지 않고 **이름을 함께 적는지**도 본다 — 그림글자가 없는
+   기기에서는 두부만 남아 무슨 묶음인지 알 수 없다. */
+const tabs = await page.$$eval('.sticker-tab', e => e.map(x => x.textContent?.trim() ?? ''));
+ok(tabs.length >= 5 && tabs.every(t => /[가-힣]/.test(t)),
+   `묶음마다 탭이 있고 이름이 적혀 있다 (실제 ${JSON.stringify(tabs)})`);
+
+/* 탭을 옮기면 **그 묶음만** 보인다. 장수가 갈리는지로 본다 — 옮겨도 그대로면
+   `find`가 헛돌아 첫 묶음만 계속 그려지고 있는 것이다. */
+await page.click('.sticker-tab:nth-child(2)');
+await page.waitForTimeout(300);
+const moved = await page.$$eval('.sticker-btn', e => e.length);
+ok(moved > 0 && moved !== trayCount,
+   `탭을 옮기면 그 묶음만 보인다 (실제 ${trayCount}장 → ${moved}장)`);
+
+/* **굴려 둔 자리가 안 남는다**(그림 칸의 `key`가 묶음이다). 남으면 장수가
+   적은 묶음으로 옮겼을 때 빈 칸만 보인다. */
+await page.evaluate(() => { document.querySelector('.sticker-grid').scrollTop = 400; });
+await page.click('.sticker-tab:nth-child(3)');
+await page.waitForTimeout(300);
+ok(await page.$eval('.sticker-grid', e => e.scrollTop) === 0,
+   '탭을 옮기면 굴려 둔 자리가 맨 위로 돌아간다');
+await page.click('.sticker-tab:nth-child(1)');
+await page.waitForTimeout(300);
+
 /* **누르면 곧바로 안 나간다**(사용자 요청). 입력칸 위에 미리보기로
    물려 두고, 글을 마저 적어 **한 마디로 함께** 보낸다 — 예전에는 누르는
    즉시 나가서 `나이스 샷!`에 한마디 덧붙이려면 두 마디로 갈라야 했다. */
