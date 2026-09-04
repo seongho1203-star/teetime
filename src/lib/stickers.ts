@@ -1,8 +1,7 @@
 /**
  * 이모티콘(스티커).
  *
- * **지금은 한 장도 없다**(사용자 요청 — 다 지웠다). 배경이 투명한 것으로
- * 다시 만들어 넣기로 했다. 넣는 방법은 아래 세 걸음이 전부다:
+ * 넣는 방법은 아래 세 걸음이 전부다:
  *
  * 1. 그림을 `public/stickers/<id>.png`로 넣는다(**배경은 투명**, 256px 정사각,
  *    팔레트 PNG로 20KB 안쪽). 움직이는 것은 `.webp`이고 **id가 `mv`로
@@ -76,10 +75,19 @@ export const s = (id: string, label: string): Sticker => ({ id, label });
 export const a = (id: string, label: string): Sticker => ({ id, label });
 
 /**
- * 묶음 목록. **지금은 비어 있다** — 배경이 투명한 것으로 다시 만들어
- * 넣기로 했다. 위 세 걸음대로 채우면 된다.
+ * 묶음 목록.
+ *
+ * 지금은 **움직이는 것 열둘**이고 한 묶음이다. 사용자가 준 영상 두 편에서
+ * 배경이 투명한(체커 무늬로 그려진) 장면만 골라 잘랐다 — 파스텔 바탕이
+ * 깔린 장면은 규칙대로 뺐다. **차례는 영상에 나온 차례 그대로다.**
  */
-export const STICKER_GROUPS: StickerGroup[] = [];
+export const STICKER_GROUPS: StickerGroup[] = [
+    g('mv', '✨', '움직임',
+      a('mvkkk', 'ㅋㅋㅋ'), a('mvtears', '절망'), a('mvyum', '우물우물'),
+      a('mvshy', '부끄부끄'), a('mvzzz', '쿨쿨'), a('mvshock', '헉!'),
+      a('mvtyping', '타다닥'), a('mvfighting', '화이팅!'), a('mvogu', '오구오구'),
+      a('mvyay', '신나!'), a('mvsob', '훌쩍훌쩍'), a('mvcry', '흑흑')),
+];
 
 export const STICKERS: Sticker[] = STICKER_GROUPS.flatMap(x => x.stickers);
 
