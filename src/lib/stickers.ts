@@ -77,9 +77,9 @@ export const a = (id: string, label: string): Sticker => ({ id, label });
 /**
  * 묶음 목록.
  *
- * 네 묶음이다 — 움직이는 것 열둘(영상에서 잘랐다. 배경이 투명한 장면만
- * 골랐다), 골프공(앱 아이콘과 같은 캐릭터) 스물일곱, 펭귄골프 스물둘,
- * 펭귄 스물여덟. **차례는 원본에 나온 차례 그대로다.**
+ * 다섯 묶음이다 — 움직이는 것 열둘(영상에서 잘랐다. 배경이 투명한 장면만
+ * 골랐다), 골프공(앱 아이콘과 같은 캐릭터) 스물일곱, 골퍼 스물넷,
+ * 펭귄골프 스물둘, 펭귄 스물여덟. **차례는 원본에 나온 차례 그대로다.**
  */
 export const STICKER_GROUPS: StickerGroup[] = [
     g('mv', '✨', '움직임',
@@ -101,6 +101,18 @@ export const STICKER_GROUPS: StickerGroup[] = [
       s('ggo', '출발!'), s('ghi', '안녕~'), s('gyay', '신난다!'),
       s('gsplash', '풍덩'), s('gball', '공 사랑'), s('gfinger', '손가락 하트'),
       s('gdizzy', '어질어질'), s('gdrive', '드라이버'), s('grelax', '여유~')),
+
+    /* 같은 골프공이지만 **다른 세트다** — 모자에 `GOLF`가 적히고 남색 셔츠를
+       입었다. 위 `골프공`(선글라스)과 그림이 달라 묶음을 따로 두었다. */
+    g('gman', '🧢', '골퍼',
+      s('gmgood', '좋아요'), s('gmyay', '신난다!'), s('gmputt', '퍼팅'),
+      s('gmfinger', '손가락 하트'), s('gmcool', '멋져'), s('gmswing', '스윙'),
+      s('gmwin', '우승!'), s('gmnice', '나이스샷!'), s('gmaja', '아자아자'),
+      s('gmchill', '여유 한 잔'), s('gmcart', '카트'), s('gmbag', '골프백'),
+      s('gmthanks', '감사합니다'), s('gmlove', '하트 눈'), s('gmzzz', '쿨쿨'),
+      s('gmrain', '비 와요'), s('gmcry', '엉엉'), s('gmfire', '불타오른다'),
+      s('gmsign', 'GOOD!'), s('gmheart', '하트'), s('gmwalk', '출발!'),
+      s('gmdone', '해냈다!'), s('gmsorry', '죄송합니다'), s('gmfight', '화이팅!')),
 
     g('pgolf', '🐧', '펭귄골프',
       s('pswing', '스윙'), s('pnice', 'Nice!'), s('pbirdie', 'Birdie!'),
