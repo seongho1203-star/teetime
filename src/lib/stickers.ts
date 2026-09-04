@@ -77,9 +77,10 @@ export const a = (id: string, label: string): Sticker => ({ id, label });
 /**
  * 묶음 목록.
  *
- * 다섯 묶음이다 — 움직이는 것 열둘(영상에서 잘랐다. 배경이 투명한 장면만
+ * 일곱 묶음이다 — 움직이는 것 열둘(영상에서 잘랐다. 배경이 투명한 장면만
  * 골랐다), 골프공(앱 아이콘과 같은 캐릭터) 스물일곱, 골퍼 스물넷,
- * 펭귄골프 스물둘, 펭귄 스물여덟. **차례는 원본에 나온 차례 그대로다.**
+ * 골프친구 스물넷, 펭귄골프 스물둘, 펭귄 스물여덟, 고양이 스물넷.
+ * **차례는 원본에 나온 차례 그대로다.**
  */
 export const STICKER_GROUPS: StickerGroup[] = [
     g('mv', '✨', '움직임',
@@ -114,6 +115,18 @@ export const STICKER_GROUPS: StickerGroup[] = [
       s('gmsign', 'GOOD!'), s('gmheart', '하트'), s('gmwalk', '출발!'),
       s('gmdone', '해냈다!'), s('gmsorry', '죄송합니다'), s('gmfight', '화이팅!')),
 
+    /* 한 시트에 캐릭터가 여럿 섞여 있다 — 소년·소녀·펭귄·곰·강아지·고양이가
+       함께 라운딩한다. 캐릭터가 아니라 **세트**로 묶는 규칙 그대로다. */
+    g('gfr', '🐻', '골프친구',
+      s('gfswing', '스윙'), s('gfshot', '굿샷!'), s('gfflag', '깃발'),
+      s('gfcool', '멋져'), s('gfdash', '달려!'), s('gfnice', '나이스!'),
+      s('gfcart', '카트'), s('gfbeer', '한잔해~'), s('gffight', '파이팅!'),
+      s('gfheart', '하트'), s('gfchill', '여유~'), s('gfob', '아..OB..'),
+      s('gfrun', '물어왔어요'), s('gfhuh', '헉!'), s('gfgo', '다녀올게요~'),
+      s('gfmiss', '멋진 스윙'), s('gfball', '공 사랑'), s('gfgood', '좋아요!'),
+      s('gfbirdie', '버디!'), s('gfzzz', '쿨쿨'), s('gfv', '브이'),
+      s('gfputt', '퍼팅'), s('gfthanks', '수고했어요~'), s('gfsunset', '오늘도 행복')),
+
     g('pgolf', '🐧', '펭귄골프',
       s('pswing', '스윙'), s('pnice', 'Nice!'), s('pbirdie', 'Birdie!'),
       s('ppar', 'Par!'), s('pbag', '골프백'), s('pready', '설레'),
@@ -135,6 +148,19 @@ export const STICKER_GROUPS: StickerGroup[] = [
       s('pnrun', '달려'), s('pnpillow', '포근'), s('pnplease', '부탁해'),
       s('pnflop', '뻗음'), s('pnrain', '비 와요'), s('pndj', '신나는 음악'),
       s('pnhi', '안녕~')),
+
+    /* 주황 고양이 한 마리. **노트북 앞에 앉은 것(`ctwork`)에 사과 상표가
+       있어 지웠다** — 펭귄(`pnwork`) 때와 같은 자리이고, 사용자가 그때
+       `로고만 지워줘`로 정한 방식 그대로다. */
+    g('cat', '🐱', '고양이',
+      s('ctgood', '좋아요!'), s('ctheart', '하트'), s('ctfight', '화이팅!'),
+      s('ctthanks', '감사합니다'), s('ctpeek', '뭐해?'), s('ctcool', '멋져'),
+      s('ctzzz', '쿨쿨'), s('ctdino', '어흥!'), s('ctomg', '헉!'),
+      s('ctcry', '엉엉'), s('ctlove', '좋아 좋아'), s('ctlovesign', '사랑해요'),
+      s('ctyum', '냠냠~'), s('ctwork', '일하는 중'), s('ctchef', '요리 중'),
+      s('ctpeekaboo', '까꿍~'), s('cttrip', '여행가자!'), s('ctbath', '목욕 중'),
+      s('cthealth', '건강하세요!'), s('ctnight', '잘자요~'), s('ctkkk', 'ㅋㅋㅋㅋ'),
+      s('ctsad', '힝…'), s('ctflower', '꽃다발'), s('ctbye', '다녀올게요~')),
 ];
 
 export const STICKERS: Sticker[] = STICKER_GROUPS.flatMap(x => x.stickers);
