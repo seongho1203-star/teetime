@@ -77,17 +77,21 @@ export const a = (id: string, label: string): Sticker => ({ id, label });
 /**
  * 묶음 목록.
  *
- * 일곱 묶음이다 — 움직이는 것 열둘(영상에서 잘랐다. 배경이 투명한 장면만
+ * 여덟 묶음이다 — 움직이는 것 열여덟(영상에서 잘랐다. 배경이 투명한 장면만
  * 골랐다), 골프공(앱 아이콘과 같은 캐릭터) 스물일곱, 골퍼 스물넷,
- * 골프친구 스물넷, 펭귄골프 스물둘, 펭귄 스물여덟, 고양이 스물넷.
- * **차례는 원본에 나온 차례 그대로다.**
+ * 골프친구 스물넷, 펭귄골프 스물둘, 펭귄 스물여덟, 고양이 스물넷,
+ * 이모지 열여덟. **차례는 원본에 나온 차례 그대로다.**
  */
 export const STICKER_GROUPS: StickerGroup[] = [
     g('mv', '✨', '움직임',
       a('mvkkk', 'ㅋㅋㅋ'), a('mvtears', '절망'), a('mvyum', '우물우물'),
       a('mvshy', '부끄부끄'), a('mvzzz', '쿨쿨'), a('mvshock', '헉!'),
       a('mvtyping', '타다닥'), a('mvfighting', '화이팅!'), a('mvogu', '오구오구'),
-      a('mvyay', '신나!'), a('mvsob', '훌쩍훌쩍'), a('mvcry', '흑흑')),
+      a('mvyay', '신나!'), a('mvsob', '훌쩍훌쩍'), a('mvcry', '흑흑'),
+      /* 갈색 곰 영상에서 잘랐다 — 여섯 장면이 이어져 있고 다 체커(투명) 바탕이다.
+         움직이는 것은 **id가 `mv`로 시작해야 한다**(`ANIM_PREFIX`). */
+      a('mvblove', '사랑해'), a('mvbfight', '화이팅!'), a('mvbthanks', '감사해요'),
+      a('mvbcry', '흑흑흑흑'), a('mvbyay', '신나!'), a('mvbsleep', '졸려')),
 
     /* 앱 아이콘과 같은 캐릭터다 — 선글라스 낀 골프공. 시트 석 장으로 왔는데
        거의 같은 것이 되풀이돼서, 한 장을 뼈대로 삼고 나머지 둘에서
@@ -161,6 +165,17 @@ export const STICKER_GROUPS: StickerGroup[] = [
       s('ctpeekaboo', '까꿍~'), s('cttrip', '여행가자!'), s('ctbath', '목욕 중'),
       s('cthealth', '건강하세요!'), s('ctnight', '잘자요~'), s('ctkkk', 'ㅋㅋㅋㅋ'),
       s('ctsad', '힝…'), s('ctflower', '꽃다발'), s('ctbye', '다녀올게요~')),
+
+    /* 이모지 시트 한 장. 얼굴·손이 대부분이라 뜻으로 나누지 않고 세트째 두었다.
+       **시트에는 '움직이는 이모티콘 모음'이라 적혀 있지만 그림은 정지 그림이다** —
+       움직이는 것은 영상으로 받아야 만들 수 있다. */
+    g('em', '😀', '이모지',
+      s('emlol', '빵터짐'), s('emwink', '메롱'), s('emlove', '하트 눈'),
+      s('emsob', '엉엉'), s('emcry', '눈물 펑펑'), s('emangry', '화났어'),
+      s('emshock', '헉!'), s('emup', '좋아요'), s('embear', '두근두근'),
+      s('embear2', '신나는 춤'), s('emzzz', '쿨쿨'), s('emparty', '축하해'),
+      s('emhi', '안녕~'), s('emrocket', '출발!'), s('empower', '힘내!'),
+      s('emmoney', '돈복'), s('emdown', '별로야'), s('emalien', '외계인')),
 ];
 
 export const STICKERS: Sticker[] = STICKER_GROUPS.flatMap(x => x.stickers);
