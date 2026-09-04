@@ -1,10 +1,12 @@
 /* ── 대화 ────────────────────────────────────────────────────
  *
- * **색은 앱 아이콘 결로 맞추고, 크기와 짜임은 카톡을 그대로 둔다.**
- * 카톡을 흉내 낸 것 중에 이유가 있는 것은 색이 아니라 **손에 익은
- * 짜임**이었다 — 말풍선 높이 30px, 아바타 29px 모서리 둥근 네모,
- * 같은 사람·같은 분끼리 묶기, 덩어리 끝에만 시각. 그건 다 남기고
- * 청회색 바탕과 카톡 노랑만 우리 색으로 바꿨다.
+ * **크기와 짜임은 카톡을 그대로 둔다.** 카톡을 흉내 낸 것 중에 이유가
+ * 있는 것은 **손에 익은 짜임**이었다 — 말풍선 높이 30px, 아바타 29px
+ * 모서리 둥근 네모, 같은 사람·같은 분끼리 묶기, 덩어리 끝에만 시각.
+ * 색은 한 번 앱 아이콘 결로 옮겼다가, **대화가 오가는 자리(`.chat-list`)만
+ * 다시 어둡게 했다**(사용자 요청 — 카톡처럼). 어두워지는 것은 그 목록
+ * 하나뿐이고 머리말·입력칸·이모티콘 서랍은 밝은 그대로다. 내 말풍선은
+ * 카톡 노랑이 아니라 **앱 아이콘의 노랑**을 쓴다.
  * **크기 값은 카톡 스크린샷을 픽셀로 재서 얻은 것이라 눈대중으로
  * 고치지 말 것** (아래 `.chat-bubble` 주석의 셈을 다시 세어 볼 것).
  *
@@ -54,10 +56,24 @@
     overflow-y: auto;
     /* 왼쪽 끝에서 브라우저 '뒤로 가기'가 먹지 않게. */
     overscroll-behavior: contain;
-    /* **대화방도 앱의 바탕을 쓴다.** 예전에는 카톡의 청회색이었는데,
-       화면이 밝아지고 나니 이 화면만 뜬금없이 파랬다. 말풍선이 흰색이라
-       카드보다 한 톤 낮은 바탕(--surface-2)이라야 떠 보인다. */
-    background: var(--surface-2);
+    /* **대화가 오가는 자리만 어둡다**(사용자 요청 — 카톡처럼).
+       앱은 골프장 햇빛 아래에서 보려고 밝게 만든 화면이고 그 규칙은
+       그대로다 — 어두워지는 것은 **이 목록 하나뿐**이고, 머리말·입력칸·
+       이모티콘 서랍은 예전 그대로 밝다(카톡의 밝은 테마도 그 짜임이다).
+       흰 말풍선이 가장 잘 떠 보이는 배치이기도 하다.
+
+       **여기서 쓸 색을 이 자리에 모아 둔다.** 어두운 바탕 위에 얹히는
+       것이 열 가지가 넘어(이름·시각·날짜 칸·안내 줄·안 읽음 줄…),
+       한 군데씩 색을 박아 두면 나중에 하나를 빠뜨린다.
+       뜻이 있는 색(분홍·잔디·노랑·빨강·보라)은 **그대로 쓴다** — 어두운
+       바탕에서도 그 뜻이 그대로 읽힌다. */
+    --chat-bg:    #2c2e3b;              /* 어두운 남보라 */
+    --chat-chip:  rgba(255, 255, 255, 0.11);   /* 날짜·안내 줄 바탕 */
+    --chat-on:    rgba(255, 255, 255, 0.88);   /* 그 위의 글자 */
+    --chat-soft:  rgba(255, 255, 255, 0.72);   /* 이름 */
+    --chat-faint: rgba(255, 255, 255, 0.52);   /* 시각 */
+    --chat-line:  rgba(255, 255, 255, 0.20);   /* 가는 줄 */
+    background: var(--chat-bg);
     padding: var(--gap) var(--gap) var(--gap-sm);
     display: flex;
     flex-direction: column;
@@ -79,7 +95,14 @@
  */
 .chat-list > :first-child { margin-top: auto; }
 
-.chat-more { align-self: center; margin-bottom: var(--gap-sm); }
+/* `지난 대화 더 보기`. `.btn.ghost`는 밝은 바탕에 맞춘 값(옅은 선 · 흐린
+   글자)이라 어두운 목록 위에서는 거의 안 보인다 — 여기서만 되짚는다. */
+.chat-more {
+    align-self: center;
+    margin-bottom: var(--gap-sm);
+    border-color: var(--chat-line);
+    color: var(--chat-on);
+}
 
 /* `여기까지 읽으셨습니다`. 못 읽은 동안 쌓인 글이 어디서부터인지 알려 준다.
    날짜 칸과 같은 자리·같은 모양이되 **줄을 함께 긋는다** — 날짜는 흐름을
@@ -90,7 +113,7 @@
     align-items: center;
     gap: var(--gap-sm);
     margin: var(--gap) 0 var(--gap-sm);
-    color: var(--text-dim);
+    color: var(--chat-soft);
     font-size: var(--fs-xs);
     font-weight: 700;
     white-space: nowrap;
@@ -100,7 +123,7 @@
     content: '';
     flex: 1;
     height: 1px;
-    background: var(--line);
+    background: var(--chat-line);
 }
 
 /* 앱이 남긴 안내 줄(`신성호님이 라운드 모집을 열었습니다`).
@@ -150,8 +173,8 @@
     margin: var(--gap-sm) auto 2px;
     padding: 4px 12px;
     border-radius: var(--r-pill);
-    background: var(--surface-3);
-    color: var(--text-dim);
+    background: var(--chat-chip);
+    color: var(--chat-on);
     font-size: var(--fs-xs);
     font-weight: 700;
     text-align: center;
@@ -167,8 +190,8 @@
     margin: var(--gap) auto var(--gap-sm);
     padding: 3px 12px;
     border-radius: var(--r-pill);
-    background: var(--surface-3);
-    color: var(--text-dim);
+    background: var(--chat-chip);
+    color: var(--chat-on);
     font-size: var(--fs-xs);
     font-weight: 700;
     width: fit-content;
@@ -213,7 +236,7 @@
 .chat-who {
     padding-left: 2px;
     font-size: 11.4px;
-    color: var(--text-dim);
+    color: var(--chat-soft);
 }
 
 .chat-line {
@@ -236,9 +259,11 @@
     /* 스티커처럼 통통한 모서리. 높이에는 영향이 없으니 위의 셈은 그대로다. */
     border-radius: 15px;
     background: var(--surface);
-    /* 아이콘의 두꺼운 검은 테두리를 아주 옅게 옮긴 것. 흰 말풍선이
-       밝은 바탕에서 흐려지지 않게 잡아 주는 구실도 함께 한다. */
-    border: 1px solid var(--line);
+    /* **테두리는 자리만 잡아 두고 색을 안 준다.** 밝은 바탕에서는 흰
+       말풍선이 흐려지지 않게 옅은 선을 둘렀는데, 바탕이 어두워지면서
+       그 구실이 없어졌다(어두운 데서는 흰 것이 저절로 뜬다). 두께를
+       남겨 두는 것은 위의 한 줄 셈이 그것을 안고 있어서다. */
+    border: 1px solid transparent;
     color: var(--text);
     font-size: 14px;
     line-height: 1.34;
@@ -299,7 +324,7 @@
 .chat-time {
     flex: 0 0 auto;
     font-size: 10px;
-    color: var(--text-faint);
+    color: var(--chat-faint);
     padding-bottom: 2px;
     white-space: nowrap;
 }
@@ -311,14 +336,24 @@
     display: flex;
     flex-direction: column;
     gap: var(--gap-xs);
-    padding: var(--gap-sm) var(--gap)
+    /* **좌우 여백이 좁다**(사용자 요청 — `+`를 더 왼쪽으로). 카톡은 `+`가
+       화면 가장자리에 거의 붙어 있고, 그만큼 가운데 글칸이 넓어진다.
+       다른 화면의 `--gap`(16px)을 그대로 쓰면 `+` 하나 때문에 글칸이
+       좁아진다 — 이 줄은 목록이 아니라 **자판에 가까운 줄**이라 다르다. */
+    padding: var(--gap-sm) var(--gap-xs)
              calc(var(--tabbar-h) + var(--safe-b) + var(--gap-sm));
     border-top: 1px solid var(--line);
     background: var(--bg);
 }
+/* 인용·언급 목록은 여기 여백이 좁으면 화면 끝에 닿아 보인다.
+   그 둘만 예전 여백으로 되돌려 놓는다. */
+.chat-input > .reply-bar,
+.chat-input > .mention-list,
+.chat-input > .sticker-peek { margin-left: var(--gap-sm); margin-right: var(--gap-sm); }
 .chat-bar {
     display: flex;
-    gap: var(--gap-sm);
+    /* `+`와 글칸은 거의 붙인다(카톡이 그렇다). 보내기 앞만 조금 띄운다. */
+    gap: 2px;
     align-items: flex-end;
 }
 /* 입력칸은 낮게. 예전엔 44px + 여백이라 카톡(33px)보다 한참 높았고,
@@ -330,6 +365,12 @@
     /* 오른쪽만 넓은 것은 **이모티콘 단추가 그 안에 얹혀 있어서다**
        (아래 `.chat-sticker-btn`). 줄이면 글자가 단추 밑으로 지나간다. */
     padding: 7px 40px 7px 14px;
+    /* **테두리를 없앤다**(사용자 요청 — 카톡처럼). 카톡의 글칸은 선이 아니라
+       한 톤 낮은 칠 하나로 서 있다. 선까지 있으면 알약이 두 겹으로 보인다.
+       `border`를 `0`으로 두지 않고 색만 지우는 것은 **높이를 그대로 두려는
+       것**이다 — 위의 한 줄 셈(38px)이 테두리 두께를 안고 있다. */
+    border-color: transparent;
+    background: var(--surface-2);
     /* **한 줄 높이의 절반**(38/2). 한 줄일 때는 알약과 똑같이 보이고,
        여러 줄로 늘어나면 저절로 둥근 네모가 된다 — `--r-pill`로 두면
        키가 커질수록 옆구리가 과하게 둥글어진다. */
@@ -352,21 +393,24 @@
 }
 /* 눌렀다고 테두리 색을 바꾸지 않는다. 글을 쓰는 내내 켜져 있을 강조라
    옆의 보내기 단추(분홍)와 부딪힌다. */
-.chat-input .textarea:focus { border-color: var(--line); }
+.chat-input .textarea:focus { border-color: transparent; }
 
 /* 사진 버튼. 카톡의 `+`처럼 테두리 없이 글자색만 있는 단추다 —
-   동그라미를 두르면 눌러야 할 것이 둘로 보인다. */
+   동그라미를 두르면 눌러야 할 것이 둘로 보인다.
+   글자색이 `--text-dim`이 아니라 `--text`인 것도 카톡을 따른 것이다:
+   거기 `+`는 흐린 안내가 아니라 **또렷한 검은 획**이다. */
 .chat-input .btn.chat-photo {
-    width: 34px; height: 38px;
+    width: 32px; height: 38px;
     flex: 0 0 auto;
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--text-dim);
+    color: var(--text);
     display: grid;
     place-items: center;
 }
-.chat-photo svg { width: 23px; height: 23px; stroke: currentColor; }
+.chat-photo svg { width: 24px; height: 24px; stroke: currentColor; }
+.chat-photo:active { transform: scale(0.92); }
 
 /* 이모티콘 단추는 **입력칸 안 오른쪽 끝**에 얹혀 있다(사용자가 보여 준
    모양이다). 흐름에서 빼 두었으므로 글자가 그 밑으로 지나가지 않게
@@ -383,14 +427,16 @@
     padding: 0;
     border: 0;
     border-radius: 50%;
-    background: var(--surface-2);
+    /* **동그란 칠을 두르지 않는다**(사용자 요청 — 카톡처럼). 글칸 안에
+       또 하나의 알약이 들어앉은 꼴이라 눌러야 할 것이 둘로 보였다. */
+    background: transparent;
     color: var(--text-dim);
     display: grid;
     place-items: center;
 }
-.chat-sticker-btn svg { width: 19px; height: 19px; stroke: currentColor; }
+.chat-sticker-btn svg { width: 21px; height: 21px; stroke: currentColor; }
 /* 열려 있는 동안만 켠다. 서랍에는 제목 줄이 없어 이 색이 곧 표시다. */
-.chat-sticker-btn.on { background: var(--brand-soft); color: var(--brand); }
+.chat-sticker-btn.on { color: var(--brand); }
 .chat-sticker-btn:active { transform: scale(0.92); }
 
 /* 이모티콘 서랍은 입력칸 **아래**, 키보드가 서던 그 자리에 뜬다
@@ -648,8 +694,8 @@ body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: var(--surface-3);
-    color: var(--text-dim);
+    background: var(--chat-chip);
+    color: var(--chat-on);
     /* 평소에는 없는 것과 같다. 미는 만큼 --swipe가 오른다(Chat.tsx). */
     opacity: var(--swipe, 0);
     pointer-events: none;

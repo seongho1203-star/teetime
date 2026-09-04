@@ -27,11 +27,20 @@
 export const STICKER_MARK = 'sticker:';
 
 /**
- * `anim`이 선 것은 **움직이는 이모티콘**이라 파일이 `.webp`다(그 밖은 `.png`).
- * 글에 남는 값은 그대로 `sticker:<id>`이고 확장자는 `stickerSrc()`가 붙이므로,
- * 나중에 형식을 또 바꿔도 예전 글은 안 깨진다.
+ * 이모티콘 한 장. 글에 남는 값은 `sticker:<id>` 하나뿐이고 **주소는
+ * `stickerSrc()`가 그때그때 만든다** — 나중에 그림을 다시 만들거나 형식을
+ * 바꿔도 예전 글이 안 깨진다.
  */
-export type Sticker = { id: string; label: string; anim?: true };
+export type Sticker = { id: string; label: string };
+
+/**
+ * 움직이는 이모티콘의 id 머리글자.
+ *
+ * **파일 확장자를 이걸로 정한다**(`stickerSrc`) — 목록에서 찾으면 그 판이
+ * 모르는 id에서 깨지기 때문이다. 그래서 **움직이는 것은 id가 반드시
+ * `mv`로 시작해야 하고, 그 밖의 것은 `mv`로 시작하면 안 된다.**
+ */
+export const ANIM_PREFIX = 'mv';
 
 /**
  * 이모티콘 묶음. `tab`은 탭에 그릴 그림글자 하나, `name`은 그 탭의 이름
@@ -42,8 +51,8 @@ export type StickerGroup = { id: string; tab: string; name: string; stickers: St
 const g = (id: string, tab: string, name: string, ...stickers: Sticker[]): StickerGroup =>
     ({ id, tab, name, stickers });
 const s = (id: string, label: string): Sticker => ({ id, label });
-/** 움직이는 것. `.webp`로 찾는다. */
-const a = (id: string, label: string): Sticker => ({ id, label, anim: true });
+/** 움직이는 것. **id가 `mv`로 시작해야 `.webp`로 찾는다**(`ANIM_PREFIX`). */
+const a = (id: string, label: string): Sticker => ({ id, label });
 
 export const STICKER_GROUPS: StickerGroup[] = [
     /* 움직이는 것 — 영상에서 잘라 만든 것들이다. 맨 앞에 두어야 눈에 띈다.
@@ -269,9 +278,15 @@ export const stickerRef = (id: string): string => STICKER_MARK + id;
  */
 export const stickerSrc = (ref: string): string => {
     const id = ref.slice(STICKER_MARK.length);
-    // **모르는 id는 `.png`로 본다** — 그림을 지운 뒤에도 예전 글이 열려야 하고,
-    // 움직이는 것은 다섯 장뿐이라 그쪽을 예외로 두는 편이 안전하다.
-    const ext = BY_ID.get(id)?.anim ? 'webp' : 'png';
+    // **id의 머리글자로 가른다 — 목록(`BY_ID`)을 보지 않는다.**
+    // 목록을 보면 **그 판이 모르는 id에서 깨진다**: 남이 새 이모티콘을
+    // 보냈는데 받는 사람 폰이 아직 옛 묶음을 들고 있으면(GitHub Pages가
+    // index.html을 10분쯤 물고 있어 흔한 일이다) `.png`로 찾아 404가 나고
+    // 그림 자리에 `이모티콘`이라고만 떴다. 머리글자는 글에 남는 값이라
+    // 판이 달라도 같게 풀린다.
+    // **그래도 `.png`를 함께 둔다** — 이 고침이 닿기 전의 판은 여전히
+    // 목록을 보므로, 움직이는 것도 `<id>.png` 한 장이 있어야 안 깨진다.
+    const ext = id.startsWith(ANIM_PREFIX) ? 'webp' : 'png';
     return `${import.meta.env.BASE_URL}stickers/${id}.${ext}`;
 };
 

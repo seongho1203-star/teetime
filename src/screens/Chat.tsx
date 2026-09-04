@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+         type SyntheticEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
@@ -1107,7 +1108,7 @@ export function Chat() {
                                 onMouseDown={e => e.preventDefault()}
                                 disabled={sending}
                                 aria-label={`${stickerLabel(stickerRef(picked))} 보내기`}>
-                            <img src={stickerSrc(stickerRef(picked))} alt="" />
+                            <img src={stickerSrc(stickerRef(picked))} alt="" onError={otherExt} />
                         </button>
                         <button className="sticker-peek-x" onClick={() => setPicked(null)}
                                 onMouseDown={e => e.preventDefault()}
@@ -1246,7 +1247,9 @@ export function Chat() {
                         aria-label="보내기">
                     <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
                          strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M4 12h15M13 6l6 6-6 6" />
+                        {/* 위쪽 화살표. 카톡의 보내기 단추가 그 그림이라
+                            손에 익은 쪽을 따랐다(예전엔 오른쪽 화살표였다). */}
+                        <path d="M12 19V6M6 12l6-6 6 6" />
                     </svg>
                 </button>
                 </div>
@@ -1297,7 +1300,7 @@ export function Chat() {
                                         onClick={() => pickSticker(s.id)}
                                         aria-label={s.label}>
                                     <img src={stickerSrc(stickerRef(s.id))}
-                                         alt="" loading="lazy" />
+                                         alt="" loading="lazy" onError={otherExt} />
                                 </button>
                             ))}
                         </div>
@@ -1338,6 +1341,23 @@ function Stamp({ at, showTime, unread }: { at: string; showTime: boolean; unread
 /** 왼쪽으로 이만큼 밀면 답장이 걸린다. 되돌아가는 최대 거리도 이 근처다. */
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 72;
+
+/**
+ * 이모티콘 그림을 못 찾았을 때 **다른 확장자로 한 번만** 다시 해 본다.
+ *
+ * 움직이는 것은 `.webp`, 그 밖은 `.png`이고 가르는 잣대는 id의 머리글자다
+ * (`ANIM_PREFIX`). 규칙이 앞으로 또 바뀌면 **옛 판을 든 폰에서만 404가
+ * 나는데**, 그때 그림 자리에 이름만 덩그러니 남는 것이 실제로 겪은
+ * 증상이라 예비 길을 하나 둔다. 한 번만 해 보는 것은 둘 다 없을 때
+ * 끝없이 오가지 않게 하려는 것이다.
+ */
+function otherExt(e: SyntheticEvent<HTMLImageElement>) {
+    const el = e.currentTarget;
+    if (el.dataset.retried) return;
+    el.dataset.retried = '1';
+    if (el.src.endsWith('.webp')) el.src = `${el.src.slice(0, -4)}png`;
+    else if (el.src.endsWith('.png')) el.src = `${el.src.slice(0, -3)}webp`;
+}
 
 /**
  * 말풍선 하나.
@@ -1470,9 +1490,14 @@ const Bubble = memo(function Bubble({
                         // 이모티콘. 사진과 달리 **누르는 곳이 아니다** —
                         // 원본을 새 창에 띄워 봐야 같은 그림이고, 앱에 딸린
                         // 그림이라 저장할 것도 없다.
+                        // **못 찾으면 다른 확장자로 한 번 더 해 본다.**
+                        // 움직이는 것은 `.webp`, 그 밖은 `.png`인데 가르는
+                        // 잣대가 id의 머리글자라(`ANIM_PREFIX`), 앞으로 규칙이
+                        // 바뀌면 옛 판을 든 폰에서 404가 난다 — 그때 그림
+                        // 자리에 이름만 덩그러니 남는 것이 지난번 그 증상이다.
                         ? <img className="chat-sticker" src={stickerSrc(message.image_url!)}
                                alt={stickerLabel(message.image_url!)}
-                               loading="lazy" onLoad={onImageLoad} />
+                               loading="lazy" onLoad={onImageLoad} onError={otherExt} />
                         : message.image_url
                         // 사진은 말풍선 없이 그 자체로 보여 준다. 눌러서 원본을
                         // 새 창에 띄운다 — 저장은 거기서 길게 눌러 한다.
