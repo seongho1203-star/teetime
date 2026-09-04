@@ -21,7 +21,7 @@
  * **그림이 나온 세트**를 따른다 — 뜻으로 나누면 `화이팅!`이 어느 탭에
  * 있는지를 매번 헷갈린다.
  * **묶음의 차례가 곧 탭의 차례다.** **움직이는 것이 맨 앞이고** 그다음이
- * 앱의 주제인 골프다 — 움직이는 것은 다섯 장뿐이라 뒤에 두면 아무도 못 본다.
+ * 앱의 주제인 골프다 — 움직이는 것이 눈에 제일 잘 띄어서 앞에 둔다.
  */
 
 export const STICKER_MARK = 'sticker:';
@@ -46,13 +46,23 @@ const s = (id: string, label: string): Sticker => ({ id, label });
 const a = (id: string, label: string): Sticker => ({ id, label, anim: true });
 
 export const STICKER_GROUPS: StickerGroup[] = [
-    /* 움직이는 것 — 영상에서 잘라 만든 다섯 장이다. 맨 앞에 두어야 눈에 띈다. */
+    /* 움직이는 것 — 영상에서 잘라 만든 것들이다. 맨 앞에 두어야 눈에 띈다.
+       **묶음 안에서 세트 차례를 지킨다** — 앞이 골프공(앱 아이콘의 그 얼굴),
+       뒤가 하얀 뭉치다. 섞어 두면 같은 말이 두 번 나올 때 헷갈린다. */
     g('move', '✨', '움직임',
-        a('mvfighting', '화이팅! (움직임)'),
-        a('mvbest', '최고야! (움직임)'),
-        a('mvniceshot', '나이스 샷! (움직임)'),
-        a('mvmanse', '만세! (움직임)'),
-        a('mvseeyou', '다음에 봐요 (움직임)'),
+        a('mvfighting', '화이팅! (골프공)'),
+        a('mvbest', '최고야!'),
+        a('mvniceshot', '나이스 샷!'),
+        a('mvmanse', '만세!'),
+        a('mvseeyou', '다음에 봐요'),
+        a('mvfighting2', '화이팅!'),
+        a('mvhi', '안녕~'),
+        a('mvthanks', '감사해요'),
+        a('mvogu', '오구오구'),
+        a('mvfun', '신나!'),
+        a('mvsorry', '미안해요'),
+        a('mvsob', '흑흑~ 흑흑'),
+        a('mvupset', '눈물 속상해'),
     ),
     /* 골프 — 이 앱의 주제라 그다음이다. 골프공 한 벌과 사람 한 벌이 같이 있다. */
     g('golf', '⛳', '골프',
