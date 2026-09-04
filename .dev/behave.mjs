@@ -683,7 +683,15 @@ ok(await page.$('.sticker-tray') === null, '이모티콘 서랍은 닫힌 채로
 await page.click('[aria-label="이모티콘"]');
 await page.waitForTimeout(400);
 const trayCount = await page.$$eval('.sticker-btn', e => e.length);
-ok(trayCount > 30, `서랍을 열면 이모티콘이 늘어선다 (실제 ${trayCount}장)`);
+ok(trayCount > 0, `서랍을 열면 첫 묶음의 이모티콘이 늘어선다 (실제 ${trayCount}장)`);
+
+/* **첫 묶음은 움직이는 것이고 파일이 `.webp`다**(그 밖은 `.png`). 확장자를
+   글이 아니라 `stickerSrc()`가 붙이므로, 여기가 어긋나면 그림만 조용히 안 뜬다. */
+const firstSrc = await page.$$eval('.sticker-btn img', e => e.map(x => x.getAttribute('src') ?? ''));
+ok(firstSrc.length > 0 && firstSrc.every(u => u.endsWith('.webp')),
+   `움직이는 이모티콘은 .webp로 찾는다 (실제 ${JSON.stringify(firstSrc.map(u => u.split('/').pop()))})`);
+ok(!(await page.$$eval('.sticker-btn img', e => e.some(x => !x.complete || x.naturalWidth === 0))),
+   '서랍의 그림이 다 받아진다 — 확장자가 어긋나면 여기서 걸린다');
 
 /* **묶음마다 탭이 하나다**(사용자 요청 — 카카오톡처럼). 백예순 장을 한 줄로
    늘어놓으면 아래쪽 것은 아무도 끝까지 굴려 보지 않는다.
@@ -698,7 +706,7 @@ ok(tabs.length >= 5 && tabs.every(t => /[가-힣]/.test(t)),
 await page.click('.sticker-tab:nth-child(2)');
 await page.waitForTimeout(300);
 const moved = await page.$$eval('.sticker-btn', e => e.length);
-ok(moved > 0 && moved !== trayCount,
+ok(moved > 30 && moved !== trayCount,
    `탭을 옮기면 그 묶음만 보인다 (실제 ${trayCount}장 → ${moved}장)`);
 
 /* **굴려 둔 자리가 안 남는다**(그림 칸의 `key`가 묶음이다). 남으면 장수가

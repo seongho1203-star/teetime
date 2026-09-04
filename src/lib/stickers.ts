@@ -20,12 +20,18 @@
  * 이모티콘 '세트'마다 탭을 두는 것과 같은 방식이라, 여기 묶음도
  * **그림이 나온 세트**를 따른다 — 뜻으로 나누면 `화이팅!`이 어느 탭에
  * 있는지를 매번 헷갈린다.
- * **묶음의 차례가 곧 탭의 차례다.** 앱의 주제인 골프를 맨 앞에 둔다.
+ * **묶음의 차례가 곧 탭의 차례다.** **움직이는 것이 맨 앞이고** 그다음이
+ * 앱의 주제인 골프다 — 움직이는 것은 다섯 장뿐이라 뒤에 두면 아무도 못 본다.
  */
 
 export const STICKER_MARK = 'sticker:';
 
-export type Sticker = { id: string; label: string };
+/**
+ * `anim`이 선 것은 **움직이는 이모티콘**이라 파일이 `.webp`다(그 밖은 `.png`).
+ * 글에 남는 값은 그대로 `sticker:<id>`이고 확장자는 `stickerSrc()`가 붙이므로,
+ * 나중에 형식을 또 바꿔도 예전 글은 안 깨진다.
+ */
+export type Sticker = { id: string; label: string; anim?: true };
 
 /**
  * 이모티콘 묶음. `tab`은 탭에 그릴 그림글자 하나, `name`은 그 탭의 이름
@@ -36,9 +42,19 @@ export type StickerGroup = { id: string; tab: string; name: string; stickers: St
 const g = (id: string, tab: string, name: string, ...stickers: Sticker[]): StickerGroup =>
     ({ id, tab, name, stickers });
 const s = (id: string, label: string): Sticker => ({ id, label });
+/** 움직이는 것. `.webp`로 찾는다. */
+const a = (id: string, label: string): Sticker => ({ id, label, anim: true });
 
 export const STICKER_GROUPS: StickerGroup[] = [
-    /* 골프 — 이 앱의 주제라 맨 앞이다. 골프공 한 벌과 사람 한 벌이 같이 있다. */
+    /* 움직이는 것 — 영상에서 잘라 만든 다섯 장이다. 맨 앞에 두어야 눈에 띈다. */
+    g('move', '✨', '움직임',
+        a('mvfighting', '화이팅! (움직임)'),
+        a('mvbest', '최고야! (움직임)'),
+        a('mvniceshot', '나이스 샷! (움직임)'),
+        a('mvmanse', '만세! (움직임)'),
+        a('mvseeyou', '다음에 봐요 (움직임)'),
+    ),
+    /* 골프 — 이 앱의 주제라 그다음이다. 골프공 한 벌과 사람 한 벌이 같이 있다. */
     g('golf', '⛳', '골프',
         s('ballhi', '안녕!'),
         s('ballcall', 'OK 콜!'),
@@ -241,8 +257,13 @@ export const stickerRef = (id: string): string => STICKER_MARK + id;
  * 그림 주소. **`import.meta.env.BASE_URL`을 거친다** — `vite.config.ts`가
  * `base: './'`라 저장소 이름이 붙은 주소에서도 맞게 풀린다.
  */
-export const stickerSrc = (ref: string): string =>
-    `${import.meta.env.BASE_URL}stickers/${ref.slice(STICKER_MARK.length)}.png`;
+export const stickerSrc = (ref: string): string => {
+    const id = ref.slice(STICKER_MARK.length);
+    // **모르는 id는 `.png`로 본다** — 그림을 지운 뒤에도 예전 글이 열려야 하고,
+    // 움직이는 것은 다섯 장뿐이라 그쪽을 예외로 두는 편이 안전하다.
+    const ext = BY_ID.get(id)?.anim ? 'webp' : 'png';
+    return `${import.meta.env.BASE_URL}stickers/${id}.${ext}`;
+};
 
 /**
  * 이름. 인용줄과 대체 텍스트에 쓴다.
