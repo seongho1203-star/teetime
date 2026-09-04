@@ -14,7 +14,8 @@ import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { emojiOnly } from '../lib/emoji';
-import { isSticker, stickerLabel, stickerRef, stickerSrc, STICKER_GROUPS } from '../lib/stickers';
+import { isSticker, stickerLabel, stickerRef, stickerSrc,
+         STICKER_GROUPS, STICKERS } from '../lib/stickers';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -77,7 +78,9 @@ export function Chat() {
     const [tray, setTray] = useState(false);
     /** 서랍에서 보고 있는 묶음. **기억해 두지 않는다** — 나갔다 오면 첫
      *  묶음(골프)으로 돌아간다(회원 명단의 차례 고르기와 같은 결이다). */
-    const [group, setGroup] = useState(STICKER_GROUPS[0].id);
+    /* **한 장도 없으면 이모티콘 단추가 아예 안 나온다** — 눌러 봐야 빈
+       서랍이 열릴 뿐이다. 그래서 `STICKER_GROUPS[0]`을 그냥 읽지 않는다. */
+    const [group, setGroup] = useState(STICKER_GROUPS[0]?.id ?? '');
     /** 골라 둔 이모티콘. 곧바로 나가지 않고 **입력칸 위에 미리보기로 물려
      *  둔다** — 글을 마저 적어 함께 보낼 수 있어야 한다(사용자 요청). */
     const [picked, setPicked] = useState<string | null>(null);
@@ -1159,7 +1162,7 @@ export function Chat() {
 
                 {/* 사진 · 입력칸 · 보내기 한 줄. 위의 인용과 언급 목록이
                     같은 상자 안에 쌓이므로 이 줄만 따로 묶는다. */}
-                <div className="chat-bar">
+                <div className={`chat-bar${STICKERS.length ? '' : ' no-sticker'}`}>
                 <button className="btn ghost chat-photo" onClick={() => fileRef.current?.click()}
                         disabled={uploading} aria-label="사진 보내기">
                     {uploading
@@ -1206,7 +1209,13 @@ export function Chat() {
                         **서랍이 열려 있는 동안에는 자판 그림이 된다** — 그
                         자리에 다시 키보드를 부르는 단추가 되기 때문이다.
                         얼굴 그림 그대로 두면 눌러도 다시 이모티콘이 나올 것
-                        같아 보인다(카톡도 이렇게 바꾼다). */}
+                        같아 보인다(카톡도 이렇게 바꾼다).
+                        **한 장도 없으면 단추 자체를 안 그린다** — 눌러 봐야
+                        빈 서랍이 열릴 뿐이라, 그 자리는 비워 두는 것이 맞다.
+                        그때는 `.textarea`의 오른쪽 여백도 함께 없앤다
+                        (`.chat-bar.no-sticker`) — 안 그러면 아무것도 없는
+                        자리를 40px 비워 둔 채로 글자가 일찍 접힌다. */}
+                    {STICKERS.length > 0 && (
                     <button className={`chat-sticker-btn${tray ? ' on' : ''}`}
                             onClick={toggleTray}
                             aria-label={tray ? '자판으로' : '이모티콘'} aria-pressed={tray}>
@@ -1225,6 +1234,7 @@ export function Chat() {
                                   <path d="M9 9.5h.01M15 9.5h.01" />
                               </svg>}
                     </button>
+                    )}
                 </div>
                 {/* 보내기 버튼은 **늘 그 자리에 있다**(사용자 제보 — 카톡은
                     부드러운데 여기는 깜빡였다). 붙였다 떼면 두 가지가 같이
@@ -1359,6 +1369,32 @@ function otherExt(e: SyntheticEvent<HTMLImageElement>) {
     else if (el.src.endsWith('.png')) el.src = `${el.src.slice(0, -3)}webp`;
 }
 
+/** 다른 확장자로 바꾼 주소. 위 `otherExt`와 같은 잣대다. */
+const swapExt = (url: string): string =>
+    url.endsWith('.webp') ? `${url.slice(0, -4)}png` : `${url.slice(0, -3)}webp`;
+
+/**
+ * 보낸 이모티콘 한 장.
+ *
+ * 못 찾으면 **다른 확장자로 한 번** 해 보고, 그것도 없으면 `이모티콘`이라고
+ * 적힌 작은 조각으로 물러난다. **그림이 없어진 뒤에도 예전 글이 열려야
+ * 하기 때문이다** — 이모티콘을 갈아 끼우면 지난 대화에는 없는 id가 그대로
+ * 남는데, 그냥 두면 깨진 그림 자국이 말풍선 자리에 남는다.
+ *
+ * 서랍과 미리보기는 지금 등록된 것만 그리므로 여기까지 필요 없다
+ * (거기는 `otherExt` 한 번으로 끝난다).
+ */
+function StickerImg({ mark, onLoad }: { mark: string; onLoad: () => void }) {
+    /* 0 = 제 확장자 · 1 = 다른 확장자 · 2 = 포기하고 조각으로 */
+    const [tried, setTried] = useState(0);
+    const label = stickerLabel(mark);
+    if (tried >= 2) return <span className="chat-sticker-gone">{label}</span>;
+    const src = stickerSrc(mark);
+    return <img className="chat-sticker" src={tried ? swapExt(src) : src}
+                alt={label} loading="lazy"
+                onLoad={onLoad} onError={() => setTried(t => t + 1)} />;
+}
+
 /**
  * 말풍선 하나.
  *
@@ -1490,14 +1526,13 @@ const Bubble = memo(function Bubble({
                         // 이모티콘. 사진과 달리 **누르는 곳이 아니다** —
                         // 원본을 새 창에 띄워 봐야 같은 그림이고, 앱에 딸린
                         // 그림이라 저장할 것도 없다.
-                        // **못 찾으면 다른 확장자로 한 번 더 해 본다.**
+                        // **못 찾으면 다른 확장자로 한 번 더 해 보고, 그것도
+                        // 없으면 작은 조각으로 물러난다**(`StickerImg`).
                         // 움직이는 것은 `.webp`, 그 밖은 `.png`인데 가르는
                         // 잣대가 id의 머리글자라(`ANIM_PREFIX`), 앞으로 규칙이
                         // 바뀌면 옛 판을 든 폰에서 404가 난다 — 그때 그림
                         // 자리에 이름만 덩그러니 남는 것이 지난번 그 증상이다.
-                        ? <img className="chat-sticker" src={stickerSrc(message.image_url!)}
-                               alt={stickerLabel(message.image_url!)}
-                               loading="lazy" onLoad={onImageLoad} onError={otherExt} />
+                        ? <StickerImg mark={message.image_url!} onLoad={onImageLoad} />
                         : message.image_url
                         // 사진은 말풍선 없이 그 자체로 보여 준다. 눌러서 원본을
                         // 새 창에 띄운다 — 저장은 거기서 길게 눌러 한다.

@@ -379,6 +379,10 @@
     line-height: 1.45;
     width: 100%;
 }
+/* 이모티콘이 한 장도 없으면 그 단추를 안 그린다(Chat.tsx) — 그때는
+   **오른쪽 여백도 함께 없앤다.** 안 그러면 아무것도 없는 자리를 40px 비워
+   둔 채로 글자가 일찍 접힌다. 위의 `padding`과 한 쌍이다. */
+.chat-bar.no-sticker .textarea { padding-right: 14px; }
 
 /* 안내 글씨(`메시지`)를 직접 그리는 자리. 브라우저의 placeholder를 안 쓰는
    이유는 Chat.tsx의 입력칸 주석에 적었다. */
@@ -590,6 +594,17 @@
     width: 118px;
     height: 118px;
     object-fit: contain;
+}
+/* 그림이 없어진 이모티콘. 이모티콘을 갈아 끼우면 지난 대화에 없는 id가
+   그대로 남는데, 그냥 두면 깨진 그림 자국이 말풍선 자리에 남는다.
+   **말풍선처럼 보이면 안 된다** — 누가 한 말이 아니라 '여기 그림이
+   있었다'는 표시라, 안내 줄(`.chat-notice`)과 같은 옅은 조각으로 둔다. */
+.chat-sticker-gone {
+    padding: 5px 10px;
+    border-radius: var(--r-pill);
+    background: var(--chat-chip);
+    color: var(--chat-on);
+    font-size: 11.5px;
 }
 
 /* 보낸 사진. 말풍선을 두르지 않고 사진만 둥글게 보여 준다.

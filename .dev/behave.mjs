@@ -663,8 +663,45 @@ ok(stuck.vvh === '',
 ok(!stuck.focused.includes('textarea'),
    `돌아오면 글칸 초점도 뗀다 — 안 떼면 다음에 또 갇힌다 (실제 ${JSON.stringify(stuck.focused)})`);
 
+/* ── 이모티콘 ────────────────────────────────────────────────────
+ *
+ * **한 장도 등록 안 된 때가 있다**(지금이 그렇다 — 배경이 투명한 것으로
+ * 다시 만들어 넣기로 하고 다 지웠다). 그때 봐야 할 것은 서랍이 아니라
+ * **없어도 안 깨지는가**이므로 갈래를 나눈다. 가르는 잣대는 앱이 쓰는
+ * 것과 같다 — 이모티콘 단추가 그려졌는가(`STICKERS.length`).
+ */
 console.log('\n── 이모티콘 ──');
 await go('/#/chat', 1200);
+
+const hasStickers = await page.$('[aria-label="이모티콘"]') !== null;
+
+if (!hasStickers) {
+    /* **단추를 아예 안 그린다.** 눌러 봐야 빈 서랍이 열릴 뿐이라 그 자리를
+       비워 두는 것이 맞다. */
+    ok(await page.$('.chat-sticker-btn') === null,
+       '한 장도 없으면 이모티콘 단추를 안 그린다');
+    ok(await page.$('.sticker-tray') === null, '열릴 서랍도 없다');
+
+    /* **글칸의 오른쪽 여백도 함께 없앤다.** 안 그러면 아무것도 없는 자리를
+       40px 비워 둔 채로 글자가 일찍 접힌다. */
+    const pad = await page.$eval('.chat-input .textarea',
+        e => parseFloat(getComputedStyle(e).paddingRight));
+    ok(pad < 20, `단추가 없으면 글칸 오른쪽 여백도 없앤다 (실제 ${pad}px)`);
+
+    /* **예전 글에 남은 `sticker:` 값은 그대로 열려야 한다.** 그림이
+       없어졌으므로 깨진 그림 자국이 아니라 작은 조각으로 물러난다
+       (`StickerImg`). 안 그러면 지난 대화가 눈에 띄게 상한다. */
+    await page.waitForTimeout(600);
+    const gone = await page.$$eval('.chat-sticker-gone', e => e.map(x => x.textContent?.trim()));
+    ok(gone.length === 3 && gone.every(t => t === '이모티콘'),
+       `그림이 없어진 이모티콘은 작은 조각으로 물러난다 (실제 ${JSON.stringify(gone)})`);
+    ok(!(await page.$$eval('.chat-sticker', e => e.some(x => x.complete && x.naturalWidth === 0))),
+       '깨진 그림이 말풍선 자리에 남지 않는다');
+
+    /* 함께 적은 글은 그대로 보인다 — 그림만 없어졌지 말은 남아 있다. */
+    ok((await page.textContent('.chat-list'))?.includes('내일 봬요!'),
+       '이모티콘에 함께 적은 글은 그대로 보인다');
+} else {
 
 /* 그린 것부터. 말풍선을 두르지 않는다(이모지만 보낸 글과 같은 결이다). */
 const stickerShots = await page.$$eval('.chat-sticker', e => e.map(x => x.getAttribute('src')));
@@ -766,6 +803,8 @@ const trayGeo = await page.evaluate(() => {
 ok(trayGeo?.below === true, '서랍이 입력칸 아래에 선다');
 ok((trayGeo?.gap ?? 999) <= 2,
    `서랍을 열면 대화가 맨 아래로 붙는다 (실제 ${trayGeo?.gap}px 남음)`);
+
+}
 
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
