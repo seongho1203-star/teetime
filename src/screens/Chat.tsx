@@ -337,7 +337,12 @@ export function Chat() {
      * 알려 주기도 한다. 누르는 순간 탭바부터 감춰 두면 그 사이에도
      * 대화가 가려지지 않는다. 높이는 알려 줄 때 채워 넣는다.
      */
-    const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0 });
+    const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0,
+                          /** 바로 앞에 키보드가 올라와 있었는가. 내려가는 **그 순간**만
+                           *  목록을 따라 내리려고 둔다 — 화면을 처음 열 때도 이 갈래를
+                           *  지나는데, 거기서 따라 내리면 `여기까지 읽으셨습니다` 줄로
+                           *  옮겨 놓은 자리를 도로 맨 아래로 끌어내린다. */
+                          wasOpen: false });
 
     /**
      * **키보드가 내려가 목록이 커지면 굴러간 자리를 다시 앉힌다.**
@@ -352,12 +357,45 @@ export function Chat() {
      *
      * **맨 아래를 보고 있었으면 끝으로, 아니면 넘어간 만큼만 되돌린다** —
      * 옛 글을 읽으려고 올려 둔 자리를 키보드가 내려갔다고 빼앗으면 안 된다.
+     *
+     * **한 번만 앉히면 안 된다 — 높이가 한 번에 정해지지 않는다.**
+     * 한 번만 앉혔더니 이번에는 반대로 **아래가 잘려 새 글이 안 보인다**는
+     * 제보가 왔다(실기기 · 사진). 키보드가 내려가는 동안 목록 높이도,
+     * 아래 여백(`--composer` 자리)도 여러 단계에 걸쳐 바뀌고, 그때마다 iOS가
+     * 굴린 자리를 제 나름대로 손보기 때문이다.
+     * 그래서 **이모티콘 서랍과 똑같이** `ResizeObserver`로 목록이 다시 재어질
+     * 때마다 따라 내리고 0.6초 뒤에 손을 뗀다 — 그 뒤는 사람이 굴리는 것이라
+     * 건드리면 안 된다.
+     *
+     * **맨 아래였는지는 맨 처음에 한 번만 집는다**(`stick`). 목록이 줄었다
+     * 늘 때마다 브라우저가 스크롤 이벤트를 던져 `onScroll`이 '맨 아래가
+     * 아니다'로 내려 버리므로, 따라가는 도중에 다시 보면 늘 거짓이 된다.
      */
+    const settling = useRef<{ ro: ResizeObserver | null; off: number }>({ ro: null, off: 0 });
+
     const settleList = useCallback(() => {
         const el = listRef.current;
         if (!el) return;
-        const max = el.scrollHeight - el.clientHeight;   // 안 넘치면 0이다
-        if (atBottom.current || el.scrollTop > max) el.scrollTop = max;
+        const stick = atBottom.current;
+        const drop = () => {
+            const box = listRef.current;
+            if (!box) return;
+            const max = box.scrollHeight - box.clientHeight;   // 안 넘치면 0이다
+            if (stick) { atBottom.current = true; box.scrollTop = max; }
+            else if (box.scrollTop > max) box.scrollTop = max;  // 넘어간 만큼만
+        };
+        drop();
+        const s = settling.current;
+        s.ro?.disconnect();
+        clearTimeout(s.off);
+        s.ro = new ResizeObserver(drop);
+        s.ro.observe(el);
+        s.off = window.setTimeout(() => { s.ro?.disconnect(); s.ro = null; }, 600);
+    }, []);
+
+    useEffect(() => {
+        const s = settling.current;
+        return () => { s.ro?.disconnect(); clearTimeout(s.off); };
     }, []);
 
     /**
@@ -388,6 +426,10 @@ export function Chat() {
         // 초점은 그보다 먼저 오는 신호라 함께 본다.
         const gap = document.documentElement.clientHeight - vh;
         const open = s.typing || gap > 120;
+        // 키보드가 방금 내려갔는가. **아래 갈래까지 갔을 때만 지운다** —
+        // 붙박여 있어 일찍 돌아서는 판에서 지워 버리면, 정작 크기를 다시
+        // 재는 판이 왔을 때 '방금 내려갔다'를 놓친다.
+        const closing = s.wasOpen && !open;
         document.body.classList.toggle('kb-open', open);
         // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
         document.documentElement.classList.toggle('kb-open', open);
@@ -408,15 +450,20 @@ export function Chat() {
             if (window.scrollY) window.scrollTo(0, 0);
             const el = listRef.current;
             if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+            s.wasOpen = true;
         } else {
             // 키보드가 없을 때는 지운다 — 남겨 두면 옛 높이가 굳는다.
             root.removeProperty('--vvh');
             root.setProperty('--kb', '0px');
-            /* 목록이 커진 만큼 굴러간 자리를 다시 앉힌다. **두 번 부른다** —
-               지금은 아직 옛 높이라 한 번 더 프레임을 넘겨야 커진 뒤 값으로
-               잰다(높이를 정하는 것이 CSS 변수라 이 자리에서 안 끝난다). */
-            settleList();
-            requestAnimationFrame(settleList);
+            /* 목록이 커진 만큼 굴러간 자리를 다시 앉힌다. **여기서 한 번만
+               부른다** — 뒤는 `settleList`가 목록이 다시 재어질 때마다 따라
+               내린다. 두 번 부르면 그 사이 들어온 스크롤 이벤트 때문에
+               '맨 아래였는가'를 거짓으로 다시 집어 따라가기가 멈춘다.
+               **키보드가 방금 내려간 때만** 부른다 — 화면을 처음 열 때도
+               이 갈래를 지나는데, 거기서 따라 내리면 안 읽은 줄로 옮겨 놓은
+               자리를 도로 맨 아래로 끌어내린다. */
+            if (closing) settleList();
+            s.wasOpen = false;
         }
     }, [settleList]);
 
