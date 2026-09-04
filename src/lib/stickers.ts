@@ -66,7 +66,7 @@ export const ANIM_PREFIX = 'mv';
  */
 export type StickerGroup = { id: string; tab: string; name: string; stickers: Sticker[] };
 
-/** 묶음 하나. `g('golf', '⛳', '골프', s('ballhi', '안녕!'), …) */
+/** 묶음 하나. `g('golf', '⛳', '골프공', s('gday', '까꿍day'), …) */
 export const g = (id: string, tab: string, name: string, ...stickers: Sticker[]): StickerGroup =>
     ({ id, tab, name, stickers });
 /** 한 장. 파일은 `public/stickers/<id>.png`(배경 투명). */
@@ -77,9 +77,9 @@ export const a = (id: string, label: string): Sticker => ({ id, label });
 /**
  * 묶음 목록.
  *
- * 지금은 **움직이는 것 열둘**이고 한 묶음이다. 사용자가 준 영상 두 편에서
- * 배경이 투명한(체커 무늬로 그려진) 장면만 골라 잘랐다 — 파스텔 바탕이
- * 깔린 장면은 규칙대로 뺐다. **차례는 영상에 나온 차례 그대로다.**
+ * 네 묶음이다 — 움직이는 것 열둘(영상에서 잘랐다. 배경이 투명한 장면만
+ * 골랐다), 골프공(앱 아이콘과 같은 캐릭터) 스물일곱, 펭귄골프 스물둘,
+ * 펭귄 스물여덟. **차례는 원본에 나온 차례 그대로다.**
  */
 export const STICKER_GROUPS: StickerGroup[] = [
     g('mv', '✨', '움직임',
@@ -87,6 +87,42 @@ export const STICKER_GROUPS: StickerGroup[] = [
       a('mvshy', '부끄부끄'), a('mvzzz', '쿨쿨'), a('mvshock', '헉!'),
       a('mvtyping', '타다닥'), a('mvfighting', '화이팅!'), a('mvogu', '오구오구'),
       a('mvyay', '신나!'), a('mvsob', '훌쩍훌쩍'), a('mvcry', '흑흑')),
+
+    /* 앱 아이콘과 같은 캐릭터다 — 선글라스 낀 골프공. 시트 석 장으로 왔는데
+       거의 같은 것이 되풀이돼서, 한 장을 뼈대로 삼고 나머지 둘에서
+       **겹치지 않는 것만** 더했다(사용자 요청 — 중복은 뺀다). */
+    g('golf', '⛳', '골프공',
+      s('gday', '까꿍day'), s('gfight', '화이팅!'), s('ggood', 'Good!'),
+      s('gswing', '스윙'), s('gcart', '카트'), s('gheart', '하트'),
+      s('gchill', '쉬는 중'), s('gwhat', '뭐해요?'), s('gnice', '나이스!'),
+      s('gbeer', '한잔해요!'), s('gsad', '아쉽네요'), s('gzzz', '쿨쿨'),
+      s('gbunker', '벙커'), s('gbirdie', '버디!'), s('gshot', '굿샷!'),
+      s('gbye', '또봐요~'), s('gthink', '음…'), s('gthanks', '감사합니다'),
+      s('ggo', '출발!'), s('ghi', '안녕~'), s('gyay', '신난다!'),
+      s('gsplash', '풍덩'), s('gball', '공 사랑'), s('gfinger', '손가락 하트'),
+      s('gdizzy', '어질어질'), s('gdrive', '드라이버'), s('grelax', '여유~')),
+
+    g('pgolf', '🐧', '펭귄골프',
+      s('pswing', '스윙'), s('pnice', 'Nice!'), s('pbirdie', 'Birdie!'),
+      s('ppar', 'Par!'), s('pbag', '골프백'), s('pready', '설레'),
+      s('pbeer', '라운딩 끝!'), s('pcart', '카트'), s('pcourse', '필드'),
+      s('pball', '공 자랑'), s('pputt', '퍼팅'), s('pshot', '굿샷!'),
+      s('pangry', '뒤땅'), s('pwhat', '어디로?'), s('psun', '더워'),
+      s('pzzz', '쿨쿨'), s('pchamp', 'Champion!'), s('pdrive', '드라이버'),
+      s('pscore', '스코어 -3'), s('plove', '두근두근'), s('pagain', '다음에 또'),
+      s('phole', 'Hole in One!')),
+
+    g('peng', '💙', '펭귄',
+      s('pnheart', '하트'), s('pnyay', '신난다'), s('pngood', '좋아요'),
+      s('pncheek', '부끄'), s('pnfight', '화이팅!'), s('pnbow', '꾸벅'),
+      s('pncoffee', '커피 한 잔'), s('pnsleep', '잘 자'), s('pnpeek', '빼꼼'),
+      s('pncry', '엉엉'), s('pnhuh', '헉!'), s('pnflower', '꽃다발'),
+      s('pncool', '멋져'), s('pnlove', '하트 눈'), s('pnwink', '윙크'),
+      s('pnparty', '축하해'), s('pnfrog', '개구리'), s('pnwork', '일하는 중'),
+      s('pnthanks', '감사합니다'), s('pnhide', '쭈뼛'), s('pnangry', '화났어'),
+      s('pnrun', '달려'), s('pnpillow', '포근'), s('pnplease', '부탁해'),
+      s('pnflop', '뻗음'), s('pnrain', '비 와요'), s('pndj', '신나는 음악'),
+      s('pnhi', '안녕~')),
 ];
 
 export const STICKERS: Sticker[] = STICKER_GROUPS.flatMap(x => x.stickers);
