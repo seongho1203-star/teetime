@@ -14,6 +14,7 @@ const fmt = (opts: Intl.DateTimeFormatOptions) =>
 const dateFmt = fmt({ month: 'long', day: 'numeric', weekday: 'short' });
 const timeFmt = fmt({ hour: 'numeric', minute: '2-digit', hour12: true });
 const fullFmt = fmt({ year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+const chatDayFmt = fmt({ year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 const stampFmt = fmt({ month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
 /** `8월 21일 (금)` */
@@ -27,6 +28,16 @@ export const formatDateTime = (iso: string) => `${formatDate(iso)} ${formatTime(
 
 /** `2026년 8월 21일 (금)` */
 export const formatFullDate = (iso: string) => fullFmt.format(new Date(iso));
+
+/**
+ * `2026년 9월 6일 일요일` — **대화의 날짜 구분 줄에만 쓴다**(사용자 요청).
+ *
+ * 다른 자리(`formatDate`)와 달리 **연도와 요일을 다 적는다.** 대화는
+ * 위로 굴려 지난 이야기를 읽는 자리라, `9월 6일 (일)`만 있으면 그게
+ * 올해인지 작년인지가 안 보인다. 줄 하나가 하루를 통째로 가르는 자리라
+ * 길어도 자리를 안 뺏는다.
+ */
+export const formatChatDay = (iso: string) => chatDayFmt.format(new Date(iso));
 
 /** `8/21 오후 3:04` — 목록의 작은 시각 표시용 */
 export const formatStamp = (iso: string) => stampFmt.format(new Date(iso));

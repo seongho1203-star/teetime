@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDate, formatTime, kstDate, kstMinute } from '../lib/format';
+import { formatChatDay, formatTime, kstDate, kstMinute } from '../lib/format';
 import { personLabel, type Gender, type Message, type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
@@ -1157,7 +1157,7 @@ export function Chat() {
                     return (
                         // `data-mid`는 인용을 눌렀을 때 원본을 찾는 표다.
                         <div key={m.id} data-mid={m.id}>
-                            {newDay && <div className="chat-day">{formatDate(m.created_at)}</div>}
+                            {newDay && <div className="chat-day">{formatChatDay(m.created_at)}</div>}
                             {/* **앱이 스스로 남긴 줄**(라운드·투표 안내).
                                 말풍선으로 그리면 누가 말을 건 것처럼 보이고
                                 답장·밀기까지 붙는다 — 안내는 가운데 한 줄이다. */}
