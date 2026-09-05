@@ -1062,6 +1062,15 @@ alter table messages add column if not exists round_id uuid
 -- 라운드에서 다시 짜서** 보낸다(`notify`의 planFor).
 alter table messages add column if not exists notify boolean not null default false;
 
+-- **운영진이 가린 글**(카톡의 '가리기'). 지우지 않고 덮어만 둔다 —
+-- 지우면 되돌릴 수 없고, 오해로 가린 것을 풀 길이 없어진다.
+-- 화면은 이 칸이 서 있으면 글·사진·이모티콘 대신 안내 한 줄을 그린다.
+-- **정책을 새로 안 만든다** — 아래 `messages_admin`이 `for all`이라
+-- 운영진만 이 칸을 세우고 풀 수 있고, 회원은 update가 아예 없다.
+alter table messages add column if not exists hidden_at timestamptz;
+alter table messages add column if not exists hidden_by uuid
+    references profiles(id) on delete set null;
+
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
 
 /**

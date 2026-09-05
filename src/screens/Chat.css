@@ -291,6 +291,28 @@
     font-weight: 500;
 }
 
+/* **운영진이 가린 글**(카톡의 '가리기'). 내 글이든 남의 글이든 같은 모양이라
+   노란 바탕도 덮는다 — 가린 글이 사람마다 다른 색이면 무슨 뜻인지 흐려진다.
+   글자를 흐리게 눕혀 '내용이 아니라 안내'라는 것을 알린다. */
+.chat-bubble.chat-hidden,
+.chat-row.mine .chat-bubble.chat-hidden {
+    background: var(--chat-chip);
+    border-color: transparent;
+    color: var(--chat-on);
+    font-style: italic;
+    font-weight: 400;
+}
+
+/* **길게 눌러 가리는 것은 운영진뿐이라, 고르기를 막는 것도 그때뿐이다.**
+   iOS는 글자를 길게 누르면 제 선택 손잡이를 띄워 우리 손짓을 덮어 버린다.
+   그래서 운영진 화면에서만 막는다 — 나머지 사람은 글을 길게 눌러 복사하는
+   것이 그대로 살아 있다. */
+.chat-row.can-hide .chat-bubble {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
 /* 이모지만 보낸 짧은 글(세 개까지). **말풍선을 벗긴다** — 카톡이 그렇다.
    작은 말풍선 안에 이모지 하나가 들어앉아 있으면 그것대로 초라하고,
    벗겨 놓으면 한눈에 눈에 띈다. 내 글의 노란 바탕도 함께 사라진다.

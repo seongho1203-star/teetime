@@ -8,6 +8,7 @@ import { formatDate, formatTime, kstDate, kstMinute } from '../lib/format';
 import { personLabel, type Gender, type Message, type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
+import { useConfirm } from '../components/Confirm';
 import { readableError } from '../lib/errors';
 import { shrinkImage } from '../lib/image';
 import { lastSeen, markSeen, NEVER } from '../lib/unread';
@@ -41,6 +42,7 @@ export function Chat() {
     const { session, isAdmin } = useAuth();
     const me = session!.user.id;
     const toast = useToast();
+    const confirm = useConfirm();
 
     const [messages, setMessages] = useState<Message[]>([]);
     /**
@@ -185,6 +187,14 @@ export function Chat() {
                     setMessages(prev =>
                         // 내가 보낸 글은 이미 넣어 두었다. 두 번 그리지 않는다.
                         prev.some(m => m.id === row.id) ? prev : [...prev, row]);
+                })
+            // **가리기는 지우기가 아니라 고치기다.** 운영진이 가리거나 풀면
+            // 그 줄만 갈아 끼운다 — 다시 불러오면 굴려 둔 자리를 잃는다.
+            .on('postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
+                payload => {
+                    const row = payload.new as Message;
+                    setMessages(prev => prev.map(m => (m.id === row.id ? row : m)));
                 })
             .on('postgres_changes',
                 { event: 'DELETE', schema: 'public', table: 'messages' },
@@ -881,6 +891,40 @@ export function Chat() {
         taRef.current?.focus();
     }, []);
 
+    /**
+     * **운영진이 남의 글을 가린다**(카톡의 '가리기').
+     *
+     * 지우지 않고 덮어만 둔다 — 지우면 오해로 가린 것을 되돌릴 길이 없다.
+     * 말풍선을 길게 누르면(PC는 오른쪽 클릭) 여기로 온다.
+     *
+     * **가리기는 화면에서 덮는 것이지 지우는 것이 아니다.** 글은 DB에
+     * 그대로 남아 있어 마음먹고 파 보면 읽힌다 — 없애야 할 글은 쓴 사람이
+     * 지우거나 운영진이 지워야 한다. 급한 불을 끄는 자리로 쓸 것.
+     */
+    const askHide = useCallback(async (m: Message) => {
+        const on = !m.hidden_at;
+        const ok = await confirm({
+            title: on ? '이 메시지를 가릴까요?' : '가리기를 풀까요?',
+            detail: on
+                ? <>모두에게 <b>운영진이 가린 메시지입니다</b>로 보입니다.
+                   지우는 것이 아니라 덮어 두는 것이라 언제든 다시 풀 수 있습니다.</>
+                : '가렸던 내용이 모두에게 다시 보입니다.',
+            confirmLabel: on ? '가리기' : '가리기 풀기',
+            danger: on,
+        });
+        if (!ok) return;
+        // 곧바로 화면에 반영한다. 실시간 이벤트가 뒤따라와도 같은 값이다.
+        const patch = on ? { hidden_at: new Date().toISOString(), hidden_by: me } : { hidden_at: null, hidden_by: null };
+        setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, ...patch } : x)));
+        const { error: err } = await supabase.from('messages').update(patch).eq('id', m.id);
+        if (err) {
+            setMessages(prev => prev.map(x => (x.id === m.id ? m : x)));   // 되돌린다
+            toast(readableError(err));
+            return;
+        }
+        toast(on ? '가렸습니다.' : '가리기를 풀었습니다.');
+    }, [confirm, me, toast]);
+
     /** id → 글. 인용할 원본을 찾는다. 지난 묶음에 있으면 없을 수 있다. */
     const byMid = new Map(messages.map(m => [m.id, m]));
     /* **매번 새 배열을 만들면 안 된다** — 말풍선이 이걸 그대로 받으므로,
@@ -1090,6 +1134,8 @@ export function Chat() {
                                 lostQuote={!!m.reply_to && !quoted}
                                 onJump={jumpTo}
                                 onReply={startReply}
+                                onHold={askHide}
+                                canHide={isAdmin}
                                 mentionNames={mentionNames}
                                 myName={myName}
                                 allowAll={staffIds.has(m.user_id ?? '')}
@@ -1323,6 +1369,8 @@ export function Chat() {
 
 /** 인용에 보일 한 줄. 사진·이모티콘만 보낸 글은 글자가 없다. */
 function preview(m: Message): string {
+    // 가린 글은 인용에서도 덮는다 — 여기로 새어 나가면 가린 뜻이 없다.
+    if (m.hidden_at) return '가려진 메시지';
     const text = m.body.trim();
     if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
     if (isSticker(m.image_url)) return stickerLabel(m.image_url!);
@@ -1351,6 +1399,8 @@ function Stamp({ at, showTime, unread }: { at: string; showTime: boolean; unread
 /** 왼쪽으로 이만큼 밀면 답장이 걸린다. 되돌아가는 최대 거리도 이 근처다. */
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 72;
+/** 얼마나 눌러야 '길게 누른 것'인가. 카톡과 비슷한 자리다. */
+const HOLD_MS = 500;
 
 /**
  * 이모티콘 그림을 못 찾았을 때 **다른 확장자로 한 번만** 다시 해 본다.
@@ -1407,7 +1457,8 @@ function StickerImg({ mark, onLoad }: { mark: string; onLoad: () => void }) {
  */
 const Bubble = memo(function Bubble({
     message, who, mine, grouped, showTime, unread, onImageLoad,
-    quoted, quotedWho, lostQuote, onJump, onReply, mentionNames, myName, allowAll,
+    quoted, quotedWho, lostQuote, onJump, onReply, onHold, canHide,
+    mentionNames, myName, allowAll,
 }: {
     message: Message;
     who?: Person;
@@ -1426,12 +1477,18 @@ const Bubble = memo(function Bubble({
     lostQuote: boolean;
     onJump: (id: string) => void;
     onReply: (m: Message) => void;
+    /** 길게 눌렀을 때(운영진만). 가리기·가리기 풀기를 묻는다. */
+    onHold: (m: Message) => void;
+    /** 이 사람이 가릴 수 있는가 = 운영진인가. 아니면 길게 눌러도 아무 일 없다. */
+    canHide: boolean;
     mentionNames: string[];
     myName: string;
     /** 쓴 사람이 운영진인가. `@전체`는 그때만 부른 것으로 본다. */
     allowAll: boolean;
 }) {
     const rowRef = useRef<HTMLDivElement>(null);
+    /** 운영진이 가린 글인가. 가렸으면 글·사진·이모티콘 대신 안내 한 줄이다. */
+    const hidden = !!message.hidden_at;
     /* 이모지만 보낸 짧은 글은 말풍선 없이 크게 그린다(카톡이 그렇다).
        사진에 함께 적은 글은 그대로 둔다 — 사진 아래 붙는 한 줄이라
        거기서만 글자가 커지면 짜임이 무너진다. */
@@ -1445,6 +1502,24 @@ const Bubble = memo(function Bubble({
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
+    /* **길게 누르면 가리기를 묻는다**(카톡과 같은 손짓). 운영진에게만
+       달아 둔다 — 그래야 나머지 사람은 글자를 길게 눌러 복사하는 것이
+       그대로 살아 있다(`.can-hide`일 때만 고르기를 막는다). */
+    const hold = useRef<number | null>(null);
+    const held = useRef(false);
+    const stopHold = () => {
+        if (hold.current !== null) { clearTimeout(hold.current); hold.current = null; }
+    };
+    const startHold = () => {
+        if (!canHide) return;
+        held.current = false;
+        stopHold();
+        hold.current = window.setTimeout(() => {
+            hold.current = null;
+            held.current = true;
+            onHold(message);
+        }, HOLD_MS);
+    };
 
     const paint = (dx: number) => {
         const el = rowRef.current;
@@ -1457,6 +1532,7 @@ const Bubble = memo(function Bubble({
     const onTouchStart = (e: React.TouchEvent) => {
         const t = e.touches[0];
         g.current = { x0: t.clientX, y0: t.clientY, dx: 0, decided: false, active: false };
+        startHold();
     };
 
     /* `touch-action: pan-y`라 세로 스크롤은 브라우저가 그대로 가져간다.
@@ -1466,6 +1542,8 @@ const Bubble = memo(function Bubble({
         const t = e.touches[0];
         const dx = t.clientX - g.current.x0;
         const dy = Math.abs(t.clientY - g.current.y0);
+        // 조금이라도 움직이면 '길게 누르기'가 아니다 — 굴리는 중이거나 미는 중이다.
+        if (Math.abs(dx) > 8 || dy > 8) stopHold();
         if (!g.current.decided) {
             if (Math.abs(dx) < 8 && dy < 8) return;
             g.current.decided = true;
@@ -1478,8 +1556,10 @@ const Bubble = memo(function Bubble({
     };
 
     const onTouchEnd = () => {
+        stopHold();
         const el = rowRef.current;
-        const hit = g.current.active && g.current.dx <= -SWIPE_TRIGGER;
+        // 길게 눌러 창이 떠 있으면 답장까지 걸리지 않게 한다.
+        const hit = !held.current && g.current.active && g.current.dx <= -SWIPE_TRIGGER;
         if (el && g.current.active) {
             // 손을 떼면 제자리로. transform만 움직이므로 값이 싸다.
             el.style.transition = 'transform 0.18s ease';
@@ -1491,7 +1571,7 @@ const Bubble = memo(function Bubble({
         if (hit) onReply(message);
     };
 
-    const quote = (quoted || lostQuote) && (
+    const quote = !hidden && (quoted || lostQuote) && (
         <button className="chat-quote"
                 onClick={() => quoted && onJump(quoted.id)}
                 disabled={!quoted}>
@@ -1503,10 +1583,16 @@ const Bubble = memo(function Bubble({
     );
 
     return (
-        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}
+        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}${canHide ? ' can-hide' : ''}`}
              ref={rowRef}
              onTouchStart={onTouchStart} onTouchMove={onTouchMove}
-             onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+             onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
+             /* PC에서는 오른쪽 클릭이 '길게 누르기'다. 폰에서 창이 뜬 뒤
+                손을 떼면 여기도 한 번 더 불릴 수 있어 그때는 건너뛴다. */
+             onContextMenu={canHide ? e => {
+                 e.preventDefault();
+                 if (!held.current) onHold(message);
+             } : undefined}>
             {!mine && (
                 <div className="chat-avatar">
                     {!grouped && <Avatar name={who?.name} url={who?.avatar_url} gender={who?.gender} />}
@@ -1522,7 +1608,12 @@ const Bubble = memo(function Bubble({
                 )}
                 {quote}
                 <div className="chat-line">
-                    {sticker
+                    {/* **운영진이 가린 글**(카톡의 '가리기'). 글·사진·이모티콘을
+                        통째로 덮고 안내 한 줄만 남긴다 — 지운 것이 아니라
+                        덮어 둔 것이라 운영진이 다시 풀 수 있다. */
+                    hidden
+                        ? <div className="chat-bubble chat-hidden">운영진이 가린 메시지입니다</div>
+                        : sticker
                         // 이모티콘. 사진과 달리 **누르는 곳이 아니다** —
                         // 원본을 새 창에 띄워 봐야 같은 그림이고, 앱에 딸린
                         // 그림이라 저장할 것도 없다.
@@ -1549,14 +1640,14 @@ const Bubble = memo(function Bubble({
                         안 그러면 사진 옆에 시각이 찍히고 그 아래로 글이 더 온다.
                         **안 읽은 사람 수는 글마다 붙는다**(카톡이 그렇다) —
                         같은 분에 보낸 글이라도 읽힌 정도가 다를 수 있다. */}
-                    {!caption && <Stamp at={message.created_at} showTime={showTime} unread={unread} />}
+                    {(!caption || hidden) && <Stamp at={message.created_at} showTime={showTime} unread={unread} />}
                 </div>
                 {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다.
                     **`.chat-line`으로 감싸야 한다** — 그냥 두면 `.chat-col`이
                     늘여서(`align-items: stretch`) 짧은 글도 사진보다 넓게
                     퍼진다. 감싸면 글 길이만큼만 차지하고, 내 글은 오른쪽으로
                     붙으며, 시각도 이 줄 끝에 온다. */}
-                {caption && (
+                {caption && !hidden && (
                     <div className="chat-line">
                         <div className="chat-bubble">
                             <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />

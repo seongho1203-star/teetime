@@ -70,6 +70,11 @@ await ctx.route('**/rest/v1/poll_options**', route => {
    실패했다). 앱이 그 칸만 빼고 다시 넣는지를 본다. */
 let missingColumns = [];
 await ctx.route('**/rest/v1/messages**', route => {
+    // 가리기·가리기 풀기는 PATCH로 나간다. 무엇을 보냈는지만 잡아 둔다.
+    if (route.request().method() === 'PATCH') {
+        writes.push(['messages PATCH', route.request().postDataJSON()]);
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }
     if (route.request().method() !== 'POST') return route.fallback();
     const sent = route.request().postDataJSON();
     writes.push(['messages POST', sent]);
@@ -805,6 +810,67 @@ ok((trayGeo?.gap ?? 999) <= 2,
    `서랍을 열면 대화가 맨 아래로 붙는다 (실제 ${trayGeo?.gap}px 남음)`);
 
 }
+
+/* ── 6-1-1-3. 운영진이 메시지를 가린다 ──────────────────────────
+ *
+ * 카톡의 '가리기'다. **지우는 것이 아니라 덮어 두는 것**이라 언제든
+ * 다시 풀 수 있다. 세 가지를 본다 — 가려진 글이 정말 안 보이는가,
+ * 운영진이 길게 눌러(PC는 오른쪽 클릭) 가릴 수 있는가, 그리고
+ * **일반회원에게는 그 길이 아예 없는가.**
+ */
+console.log('\n── 메시지 가리기 ──');
+await go('/#/chat', 1200);
+
+const chatText = await page.textContent('.chat-list') ?? '';
+ok(chatText.includes('운영진이 가린 메시지입니다'),
+   '가려진 글은 내용 대신 안내 한 줄로 그려진다');
+ok(!chatText.includes('여기 광고 글이 있었습니다'),
+   '가려진 글의 내용은 화면 어디에도 안 실린다');
+
+/* 운영진은 길게 눌러 가린다. PC에서는 오른쪽 클릭이 같은 자리다. */
+const before = writes.filter(([w]) => w === 'messages PATCH').length;
+await page.click('[data-mid="m5"] .chat-bubble', { button: 'right' });
+await page.waitForTimeout(300);
+ok(await page.$('.confirm-box') !== null, '운영진이 길게 누르면 가릴지 묻는다');
+await page.click('.confirm-actions .btn:not(.ghost)');
+await page.waitForTimeout(400);
+const patched = writes.filter(([w]) => w === 'messages PATCH').map(([, v]) => v);
+ok(patched.length === before + 1 && !!patched.at(-1)?.hidden_at,
+   `가리기를 누르면 hidden_at을 세워 보낸다 (실제 ${JSON.stringify(patched.at(-1))})`);
+ok((await page.textContent('[data-mid="m5"]') ?? '').includes('운영진이 가린 메시지입니다'),
+   '가리면 그 자리에서 바로 덮인다 — 다시 들어와 볼 일이 없다');
+
+/* 이미 가린 글은 **푸는 쪽**을 묻는다. 지운 것이 아니므로 되돌릴 수 있다. */
+await page.click('[data-mid="m17"] .chat-bubble', { button: 'right' });
+await page.waitForTimeout(300);
+ok((await page.textContent('.confirm-box') ?? '').includes('가리기를 풀까요'),
+   '이미 가린 글은 푸는 쪽을 묻는다');
+await page.click('.confirm-actions .btn.ghost');
+await page.waitForTimeout(200);
+
+/* **일반회원에게는 이 길이 없다.** 화면에서 감추는 것으로 끝내지 않고
+   DB도 같게 막혀 있다(`messages`에는 회원용 update 정책이 아예 없다). */
+const hCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+const hSession = { ...SESSION, user: { ...SESSION.user, id: uid(5) } };
+await hCtx.route('**/rest/v1/**', restRoute(tables));
+await hCtx.route('**/auth/v1/**', r => r.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(hSession) }));
+await stubOutside(hCtx);
+await hCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), hSession);
+const hPage = await hCtx.newPage();
+await hPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+await hPage.waitForTimeout(1200);
+await hPage.click('[data-mid="m5"] .chat-bubble', { button: 'right' });
+await hPage.waitForTimeout(300);
+ok(await hPage.$('.confirm-box') === null, '일반회원이 길게 눌러도 아무 일이 없다');
+/* **글자 고르기를 막는 것도 운영진 화면에서만 한다** — 나머지 사람은
+   글을 길게 눌러 복사하는 것이 그대로 살아 있어야 한다. */
+ok(await hPage.$('.chat-row.can-hide') === null,
+   '일반회원 화면에서는 글자 고르기를 막지 않는다');
+ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 메시지입니다'),
+   '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
+await hCtx.close();
 
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
