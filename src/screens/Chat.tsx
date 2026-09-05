@@ -206,12 +206,23 @@ export function Chat() {
                 payload => {
                     const row = payload.new as Message;
                     setMessages(prev => prev.map(m => (m.id === row.id ? row : m)));
+                    /* **방 공지도 여기서 따라온다 — 다시 물어보지 않는다.**
+                       붙박는 것이 곧 가장 늦게 붙박은 줄이 되는 일이라,
+                       들어온 줄만 보면 답이 나온다. 내린 줄은 그것이 지금
+                       공지일 때만 치운다(남의 옛 글이 내려간 것일 수 있다).
+                       칸이 없는 저장소에서는 `undefined`라 아래로 가는데,
+                       거기서는 공지가 애초에 없어 아무 일도 안 일어난다. */
+                    if (row.pinned_at) setPin(row);
+                    else setPin(prev => (prev && prev.id === row.id ? null : prev));
                 })
             .on('postgres_changes',
                 { event: 'DELETE', schema: 'public', table: 'messages' },
                 payload => {
                     const gone = payload.old as { id?: string };
-                    if (gone.id) setMessages(prev => prev.filter(m => m.id !== gone.id));
+                    if (!gone.id) return;
+                    setMessages(prev => prev.filter(m => m.id !== gone.id));
+                    // 공지로 올려 둔 글을 쓴 사람이 지우면 그 줄도 함께 걷는다.
+                    setPin(prev => (prev && prev.id === gone.id ? null : prev));
                 })
             .subscribe();
         return () => { supabase.removeChannel(channel); };
@@ -1055,6 +1066,71 @@ export function Chat() {
         toast(on ? '가렸습니다.' : '가리기를 풀었습니다.');
     }, [confirm, me, toast]);
 
+    /* ── 방 공지 ────────────────────────────────────────────────
+     *
+     * **카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것이다.**
+     * 모임 규칙·계좌·집합 장소처럼 늘 보여야 하는 한 줄이 하루 백 마디에
+     * 밀려 사라지지 않게 한다. **공지 탭(`posts`)과는 다르다** — 그쪽은
+     * 읽고 지나가는 글이고, 이건 대화 위에 붙박여 있는 쪽지다.
+     *
+     * **한 방에 하나다.** `pinned_at`이 가장 늦은 줄 하나만 읽으므로 새로
+     * 등록하면 앞엣것이 저절로 물러난다 — 지우는 일이 따로 없다.
+     */
+    const [pin, setPin] = useState<Message | null>(null);
+    /** 펼쳐 놓았는가. 기본은 접힌 한 줄이다 — 긴 공지가 대화를 덮으면 안 된다. */
+    const [pinOpen, setPinOpen] = useState(false);
+
+    /**
+     * 붙박아 둔 글 한 줄을 받아 온다.
+     *
+     * **오류를 그냥 삼킨다.** `pinned_at` 칸이 아직 없는 저장소에서 400이
+     * 나는데, 그걸 던지면 **대화 화면이 통째로 안 열린다** — 앱은 푸시하면
+     * 몇 분 뒤 올라가지만 스키마는 사람이 손으로 붙여넣으므로 그 사이가 있다.
+     * 못 받으면 공지 줄만 안 뜨고 대화는 멀쩡하다.
+     */
+    const loadPin = useCallback(async (rid: string) => {
+        const { data: row, error: err } = await supabase
+            .from('messages').select('*').eq('room_id', rid)
+            .not('pinned_at', 'is', null)
+            .order('pinned_at', { ascending: false }).limit(1).maybeSingle();
+        if (err) return;                      // 칸이 없는 저장소 — 조용히 넘긴다
+        setPin((row as Message) ?? null);
+    }, []);
+
+    useEffect(() => { if (roomId) loadPin(roomId); }, [roomId, loadPin]);
+
+    /**
+     * 공지로 올리거나 내린다. **운영진만** 부른다.
+     *
+     * 정책을 새로 안 만들었다 — `messages_admin`이 이미 `for all`이고
+     * 회원에게는 update 정책이 아예 없다. 화면이 감추는 것과 DB가 막는 것이
+     * 같은 잣대다.
+     */
+    const askPin = useCallback(async (m: Message) => {
+        const on = !m.pinned_at;
+        const already = pin && pin.id !== m.id;
+        const ok = await confirm({
+            title: on ? '이 메시지를 공지로 올릴까요?' : '공지를 내릴까요?',
+            detail: on
+                ? <>대화 맨 위에 붙어 모두에게 늘 보입니다.
+                   {already && <> 지금 올라와 있는 공지는 <b>내려갑니다.</b></>}</>
+                : '대화 맨 위의 공지 줄이 없어집니다. 글은 그대로 남습니다.',
+            confirmLabel: on ? '공지로 올리기' : '공지 내리기',
+        });
+        if (!ok) return;
+        const patch = on
+            ? { pinned_at: new Date().toISOString(), pinned_by: me }
+            : { pinned_at: null, pinned_by: null };
+        const { error: err } = await supabase.from('messages').update(patch).eq('id', m.id);
+        if (err) { toast(readableError(err)); return; }
+        /* **앞엣것을 손으로 안 내린다.** 가장 늦게 붙박은 줄 하나만 읽으므로
+           새로 올리면 그것이 저절로 공지가 된다 — 쓰기를 두 번 하면 그 사이에
+           공지가 없는 순간이 생기고, 실패했을 때 되돌릴 것도 둘이 된다. */
+        setPinOpen(false);
+        if (roomId) await loadPin(roomId);
+        toast(on ? '공지로 올렸습니다.' : '공지를 내렸습니다.');
+    }, [confirm, loadPin, me, pin, roomId, toast]);
+
     /**
      * 글을 복사한다.
      *
@@ -1282,6 +1358,45 @@ export function Chat() {
                     </>
                 )}
             </div>
+
+            {/* **방 공지** — 카톡 오픈톡에서 맨 위에 붙박여 있는 그 줄이다.
+                모임 규칙·계좌·집합 장소가 하루 백 마디에 안 밀린다.
+
+                **기본은 접힌 한 줄이다.** 긴 공지를 펴 놓고 시작하면 대화가
+                그만큼 가려진다 — 누르면 펴지고 다시 누르면 접힌다. */}
+            {pin && !searchOn && (
+                <div className={`chat-pin${pinOpen ? ' open' : ''}`}>
+                    <button className="chat-pin-main" onClick={() => setPinOpen(v => !v)}
+                            aria-expanded={pinOpen}>
+                        <span className="chat-pin-mark" aria-hidden="true">📌</span>
+                        <span className="chat-pin-text">{preview(pin) || '메시지'}</span>
+                        <span className="chat-pin-caret" aria-hidden="true">
+                            {pinOpen ? '⌃' : '⌄'}
+                        </span>
+                    </button>
+                    {/* 펼쳤을 때만 나오는 줄. **누가 올렸는지 적는다** — 물어볼
+                        데가 있어야 한다. `대화에서 보기`는 그 말이 오간 자리로
+                        데려간다(앞뒤 이야기가 곧 공지의 뜻인 때가 많다). */}
+                    {pinOpen && (
+                        <div className="chat-pin-foot">
+                            <span className="chat-pin-by">
+                                {names[pin.pinned_by ?? '']?.name
+                                    ? `${names[pin.pinned_by ?? ''].name}님이 올림`
+                                    : '운영진이 올림'}
+                            </span>
+                            <button className="chat-pin-act"
+                                    onClick={() => { setPinOpen(false); jumpTo(pin.id); }}>
+                                대화에서 보기
+                            </button>
+                            {isAdmin && (
+                                <button className="chat-pin-act" onClick={() => askPin(pin)}>
+                                    공지 내리기
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* 찾은 글 목록. **대화 위를 통째로 덮는다** — 반쯤 걸치면 어느
                 줄이 결과이고 어느 줄이 대화인지 헷갈린다. */}
@@ -1635,6 +1750,16 @@ export function Chat() {
                             <button className="chat-menu-item"
                                     onClick={() => { const m = menuFor; setMenuFor(null); askHide(m); }}>
                                 {menuFor.hidden_at ? '가리기 풀기' : '가리기'}
+                            </button>
+                        )}
+                        {/* **공지로 올리는 것도 운영진 몫이다**(카톡 오픈톡과 같다).
+                            대화 맨 위에 붙박여 모두에게 늘 보이는 자리라,
+                            아무나 올리면 그 자리가 곧 의미를 잃는다.
+                            가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다. */}
+                        {isAdmin && !menuFor.hidden_at && (
+                            <button className="chat-menu-item"
+                                    onClick={() => { const m = menuFor; setMenuFor(null); askPin(m); }}>
+                                {menuFor.pinned_at ? '공지 내리기' : '공지로 올리기'}
                             </button>
                         )}
                         {/* **지우기는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라

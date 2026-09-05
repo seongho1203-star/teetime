@@ -218,7 +218,12 @@ export const messages = [
     { id: 'm1', room_id: 'room1', user_id: uid(2), body: '이번 주 무등산 날씨 어떤가요?', created_at: iso(-1, 20, 10) },
     { id: 'm2', room_id: 'room1', user_id: uid(3), body: '예보 보니까 맑다고 하네요 ☀️', created_at: iso(-1, 20, 12) },
     { id: 'm3', room_id: 'room1', user_id: uid(1), body: '좋습니다. 6시 30분 동광주 IC 앞에서 봬요', created_at: iso(0, 8, 5) },
-    { id: 'm4', room_id: 'room1', user_id: uid(1), body: '카풀 필요하신 분 있으면 알려 주세요', created_at: iso(0, 8, 6) },
+    /* **방 공지로 붙박아 둔 글**(카톡 오픈톡의 그것). 대화 맨 위에 한 줄로
+       뜬다 — `.dev/behave.mjs`가 이 줄로 공지 칸을 확인한다.
+       **m3에 두지 말 것** — 그 줄은 `지우기` 칸이 지워 버려, 뒤에 오는
+       공지 칸이 찾을 때는 화면에 없다(실제로 한 번 그렇게 걸렸다). */
+    { id: 'm4', room_id: 'room1', user_id: uid(1), body: '카풀 필요하신 분 있으면 알려 주세요',
+      pinned_at: iso(0, 8, 7), pinned_by: uid(1), created_at: iso(0, 8, 6) },
     { id: 'm5', room_id: 'room1', user_id: uid(4), body: '저 한 자리 부탁드립니다', created_at: iso(0, 9, 30) },
     // 답장 한 건과 언급 한 건. 인용 조각과 `@이름` 색을 눈으로 보려고 둔다.
     { id: 'm7', room_id: 'room1', user_id: ME, body: '@박승수 자리 있습니다. 오세요!',

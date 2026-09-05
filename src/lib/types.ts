@@ -545,6 +545,16 @@ export type Message = {
     hidden_at?: string | null;
     /** 가린 사람. 누가 가렸는지 물어볼 데가 있어야 해서 남긴다. */
     hidden_by?: string | null;
+    /**
+     * **방 공지로 붙박은 시각**(카톡 오픈톡의 그것). 대화 맨 위에 한 줄로
+     * 붙어 있어, 모임 규칙·계좌·집합 장소가 하루 백 마디에 안 밀린다.
+     * **한 방에 하나다** — 화면이 이 값이 가장 늦은 줄 하나만 읽으므로
+     * 새로 등록하면 앞엣것이 저절로 물러난다. 내리는 것은 null이다.
+     * 칸이 없는 저장소에서는 `undefined`라 공지 줄이 아예 안 뜬다.
+     */
+    pinned_at?: string | null;
+    /** 공지로 올린 사람. 누구에게 물어볼지가 있어야 한다. */
+    pinned_by?: string | null;
     created_at: string;
 };
 

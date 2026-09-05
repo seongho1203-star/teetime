@@ -52,6 +52,75 @@
     white-space: nowrap;
 }
 
+/* ── 방 공지 ────────────────────────────────────────────────────
+   카톡 오픈톡에서 맨 위에 붙박여 있는 그 줄이다. 머리말과 대화 사이에
+   앉는다 — **대화 목록 안에 넣지 않는다**: 그러면 굴릴 때 함께 올라가
+   사라져서, 늘 보이라고 붙박은 뜻이 없어진다.
+
+   **노랑이다.** 이 앱에서 노랑은 '기다리는 것'(고정 공지·승인 대기·임박한
+   D-day) 자리이고, 공지가 바로 그 뜻이다. 분홍을 안 쓰는 것은 이 화면에서
+   '지금 눌러야 할 것'이 보내기 단추 하나이기 때문이다. */
+.chat-pin {
+    flex: 0 0 auto;
+    background: var(--warn-soft);
+    border-bottom: 1px solid var(--line);
+}
+.chat-pin-main {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    width: 100%;
+    /* 30px 아래로 내리지 말 것 — `node .dev/audit.mjs`가 잡아낸다. */
+    min-height: 34px;
+    padding: 7px var(--gap);
+    border: 0;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+.chat-pin-mark { flex: 0 0 auto; font-size: 12px; }
+/* **접혀 있을 때는 한 줄이다.** 긴 공지를 펴 놓고 시작하면 대화가 그만큼
+   가려진다. 펴면 다 보이되, 열 줄짜리가 화면을 먹지 않게 높이를 막고
+   그 안에서 굴러가게 둔다. */
+.chat-pin-text {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.45;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chat-pin.open .chat-pin-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-overflow: clip;
+    max-height: 28vh;
+    overflow-y: auto;
+}
+.chat-pin-caret { flex: 0 0 auto; color: var(--text-dim); font-size: 11px; }
+.chat-pin-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--gap-xs) var(--gap-sm);
+    padding: 0 var(--gap) 9px calc(var(--gap) + 18px);
+}
+.chat-pin-by { font-size: var(--fs-xs); color: var(--text-dim); }
+/* 알약이 아니라 밑줄 친 글자다 — 공지 줄에 단추가 둘이나 서면 무거워진다. */
+.chat-pin-act {
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
 /* ── 대화 검색 ──────────────────────────────────────────────────
    카톡 오픈톡의 🔍다. **제목은 그대로 가운데 세워 두고** 단추만 오른쪽
    끝에 얹는다 — 흐름에 넣으면 제목이 왼쪽으로 밀려 머리말이 달라 보인다. */

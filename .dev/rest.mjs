@@ -6,7 +6,7 @@
  * 보이는데 실제로는 흉내가 뒤처진 것이었다 — 그래서 한 곳으로 모았다.
  *
  * 앱이 실제로 쓰는 것만 처리한다:
- *   - 거르기  eq · neq · is · lt · gt · gte · lte · in
+ *   - 거르기  eq · neq · is · lt · gt · gte · lte · in · ilike · not.…
  *   - 줄 세우기 order (여러 번, desc)
  *   - 자르기  limit
  *   - 칸 고르기 `id, name` · `*, signups(round_id, state)` (딸린 표 포함)
@@ -82,12 +82,22 @@ export function handleRest(tables, url, req) {
     for (const [key, raw] of url.searchParams) {
         if (['select', 'order', 'limit', 'offset'].includes(key)) continue;
         const [op, value] = raw.split(/\.(.*)/s);
-        rows = rows.filter(r => {
-            const v = r[key];
-            switch (op) {
+        /* `not.is.null`처럼 앞에 `not.`이 붙어 오는 것을 푼다 — 방 공지가
+           `.not('pinned_at','is',null)`로 물어본다. 안 풀면 아무 조건도
+           안 걸린 것이 되어 **아무 글이나 공지로 뜬다.** */
+        rows = rows.filter(r => (op === 'not'
+            ? !test(...value.split(/\.(.*)/s), r[key])
+            : test(op, value, r[key])));
+    }
+
+    function test(op, value, v) {
+        switch (op) {
                 case 'eq':  return String(v) === value;
                 case 'neq': return String(v) !== value;
-                case 'is':  return value === 'null' ? v === null : String(v) === value;
+                /* **`is null`은 칸이 없는 행도 맞아야 한다.** 진짜 DB에는 칸이
+                   늘 있고 값이 null인데, 여기 고정 자료에는 키 자체가 없다 —
+                   안 맞춰 주면 `not.is.null`이 **모든 글을 공지로** 만든다. */
+                case 'is':  return value === 'null' ? v == null : String(v) === value;
                 case 'lt':  return String(v) < value;
                 case 'gt':  return String(v) > value;
                 case 'gte': return String(v) >= value;
@@ -98,8 +108,7 @@ export function handleRest(tables, url, req) {
                    같게 풀어야 `100%`를 찾을 때 아무거나 걸리지 않는다. */
                 case 'ilike': return likeRe(value).test(String(v ?? ''));
                 default:    return true;
-            }
-        });
+        }
     }
 
     for (const spec of url.searchParams.getAll('order').reverse()) {

@@ -1071,7 +1071,25 @@ alter table messages add column if not exists hidden_at timestamptz;
 alter table messages add column if not exists hidden_by uuid
     references profiles(id) on delete set null;
 
+-- **방 공지**(카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것).
+-- 모임 규칙·계좌·집합 장소처럼 **늘 보여야 하는 한 줄**이 하루 백 마디에
+-- 밀려 사라지지 않게 하는 자리다. 공지 탭(`posts`)과는 다르다 — 그쪽은
+-- 읽고 지나가는 글이고, 이건 대화 위에 붙박여 있는 쪽지다.
+--
+-- **표를 새로 안 만든다.** 공지가 되는 것은 이미 있는 말풍선이라, 칸 하나로
+-- 끝난다 — 표를 두면 글이 지워졌을 때 짝이 어긋나는 자리가 새로 생긴다.
+-- **한 방에 하나다**: 화면이 `pinned_at`이 가장 늦은 줄 하나만 읽으므로,
+-- 새로 등록하면 앞엣것은 저절로 물러난다(내리는 것은 null로 되돌리기다).
+-- **정책을 새로 안 만든다** — 아래 `messages_admin`이 `for all`이라
+-- 운영진만 이 칸을 세우고 풀 수 있고, 회원은 update가 아예 없다.
+alter table messages add column if not exists pinned_at timestamptz;
+alter table messages add column if not exists pinned_by uuid
+    references profiles(id) on delete set null;
+
 create index if not exists messages_room_idx on messages (room_id, created_at desc);
+-- 공지 한 줄을 찾는 조회 전용. 붙박은 글만 담기므로 방마다 몇 줄뿐이다.
+create index if not exists messages_pinned_idx on messages (room_id, pinned_at desc)
+    where pinned_at is not null;
 
 /**
  * 라운드·투표가 올라오면 대화방에 한 줄 남긴다.

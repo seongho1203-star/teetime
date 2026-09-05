@@ -940,6 +940,58 @@ ok((await page.textContent('[data-mid="m18"]') ?? '').includes('에서 하시면
 ok(await page.$('[data-mid="m1"] .chat-link') === null,
    '주소가 없는 글에는 링크를 안 만든다');
 
+/* ── 6-1-1-3-1-9. 방 공지 ───────────────────────────────────────
+ *
+ * 카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것이다. 모임
+ * 규칙·계좌·집합 장소가 하루 백 마디에 밀려 사라지지 않게 한다.
+ *
+ * **머리말과 대화 사이에 있어야 한다** — 대화 목록 안에 넣으면 굴릴 때
+ * 함께 올라가 사라져서, 늘 보이라고 붙박은 뜻이 없어진다.
+ */
+console.log('\n── 방 공지 ──');
+await go('/#/chat', 1200);
+const pinText = await page.textContent('.chat-pin-text').catch(() => null);
+ok(pinText?.includes('카풀'), `붙박아 둔 글이 맨 위에 뜬다 (실제 ${pinText})`);
+/* 공지 줄이 **목록 밖에** 있어야 굴려도 안 사라진다. */
+ok(await page.$('.chat-list .chat-pin') === null,
+   '대화 목록 안이 아니라 그 위에 있다 — 굴려도 안 사라진다');
+/* 접힌 한 줄이 기본이다. 긴 공지를 펴 놓고 시작하면 대화가 그만큼 가려진다. */
+ok(await page.$('.chat-pin.open') === null, '기본은 접힌 한 줄이다');
+await page.click('.chat-pin-main');
+await page.waitForTimeout(250);
+ok(await page.$('.chat-pin.open') !== null, '누르면 펴진다');
+const footText = await page.textContent('.chat-pin-foot');
+ok(footText?.includes('님이 올림'), `누가 올렸는지 적는다 (실제 ${footText?.trim()})`);
+ok(footText?.includes('대화에서 보기'), '그 말이 오간 자리로 가는 길이 있다');
+
+/* **누가 올리고 내릴 수 있는가가 규칙의 전부다** — 운영진만이다.
+   고정 자료의 나(ME)는 앱관리자라 창에 그 줄이 있어야 한다. */
+await page.click('.chat-pin-main');            // 도로 접는다
+await page.waitForTimeout(200);
+const bubble = await page.$('[data-mid="m1"] .chat-bubble');
+await bubble.click({ button: 'right' });
+await page.waitForTimeout(300);
+const menu = await page.textContent('.chat-menu');
+ok(menu?.includes('공지로 올리기'), '운영진에게는 창에 `공지로 올리기`가 있다');
+/* 이미 공지인 글에서는 말이 뒤집힌다 — 같은 자리에서 내릴 수 있어야 한다. */
+await page.click('.chat-menu-item.ghost');
+await page.waitForTimeout(200);
+const pinned = await page.$('[data-mid="m4"] .chat-bubble');
+await pinned.click({ button: 'right' });
+await page.waitForTimeout(300);
+ok((await page.textContent('.chat-menu'))?.includes('공지 내리기'),
+   '이미 공지인 글에서는 `공지 내리기`로 뒤집힌다');
+/* **가린 글은 공지로 못 올린다** — 덮어 둔 내용이 맨 위로 샌다. */
+await page.click('.chat-menu-item.ghost');
+await page.waitForTimeout(200);
+const hidden = await page.$('[data-mid="m17"] .chat-bubble');
+await hidden.click({ button: 'right' });
+await page.waitForTimeout(300);
+ok(!(await page.textContent('.chat-menu'))?.includes('공지로 올리기'),
+   '가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다');
+await page.click('.chat-menu-item.ghost');
+await page.waitForTimeout(200);
+
 /* ── 6-1-1-3-2. 대화 검색 ───────────────────────────────────────
  *
  * 카톡 오픈톡의 🔍다. 100명이 하루 100마디면 `무등산 몇 시라고 했지`를
@@ -1248,7 +1300,7 @@ const MISSING = ['round_groups', 'settle_reminders', 'profile_private'];
 const GONE_COLS = {
     profiles: ['gender', 'birth_year', 'region'],
     polls:    ['result_at'],
-    messages: ['poll_id'],
+    messages: ['poll_id', 'pinned_at'],
 };
 
 const oldRpc = [];
@@ -1261,8 +1313,14 @@ await oldCtx.route('**/rest/v1/**', async route => {
         return route.fulfill({ status: 404, contentType: 'application/json',
             body: JSON.stringify({ message: `relation "public.${t}" does not exist` }) });
     }
-    const sel = new URL(route.request().url()).searchParams.get('select') ?? '';
-    const gone = (GONE_COLS[t] ?? []).find(c => sel.split(/[\s,()]+/).includes(c));
+    const q = new URL(route.request().url()).searchParams;
+    const sel = q.get('select') ?? '';
+    /* **고르는 칸만 보면 안 된다 — 거르는 칸도 400이다.** 방 공지는
+       `select('*')`로 받으면서 `pinned_at`으로 거르는데, 여기서 안 걸러
+       주면 그 길을 아예 안 타서 시험이 통과해도 실제로는 대화 화면이
+       통째로 안 열린다(진짜 PostgREST는 없는 칸이면 어디에 있든 400이다). */
+    const asked = new Set([...sel.split(/[\s,()]+/), ...q.keys()]);
+    const gone = (GONE_COLS[t] ?? []).find(c => asked.has(c));
     if (gone) {
         return route.fulfill({ status: 400, contentType: 'application/json',
             body: JSON.stringify({
