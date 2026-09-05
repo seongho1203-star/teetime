@@ -940,6 +940,46 @@ ok((await page.textContent('[data-mid="m18"]') ?? '').includes('에서 하시면
 ok(await page.$('[data-mid="m1"] .chat-link') === null,
    '주소가 없는 글에는 링크를 안 만든다');
 
+/* ── 6-1-1-3-2. 대화 검색 ───────────────────────────────────────
+ *
+ * 카톡 오픈톡의 🔍다. 100명이 하루 100마디면 `무등산 몇 시라고 했지`를
+ * 되짚을 길이 위로 계속 올리는 것 말고는 없었다.
+ *
+ * **찾는 일은 서버가 한다** — 받아 둔 것만 뒤지면 `지난 대화 더 보기`를
+ * 누른 만큼만 찾아져서 정작 오래된 것을 못 찾는다. 그래서 조회가 나가는지,
+ * 무엇을 실어 보내는지까지 본다.
+ */
+console.log('\n── 대화 검색 ──');
+await go('/#/chat', 1200);
+ok(await page.$('.chat-find') !== null, '머리말에 찾기 단추가 있다');
+await page.click('.chat-find');
+await page.waitForTimeout(200);
+ok(await page.$('.chat-search-in') !== null, '누르면 찾는 칸이 열린다');
+/* 한 글자로는 안 찾는다 — `아`만 쳐도 백 줄이 걸려 목록이 뜻이 없다. */
+await page.fill('.chat-search-in', '무');
+await page.waitForTimeout(500);
+ok((await page.textContent('.chat-hits') ?? '').includes('두 글자 이상'),
+   '한 글자로는 안 찾는다 — 너무 많이 걸려 목록이 뜻이 없다');
+
+await page.fill('.chat-search-in', '무등산');
+await page.waitForTimeout(700);
+const hitTexts = await page.$$eval('.chat-hit', els => els.map(e => e.textContent));
+ok(hitTexts.length > 0 && hitTexts.every(t => t?.includes('무등산')),
+   `친 말이 든 글만 나온다 (실제 ${hitTexts.length}건)`);
+/* **가려진 글은 결과에도 안 나온다** — 여기로 새면 가린 뜻이 없다. */
+await page.fill('.chat-search-in', '광고');
+await page.waitForTimeout(700);
+ok(!(await page.textContent('.chat-hits') ?? '').includes('여기 광고 글이 있었습니다'),
+   '가려진 글은 검색 결과에도 안 나온다');
+
+/* 결과를 누르면 그 글로 옮겨 가고, 창이 닫힌다. */
+await page.fill('.chat-search-in', '무등산');
+await page.waitForTimeout(700);
+await page.click('.chat-hit');
+await page.waitForTimeout(600);
+ok(await page.$('.chat-hits') === null, '결과를 누르면 찾는 창이 닫힌다');
+ok(await page.$('.chat-list') !== null, '대화가 다시 보인다');
+
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
  * **홈 머리말의 얼굴 옆에 있다**(사용자 요청). `내 정보` 메뉴 안에 있을

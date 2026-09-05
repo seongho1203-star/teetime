@@ -65,6 +65,20 @@ export function handleRest(tables, url, req) {
 
     let rows = tables[table] ? [...tables[table]] : [];
 
+    /** SQL의 `like` 무늬를 정규식으로. `\` 다음 글자는 특수문자가 아니다. */
+    function likeRe(pattern) {
+        let out = '';
+        for (let i = 0; i < pattern.length; i++) {
+            const c = pattern[i];
+            if (c === '\\') { out += escRe(pattern[++i] ?? ''); continue; }
+            if (c === '%') { out += '[\\s\\S]*'; continue; }
+            if (c === '_') { out += '[\\s\\S]'; continue; }
+            out += escRe(c);
+        }
+        return new RegExp(`^${out}$`, 'i');
+    }
+    const escRe = c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     for (const [key, raw] of url.searchParams) {
         if (['select', 'order', 'limit', 'offset'].includes(key)) continue;
         const [op, value] = raw.split(/\.(.*)/s);
@@ -79,6 +93,10 @@ export function handleRest(tables, url, req) {
                 case 'gte': return String(v) >= value;
                 case 'lte': return String(v) <= value;
                 case 'in':  return value.replace(/[()]/g, '').split(',').includes(String(v));
+                /* 대화 검색이 쓴다. `%`는 아무거나, `_`는 한 글자이고
+                   `\`로 막아 둔 것은 그 글자 그대로다 — 진짜 PostgREST와
+                   같게 풀어야 `100%`를 찾을 때 아무거나 걸리지 않는다. */
+                case 'ilike': return likeRe(value).test(String(v ?? ''));
                 default:    return true;
             }
         });

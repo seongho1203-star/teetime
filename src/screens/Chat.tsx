@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatChatDay, formatTime, kstDate, kstMinute } from '../lib/format';
+import { formatChatDay, formatStamp, formatTime, kstDate, kstMinute } from '../lib/format';
 import { personLabel, type Gender, type Message, type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
@@ -36,6 +36,11 @@ const PAGE = 50;
 const MAX_CATCHUP = 300;
 /** 줄 위로 몇 개쯤 보이게 할지. 앞뒤 맥락 없이 줄부터 나오면 뚝 끊겨 보인다. */
 const CATCHUP_MARGIN = 10;
+
+/** 검색 결과를 몇 개까지 보여 줄까. 더 필요하면 더 좁혀 치는 편이 빠르다. */
+const SEARCH_HITS = 40;
+/** 찾은 글 뒤로 몇 개를 함께 받아 둘까 — 그 뒤의 이야기가 조금은 보여야 한다. */
+const WINDOW_AFTER = 20;
 
 interface Loaded { room: Room | null; people: Person[]; }
 
@@ -184,6 +189,11 @@ export function Chat() {
             .on('postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
                 payload => {
+                    /* **검색으로 옛 글에 가 있으면 안 붙인다.** 그 목록은
+                       '지금'이 아니라 찾은 글 언저리라, 새 글을 끝에 붙이면
+                       한참 지난 글 바로 뒤에 오늘 글이 앉는다.
+                       `최근 대화로` 단추가 통째로 다시 받아 온다. */
+                    if (windowedRef.current) return;
                     const row = payload.new as Message;
                     setMessages(prev =>
                         // 내가 보낸 글은 이미 넣어 두었다. 두 번 그리지 않는다.
@@ -886,6 +896,112 @@ export function Chat() {
         setTimeout(() => el.classList.remove('flash'), 1300);
     }, [toast]);
 
+    /* ── 대화 검색 ──────────────────────────────────────────────
+     *
+     * **카톡 오픈톡의 🔍다.** 100명이 하루 100마디를 쌓으면 `무등산 몇 시라고
+     * 했지`를 되짚을 길이 아예 없었다 — 위로 계속 올려 눈으로 찾는 것 말고는.
+     *
+     * **찾는 일은 서버가 한다.** 화면이 받아 둔 것만 뒤지면 `지난 대화 더
+     * 보기`를 누른 만큼만 찾아져서, 정작 오래된 것을 못 찾는다.
+     */
+    const [searchOn, setSearchOn] = useState(false);
+    const [hits, setHits] = useState<Message[] | null>(null);
+    const [searching, setSearching] = useState(false);
+    const sqRef = useRef<HTMLInputElement>(null);
+    /** 검색으로 옛 글에 가 있는가. 그때는 목록이 '지금'이 아니라 그 언저리다. */
+    const [windowed, setWindowed] = useState(false);
+    /* 실시간으로 들어오는 새 글을 덧붙일지 정하는 값. **state로 보면 안 된다** —
+       구독은 한 번만 걸리므로 그 안에서 읽는 state는 처음 값에 굳는다. */
+    const windowedRef = useRef(false);
+    windowedRef.current = windowed;
+
+    /**
+     * 친 말이 든 글을 찾는다.
+     *
+     * **가린 글은 화면에서 거른다**(`hidden_at`). 조회에 조건으로 걸지
+     * 않는 것은 일부러다 — 그 칸이 아직 없는 저장소에서 400이 나면
+     * **검색이 통째로 죽는다**(스키마를 손으로 붙여넣는 사이가 있다).
+     */
+    const runSearch = useCallback(async (raw: string) => {
+        const q = raw.trim();
+        if (!roomId || q.length < 2) { setHits(null); return; }
+        setSearching(true);
+        // `%`·`_`는 찾기의 특수문자다. 그냥 넘기면 `100%`가 아무거나 맞는다.
+        const safe = q.replace(/[\\%_]/g, c => `\\${c}`);
+        const { data: rows, error: err } = await supabase
+            .from('messages').select('*').eq('room_id', roomId)
+            .ilike('body', `%${safe}%`)
+            .order('created_at', { ascending: false }).limit(SEARCH_HITS);
+        setSearching(false);
+        if (err) { toast(readableError(err), 'error'); return; }
+        setHits((rows ?? []).filter(m => !m.hidden_at));
+    }, [roomId, toast]);
+
+    /** 치는 동안 매 글자마다 물어보지 않는다. 250ms 쉬면 그때 한 번 간다. */
+    const sqTimer = useRef<number | null>(null);
+    const onSearchType = (v: string) => {
+        if (sqTimer.current !== null) clearTimeout(sqTimer.current);
+        sqTimer.current = window.setTimeout(() => runSearch(v), 250);
+    };
+
+    const closeSearch = () => {
+        if (sqTimer.current !== null) clearTimeout(sqTimer.current);
+        setSearchOn(false);
+        setHits(null);
+    };
+
+    /**
+     * 찾은 글로 옮겨 간다.
+     *
+     * 이미 화면에 있으면 그냥 그 자리로 옮기고, **지난 묶음에 있으면 그 글을
+     * 가운데 두고 앞뒤를 받아 온다** — `지난 대화 더 보기`를 몇 번씩 누르게
+     * 하면 찾아 준 뜻이 없다.
+     */
+    const openHit = async (m: Message) => {
+        if (!roomId) return;
+        if (messages.some(x => x.id === m.id)) {
+            closeSearch();
+            requestAnimationFrame(() => jumpTo(m.id));
+            return;
+        }
+        const [older, newer] = await Promise.all([
+            supabase.from('messages').select('*').eq('room_id', roomId)
+                .lte('created_at', m.created_at)
+                .order('created_at', { ascending: false }).limit(PAGE),
+            supabase.from('messages').select('*').eq('room_id', roomId)
+                .gt('created_at', m.created_at)
+                .order('created_at', { ascending: true }).limit(WINDOW_AFTER),
+        ]);
+        const back = older.data ?? [];
+        // 맨 아래로 끌려 내려가지 않게 먼저 내려 둔다 — 옮길 자리는 가운데다.
+        atBottom.current = false;
+        setMessages([...back.slice().reverse(), ...(newer.data ?? [])]);
+        setHasMore(back.length === PAGE);
+        setWindowed(true);
+        setUnreadFrom(null);
+        closeSearch();
+        // 붙고 나서 옮긴다. 한 프레임으로는 아직 그려지기 전이다.
+        requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(m.id)));
+    };
+
+    /**
+     * 옛 글을 보다가 **지금으로 돌아온다.**
+     *
+     * 검색으로 옮겨 가면 목록이 그 언저리만 담고 있어, 아래로 끝까지 굴려도
+     * 최근 대화가 없다 — 돌아올 길이 이것뿐이라 **꼭 있어야 하는 단추다.**
+     */
+    const backToRecent = async () => {
+        if (!roomId) return;
+        const { data: rows } = await supabase
+            .from('messages').select('*').eq('room_id', roomId)
+            .order('created_at', { ascending: false }).limit(PAGE);
+        setMessages((rows ?? []).slice().reverse());
+        setHasMore((rows ?? []).length === PAGE);
+        setWindowed(false);
+        atBottom.current = true;
+        requestAnimationFrame(() => pinBottom());
+    };
+
     /** 답장을 시작한다. 밀어서든 눌러서든 여기로 온다. */
     const startReply = useCallback((m: Message) => {
         setReplyTo(m);
@@ -1140,10 +1256,57 @@ export function Chat() {
     return (
         <div className="chat" ref={chatRef}>
             {/* 카톡처럼 제목 한 줄만 가운데 세운다. 설명 줄을 두었더니
-                머리말이 두 겹이 되어 대화가 그만큼 내려앉았다. */}
+                머리말이 두 겹이 되어 대화가 그만큼 내려앉았다.
+                **🔍는 오른쪽 끝에 얹는다** — 제목은 그대로 가운데 서야 하므로
+                흐름에서 빼서(`position: absolute`) 자리를 안 뺏는다. */}
             <div className="chat-head">
-                <h1 className="chat-title">{data.room.name}</h1>
+                {searchOn ? (
+                    <div className="chat-search">
+                        <input className="chat-search-in" ref={sqRef} type="search"
+                               autoFocus enterKeyHint="search"
+                               aria-label="대화 검색"
+                               onChange={e => onSearchType(e.target.value)} />
+                        <button className="chat-search-x" onClick={closeSearch}>취소</button>
+                    </div>
+                ) : (
+                    <>
+                        <h1 className="chat-title">{data.room.name}</h1>
+                        <button className="chat-find" onClick={() => setSearchOn(true)}
+                                aria-label="대화 검색">
+                            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                                 strokeLinecap="round" aria-hidden="true">
+                                <circle cx="11" cy="11" r="7" />
+                                <path d="M20 20l-4-4" />
+                            </svg>
+                        </button>
+                    </>
+                )}
             </div>
+
+            {/* 찾은 글 목록. **대화 위를 통째로 덮는다** — 반쯤 걸치면 어느
+                줄이 결과이고 어느 줄이 대화인지 헷갈린다. */}
+            {searchOn && (
+                <div className="chat-hits">
+                    {searching && <div className="chat-hits-note">찾는 중…</div>}
+                    {!searching && hits === null && (
+                        <div className="chat-hits-note">찾을 말을 두 글자 이상 적어 주세요.</div>
+                    )}
+                    {!searching && hits?.length === 0 && (
+                        <div className="chat-hits-note">찾는 말이 든 대화가 없습니다.</div>
+                    )}
+                    {hits?.map(m => (
+                        <button key={m.id} className="chat-hit" onClick={() => openHit(m)}>
+                            <div className="chat-hit-top">
+                                <span className="chat-hit-who">
+                                    {m.system ? '안내' : names[m.user_id ?? '']?.name ?? '알 수 없음'}
+                                </span>
+                                <span className="chat-hit-at">{formatStamp(m.created_at)}</span>
+                            </div>
+                            <div className="chat-hit-body">{preview(m)}</div>
+                        </button>
+                    ))}
+                </div>
+            )}
 
             <div className="chat-list" ref={listRef} onScroll={onScroll}>
                 {hasMore && (
@@ -1210,6 +1373,15 @@ export function Chat() {
                     );
                 })}
             </div>
+
+            {/* **옛 글을 보는 중이라는 표이자, 돌아오는 길이다.** 검색으로
+                옮겨 가면 목록이 그 언저리만 담고 있어 아래로 끝까지 굴려도
+                최근 대화가 없다 — 이 단추가 없으면 나갔다 다시 들어와야 한다. */}
+            {windowed && (
+                <button className="chat-recent" onClick={backToRecent}>
+                    최근 대화로 ↓
+                </button>
+            )}
 
             <div className="chat-input" ref={barRef}>
                 {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**

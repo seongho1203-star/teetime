@@ -16,6 +16,8 @@
 .chat {
     display: flex;
     flex-direction: column;
+    /* `최근 대화로` 단추가 이 안에서 자리를 잡는다(`.chat-recent`). */
+    position: relative;
     /* 키보드가 가린 높이(--kb)만큼 줄인다. 없을 때는 0이라 100dvh 그대로다. */
     height: calc(100dvh - var(--kb, 0px));
     /* 끌 때 화면이 고무줄처럼 딸려 오지 않게. 이게 없으면 입력칸 위에서
@@ -48,6 +50,146 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* ── 대화 검색 ──────────────────────────────────────────────────
+   카톡 오픈톡의 🔍다. **제목은 그대로 가운데 세워 두고** 단추만 오른쪽
+   끝에 얹는다 — 흐름에 넣으면 제목이 왼쪽으로 밀려 머리말이 달라 보인다. */
+.chat-head { position: relative; }
+.chat-find {
+    position: absolute;
+    right: var(--gap-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 30px 아래로 내리지 말 것 — `node .dev/audit.mjs`가 잡아낸다. */
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+}
+.chat-find svg { width: 20px; height: 20px; stroke: currentColor; }
+
+/* 검색 줄은 머리말을 통째로 차지한다 — 제목을 함께 두면 좁은 화면에서
+   칸이 손톱만 해진다. 닫으면 제목이 그대로 돌아온다. */
+.chat-search {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    width: 100%;
+}
+.chat-search-in {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--surface-2);
+    /* 16px 아래로 내리지 말 것 — iOS 사파리가 칠 때 화면을 확대한다. */
+    font-size: 16px;
+    color: var(--text);
+}
+.chat-search-in:focus { outline: none; border-color: var(--text-dim); }
+/* **닫는 단추는 `취소`라는 글자다**(카톡과 같다). 칸 안의 ✕는 브라우저가
+   붙여 주는 '글자 지우기'라, 우리도 ✕를 두면 나란히 선 두 개가 서로 다른
+   일을 한다 — 하나는 글자를 지우고 하나는 창을 닫는다. */
+.chat-search-x {
+    flex: 0 0 auto;
+    padding: 0 2px 0 4px;
+    height: 32px;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+/* 찾은 글 목록. **대화 위를 통째로 덮는다** — 반쯤 걸치면 어느 줄이
+   결과이고 어느 줄이 대화인지 헷갈린다. 바탕이 밝은 것은 머리말·입력칸과
+   같은 결이기 때문이다(보라는 `.chat-list` 하나뿐이다). */
+.chat-hits {
+    /* **머리말 아래를 통째로 덮는다.** 흐름에 넣어 `flex: 1`로 두었더니
+       대화 목록과 자리를 반씩 나눠 가져, 결과 아래로 보라색 대화가 그대로
+       보였다 — 어느 줄이 결과인지 헷갈린다. 덮어 두면 대화 목록은 손도
+       안 댄 채 살아 있어(굴려 둔 자리·키보드 셈이 그대로다) 닫으면
+       보던 자리로 그냥 돌아온다. */
+    position: absolute;
+    top: 44px;              /* 머리말 높이 */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 6;
+    overflow-y: auto;
+    background: var(--bg);
+    -webkit-overflow-scrolling: touch;
+}
+.chat-hits-note {
+    padding: var(--gap-lg) var(--gap);
+    text-align: center;
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+}
+.chat-hit {
+    display: block;
+    width: 100%;
+    padding: 11px var(--gap);
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+.chat-hit:active { background: var(--surface-2); }
+.chat-hit-top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--gap-xs);
+    margin-bottom: 3px;
+}
+.chat-hit-who {
+    font-weight: 700;
+    font-size: var(--fs-sm);
+    color: var(--text);
+}
+.chat-hit-at { font-size: var(--fs-xs); color: var(--text-dim); }
+/* **두 줄까지만 편다.** 긴 글 하나가 결과 목록을 통째로 먹으면 그 아래를
+   못 본다. 일부러 자른 것이라 `audit.mjs`도 이건 안 센다. */
+.chat-hit-body {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* **옛 글을 보다가 지금으로 돌아오는 길.** 검색으로 옮겨 가면 목록이 그
+   언저리만 담고 있어, 아래로 끝까지 굴려도 최근 대화가 없다.
+   입력칸 바로 위에 띄운다 — 대화를 가리지 않으면서 눈에 걸리는 자리다.
+   분홍을 쓰지 않는다: 이 화면에서 '지금 눌러야 할 것'은 보내기 단추다. */
+.chat-recent {
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--composer, 64px) + 10px);
+    transform: translateX(-50%);
+    z-index: 5;
+    padding: 7px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    cursor: pointer;
 }
 
 .chat-list {
