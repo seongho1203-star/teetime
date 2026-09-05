@@ -14,6 +14,7 @@ import { shrinkImage } from '../lib/image';
 import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
+import { splitLinks } from '../lib/links';
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -939,6 +940,20 @@ export function Chat() {
     }, [confirm, me, toast]);
 
     /**
+     * 글을 복사한다.
+     *
+     * **이 자리가 있어야 하는 까닭이 하나 더 있다** — 가리거나 지울 수 있는
+     * 글에는 `user-select: none`이 걸려 있어(길게 누르기를 iOS의 글자
+     * 고르기가 덮지 않게), 그 글은 **길게 눌러 복사하는 길이 아예 없다.**
+     * 창에서 복사할 수 있어야 그 손해가 없어진다.
+     */
+    const copyText = (text: string) => {
+        navigator.clipboard?.writeText(text)
+            .then(() => toast('복사했습니다.', 'ok'))
+            .catch(() => toast('복사가 안 됩니다.', 'error'));
+    };
+
+    /**
      * **쓴 사람이 제 글을 지운다**(사용자 요청).
      *
      * DB는 예전부터 열려 있었다 — `messages_own` 정책이
@@ -1187,11 +1202,6 @@ export function Chat() {
                                 onJump={jumpTo}
                                 onReply={startReply}
                                 onHold={openMenu}
-                                /* **길게 눌러 할 일이 있는 사람만.** 운영진은
-                                   가릴 수 있고, 쓴 사람은 지울 수 있다.
-                                   나머지 사람의 글에서는 눌러도 아무 일이 없어
-                                   글자 고르기(복사)가 그대로 살아 있다. */
-                                canHold={isAdmin || m.user_id === me}
                                 mentionNames={mentionNames}
                                 myName={myName}
                                 allowAll={staffIds.has(m.user_id ?? '')}
@@ -1430,6 +1440,24 @@ export function Chat() {
                 <div className="chat-menu-back" onClick={() => setMenuFor(null)}>
                     <div className="chat-menu" onClick={e => e.stopPropagation()}>
                         <div className="chat-menu-head">{preview(menuFor) || '메시지'}</div>
+                        {/* **복사가 맨 위다** — 카톡의 그 창도 그렇고, 가장
+                            자주 누르는 자리이면서 아무것도 안 바꾸는 일이다.
+                            글이 없는 글(사진·이모티콘만)에는 안 붙인다. */}
+                        {!!menuFor.body.trim() && !menuFor.hidden_at && (
+                            <button className="chat-menu-item"
+                                    onClick={() => { const m = menuFor; setMenuFor(null); copyText(m.body); }}>
+                                복사
+                            </button>
+                        )}
+                        {/* **답장도 여기 둔다.** 왼쪽으로 미는 손짓이 그대로
+                            있지만, 그건 아는 사람만 쓴다 — 카톡도 이 창에
+                            함께 두어 처음 온 사람이 길을 찾는다. */}
+                        {!menuFor.hidden_at && (
+                            <button className="chat-menu-item"
+                                    onClick={() => { const m = menuFor; setMenuFor(null); startReply(m); }}>
+                                답장
+                            </button>
+                        )}
                         {/* 가리기는 운영진 몫이다. 되돌릴 수 있어 남의 글에도 쓴다. */}
                         {isAdmin && (
                             <button className="chat-menu-item"
@@ -1544,7 +1572,7 @@ function StickerImg({ mark, onLoad }: { mark: string; onLoad: () => void }) {
  */
 const Bubble = memo(function Bubble({
     message, who, mine, grouped, showTime, unread, onImageLoad,
-    quoted, quotedWho, lostQuote, onJump, onReply, onHold, canHold,
+    quoted, quotedWho, lostQuote, onJump, onReply, onHold,
     mentionNames, myName, allowAll,
 }: {
     message: Message;
@@ -1564,11 +1592,9 @@ const Bubble = memo(function Bubble({
     lostQuote: boolean;
     onJump: (id: string) => void;
     onReply: (m: Message) => void;
-    /** 길게 눌렀을 때. 가리기·지우기를 고르는 창을 연다. */
+    /** 길게 눌렀을 때. 복사·답장·가리기·지우기를 고르는 창을 연다.
+     *  **어느 글에서나 열린다** — 남의 글에서도 복사와 답장은 할 수 있다. */
     onHold: (m: Message) => void;
-    /** 이 글에 길게 눌러 할 일이 있는가(가릴 수 있거나 지울 수 있는가).
-     *  아니면 길게 눌러도 아무 일이 없고 글자 고르기가 그대로 살아 있다. */
-    canHold: boolean;
     mentionNames: string[];
     myName: string;
     /** 쓴 사람이 운영진인가. `@전체`는 그때만 부른 것으로 본다. */
@@ -1590,16 +1616,15 @@ const Bubble = memo(function Bubble({
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
-    /* **길게 누르면 고르는 창이 뜬다**(카톡과 같은 손짓). 할 일이 있는
-       사람에게만 달아 둔다 — 그래야 나머지 글에서는 글자를 길게 눌러
-       복사하는 것이 그대로 살아 있다(`.can-hold`일 때만 고르기를 막는다). */
+    /* **길게 누르면 고르는 창이 뜬다**(카톡과 같은 손짓). **어느 글에서나
+       뜬다** — 창 안에 `복사`가 있으므로, 남의 글이라고 막으면 정작 복사할
+       길이 없어진다(예전에는 그래서 할 일이 있는 글에만 달았다). */
     const hold = useRef<number | null>(null);
     const held = useRef(false);
     const stopHold = () => {
         if (hold.current !== null) { clearTimeout(hold.current); hold.current = null; }
     };
     const startHold = () => {
-        if (!canHold) return;
         held.current = false;
         stopHold();
         hold.current = window.setTimeout(() => {
@@ -1671,16 +1696,16 @@ const Bubble = memo(function Bubble({
     );
 
     return (
-        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}${canHold ? ' can-hold' : ''}`}
+        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}
              ref={rowRef}
              onTouchStart={onTouchStart} onTouchMove={onTouchMove}
              onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
              /* PC에서는 오른쪽 클릭이 '길게 누르기'다. 폰에서 창이 뜬 뒤
                 손을 떼면 여기도 한 번 더 불릴 수 있어 그때는 건너뛴다. */
-             onContextMenu={canHold ? e => {
+             onContextMenu={e => {
                  e.preventDefault();
                  if (!held.current) onHold(message);
-             } : undefined}>
+             }}>
             {!mine && (
                 <div className="chat-avatar">
                     {!grouped && <Avatar name={who?.name} url={who?.avatar_url} gender={who?.gender} />}
@@ -1758,12 +1783,17 @@ const Bubble = memo(function Bubble({
     );
 });
 
-/** 글 한 덩어리. `@이름`만 도드라지게 그린다. */
+/**
+ * 글 한 덩어리. `@이름`을 도드라지게 하고 **주소는 눌리는 링크로** 만든다.
+ *
+ * **두 번 나눈다** — 먼저 언급으로 자르고, 언급이 아닌 조각만 다시 주소로
+ * 자른다. 언급 안에서 주소를 찾을 일은 없고(이름에 `/`가 없다), 순서를
+ * 뒤집으면 `@김지명` 같은 이름이 주소 안에 들어 있을 때 링크가 쪼개진다.
+ */
 function Body({ text, names, me, allowAll }: {
     text: string; names: string[]; me: string; allowAll: boolean;
 }) {
     const pieces = splitMentions(text, names, allowAll);
-    if (pieces.length === 1 && !pieces[0].name) return <>{text}</>;
     return (
         <>
             {pieces.map((p, i) =>
@@ -1775,7 +1805,34 @@ function Body({ text, names, me, allowAll }: {
                             className={`mention${p.name === me || p.name === ALL_MENTION ? ' me' : ''}`}>
                           {p.text}
                       </span>
-                    : <span key={i}>{p.text}</span>)}
+                    : <Links key={i} text={p.text} />)}
+        </>
+    );
+}
+
+/**
+ * 글 조각 하나 — 주소만 눌리는 링크로 바꾼다.
+ *
+ * **새 탭으로 연다**(`target="_blank"`). 같은 창에서 열면 홈 화면 앱에서는
+ * 돌아올 길이 없다 — 주소창도 뒤로 가기도 없는 창이라 앱을 껐다 켜야 한다.
+ * `rel`은 새 탭이 우리 창을 건드리지 못하게 막는 짝이다.
+ *
+ * **누르는 것이 밀기·길게 누르기와 안 부딪힌다** — 그 둘은 `.chat-row`의
+ * touch 이벤트라 손가락이 움직이거나 오래 머물러야 걸리고, 링크는 그냥
+ * 톡 누르는 것이다. 다만 링크 위에서 길게 누르면 고르는 창이 뜨는데,
+ * 카톡도 그 자리에서 같은 창을 띄우므로 그대로 둔다.
+ */
+function Links({ text }: { text: string }) {
+    const parts = splitLinks(text);
+    if (parts.length === 1 && !parts[0].href) return <>{text}</>;
+    return (
+        <>
+            {parts.map((p, i) => p.href
+                ? <a key={i} className="chat-link" href={p.href}
+                     target="_blank" rel="noopener noreferrer"
+                     // 링크를 눌러 나가는 것이 답장 걸기로 번지지 않게 막는다.
+                     onClick={e => e.stopPropagation()}>{p.text}</a>
+                : <span key={i}>{p.text}</span>)}
         </>
     );
 }

@@ -276,6 +276,12 @@ export const messages = [
        새어 나가면 가린 뜻이 없다. */
     { id: 'm17', room_id: 'room1', user_id: uid(10), body: '여기 광고 글이 있었습니다',
       hidden_at: iso(0, 9, 45), hidden_by: uid(1), created_at: iso(0, 9, 45) },
+    /* **주소가 들어 있는 글.** 카톡처럼 눌러 들어가야 한다. 뒤에 한글이
+       바로 붙어 있어(`에서`) 거기서 끊기는지도 함께 본다 — 안 끊으면
+       문장 끝까지 통째로 링크가 된다. */
+    { id: 'm18', room_id: 'room1', user_id: uid(2),
+      body: '예약은 https://booking.example.com/mudeung 에서 하시면 됩니다',
+      created_at: iso(0, 9, 46) },
 ];
 
 /* 알림 받는 기기 한 대. `내 정보`의 대화 알림 스위치가 이 행의 `chat`을

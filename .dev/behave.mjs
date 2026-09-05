@@ -843,7 +843,7 @@ await page.waitForTimeout(300);
 const menuOther = await page.textContent('.chat-menu') ?? '';
 ok(menuOther.includes('가리기'), '운영진이 남의 글을 길게 누르면 가리기가 나온다');
 ok(!menuOther.includes('지우기'), '남의 글에는 지우기가 안 나온다 — 되돌릴 수 없는 일이다');
-await page.click('.chat-menu-item:not(.ghost):not(.danger)');
+await page.click('.chat-menu-item:text-is("가리기")');
 await page.waitForTimeout(300);
 ok(await page.$('.confirm-box') !== null, '가리기를 고르면 한 번 더 묻는다');
 await page.click('.confirm-actions .btn:not(.ghost)');
@@ -868,7 +868,7 @@ await page.click('[data-mid="m3"] .chat-bubble', { button: 'right' });
 await page.waitForTimeout(300);
 ok((await page.textContent('.chat-menu') ?? '').includes('지우기'),
    '내가 쓴 글에는 지우기가 나온다');
-await page.click('.chat-menu-item.danger');
+await page.click('.chat-menu-item:text-is("지우기")');
 await page.waitForTimeout(300);
 ok((await page.textContent('.confirm-box') ?? '').includes('지울까요'),
    '지우기도 한 번 더 묻는다 — 되돌릴 수 없기 때문이다');
@@ -897,11 +897,13 @@ await hPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
 await hPage.waitForTimeout(1200);
 await hPage.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
 await hPage.waitForTimeout(300);
-ok(await hPage.$('.chat-menu') === null, '남의 글은 길게 눌러도 아무 일이 없다');
-/* **글자 고르기를 막는 것도 할 일이 있는 글에서만 한다** — 그 밖의 글은
-   길게 눌러 복사하는 것이 그대로 살아 있어야 한다. */
-ok(await hPage.$('[data-mid="m1"] .chat-row.can-hold') === null,
-   '남의 글에서는 글자 고르기를 막지 않는다');
+const menuTheirs = await hPage.textContent('.chat-menu') ?? '';
+ok(menuTheirs.includes('복사') && menuTheirs.includes('답장'),
+   '남의 글에서도 창은 뜬다 — 복사와 답장은 누구나 한다');
+ok(!menuTheirs.includes('가리기') && !menuTheirs.includes('지우기'),
+   '남의 글에는 가리기도 지우기도 안 붙는다');
+await hPage.click('.chat-menu-item.ghost');
+await hPage.waitForTimeout(200);
 /* 제 글(m5)에는 지우기만 나온다 — 운영진이 아니라 가리기는 없다. */
 await hPage.click('[data-mid="m5"] .chat-bubble', { button: 'right' });
 await hPage.waitForTimeout(300);
@@ -911,6 +913,32 @@ ok(!menuMine.includes('가리기'), '가리기는 운영진 몫이라 일반회�
 ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 메시지입니다'),
    '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
 await hCtx.close();
+
+/* ── 6-1-1-3-1. 글 안의 주소 ────────────────────────────────────
+ *
+ * 카톡에서는 주소를 붙이면 그대로 눌러 들어간다. 우리는 그냥 글자였고,
+ * 게다가 말풍선의 글자 고르기를 막아 두어 **복사할 길도 없었다.**
+ * 셋을 본다 — 링크가 되는가, 새 탭으로 여는가, 그리고 **뒤에 붙은 한글에서
+ * 끊기는가**(안 끊으면 문장 끝까지 통째로 링크가 된다).
+ */
+console.log('\n── 글 안의 주소 ──');
+await go('/#/chat', 1200);
+const link = await page.$eval('[data-mid="m18"] .chat-link',
+    a => ({ text: a.textContent, href: a.getAttribute('href'),
+            target: a.getAttribute('target'), rel: a.getAttribute('rel') }))
+    .catch(() => null);
+ok(link?.href === 'https://booking.example.com/mudeung',
+   `주소가 눌리는 링크가 된다 (실제 ${link?.href})`);
+ok(link?.text === 'https://booking.example.com/mudeung',
+   `뒤에 붙은 한글에서 끊는다 (실제 ${JSON.stringify(link?.text)})`);
+ok(link?.target === '_blank' && (link?.rel ?? '').includes('noopener'),
+   '새 탭으로 연다 — 홈 화면 앱에서는 같은 창으로 나가면 돌아올 길이 없다');
+ok((await page.textContent('[data-mid="m18"]') ?? '').includes('에서 하시면 됩니다'),
+   '주소 뒤의 글은 그대로 남는다');
+/* 주소가 없는 글에는 링크가 하나도 없어야 한다 — `9.30분`이 주소로
+   둔갑하면 눌러 봐야 아무 데도 안 간다. */
+ok(await page.$('[data-mid="m1"] .chat-link') === null,
+   '주소가 없는 글에는 링크를 안 만든다');
 
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
