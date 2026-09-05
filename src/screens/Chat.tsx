@@ -892,10 +892,23 @@ export function Chat() {
     }, []);
 
     /**
+     * 길게 누른 글. 여기 값이 있으면 아래에서 고르는 창이 뜬다.
+     *
+     * **곧바로 묻지 않고 한 번 고르게 하는 것은 할 일이 둘이기 때문이다** —
+     * 운영진에게는 `가리기`, 쓴 사람에게는 `지우기`가 붙고, 운영진이 제 글을
+     * 길게 누르면 둘 다 나온다. 예전처럼 바로 확인창을 띄우면 그중 하나를
+     * 고를 자리가 없다.
+     */
+    const [menuFor, setMenuFor] = useState<Message | null>(null);
+    /* **`memo`로 감싼 말풍선에 넘기는 값이라 붙박아 둔다.** 매번 새 함수를
+       넘기면 쉰 개가 통째로 다시 그려진다(위 `Bubble` 머리말 참고). */
+    const openMenu = useCallback((m: Message) => { setMenuFor(m); }, []);
+
+    /**
      * **운영진이 남의 글을 가린다**(카톡의 '가리기').
      *
      * 지우지 않고 덮어만 둔다 — 지우면 오해로 가린 것을 되돌릴 길이 없다.
-     * 말풍선을 길게 누르면(PC는 오른쪽 클릭) 여기로 온다.
+     * 말풍선을 길게 누르면(PC는 오른쪽 클릭) 뜨는 창에서 여기로 온다.
      *
      * **가리기는 화면에서 덮는 것이지 지우는 것이 아니다.** 글은 DB에
      * 그대로 남아 있어 마음먹고 파 보면 읽힌다 — 없애야 할 글은 쓴 사람이
@@ -924,6 +937,45 @@ export function Chat() {
         }
         toast(on ? '가렸습니다.' : '가리기를 풀었습니다.');
     }, [confirm, me, toast]);
+
+    /**
+     * **쓴 사람이 제 글을 지운다**(사용자 요청).
+     *
+     * DB는 예전부터 열려 있었다 — `messages_own` 정책이
+     * `user_id = auth.uid()`인 줄의 삭제를 허용한다. 그래서 이 기능에는
+     * 붙여넣을 SQL이 없다.
+     *
+     * **남의 글은 지우지 않는다.** 운영진에게는 `가리기`가 있고, 그쪽은
+     * 되돌릴 수 있다 — 남이 쓴 글을 되돌릴 수 없게 없애는 것은 다른
+     * 무게의 일이라 이 창에 두지 않았다.
+     *
+     * 지운 글에 달린 답장은 그대로 남는다(`reply_to`가 `on delete set null`).
+     * 인용은 `지난 대화`가 되고 눌러도 안 움직인다.
+     */
+    const askDelete = async (m: Message) => {
+        const ok = await confirm({
+            title: '이 메시지를 지울까요?',
+            detail: '지운 글은 되돌릴 수 없습니다. 모두의 화면에서 사라집니다.',
+            confirmLabel: '지우기',
+            danger: true,
+        });
+        if (!ok) return;
+        // 곧바로 화면에서 뺀다. 실패하면 있던 자리에 도로 끼운다.
+        const at = messages.findIndex(x => x.id === m.id);
+        setMessages(prev => prev.filter(x => x.id !== m.id));
+        const { error: err } = await supabase.from('messages').delete().eq('id', m.id);
+        if (err) {
+            setMessages(prev => {
+                if (prev.some(x => x.id === m.id)) return prev;
+                const next = prev.slice();
+                next.splice(at < 0 ? prev.length : at, 0, m);
+                return next;
+            });
+            toast(readableError(err), 'error');
+            return;
+        }
+        toast('지웠습니다.');
+    };
 
     /** id → 글. 인용할 원본을 찾는다. 지난 묶음에 있으면 없을 수 있다. */
     const byMid = new Map(messages.map(m => [m.id, m]));
@@ -1134,8 +1186,12 @@ export function Chat() {
                                 lostQuote={!!m.reply_to && !quoted}
                                 onJump={jumpTo}
                                 onReply={startReply}
-                                onHold={askHide}
-                                canHide={isAdmin}
+                                onHold={openMenu}
+                                /* **길게 눌러 할 일이 있는 사람만.** 운영진은
+                                   가릴 수 있고, 쓴 사람은 지울 수 있다.
+                                   나머지 사람의 글에서는 눌러도 아무 일이 없어
+                                   글자 고르기(복사)가 그대로 살아 있다. */
+                                canHold={isAdmin || m.user_id === me}
                                 mentionNames={mentionNames}
                                 myName={myName}
                                 allowAll={staffIds.has(m.user_id ?? '')}
@@ -1363,6 +1419,37 @@ export function Chat() {
                     </div>
                 )}
             </div>
+
+            {/* **길게 누른 글로 할 일을 고르는 창**(카톡의 그 창이다).
+                아래에서 올라온다 — 폰에서 엄지가 닿는 자리다.
+                바깥을 누르면 닫힌다.
+
+                **고르면 창을 먼저 닫고 확인창을 띄운다.** 둘이 겹쳐 있으면
+                뒤엣것이 앞엣것을 덮어 무엇을 누르는 중인지가 흐려진다. */}
+            {menuFor && (
+                <div className="chat-menu-back" onClick={() => setMenuFor(null)}>
+                    <div className="chat-menu" onClick={e => e.stopPropagation()}>
+                        <div className="chat-menu-head">{preview(menuFor) || '메시지'}</div>
+                        {/* 가리기는 운영진 몫이다. 되돌릴 수 있어 남의 글에도 쓴다. */}
+                        {isAdmin && (
+                            <button className="chat-menu-item"
+                                    onClick={() => { const m = menuFor; setMenuFor(null); askHide(m); }}>
+                                {menuFor.hidden_at ? '가리기 풀기' : '가리기'}
+                            </button>
+                        )}
+                        {/* **지우기는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라
+                            남의 글에는 안 붙인다 — 운영진에게는 가리기가 있다. */}
+                        {menuFor.user_id === me && (
+                            <button className="chat-menu-item danger"
+                                    onClick={() => { const m = menuFor; setMenuFor(null); askDelete(m); }}>
+                                지우기
+                            </button>
+                        )}
+                        <button className="chat-menu-item ghost"
+                                onClick={() => setMenuFor(null)}>닫기</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -1457,7 +1544,7 @@ function StickerImg({ mark, onLoad }: { mark: string; onLoad: () => void }) {
  */
 const Bubble = memo(function Bubble({
     message, who, mine, grouped, showTime, unread, onImageLoad,
-    quoted, quotedWho, lostQuote, onJump, onReply, onHold, canHide,
+    quoted, quotedWho, lostQuote, onJump, onReply, onHold, canHold,
     mentionNames, myName, allowAll,
 }: {
     message: Message;
@@ -1477,10 +1564,11 @@ const Bubble = memo(function Bubble({
     lostQuote: boolean;
     onJump: (id: string) => void;
     onReply: (m: Message) => void;
-    /** 길게 눌렀을 때(운영진만). 가리기·가리기 풀기를 묻는다. */
+    /** 길게 눌렀을 때. 가리기·지우기를 고르는 창을 연다. */
     onHold: (m: Message) => void;
-    /** 이 사람이 가릴 수 있는가 = 운영진인가. 아니면 길게 눌러도 아무 일 없다. */
-    canHide: boolean;
+    /** 이 글에 길게 눌러 할 일이 있는가(가릴 수 있거나 지울 수 있는가).
+     *  아니면 길게 눌러도 아무 일이 없고 글자 고르기가 그대로 살아 있다. */
+    canHold: boolean;
     mentionNames: string[];
     myName: string;
     /** 쓴 사람이 운영진인가. `@전체`는 그때만 부른 것으로 본다. */
@@ -1502,16 +1590,16 @@ const Bubble = memo(function Bubble({
     /* 밀기 상태. **React state로 두지 않는다** — 손가락을 따라 매 프레임
        다시 그리면 긴 대화에서 눈에 띄게 끊긴다. 요소를 직접 움직인다. */
     const g = useRef({ x0: 0, y0: 0, dx: 0, decided: false, active: false });
-    /* **길게 누르면 가리기를 묻는다**(카톡과 같은 손짓). 운영진에게만
-       달아 둔다 — 그래야 나머지 사람은 글자를 길게 눌러 복사하는 것이
-       그대로 살아 있다(`.can-hide`일 때만 고르기를 막는다). */
+    /* **길게 누르면 고르는 창이 뜬다**(카톡과 같은 손짓). 할 일이 있는
+       사람에게만 달아 둔다 — 그래야 나머지 글에서는 글자를 길게 눌러
+       복사하는 것이 그대로 살아 있다(`.can-hold`일 때만 고르기를 막는다). */
     const hold = useRef<number | null>(null);
     const held = useRef(false);
     const stopHold = () => {
         if (hold.current !== null) { clearTimeout(hold.current); hold.current = null; }
     };
     const startHold = () => {
-        if (!canHide) return;
+        if (!canHold) return;
         held.current = false;
         stopHold();
         hold.current = window.setTimeout(() => {
@@ -1583,13 +1671,13 @@ const Bubble = memo(function Bubble({
     );
 
     return (
-        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}${canHide ? ' can-hide' : ''}`}
+        <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}${canHold ? ' can-hold' : ''}`}
              ref={rowRef}
              onTouchStart={onTouchStart} onTouchMove={onTouchMove}
              onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
              /* PC에서는 오른쪽 클릭이 '길게 누르기'다. 폰에서 창이 뜬 뒤
                 손을 떼면 여기도 한 번 더 불릴 수 있어 그때는 건너뛴다. */
-             onContextMenu={canHide ? e => {
+             onContextMenu={canHold ? e => {
                  e.preventDefault();
                  if (!held.current) onHold(message);
              } : undefined}>

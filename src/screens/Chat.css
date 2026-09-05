@@ -305,14 +305,83 @@
     font-weight: 400;
 }
 
-/* **길게 눌러 가리는 것은 운영진뿐이라, 고르기를 막는 것도 그때뿐이다.**
+/* **길게 눌러 할 일이 있는 글에서만 고르기를 막는다.**
    iOS는 글자를 길게 누르면 제 선택 손잡이를 띄워 우리 손짓을 덮어 버린다.
-   그래서 운영진 화면에서만 막는다 — 나머지 사람은 글을 길게 눌러 복사하는
-   것이 그대로 살아 있다. */
-.chat-row.can-hide .chat-bubble {
+   그래서 가릴 수 있거나(운영진) 지울 수 있는(내 글) 자리에서만 막는다 —
+   그 밖의 글은 길게 눌러 복사하는 것이 그대로 살아 있다. */
+.chat-row.can-hold .chat-bubble {
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+}
+
+/* **길게 누른 글로 할 일을 고르는 창.** 아래에서 올라오는 것은 폰에서
+   엄지가 닿는 자리라서다. 모양은 확인창(`.confirm-back`/`.confirm-box`)과
+   같은 결로 맞춰 두었다 — 바로 뒤이어 그 창이 뜨기 때문이다. */
+.chat-menu-back {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(4, 8, 16, 0.72);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: var(--gap);
+    animation: chat-menu-fade 0.15s ease-out;
+}
+
+.chat-menu {
+    width: 100%;
+    max-width: 360px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow-lg);
+    padding: var(--gap-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* 홈 표시줄(아이폰)에 안 깔리게 아래를 띄운다. */
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+    animation: chat-menu-up 0.16s ease-out;
+}
+
+/* 어느 글을 누른 것인지 한 줄로 알린다. 길면 한 줄로 자른다 —
+   여기서 여러 줄이 되면 창이 화면을 반쯤 먹는다. */
+.chat-menu-head {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    padding: var(--gap-xs) var(--gap-sm) var(--gap-sm);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--gap-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-menu-item {
+    appearance: none;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--text);
+    text-align: center;
+    /* 44px — 누르는 자리는 넉넉해야 한다(`node .dev/audit.mjs`가 잰다). */
+    padding: 13px var(--gap-sm);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+}
+
+.chat-menu-item:active { background: var(--surface-2); }
+.chat-menu-item.danger { color: var(--danger); }
+.chat-menu-item.ghost { color: var(--text-dim); font-weight: 600; }
+
+@keyframes chat-menu-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chat-menu-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: none; }
 }
 
 /* 이모지만 보낸 짧은 글(세 개까지). **말풍선을 벗긴다** — 카톡이 그렇다.
