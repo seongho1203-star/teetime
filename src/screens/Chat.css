@@ -52,6 +52,124 @@
     white-space: nowrap;
 }
 
+/* ── 참여자 목록과 프로필 ────────────────────────────────────────
+   카톡 오픈톡의 ☰다. **제목은 그대로 가운데 세워 두고** 단추만 왼쪽 끝에
+   얹는다(🔍와 대칭이다) — 흐름에 넣으면 제목이 밀려 머리말이 달라 보인다. */
+.chat-who-btn {
+    position: absolute;
+    left: var(--gap-sm);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    /* 30px 아래로 내리지 말 것 — `node .dev/audit.mjs`가 잡아낸다. */
+    height: 34px;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+}
+.chat-who-btn svg { width: 19px; height: 19px; stroke: currentColor; }
+/* 사람 수를 함께 적는다 — 줄 셋짜리 그림만으로는 무슨 단추인지 모른다. */
+.chat-who-n { font-size: var(--fs-xs); font-weight: 700; color: var(--text-dim); }
+
+/* 목록은 검색 결과와 같은 자리를 덮는다(`.chat-hits` 참고). */
+.chat-people {
+    position: absolute;
+    top: 44px;              /* 머리말 높이 */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 6;
+    overflow-y: auto;
+    background: var(--bg);
+    -webkit-overflow-scrolling: touch;
+}
+.chat-people-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px var(--gap);
+    border-bottom: 1px solid var(--line);
+}
+.chat-people-n { font-size: var(--fs-sm); font-weight: 800; color: var(--text); }
+.chat-people-find { padding: 9px var(--gap); border-bottom: 1px solid var(--line); }
+.chat-person {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    width: 100%;
+    padding: 9px var(--gap);
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+.chat-person:active { background: var(--surface-2); }
+/* 이름표가 `83/신성호/광산구`라 길다 — 표가 밀리지 않게 여기서만 줄인다. */
+.chat-person-name {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chat-person-me {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text-dim);
+}
+
+/* 말풍선 옆 얼굴이 눌리는 곳이 된다.
+   **그림은 29px 그대로 두고 누르는 자리만 넓힌다** — 여백을 준 만큼
+   음수 여백으로 되돌리므로 배치가 한 픽셀도 안 밀린다. 29px은 카톡
+   스크린샷을 재서 얻은 값이라 손대면 짜임이 어긋나고, 그대로 두면
+   `node .dev/audit.mjs`가 '누름 자리 작음'으로 잡아낸다(30px 아래). */
+.chat-face {
+    display: block;
+    padding: 4px;
+    margin: -4px;
+    border: 0;
+    background: none;
+    cursor: pointer;
+}
+
+/* 프로필 카드. 길게 누른 창(`.chat-menu`)과 같은 자리에서 올라온다. */
+.chat-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--gap-sm);
+    /* **크기와 자리는 `.chat-menu`와 같은 값이다** — 아래에서 올라오는 창이
+       둘인데 생김새가 다르면 같은 앱의 같은 손짓으로 안 읽힌다. */
+    width: 100%;
+    max-width: 360px;
+    padding: var(--gap-lg) var(--gap-sm) var(--gap-sm);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+    animation: chat-menu-up 0.16s ease-out;
+}
+.chat-card-name {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 800;
+    text-align: center;
+    color: var(--text);
+}
+.chat-card-sub {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+}
+.chat-card .chat-menu-item { width: 100%; }
+
 /* ── 방 공지 ────────────────────────────────────────────────────
    카톡 오픈톡에서 맨 위에 붙박여 있는 그 줄이다. 머리말과 대화 사이에
    앉는다 — **대화 목록 안에 넣지 않는다**: 그러면 굴릴 때 함께 올라가

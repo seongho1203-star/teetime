@@ -940,6 +940,62 @@ ok((await page.textContent('[data-mid="m18"]') ?? '').includes('에서 하시면
 ok(await page.$('[data-mid="m1"] .chat-link') === null,
    '주소가 없는 글에는 링크를 안 만든다');
 
+/* ── 6-1-1-3-1-8. 참여자 목록과 프로필 ──────────────────────────
+ *
+ * 카톡 오픈톡의 ☰다. 방에 누가 있는지 볼 길이 없었고, 말풍선 옆 얼굴을
+ * 눌러도 아무 일이 없었다 — 100명 방에서 `83/신성호/광산구`만 보고는
+ * 누군지 떠올리기 어렵다.
+ */
+console.log('\n── 참여자 목록과 프로필 ──');
+await go('/#/chat', 1200);
+ok(await page.$('.chat-who-btn') !== null, '머리말에 참여자 단추가 있다');
+await page.click('.chat-who-btn');
+await page.waitForTimeout(400);
+const inRoom = await page.$$eval('.chat-person', els => els.map(e => e.textContent));
+ok(inRoom.length > 0, `방에 있는 사람이 늘어선다 (실제 ${inRoom.length}명)`);
+/* **대기·추방은 빠진다** — 그분들은 대화를 아예 못 본다. 고정 자료의
+   `대기중`(가입 신청)이 섞여 들어오면 이 줄이 빨갛게 뜬다. */
+ok(!inRoom.some(t => t?.includes('대기중')),
+   '대기·추방은 안 나온다 — 대화를 못 보는 사람이다');
+ok(inRoom.some(t => t?.includes('나')), '내 줄에는 `나` 표가 붙는다');
+ok((await page.textContent('.chat-people-n') ?? '').includes('명'),
+   '몇 명인지 머리말에 적는다');
+
+/* 줄을 누르면 그 사람 카드가 뜬다. */
+await page.click('.chat-person');
+await page.waitForTimeout(400);
+const cardText = await page.textContent('.chat-card');
+ok(!!cardText, '줄을 누르면 프로필 카드가 뜬다');
+ok(/올해 \d+회/.test(cardText ?? ''),
+   `참석 횟수를 적는다 (실제 ${(cardText ?? '').match(/올해 \d+회/)?.[0]})`);
+/* **전화번호·차량번호는 여기 안 적는다** — 회원 명단 하나에서
+   운영진에게만 보이기로 정해 둔 값이다. */
+ok(!/010-|\d{2,3}[가-힣]\d{4}/.test(cardText ?? ''),
+   '전화번호·차량번호는 카드에 안 적는다 — 회원 명단 몫이다');
+await page.click('.chat-card .chat-menu-item.ghost');
+await page.waitForTimeout(250);
+
+/* **말풍선 옆 얼굴을 눌러도 같은 카드가 뜬다**(카톡과 같다). */
+await page.click('.chat-search-x');            // 목록을 닫는다
+await page.waitForTimeout(300);
+ok(await page.$('.chat-face') !== null, '말풍선 옆 얼굴이 눌리는 곳이다');
+await page.click('.chat-face');
+await page.waitForTimeout(400);
+ok(await page.$('.chat-card') !== null, '얼굴을 누르면 그 사람 카드가 뜬다');
+/* 카드의 `@언급하기`를 누르면 입력칸에 `@이름 `이 들어간다. */
+const hasMention = await page.$('.chat-card .btn.ghost');
+if (hasMention) {
+    await hasMention.click();
+    await page.waitForTimeout(300);
+    const draft = await page.$eval('.chat-input .textarea', el => el.value);
+    ok(draft.startsWith('@') && draft.endsWith(' '),
+       `@언급하기를 누르면 입력칸에 이름이 들어간다 (실제 ${JSON.stringify(draft)})`);
+    await page.$eval('.chat-input .textarea', el => { el.value = ''; });
+} else {
+    await page.click('.chat-card .chat-menu-item.ghost');
+}
+await page.waitForTimeout(250);
+
 /* ── 6-1-1-3-1-9. 방 공지 ───────────────────────────────────────
  *
  * 카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것이다. 모임

@@ -90,6 +90,10 @@ const SPOTS = [
       why: '말풍선 50개가 뒤에 있다' },
     { name: '회원 명단 — 찾기', at: '/#/members', sel: '.member-find input',
       why: '100명이 뒤에 있다' },
+    { name: '대화 — 참여자 찾기', at: '/#/chat', sel: '.chat-people-find input',
+      why: '100명 목록이 뒤에 있다',
+      /* 머리말의 ☰를 눌러야 목록과 찾기 칸이 나온다. */
+      openSel: ['.chat-who-btn'] },
     { name: '모집 열기 — 골프장', at: '/#/rounds/new', sel: '#f-course',
       why: '전국 574곳에서 찾는다' },
     { name: '모집 열기 — 안내', at: '/#/rounds/new', sel: '#f-note',
@@ -136,6 +140,15 @@ for (const spot of SPOTS) {
             reached = false; break;
         }
         await btn.first().click();
+        await page.waitForTimeout(600);
+    }
+    /* 글자로 못 찾는 단추는 선택자로 연다(대화 머리말의 ☰처럼 그림뿐인 것). */
+    for (const sel of [].concat(spot.openSel ?? [])) {
+        if (await page.$(sel) === null) {
+            console.log(`\n${spot.name} — \`${sel}\`을 못 찾았다`);
+            reached = false; break;
+        }
+        await page.click(sel);
         await page.waitForTimeout(600);
     }
     if (!reached) continue;

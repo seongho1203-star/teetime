@@ -5,7 +5,8 @@ import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatChatDay, formatStamp, formatTime, kstDate, kstMinute } from '../lib/format';
-import { personLabel, type Gender, type Message, type Person, type Room } from '../lib/types';
+import { FIND_AT, ROLE_LABEL, ROLE_TAG, personLabel,
+         type Gender, type Message, type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
@@ -1066,6 +1067,66 @@ export function Chat() {
         toast(on ? '가렸습니다.' : '가리기를 풀었습니다.');
     }, [confirm, me, toast]);
 
+    /* ── 참여자 목록과 프로필 ────────────────────────────────────
+     *
+     * **카톡 오픈톡의 ☰다.** 방에 누가 있는지 볼 길이 없었고, 말풍선 옆
+     * 얼굴을 눌러도 아무 일이 없었다 — 100명 방에서 `83/신성호/광산구`만
+     * 보고는 누군지 떠올리기 어렵다.
+     *
+     * **명단을 새로 안 받아 온다.** 이 화면이 이미 `fetchPeople()`로 회원
+     * 전부를 들고 있다(이름표와 얼굴 테두리에 쓴다) — 방에 있는 사람이
+     * 곧 회원이라, 여기서 거르는 값이 조회 한 번보다 훨씬 싸다.
+     */
+    const [peopleOn, setPeopleOn] = useState(false);
+    /** 얼굴을 눌러 펼친 사람. 목록에서도 여기로 온다. */
+    const [card, setCard] = useState<Person | null>(null);
+    /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
+    const [attend, setAttend] = useState<Record<string, number> | null>(null);
+    const attendTried = useRef(false);
+
+    /* 방에 있는 사람. **대기·추방은 뺀다** — 그분들은 대화를 아예 못 본다.
+       `mentionable`과 같은 잣대다(부르는 목록과 있는 목록이 갈리면 안 된다). */
+    const roomPeople = mentionable;
+
+    /**
+     * 참석 횟수를 받아 온다. **목록이나 카드를 처음 열 때 한 번만** 부른다 —
+     * 대화를 보기만 하는 사람에게는 필요 없는 조회다.
+     *
+     * **함수가 없으면 `null`로 둔다.** 오류를 0으로 넘기면 모두가
+     * `올해 0회`가 되어 **거짓말이 된다**(회원 명단과 같은 규칙이다).
+     */
+    const loadAttend = useCallback(async () => {
+        if (attendTried.current) return;
+        attendTried.current = true;
+        const since = `${kstDate().slice(0, 4)}-01-01T00:00:00+09:00`;
+        const { data: rows, error: err } = await supabase
+            .rpc('attendance_counts', { p_since: since });
+        if (err) return;                       // 함수가 없는 저장소 — 안 적는다
+        setAttend(Object.fromEntries(
+            ((rows ?? []) as { user_id: string; n: number }[]).map(x => [x.user_id, x.n])));
+    }, []);
+
+    const openPeople = () => { setPeopleOn(true); loadAttend(); };
+    /* **`memo`로 감싼 말풍선에 넘기는 값이라 붙박아 둔다** — 매번 새 함수를
+       넘기면 쉰 개가 통째로 다시 그려진다(`openMenu`와 같은 자리다). */
+    const openCard = useCallback((p: Person) => {
+        setCard(p);
+        loadAttend();
+    }, [loadAttend]);
+
+    /** 카드에서 `@언급하기`를 누르면 입력칸에 `@이름 `을 넣고 자판을 올린다. */
+    const mentionFromCard = (p: Person) => {
+        setCard(null);
+        setPeopleOn(false);
+        const ta = taRef.current;
+        if (!ta) return;
+        const head = ta.value && !ta.value.endsWith(' ') ? `${ta.value} ` : ta.value;
+        ta.value = `${head}@${p.name} `;
+        hasText.current = true;
+        ta.focus();
+        growDraft();
+    };
+
     /* ── 방 공지 ────────────────────────────────────────────────
      *
      * **카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것이다.**
@@ -1346,6 +1407,16 @@ export function Chat() {
                     </div>
                 ) : (
                     <>
+                        {/* **참여자 목록**(카톡 오픈톡의 ☰). 제목은 그대로 가운데
+                            서야 하므로 흐름에서 빼서 왼쪽 끝에 얹는다. */}
+                        <button className="chat-who-btn" onClick={openPeople}
+                                aria-label={`참여자 ${roomPeople.length}명`}>
+                            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                                 strokeLinecap="round" aria-hidden="true">
+                                <path d="M4 7h16M4 12h16M4 17h16" />
+                            </svg>
+                            <span className="chat-who-n">{roomPeople.length}</span>
+                        </button>
                         <h1 className="chat-title">{data.room.name}</h1>
                         <button className="chat-find" onClick={() => setSearchOn(true)}
                                 aria-label="대화 검색">
@@ -1480,6 +1551,7 @@ export function Chat() {
                                 onJump={jumpTo}
                                 onReply={startReply}
                                 onHold={openMenu}
+                                onFace={openCard}
                                 mentionNames={mentionNames}
                                 myName={myName}
                                 allowAll={staffIds.has(m.user_id ?? '')}
@@ -1723,6 +1795,44 @@ export function Chat() {
 
                 **고르면 창을 먼저 닫고 확인창을 띄운다.** 둘이 겹쳐 있으면
                 뒤엣것이 앞엣것을 덮어 무엇을 누르는 중인지가 흐려진다. */}
+            {/* **참여자 목록** — 머리말 아래를 덮는다(검색 결과와 같은 자리다).
+                100명이면 훑을 수가 없으므로 **열둘을 넘으면 찾게 한다**
+                (`FIND_AT` — 정산에서 사람 고를 때와 같은 잣대다). */}
+            {peopleOn && (
+                <PeopleList people={roomPeople} me={me}
+                            onPick={openCard} onClose={() => setPeopleOn(false)} />
+            )}
+
+            {/* **프로필 카드** — 얼굴을 누르거나 참여자 목록에서 고르면 뜬다.
+                **여기에 전화번호·차량번호를 적지 말 것** — 그건 회원 명단
+                하나에서 운영진에게만 보이기로 정해 둔 값이다. */}
+            {card && (
+                <div className="chat-menu-back" onClick={() => setCard(null)}>
+                    <div className="chat-card" onClick={e => e.stopPropagation()}>
+                        <Avatar name={card.name} url={card.avatar_url}
+                                gender={card.gender} size="lg" />
+                        <div className="chat-card-name">{personLabel(card)}</div>
+                        <div className="chat-card-sub">
+                            {ROLE_TAG[card.role] && (
+                                <span className={`role-tag ${ROLE_TAG[card.role]}`}>
+                                    {ROLE_LABEL[card.role]}
+                                </span>
+                            )}
+                            {/* 참석 횟수는 모두에게 보인다 — 누가 꾸준히 나오는지는
+                                감출 것이 아니다(회원 명단과 같은 규칙). */}
+                            {attend && <span className="dim xs">올해 {attend[card.id] ?? 0}회</span>}
+                        </div>
+                        {/* **내 얼굴에는 `@언급하기`를 안 붙인다** — 나를 부를 일이 없다. */}
+                        {card.id !== me && card.name && (
+                            <button className="btn ghost sm"
+                                    onClick={() => mentionFromCard(card)}>@언급하기</button>
+                        )}
+                        <button className="chat-menu-item ghost"
+                                onClick={() => setCard(null)}>닫기</button>
+                    </div>
+                </div>
+            )}
+
             {menuFor && (
                 <div className="chat-menu-back" onClick={() => setMenuFor(null)}>
                     <div className="chat-menu" onClick={e => e.stopPropagation()}>
@@ -1775,6 +1885,58 @@ export function Chat() {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+/**
+ * **참여자 목록**(카톡 오픈톡의 ☰).
+ *
+ * **찾는 글자를 대화 화면이 아니라 여기서 들고 있다.** 위에 두었더니 한
+ * 글자마다 대화 화면 전체가 다시 그려져 **글자 하나에 64ms**가 걸렸다
+ * (`node .dev/type-bench.mjs`로 쟀다 — 말풍선 120개가 뒤에 있다).
+ * 조각을 갈라 놓으면 다시 그려지는 것이 이 목록뿐이라 그 값이 사라진다.
+ * **state를 위로 올리지 말 것.**
+ *
+ * `useDeferredValue`로 늦추는 길도 있지만 **여기서는 안 쓴다** — 회원
+ * 명단에서 그렇게 했다가 첫 글자가 8 → 44ms로 나빠졌다(빈 검색어에서
+ * 첫 글자로 넘어가는 순간 목록이 통째로 갈리는데, 늦추면 리액트가 그
+ * 큰 그림을 두 번 그린다).
+ */
+function PeopleList({ people, me, onPick, onClose }: {
+    people: Person[];
+    me: string;
+    onPick: (p: Person) => void;
+    onClose: () => void;
+}) {
+    /* 100명이면 훑을 수가 없으므로 **열둘을 넘으면 찾게 한다**
+       (`FIND_AT` — 정산에서 사람 고를 때와 같은 잣대다). */
+    const [find, setFind] = useState('');
+    const q = find.trim();
+    return (
+        <div className="chat-people">
+            <div className="chat-people-head">
+                <span className="chat-people-n">참여자 {people.length}명</span>
+                <button className="chat-search-x" onClick={onClose}>닫기</button>
+            </div>
+            {people.length > FIND_AT && (
+                <div className="chat-people-find">
+                    <input className="chat-search-in" type="search" aria-label="참여자 찾기"
+                           value={find} onChange={e => setFind(e.target.value)} />
+                </div>
+            )}
+            {people.filter(p => !q || (p.name ?? '').includes(q)).map(p => (
+                <button key={p.id} className="chat-person" onClick={() => onPick(p)}>
+                    <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />
+                    <span className="chat-person-name">{personLabel(p)}</span>
+                    {ROLE_TAG[p.role] && (
+                        <span className={`role-tag ${ROLE_TAG[p.role]}`}>
+                            {ROLE_LABEL[p.role]}
+                        </span>
+                    )}
+                    {p.id === me && <span className="chat-person-me">나</span>}
+                </button>
+            ))}
         </div>
     );
 }
@@ -1869,7 +2031,7 @@ function StickerImg({ mark, onLoad }: { mark: string; onLoad: () => void }) {
  */
 const Bubble = memo(function Bubble({
     message, who, mine, grouped, showTime, unread, onImageLoad,
-    quoted, quotedWho, lostQuote, onJump, onReply, onHold,
+    quoted, quotedWho, lostQuote, onJump, onReply, onHold, onFace,
     mentionNames, myName, allowAll,
 }: {
     message: Message;
@@ -1892,6 +2054,8 @@ const Bubble = memo(function Bubble({
     /** 길게 눌렀을 때. 복사·답장·가리기·지우기를 고르는 창을 연다.
      *  **어느 글에서나 열린다** — 남의 글에서도 복사와 답장은 할 수 있다. */
     onHold: (m: Message) => void;
+    /** 얼굴을 눌렀을 때. 그 사람 프로필 카드를 연다. */
+    onFace: (p: Person) => void;
     mentionNames: string[];
     myName: string;
     /** 쓴 사람이 운영진인가. `@전체`는 그때만 부른 것으로 본다. */
@@ -2005,7 +2169,14 @@ const Bubble = memo(function Bubble({
              }}>
             {!mine && (
                 <div className="chat-avatar">
-                    {!grouped && <Avatar name={who?.name} url={who?.avatar_url} gender={who?.gender} />}
+                    {/* **얼굴을 누르면 그 사람 카드가 뜬다**(카톡과 같다).
+                        100명 방에서는 이름표만 보고 누군지 떠올리기 어렵다. */}
+                    {!grouped && (
+                        <button className="chat-face" aria-label={`${who?.name ?? '알 수 없음'} 프로필`}
+                                onClick={() => who && onFace(who)}>
+                            <Avatar name={who?.name} url={who?.avatar_url} gender={who?.gender} />
+                        </button>
+                    )}
                 </div>
             )}
             <div className="chat-col">
