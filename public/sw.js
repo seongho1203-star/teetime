@@ -6,7 +6,34 @@
  */
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+
+/**
+ * **이모티콘 그림 하나만 캐시에 남긴다.**
+ *
+ * 위에 적힌 '캐시를 두지 않는다'는 규칙의 **유일한 예외**다. 이유가 둘이다:
+ *
+ * 1. **GitHub Pages는 10분만 캐시하라고 보낸다**(`max-age=600`). 그래서
+ *    움직이는 이모티콘(한 장 평균 239KB · 열여덟 장 4.3MB)이 **10분마다 다시
+ *    받아진다.** 대화를 하루에 몇 번만 열어도 폰 데이터가 그만큼 나간다.
+ * 2. 받아 오는 일이 하필 대화를 훑는 그 순간에 벌어지면 화면이 끊긴다
+ *    (`CLAUDE.md`의 '미리 받아 두기'). 캐시에 있으면 아예 안 나간다.
+ *
+ * **앱 코드가 낡을 걱정이 없다** — 여기서 잡는 것은 `/stickers/` 아래뿐이고,
+ * 그 그림들은 한 번 만들면 안 바뀐다(바꿀 일이 생기면 새 id로 넣는다).
+ * **다른 주소로 넓히지 말 것** — index.html이 캐시에 남으면 고쳐도 옛 화면이
+ * 그대로 뜬다.
+ *
+ * 그림을 정말 갈아 끼우면 `STICKER_CACHE`의 번호를 올린다. 그러면 앱을 다시
+ * 열 때 옛 캐시가 통째로 버려진다.
+ */
+const STICKER_CACHE = 'stickers-v1';
+
+self.addEventListener('activate', e => e.waitUntil((async () => {
+    for (const key of await caches.keys()) {
+        if (key !== STICKER_CACHE) await caches.delete(key);
+    }
+    await self.clients.claim();
+})()));
 
 /* **크롬이 '앱 설치'를 띄우는 조건**이라 있는 것이다(안드로이드).
    일부러 캐시를 두지 않는다 — 캐시하면 코드를 고쳐도 예전 화면이 남는다.
@@ -18,6 +45,23 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
    문서만은 늘 새로 받아 온다. 나머지 파일은 이름에 해시가 붙어 있어
    캐시돼도 문제가 없다. */
 self.addEventListener('fetch', event => {
+    // 이모티콘 그림은 캐시에 있으면 그걸 준다 (위 `STICKER_CACHE` 참고).
+    const url = new URL(event.request.url);
+    if (event.request.method === 'GET' && url.origin === self.location.origin
+        && url.pathname.includes('/stickers/')) {
+        event.respondWith((async () => {
+            const cache = await caches.open(STICKER_CACHE);
+            const hit = await cache.match(event.request);
+            if (hit) return hit;
+            const res = await fetch(event.request);
+            // 실패한 답(404 등)은 남기지 않는다 — 그림을 새로 넣었을 때
+            // 없다는 답이 캐시에 굳으면 영영 안 뜬다.
+            if (res.ok) cache.put(event.request, res.clone());
+            return res;
+        })());
+        return;
+    }
+
     if (event.request.mode !== 'navigate') return;
     event.respondWith(
         fetch(event.request, { cache: 'no-store' })

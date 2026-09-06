@@ -47,9 +47,14 @@ const WINDOW_AFTER = 20;
  *  통신량이 월 5GB다(위 '지난 것은 받지 않는다'). 한 번 받으면 1년 동안
  *  캐시에 남으므로(`cacheControl`) 다시 들어올 때는 안 받는다. */
 const WARM_PHOTOS = 8;
-/** 이모티콘은 몇 장까지. 앱에 딸린 붙박이라 Supabase가 아니라 GitHub Pages가
- *  내주고, 같은 그림이 되풀이돼 대개 캐시에서 나온다. 그래서 넉넉히 켠다. */
+/** 멈춰 있는 이모티콘은 몇 장까지. 한 장 7KB이고 앱에 딸린 붙박이라
+ *  Supabase가 아니라 GitHub Pages가 내준다 — 넉넉히 켠다. */
 const WARM_STICKERS = 30;
+/** **움직이는 이모티콘은 따로 센다** — 한 장 평균 239KB로 멈춘 것의 서른
+ *  배가 넘는다. 같은 몫으로 두면 대화를 열 때마다 7MB를 받아, 미리 받아
+ *  두려다 폰이 더 느려진다(LTE에서는 더). 서비스워커가 한 번 받은 것을
+ *  캐시에 남기므로(`public/sw.js`) 두 번째부터는 이 몫도 거의 안 쓴다. */
+const WARM_ANIM = 6;
 /** 한 번에 몇 장씩 — 한꺼번에 켜면 그 자체로 한 프레임을 먹는다. */
 const WARM_BATCH = 3;
 /** 묶음 사이의 틈. */
@@ -795,10 +800,9 @@ export function Chat() {
      * 몫(`WARM_PHOTOS`·`WARM_STICKERS`)은 방을 옮길 때 새로 준다. `지난 대화
      * 더 보기`를 누른 것은 옛 글을 읽겠다는 뜻이라 그때도 다시 채운다.
      */
-    const warmLeft = useRef({ photo: WARM_PHOTOS, sticker: WARM_STICKERS });
-    useEffect(() => {
-        warmLeft.current = { photo: WARM_PHOTOS, sticker: WARM_STICKERS };
-    }, [roomId]);
+    const freshWarm = () => ({ photo: WARM_PHOTOS, sticker: WARM_STICKERS, anim: WARM_ANIM });
+    const warmLeft = useRef(freshWarm());
+    useEffect(() => { warmLeft.current = freshWarm(); }, [roomId]);
 
     useEffect(() => {
         const el = listRef.current;
@@ -812,7 +816,10 @@ export function Chat() {
             for (let i = imgs.length - 1; i >= 0 && n < WARM_BATCH; i--) {
                 const img = imgs[i];
                 if (img.loading !== 'lazy' || img.complete) continue;
-                const kind = img.classList.contains('chat-sticker') ? 'sticker' : 'photo';
+                /* 셋으로 가른다 — 사진 · 멈춘 이모티콘 · 움직이는 이모티콘.
+                   움직이는 것만 파일이 서른 배라 몫을 따로 준다. */
+                const kind = !img.classList.contains('chat-sticker') ? 'photo'
+                    : img.src.endsWith('.webp') ? 'anim' : 'sticker';
                 if (left[kind] <= 0) continue;
                 left[kind]--;
                 img.loading = 'eager';
@@ -849,7 +856,7 @@ export function Chat() {
         setHasMore((rows ?? []).length === PAGE);
         setLoadingMore(false);
         // 옛 글을 읽겠다는 뜻이니 미리 받아 둘 몫을 다시 채운다.
-        warmLeft.current = { photo: WARM_PHOTOS, sticker: WARM_STICKERS };
+        warmLeft.current = freshWarm();
 
         // 위에 글이 붙은 만큼 스크롤을 내려 읽던 자리를 지킨다.
         requestAnimationFrame(() => {
