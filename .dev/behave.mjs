@@ -1451,8 +1451,11 @@ console.log('\n── 늦게 뜬 사진 ──');
     const at = i => new Date(new Date().setHours(9, 0, 0, 0) + i * 60000).toISOString();
     const others = tables.profiles.filter(p => p.id !== ME).map(p => p.id);
     const long = [];
-    for (let i = 0; i < 70; i++) {
-        const photo = i % 5 === 2;   // 열넷 중 몇 장이 화면 위쪽에서 늦게 뜬다
+    /* **미리 받아 두는 몫(`WARM_PHOTOS`)보다 사진이 훨씬 많아야 한다.**
+       적으면 스크롤 전에 다 받아져 목록이 안 자라고, 그러면 이 검사가
+       확인하려던 자리를 아예 안 지나간다(실제로 그렇게 헛돌았다). */
+    for (let i = 0; i < 120; i++) {
+        const photo = i % 2 === 0;   // 예순 장이 화면 위쪽에서 늦게 뜬다
         long.push({ id: `x${i}`, room_id: 'room1',
             user_id: i % 4 === 0 ? ME : others[i % others.length],
             body: photo ? '' : `${i}번째 이야기입니다 오늘 라운드 좋았습니다`,
@@ -1489,7 +1492,9 @@ console.log('\n── 늦게 뜬 사진 ──');
         const moves = [];
         let prev = el.querySelector(`[data-mid="${mark}"]`).getBoundingClientRect().top;
         const grew0 = el.scrollHeight;
-        for (let i = 0; i < 45; i++) {
+        /* **미리 받아 둔 자리를 지나 더 올라가야 한다** — 짧게 훑으면 사진이
+           이미 다 받아져 있어 목록이 안 자라고, 검사가 헛돈다. */
+        for (let i = 0; i < 130; i++) {
             el.scrollTop = Math.max(0, el.scrollTop - 60);
             await frame();
             const node = el.querySelector(`[data-mid="${mark}"]`);

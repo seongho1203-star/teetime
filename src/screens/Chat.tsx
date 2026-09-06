@@ -42,6 +42,18 @@ const CATCHUP_MARGIN = 10;
 const SEARCH_HITS = 40;
 /** 찾은 글 뒤로 몇 개를 함께 받아 둘까 — 그 뒤의 이야기가 조금은 보여야 한다. */
 const WINDOW_AFTER = 20;
+/* ── 곧 볼 그림을 미리 받아 두는 몫 (아래 `미리 받아 두기` 참고) ── */
+/** 사진 몇 장까지. **함부로 늘리지 말 것** — 사진은 Supabase에서 오고 무료
+ *  통신량이 월 5GB다(위 '지난 것은 받지 않는다'). 한 번 받으면 1년 동안
+ *  캐시에 남으므로(`cacheControl`) 다시 들어올 때는 안 받는다. */
+const WARM_PHOTOS = 8;
+/** 이모티콘은 몇 장까지. 앱에 딸린 붙박이라 Supabase가 아니라 GitHub Pages가
+ *  내주고, 같은 그림이 되풀이돼 대개 캐시에서 나온다. 그래서 넉넉히 켠다. */
+const WARM_STICKERS = 30;
+/** 한 번에 몇 장씩 — 한꺼번에 켜면 그 자체로 한 프레임을 먹는다. */
+const WARM_BATCH = 3;
+/** 묶음 사이의 틈. */
+const WARM_GAP = 200;
 
 interface Loaded { room: Room | null; people: Person[]; }
 
@@ -753,6 +765,65 @@ export function Chat() {
         // 영영 안 붙었다** (폰에서 `목록손짓 0/0`으로 드러났다).
     }, [roomId]);
 
+    /**
+     * **곧 볼 그림을 쉬는 동안 미리 받아 둔다.**
+     *
+     * 사진과 이모티콘은 화면에 보일 때가 되어야 받아 온다(`loading="lazy"`).
+     * 데이터를 아끼는 옳은 규칙인데, 그 바람에 **받아 오고 푸는 일이 손가락이
+     * 움직이는 바로 그 순간에 벌어진다** — 앱에 처음 들어가 대화를 위로 올릴
+     * 때만 유독 끊기던 것이 이것이다. 두 번째부터 멀쩡한 것은 이미 받아 둬서
+     * 할 일이 없기 때문이다.
+     *
+     * 폰만큼 느리게 해 놓고 재 보니(CPU 12배 · `.dev/jank.mjs`) 사진과
+     * 이모티콘이 섞인 방에서 **첫 스크롤에 프레임이 12번 밀렸고**(가장 긴 것
+     * 133ms) 글만 있는 방은 1번이었다. 그림을 **언제** 받느냐가 전부였다.
+     * 사람이 읽고 있는 동안 미리 켜 두니 **12 → 3번**으로 떨어졌다.
+     *
+     * 넷을 지킬 것 — 하나씩 다 재서 얻은 것이다:
+     * - **진짜 요소의 `loading`을 바꾼다.** 따로 만든 `new Image()`로 받아
+     *   두는 길도 해 봤는데 **전혀 안 줄었다**(15개 그대로) — 그렇게 받은
+     *   것은 화면에 걸린 그림과 따로 논다.
+     * - **그림 자리를 재지 말 것.** '화면에서 얼마나 떨어졌나'로 고르게 했다가
+     *   **되레 나빠졌다**(12 → 14.7). `getBoundingClientRect()`가 그때마다
+     *   배치를 다시 잡게 하는데, 그게 하필 굴리는 중에 돈다. 지금은 자리를
+     *   안 보고 **아래에서부터 차례로** 켠다 — 대화는 위로 훑어 올라간다.
+     * - **굴릴 때 부르지 말 것.** 같은 이유다. 여기서 하는 일은 사람이
+     *   읽는 동안 끝나야 한다.
+     * - **한 번에 세 장씩, 200ms 띄워서.** 한꺼번에 켜면 그 자체로 한
+     *   프레임을 먹어 미리 받는 뜻이 없어진다.
+     *
+     * 몫(`WARM_PHOTOS`·`WARM_STICKERS`)은 방을 옮길 때 새로 준다. `지난 대화
+     * 더 보기`를 누른 것은 옛 글을 읽겠다는 뜻이라 그때도 다시 채운다.
+     */
+    const warmLeft = useRef({ photo: WARM_PHOTOS, sticker: WARM_STICKERS });
+    useEffect(() => {
+        warmLeft.current = { photo: WARM_PHOTOS, sticker: WARM_STICKERS };
+    }, [roomId]);
+
+    useEffect(() => {
+        const el = listRef.current;
+        if (!el) return;
+        let timer = 0;
+        const step = () => {
+            timer = 0;
+            const left = warmLeft.current;
+            const imgs = el.querySelectorAll<HTMLImageElement>('.chat-image, .chat-sticker');
+            let n = 0;
+            for (let i = imgs.length - 1; i >= 0 && n < WARM_BATCH; i--) {
+                const img = imgs[i];
+                if (img.loading !== 'lazy' || img.complete) continue;
+                const kind = img.classList.contains('chat-sticker') ? 'sticker' : 'photo';
+                if (left[kind] <= 0) continue;
+                left[kind]--;
+                img.loading = 'eager';
+                n++;
+            }
+            if (n) timer = window.setTimeout(step, WARM_GAP);
+        };
+        timer = window.setTimeout(step, WARM_GAP);
+        return () => clearTimeout(timer);
+    }, [messages]);
+
     const onScroll = () => {
         const el = listRef.current;
         if (!el) return;
@@ -777,6 +848,8 @@ export function Chat() {
         setMessages(prev => [...(rows ?? []).slice().reverse(), ...prev]);
         setHasMore((rows ?? []).length === PAGE);
         setLoadingMore(false);
+        // 옛 글을 읽겠다는 뜻이니 미리 받아 둘 몫을 다시 채운다.
+        warmLeft.current = { photo: WARM_PHOTOS, sticker: WARM_STICKERS };
 
         // 위에 글이 붙은 만큼 스크롤을 내려 읽던 자리를 지킨다.
         requestAnimationFrame(() => {
