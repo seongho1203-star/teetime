@@ -1,6 +1,6 @@
 name: 배포
 
-# main에 푸시하면 빌드해서 GitHub Pages에 올린다.
+# main에 푸시하면 **DB 먼저, 앱 나중**으로 올린다.
 # Settings → Pages → Source 를 "GitHub Actions" 로 바꿔 두어야 동작한다.
 
 on:
@@ -20,7 +20,106 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── DB와 알림 함수 ────────────────────────────────────────────
+  # **앱보다 먼저 돈다.** 앱은 밀면 몇 분 뒤 올라가는데 DB는 사람이 손으로
+  # 붙여넣던 탓에, 그 사이에 늘 `새 앱 + 옛 DB` 상태가 생겼다. 순서를
+  # 여기서 못박아 그 틈을 없앤다 (`build`가 `needs: db`다).
+  #
+  # **비밀값이 없으면 조용히 건너뛴다.** 아직 안 넣어 두었을 때 앱 배포까지
+  # 막히면 안 된다 — 그때는 예전처럼 손으로 붙여넣으면 그대로 돌아간다.
+  db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2   # 직전 커밋과 견줘 무엇이 바뀌었는지 본다
+
+      # 바뀐 것만 반영한다. 화면만 고친 푸시에서 1,954줄짜리 SQL을
+      # 다시 돌릴 이유가 없다. 손으로 돌린 것(workflow_dispatch)은 늘 한다.
+      - id: what
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "schema=yes" >> "$GITHUB_OUTPUT"
+            echo "functions=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FILES=$(git diff --name-only HEAD^ HEAD 2>/dev/null || echo all)
+          echo "$FILES" | grep -q '^supabase/schema.sql$'  && echo "schema=yes"    >> "$GITHUB_OUTPUT" || true
+          echo "$FILES" | grep -q '^supabase/functions/'   && echo "functions=yes" >> "$GITHUB_OUTPUT" || true
+
+      # ── schema.sql ────────────────────────────────────────────
+      # **SQL 편집기에 붙여넣던 것과 똑같이 돈다** — 위에서부터 한 줄씩,
+      # 오류가 나면 거기서 멈춘다(`ON_ERROR_STOP`). 한 덩어리 트랜잭션으로
+      # 묶지 않은 것은 일부러다: 사람이 손으로 돌려 확인해 온 것과 같은
+      # 길을 타야 여기서만 다르게 깨지는 일이 없다. 파일은 여러 번 돌려도
+      # 안전하게 써 두었으므로(`create if not exists` 165군데) 도중에
+      # 멈췄으면 고쳐서 다시 밀면 된다.
+      - name: DB 갱신
+        if: steps.what.outputs.schema == 'yes'
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPER_NAME: ${{ secrets.SUPER_NAME }}
+          SUPER_PHONE: ${{ secrets.SUPER_PHONE }}
+        run: |
+          if [ -z "$DB_URL" ]; then
+            echo "::notice::SUPABASE_DB_URL 이 없어 DB는 건너뜁니다. 예전처럼 손으로 붙여넣으세요 (docs/설치.md 8번)."
+            exit 0
+          fi
+
+          # **첫 앱관리자를 가리는 이름·번호는 저장소에 없다**(자리표시자다).
+          # 그냥 돌리면 손으로 채워 둔 값이 자리표시자로 덮여 그 트리거가
+          # 다시는 안 걸린다 — 이미 올라간 사람의 등급은 그대로지만, DB를
+          # 새로 세울 때 길이 막힌다. 비밀값이 있으면 여기서 끼워 넣는다.
+          python3 - <<'PY'
+          import os, pathlib
+          p = pathlib.Path('supabase/schema.sql')
+          s = p.read_text(encoding='utf-8')
+          name = os.environ.get('SUPER_NAME', '').strip()
+          phone = ''.join(c for c in os.environ.get('SUPER_PHONE', '') if c.isdigit())
+          if name and phone:
+              s = s.replace("'[이름]'", "'%s'" % name.replace("'", "''"))
+              s = s.replace("'[숫자만 적은 번호]'", "'%s'" % phone)
+              p.write_text(s, encoding='utf-8')
+              print('첫 앱관리자 값을 끼워 넣었습니다.')
+          else:
+              print('SUPER_NAME/SUPER_PHONE 이 없어 자리표시자 그대로 둡니다 (탈은 없습니다).')
+          PY
+
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql \
+            || { echo "::error::DB에 못 붙었거나 SQL이 실패했습니다. 못 붙는 경우라면 SUPABASE_DB_URL 을 Supabase의 **Session pooler** 주소로 바꿔 보세요 — GitHub은 직접 접속(direct connection) 주소로는 못 닿습니다."; exit 1; }
+
+      # ── 알림 함수 ─────────────────────────────────────────────
+      # 이쪽이 더 값지다. 이 함수는 **저장소를 스스로 안 봐서**, 화면의
+      # 배포 단추만 다시 눌러 봐야 예전 코드가 그대로 올라간다 — 손으로
+      # 붙여넣지 않으면 영영 안 바뀐다.
+      - uses: supabase/setup-cli@v1
+        if: steps.what.outputs.functions == 'yes'
+        with:
+          version: latest
+
+      - name: 알림 함수 올리기
+        if: steps.what.outputs.functions == 'yes'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::notice::SUPABASE_ACCESS_TOKEN 이 없어 알림 함수는 건너뜁니다."
+            exit 0
+          fi
+          # 프로젝트 id는 이미 있는 주소에서 뽑는다 — 비밀값을 하나 덜 넣게.
+          REF=$(echo "$PROJECT_URL" | sed -E 's#https?://([^.]+)\..*#\1#')
+          if [ -z "$REF" ] || [ "$REF" = "$PROJECT_URL" ]; then
+            echo "::error::VITE_SUPABASE_URL 에서 프로젝트 id를 못 읽었습니다."; exit 1
+          fi
+          # **`--no-verify-jwt`를 빼지 말 것.** 켜 두면 트리거가 부를 때
+          # 관문이 401로 막아 **알림만 조용히 안 온다.** 문은 함수 안의
+          # `x-notify-secret`이 지킨다 (CLAUDE.md의 알림 꼭지 참고).
+          supabase functions deploy notify --project-ref "$REF" --no-verify-jwt
+
   build:
+    needs: db     # DB가 먼저 — 앱이 옛 DB에 붙는 틈을 없앤다
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
