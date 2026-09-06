@@ -102,6 +102,10 @@ export function Chat() {
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
     // 도중에 남이 글을 쓰면 화면이 튀어서는 안 된다.
     const atBottom = useRef(true);
+    /* 목록이 마지막으로 잰 높이. **늦게 뜬 사진이 얼마나 밀어냈는지**를
+       이 값과 견줘 알아낸다(아래 `onImageLoad`). 굴릴 때마다 다시 적어
+       두므로, 사진이 도착하는 순간의 차이가 곧 그 사진이 자란 만큼이다. */
+    const listH = useRef(0);
 
     /* ── `여기까지 읽으셨습니다` ──
        **들어온 순간의 '여기까지 봤다'를 얼려 둔다.** 아래 `markSeen`이 새 글이
@@ -305,10 +309,44 @@ export function Chat() {
     const pinBottom = useCallback(() => {
         const el = listRef.current;
         if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+        if (el) listH.current = el.scrollHeight;
     }, []);
 
     // 그리기가 끝난 프레임에 해야 높이가 확정된다.
     useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
+
+    /**
+     * **늦게 뜬 사진이 읽던 자리를 밀어내지 않게 한다.**
+     *
+     * 사진은 화면에 보일 때가 되어야 받아 오고(`loading="lazy"`), 받기
+     * 전에는 높이가 거의 0이다. 그래서 **위로 훑어 올라가는 도중에 화면
+     * 위쪽 사진이 도착하면 그만큼 글이 통째로 아래로 밀린다** — 앱에 처음
+     * 들어가 처음 올릴 때만 유독 끊겨 보이던 것이 이것이다(두 번째부터는
+     * 이미 받아 둬서 높이가 안 변한다). 헤드리스로 재 보니 사진 한 장에
+     * **125px씩 네 번** 튀었고, 사진이 없는 방에서는 한 번도 안 튀었다.
+     *
+     * **크로미움은 이걸 알아서 메워 주는데(scroll anchoring) 사파리는
+     * 안 한다.** 그래서 우리가 메운다 — 자란 만큼 스크롤을 함께 내리면
+     * 보고 있던 글이 제자리에 남는다.
+     *
+     * **화면 위쪽에서 자란 것만 메운다.** 보고 있는 자리 아래에서 자라는
+     * 것은 원래 그렇게 밀리는 것이 맞다(크로미움도 그렇게 둔다).
+     */
+    const onImageLoad = useCallback((e: SyntheticEvent<HTMLImageElement>) => {
+        const el = listRef.current;
+        if (!el) return;
+        if (atBottom.current) {          // 맨 아래를 보고 있었으면 도로 바닥에.
+            el.scrollTop = el.scrollHeight;
+            listH.current = el.scrollHeight;
+            return;
+        }
+        const grew = el.scrollHeight - listH.current;
+        listH.current = el.scrollHeight;
+        if (grew <= 0 || !listH.current) return;
+        // 사진의 **윗변**으로 본다. 자라는 것은 아래쪽이라 윗변은 안 움직인다.
+        if (e.currentTarget.getBoundingClientRect().top < el.getBoundingClientRect().top)
+            el.scrollTop += grew;
+    }, []);
 
     /* **이모티콘 서랍이 열리면 목록이 그만큼 줄어든다.** 그대로 두면 방금
        읽던 마지막 글이 위로 밀려 안 보인다 — 자리가 좁아진 것이지 가려진
@@ -719,6 +757,9 @@ export function Chat() {
         const el = listRef.current;
         if (!el) return;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        // 굴릴 때마다 높이를 다시 적어 둔다 — 사진이 도착했을 때 얼마나
+        // 자랐는지 견줄 잣대다(위 `onImageLoad`).
+        listH.current = el.scrollHeight;
     };
 
     const loadMore = async () => {
@@ -1544,7 +1585,7 @@ export function Chat() {
                                 grouped={grouped}
                                 showTime={showTime}
                                 unread={unreadBy[m.id] ?? 0}
-                                onImageLoad={pinBottom}
+                                onImageLoad={onImageLoad}
                                 quoted={quoted}
                                 quotedWho={quoted ? names[quoted.user_id ?? '']?.name : undefined}
                                 lostQuote={!!m.reply_to && !quoted}
@@ -2008,7 +2049,8 @@ const swapExt = (url: string): string =>
  * 서랍과 미리보기는 지금 등록된 것만 그리므로 여기까지 필요 없다
  * (거기는 `otherExt` 한 번으로 끝난다).
  */
-function StickerImg({ mark, onLoad }: { mark: string; onLoad: () => void }) {
+function StickerImg({ mark, onLoad }: {
+    mark: string; onLoad: (e: SyntheticEvent<HTMLImageElement>) => void }) {
     /* 0 = 제 확장자 · 1 = 다른 확장자 · 2 = 포기하고 조각으로 */
     const [tried, setTried] = useState(0);
     const label = stickerLabel(mark);
@@ -2042,8 +2084,9 @@ const Bubble = memo(function Bubble({
     showTime: boolean;
     /** 아직 안 읽은 사람 수. 0이면 아무것도 안 적는다(다 읽었다는 뜻이다). */
     unread: number;
-    /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 뜨면 다시 바닥에 붙이라고 알린다. */
-    onImageLoad: () => void;
+    /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 떴다고 알린다 — 위쪽에서
+     *  자란 만큼은 화면이 안 튀게 메워진다(`onImageLoad` 주석 참고). */
+    onImageLoad: (e: SyntheticEvent<HTMLImageElement>) => void;
     /** 답장이면 원본. 아직 안 불러온 지난 글이면 없다. */
     quoted?: Message;
     quotedWho?: string;

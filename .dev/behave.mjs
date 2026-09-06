@@ -1432,6 +1432,93 @@ await oldPage.waitForTimeout(700);
 ok(!((await oldPage.textContent('body') ?? '').includes('올해')),
    '세는 함수가 없으면 참석 횟수를 안 적는다 — 모두 `올해 0회`가 되면 거짓말이다');
 
+/* ── 12. 늦게 뜬 사진이 읽던 자리를 밀어내지 않는가 ───────────────
+ *
+ * **앱에 처음 들어가 대화를 위로 올릴 때만 유독 끊긴다**는 제보에서 나온
+ * 것이다(두 번째부터는 멀쩡했다). 사진은 화면에 보일 때가 되어야 받아
+ * 오고(`loading="lazy"`) 받기 전에는 높이가 거의 0이라, 위로 훑는 도중에
+ * 화면 위쪽 사진이 도착하면 그만큼 글이 통째로 아래로 밀린다.
+ *
+ * **크로미움은 알아서 메워 주고(scroll anchoring) 사파리는 안 한다.**
+ * 그래서 `.chat-list`에서 브라우저 것을 끄고(`overflow-anchor: none`)
+ * `onImageLoad`가 직접 메운다 — 그 덕에 **헤드리스로 잰 것이 폰에서도 맞는다.**
+ *
+ * 재는 법: 한 프레임에 60px씩 올리며 붙박아 둔 말풍선이 딱 60px씩
+ * 내려오는지 본다. 메우는 줄을 빼면 여기서 125px씩 네 번 튄다.
+ */
+console.log('\n── 늦게 뜬 사진 ──');
+{
+    const at = i => new Date(new Date().setHours(9, 0, 0, 0) + i * 60000).toISOString();
+    const others = tables.profiles.filter(p => p.id !== ME).map(p => p.id);
+    const long = [];
+    for (let i = 0; i < 70; i++) {
+        const photo = i % 5 === 2;   // 열넷 중 몇 장이 화면 위쪽에서 늦게 뜬다
+        long.push({ id: `x${i}`, room_id: 'room1',
+            user_id: i % 4 === 0 ? ME : others[i % others.length],
+            body: photo ? '' : `${i}번째 이야기입니다 오늘 라운드 좋았습니다`,
+            image_url: photo ? `http://photo.test/${i}.svg` : null,
+            created_at: at(i) });
+    }
+    const pCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await pCtx.route('**/rest/v1/**', restRoute({ ...tables, messages: long }));
+    // 사진은 **늦게** 온다 — 그게 이 자리의 전부다.
+    await pCtx.route('**photo.test/**', async route => {
+        await new Promise(r => setTimeout(r, 150));
+        route.fulfill({ status: 200, contentType: 'image/svg+xml',
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420">'
+                + '<rect width="640" height="420" fill="#2c7a52"/></svg>' });
+    });
+    await pCtx.route('**/auth/v1/**', r => r.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
+    await stubOutside(pCtx);
+    await pCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const pPage = await pCtx.newPage();
+    await pPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+    await pPage.waitForSelector('.chat-list .chat-row', { timeout: 15000 });
+    await pPage.waitForTimeout(300);
+
+    const climb = () => pPage.evaluate(async () => {
+        const el = document.querySelector('.chat-list');
+        const frame = () => new Promise(r => requestAnimationFrame(r));
+        const rows = [...el.querySelectorAll('[data-mid]')];
+        const mark = (rows.find(r => {
+            const t = r.getBoundingClientRect().top;
+            return t > 300 && t < 600;
+        }) ?? rows[rows.length - 1]).getAttribute('data-mid');
+        const moves = [];
+        let prev = el.querySelector(`[data-mid="${mark}"]`).getBoundingClientRect().top;
+        const grew0 = el.scrollHeight;
+        for (let i = 0; i < 45; i++) {
+            el.scrollTop = Math.max(0, el.scrollTop - 60);
+            await frame();
+            const node = el.querySelector(`[data-mid="${mark}"]`);
+            if (!node) break;
+            const top = node.getBoundingClientRect().top;
+            moves.push(top - prev);
+            prev = top;
+            if (el.scrollTop === 0) break;
+        }
+        // 맨 위에 닿은 마지막 프레임은 60px을 다 못 올리므로 뺀다.
+        return { off: moves.slice(0, -1).filter(m => Math.abs(m - 60) > 2).length,
+                 grew: el.scrollHeight - grew0 };
+    });
+
+    const first = await climb();
+    ok(first.grew > 0, `첫 스크롤에서 사진이 늦게 떠 목록이 자란다 (${first.grew}px — 안 자라면 이 검사가 뜻이 없다)`);
+    ok(first.off === 0, `늦게 뜬 사진이 읽던 자리를 밀어내지 않는다 (튄 프레임 ${first.off}개)`);
+
+    await pPage.evaluate(() => {
+        const el = document.querySelector('.chat-list');
+        el.scrollTop = el.scrollHeight;
+    });
+    await pPage.waitForTimeout(800);
+    const again = await climb();
+    ok(again.off === 0 && again.grew === 0,
+       `두 번째 스크롤은 사진이 다 받아져 있어 자라지도 튀지도 않는다 (${again.grew}px · ${again.off}개)`);
+    await pCtx.close();
+}
+
 await browser.close();
 
 if (errors.length) {
