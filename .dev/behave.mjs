@@ -914,6 +914,44 @@ ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 �
    '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
 await hCtx.close();
 
+/* ── 6-1-1-3-1-11-1. 대화 화면의 크기 — 카톡에서 잰 값 ──────────
+ *
+ * 사용자 제보(`오픈톡을 거의 옮겼다 싶을 정도로 · 지금은 뭔가 어색해`).
+ * 같은 폰에서 찍은 두 사진을 견줘 얻은 값들이다(배율 3.5). 눈으로는
+ * `좀 다르네` 정도로만 보이는 자리라 숫자로 붙들어 둔다.
+ * 다시 잴 일이 생기면 `node .dev/ktalk.mjs`를 쓴다.
+ */
+console.log('\n── 대화 화면의 크기 (카톡에서 잰 값) ──');
+await go('/#/chat', 1200);
+{
+    const v = await page.evaluate(() => {
+        const C = (s, k) => getComputedStyle(document.querySelector(s))[k];
+        const bub = document.querySelector('[data-mid="m1"] .chat-bubble');
+        const av = document.querySelector('[data-mid="m1"] .avatar');
+        let wide = 0;
+        for (const e of document.querySelectorAll('.chat-bubble'))
+            wide = Math.max(wide, e.getBoundingClientRect().width);
+        return {
+            목록여백: C('.chat-list', 'paddingLeft'),
+            말풍선바탕: C('[data-mid="m1"] .chat-bubble', 'backgroundColor'),
+            모서리: C('[data-mid="m1"] .chat-bubble', 'borderTopLeftRadius'),
+            줄간격: C('[data-mid="m1"] .chat-bubble', 'lineHeight'),
+            칸최대: C('.chat-col', 'maxWidth'),
+            아바타: Math.round(av.getBoundingClientRect().width),
+            한줄: +bub.getBoundingClientRect().height.toFixed(1),
+            넓은말풍선: Math.round(wide),
+        };
+    });
+    ok(v.목록여백 === '9px', `목록 좌우 여백 9px — 카톡 8.6 (실제 ${v.목록여백})`);
+    ok(v.말풍선바탕 === 'rgb(245, 245, 245)',
+       `말풍선은 순백이 아니라 #f5f5f5 — 카톡에서 뽑은 값 (실제 ${v.말풍선바탕})`);
+    ok(v.모서리 === '11px', `말풍선 모서리 11px — 카톡 11.1 (실제 ${v.모서리})`);
+    ok(v.줄간격 === '15.34px', `줄 간격 15.34px — 카톡 15.4 (실제 ${v.줄간격})`);
+    ok(v.칸최대 === '87%', `말풍선 칸 87% — 78%면 한 글자가 넘어간다 (실제 ${v.칸최대})`);
+    ok(v.아바타 === 29, `아바타 29px — 카톡 29.1 (실제 ${v.아바타})`);
+    ok(v.한줄 > 22 && v.한줄 < 25, `한 줄 말풍선 23px대 — 카톡 23.6 (실제 ${v.한줄})`);
+}
+
 /* ── 6-1-1-3-1-12. 길게 누른 창의 크기 ─────────────────────────
  *
  * **카톡 화면을 픽셀로 재서 맞춘 값이다**(사용자 제보 — `우리껀 너무커`).
