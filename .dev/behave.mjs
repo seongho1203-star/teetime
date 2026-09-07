@@ -914,6 +914,40 @@ ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 �
    '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
 await hCtx.close();
 
+/* **폰에서는 이모티콘·사진에도 길게 누르기가 먹어야 한다**(사용자 제보 —
+ * `이모티콘은 그런 기능들이 안되네`).
+ *
+ * 창을 여는 코드는 `.chat-row`에 붙어 있어 어느 말풍선에서나 도는데,
+ * 그림에는 **iOS가 제 `이미지 저장 / 복사 / 공유` 시트**를 띄워 우리
+ * 손짓을 통째로 덮는다(사진은 `<a>`라 링크 미리보기까지 뜬다).
+ * 막는 CSS가 `.chat-bubble`에만 걸려 있어서, 폰에서만 이모티콘·사진의
+ * 반응·답장·지우기가 아예 안 먹었다.
+ *
+ * **여기서 창이 열리는지를 봐야 소용없다** — 크로미움에는 그 시트가
+ * 없어서 고치기 전 코드도 초록으로 뜬다(깜빡임에서 얻은 교훈 그대로다).
+ * 그래서 **막는 값 자체를 잰다.** 손가락 기기에서만 거는 규칙이라
+ * `hasTouch`인 창이 따로 필요하다. */
+console.log('\n── 폰에서 그림을 길게 누르기 ──');
+const tCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul',
+    hasTouch: true, isMobile: true });
+await tCtx.route('**/rest/v1/**', restRoute(tables));
+await tCtx.route('**/auth/v1/**', r => r.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
+await stubOutside(tCtx);
+await tCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+const tPage = await tCtx.newPage();
+await tPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+await tPage.waitForTimeout(1200);
+for (const [sel, what] of [
+    ['.chat-bubble', '말풍선'], ['.chat-sticker', '이모티콘'],
+    ['.chat-image', '사진'], ['.chat-photo-link', '사진 링크'],
+]) {
+    const v = await tPage.$eval(sel, el => getComputedStyle(el).userSelect).catch(() => null);
+    ok(v === 'none', `${what}에 iOS 제 메뉴를 막아 둔다 (실제 ${v})`);
+}
+await tCtx.close();
+
 /* ── 6-1-1-3-1. 글 안의 주소 ────────────────────────────────────
  *
  * 카톡에서는 주소를 붙이면 그대로 눌러 들어간다. 우리는 그냥 글자였고,
