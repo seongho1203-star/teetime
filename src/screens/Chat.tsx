@@ -860,6 +860,13 @@ export function Chat() {
         if (far !== jumpShown.current) { jumpShown.current = far; setShowJump(far); }
     };
 
+    /* **화살표에 마지막 대화를 함께 적는다**(사용자 요청 — 카톡의 그 줄).
+       동그란 화살표만 있을 때는 '아래에 뭐가 있나'를 눌러 봐야 알았다.
+       `windowed`일 때는 이 단추 자체가 안 뜨므로(아래 JSX) 목록의 마지막
+       글이 곧 방의 마지막 글이다. */
+    const lastMsg = messages.length ? messages[messages.length - 1] : undefined;
+    const lastWho = lastMsg && !lastMsg.system ? names[lastMsg.user_id ?? ''] : undefined;
+
     /** 최근 대화로 한 번에 내려간다. **부드럽게 굴리지 않는다** — 300개까지
      *  받아 둔 목록을 훑어 내려가는 일이라 느린 폰에서 그대로 끊긴다. */
     const jumpToLatest = useCallback(() => {
@@ -1728,10 +1735,18 @@ export function Chat() {
                 밀린 글이 많은 날에는 최근 대화까지 한참을 굴려야 했다.
                 `windowed`일 때는 안 띄운다 — 그때는 목록에 최근 대화가 아예
                 없어 굴려도 소용이 없고, 바로 위 `.chat-recent`가 그 몫이다. */}
-            {!windowed && showJump && (
+            {!windowed && showJump && lastMsg && (
                 <button className="chat-jump" onClick={jumpToLatest}
                         aria-label="최근 대화로 이동">
-                    <span aria-hidden="true">↓</span>
+                    {/* 안내 줄(`system`)에는 얼굴도 이름도 없다 — 말풍선에서도
+                        그렇게 그린다. 그때는 글이 줄을 통째로 쓴다. */}
+                    {lastWho && <Avatar name={lastWho.name} url={lastWho.avatar_url}
+                                        gender={lastWho.gender} size="sm" />}
+                    <span className="chat-jump-text">
+                        {lastWho && <b>{lastWho.name}</b>}
+                        <span>{preview(lastMsg)}</span>
+                    </span>
+                    <span className="chat-jump-go" aria-hidden="true">↓</span>
                 </button>
             )}
 

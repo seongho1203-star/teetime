@@ -383,38 +383,61 @@
    오랜만에 들어오면 `여기까지 읽으셨습니다` 줄로 옮겨 놓기 때문에, 밀린
    글이 많은 날에는 최근 대화까지 한참을 굴려 내려가야 했다.
 
+   **마지막 대화를 함께 적는다**(사용자 요청 — 카톡의 그 줄). 동그란 화살표
+   하나였을 때는 '아래에 뭐가 있나'를 눌러 봐야 알았다. 얼굴 · 이름 · 한 줄
+   미리보기 · `↓` 순서다.
    **`.chat-recent`와 같은 값으로 그린다** — 입력칸 위에 떠서 목록을 건너뛰게
    하는 단추가 둘인데 다르게 생기면 같은 손짓으로 안 읽힌다(참여자 목록
-   카드를 `.chat-menu`와 같게 둔 것과 같은 이유다). 다만 이쪽은 글자가 없어
-   동그라미다.
-   **자리는 오른쪽이다** — 가운데에 두면 마지막 말풍선을 덮는다.
+   카드를 `.chat-menu`와 같게 둔 것과 같은 이유다).
    **분홍을 쓰지 않는다**: 이 화면에서 '지금 눌러야 할 것'은 보내기 단추다.
    **둘은 함께 뜨지 않는다** — `windowed`일 때는 `.chat-recent`가 그 자리를
    맡는다(그때는 목록에 최근 대화가 아예 없어 굴려도 소용이 없다). */
 .chat-jump {
     position: absolute;
-    /* **가운데다**(사용자 요청). 오른쪽 끝에 두었더니 이모티콘 여는 단추
-       바로 위에 겹쳐 보였다. `.chat-recent`와 같은 자리이고 둘은 함께
-       뜨지 않으므로(`!windowed`) 부딪히지 않는다. */
-    left: 50%;
-    transform: translateX(-50%);
+    /* **좌우로 펼친다.** 가운데 동그라미였을 때는 마지막 말풍선을 덮었고,
+       글을 적으려면 어차피 줄 하나가 필요하다. `--gap`은 목록의 좌우
+       여백과 같은 값이라 말풍선과 나란히 선다. */
+    left: var(--gap);
+    right: var(--gap);
     bottom: calc(var(--composer, 64px) + 10px);
     z-index: 5;
-    /* 38px — `node .dev/audit.mjs`가 30px보다 작은 누름 자리를 잡아낸다. */
-    width: 38px;
-    height: 38px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: var(--gap-xs);
+    /* 38px — `node .dev/audit.mjs`가 30px보다 작은 누름 자리를 잡아낸다. */
+    min-height: 38px;
+    padding: 6px 12px;
     border: 1px solid var(--line);
-    border-radius: 50%;
+    border-radius: var(--r-pill);
     background: var(--surface);
     box-shadow: var(--shadow-lg);
-    font-size: 17px;
+    text-align: left;
+    cursor: pointer;
+}
+.chat-jump:active { background: var(--surface-2); }
+
+/* **한 줄로 자른다.** 대화 한 마디가 길어도 이 줄은 한 줄이어야 한다 —
+   두 줄이 되면 말풍선을 그만큼 더 덮는다. `min-width: 0`이 없으면
+   flex 칸이 글자 길이만큼 벌어져 말줄임이 아예 안 걸린다. */
+.chat-jump-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+}
+/* 이름은 **닉네임 그대로**다(`83/신성호/광산구`가 아니라) — 긴 이름표는
+   목록의 이름 자리 몫이고 이 줄은 문장에 가깝다(홈의 `내 조` 줄과 같다). */
+.chat-jump-text b { margin-right: 5px; color: var(--text); }
+
+.chat-jump-go {
+    flex: 0 0 auto;
+    font-size: 15px;
     font-weight: 700;
     line-height: 1;
     color: var(--text);
-    cursor: pointer;
 }
 
 .chat-list {
