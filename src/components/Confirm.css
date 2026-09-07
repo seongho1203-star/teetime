@@ -11,12 +11,14 @@
 
 .confirm-box {
     width: 100%;
-    max-width: 320px;
+    max-width: 300px;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--r);
+    /* **길게 누른 창(`.chat-menu`)과 같은 값이다** — 그 창에서 고르면 곧바로
+       이 창이 뜨는데, 모서리가 다르면 다른 앱의 창처럼 보인다. */
+    border-radius: 16px;
     box-shadow: var(--shadow-lg);
-    padding: var(--gap-lg) var(--gap) var(--gap);
+    padding: var(--gap) var(--gap) var(--gap-sm);
     display: flex;
     flex-direction: column;
     gap: var(--gap-sm);
@@ -25,7 +27,7 @@
 }
 
 .confirm-title {
-    font-size: var(--fs-md);
+    font-size: 15px;
     font-weight: 800;
     word-break: keep-all;
     line-height: 1.5;

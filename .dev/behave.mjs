@@ -914,6 +914,33 @@ ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 �
    '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
 await hCtx.close();
 
+/* ── 6-1-1-3-1-12. 길게 누른 창의 크기 ─────────────────────────
+ *
+ * **카톡 화면을 픽셀로 재서 맞춘 값이다**(사용자 제보 — `우리껀 너무커`).
+ * 같은 폰에서 찍은 두 사진을 견주니 카톡 한 줄이 34px, 우리는 52px이었다.
+ * 눈에는 `좀 크네` 정도로만 보이는 자리라 숫자로 붙들어 둔다.
+ */
+console.log('\n── 길게 누른 창의 크기 ──');
+await go('/#/chat', 1200);
+{
+    const bubble = await page.$('[data-mid="m1"] .chat-bubble');
+    await bubble.click({ button: 'right' });
+    await page.waitForTimeout(300);
+    const box = await page.evaluate(() => {
+        const items = [...document.querySelectorAll('.chat-menu > .chat-menu-item')]
+            .map(e => Math.round(e.getBoundingClientRect().height));
+        const align = getComputedStyle(document.querySelector('.chat-menu > .chat-menu-item')).textAlign;
+        const line = getComputedStyle(document.querySelectorAll('.chat-menu > .chat-menu-item')[1]).borderTopWidth;
+        return { items, align, line };
+    });
+    ok(box.items.every(h => h === 34),
+       `한 줄이 34px이다 — 카톡에서 잰 값 (실제 ${JSON.stringify(box.items)})`);
+    ok(box.align === 'left', `창의 줄은 왼쪽 정렬이다 (실제 ${box.align})`);
+    ok(box.line === '1px', `줄 사이를 띄우지 않고 선으로 가른다 (실제 ${box.line})`);
+    await page.click('.chat-menu-item.ghost');
+    await page.waitForTimeout(200);
+}
+
 /* **폰에서는 이모티콘·사진에도 길게 누르기가 먹어야 한다**(사용자 제보 —
  * `이모티콘은 그런 기능들이 안되네`).
  *

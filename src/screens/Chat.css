@@ -162,10 +162,10 @@
     /* **크기와 자리는 `.chat-menu`와 같은 값이다** — 아래에서 올라오는 창이
        둘인데 생김새가 다르면 같은 앱의 같은 손짓으로 안 읽힌다. */
     width: 100%;
-    max-width: 360px;
-    padding: var(--gap-lg) var(--gap-sm) var(--gap-sm);
+    max-width: 300px;
+    padding: var(--gap) var(--gap-sm) var(--gap-xs);
     border: 1px solid var(--line);
-    border-radius: var(--r);
+    border-radius: 16px;
     background: var(--surface);
     box-shadow: var(--shadow-lg);
     margin-bottom: env(safe-area-inset-bottom, 0px);
@@ -836,17 +836,24 @@
     animation: chat-menu-fade 0.15s ease-out;
 }
 
+/* **카톡 화면을 픽셀로 재서 맞춘 크기다**(사용자 제보 — `우리껀 너무커`).
+   같은 폰에서 찍은 두 사진을 견주니 **카톡 한 줄이 34px, 우리는 52px**이었다
+   (카드 왼쪽 여백 16px이 사진에서 56픽셀 → 배율 3.5로 환산). 눈대중으로
+   고치지 말 것 — 다시 손볼 일이 생기면 같은 방식으로 잴 것.
+
+   **줄 사이를 띄우지 않고 선으로 가른다.** 카톡의 그 창은 알약이 여럿
+   쌓인 것이 아니라 **종이 한 장에 그은 줄**이라, 그것만으로 훨씬 단출해
+   보인다. 모서리를 넘지 않게 `overflow: hidden`이 한 쌍이다. */
 .chat-menu {
     width: 100%;
-    max-width: 360px;
+    max-width: 300px;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--r);
+    border-radius: 16px;
     box-shadow: var(--shadow-lg);
-    padding: var(--gap-sm);
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 2px;
     /* 홈 표시줄(아이폰)에 안 깔리게 아래를 띄운다. */
     margin-bottom: env(safe-area-inset-bottom, 0px);
     animation: chat-menu-up 0.16s ease-out;
@@ -855,51 +862,57 @@
 /* 어느 글을 누른 것인지 한 줄로 알린다. 길면 한 줄로 자른다 —
    여기서 여러 줄이 되면 창이 화면을 반쯤 먹는다. */
 .chat-menu-head {
-    font-size: var(--fs-sm);
+    font-size: var(--fs-xs);
     color: var(--text-dim);
-    padding: var(--gap-xs) var(--gap-sm) var(--gap-sm);
+    padding: 8px 14px;
     border-bottom: 1px solid var(--line);
-    margin-bottom: var(--gap-xs);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 /* 창 맨 위의 반응 줄(카톡과 같다). 다섯이 한 줄에 고르게 선다 —
-   늘리면 두 줄로 접혀 무엇을 누르는 중인지가 흐려진다. */
+   늘리면 두 줄로 접혀 무엇을 누르는 중인지가 흐려진다.
+   **칠을 걷어냈다** — 카톡의 그 줄도 그림글자만 있다. 알약이 다섯 개
+   깔려 있으면 그것만으로 창이 무거워 보인다. */
 .chat-menu-reacts {
     display: flex;
-    gap: var(--gap-xs);
-    padding: 0 var(--gap-xs) var(--gap-xs);
+    padding: 2px 4px;
+    border-bottom: 1px solid var(--line);
 }
 .chat-menu-react {
     flex: 1;
-    /* 44px — 누르는 자리는 넉넉해야 한다(`node .dev/audit.mjs`가 잰다). */
-    min-height: 44px;
+    /* 30px 아래로 내리지 말 것 — `node .dev/audit.mjs`가 잡아낸다. */
+    min-height: 40px;
     border: 0;
     border-radius: var(--r-sm);
-    background: var(--surface-2);
-    font-size: 21px;
+    background: none;
+    font-size: 22px;
     line-height: 1;
     cursor: pointer;
 }
-.chat-menu-react:active { background: var(--line); }
+.chat-menu-react:active { background: var(--surface-2); }
 
+/* 한 줄 34px — 위 `.chat-menu` 꼭지에서 잰 값이다. **44px로 되돌리지
+   말 것**: 그러면 사진에서 견준 그 크기로 돌아간다. 30px 아래로도
+   내리지 말 것(`node .dev/audit.mjs`가 그보다 작은 누름 자리를 잡는다). */
 .chat-menu-item {
     appearance: none;
     border: 0;
     background: none;
     font: inherit;
-    font-size: var(--fs-md);
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--text);
     text-align: center;
-    /* 44px — 누르는 자리는 넉넉해야 한다(`node .dev/audit.mjs`가 잰다). */
-    padding: 13px var(--gap-sm);
-    border-radius: var(--r-sm);
+    min-height: 34px;
+    padding: 0 14px;
     cursor: pointer;
 }
-
+/* 창에서는 왼쪽 정렬에 줄로 가른다(카톡과 같다). **프로필 카드는 가운데
+   정렬 그대로다** — 거기는 목록이 아니라 얼굴 아래 붙는 단추다. */
+.chat-menu > .chat-menu-item { text-align: left; }
+.chat-menu > .chat-menu-item + .chat-menu-item { border-top: 1px solid var(--line); }
 .chat-menu-item:active { background: var(--surface-2); }
 .chat-menu-item.danger { color: var(--danger); }
 .chat-menu-item.ghost { color: var(--text-dim); font-weight: 600; }
