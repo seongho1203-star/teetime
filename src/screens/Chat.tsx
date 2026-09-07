@@ -42,6 +42,10 @@ const CATCHUP_MARGIN = 10;
 const SEARCH_HITS = 40;
 /** 찾은 글 뒤로 몇 개를 함께 받아 둘까 — 그 뒤의 이야기가 조금은 보여야 한다. */
 const WINDOW_AFTER = 20;
+/** 바닥에서 이만큼 넘게 올라가 있으면 `맨 아래로` 화살표를 띄운다.
+ *  **`atBottom`의 80px과 일부러 벌려 놓았다** — 두 잣대가 붙어 있으면
+ *  바닥 언저리에서 단추가 떴다 사라졌다 깜빡인다. */
+const JUMP_AT = 240;
 /* ── 곧 볼 그림을 미리 받아 두는 몫 (아래 `미리 받아 두기` 참고) ── */
 /** 사진 몇 장까지. **함부로 늘리지 말 것** — 사진은 Supabase에서 오고 무료
  *  통신량이 월 5GB다(위 '지난 것은 받지 않는다'). 한 번 받으면 1년 동안
@@ -123,6 +127,18 @@ export function Chat() {
        이 값과 견줘 알아낸다(아래 `onImageLoad`). 굴릴 때마다 다시 적어
        두므로, 사진이 도착하는 순간의 차이가 곧 그 사진이 자란 만큼이다. */
     const listH = useRef(0);
+
+    /* ── 맨 아래로 내려가는 화살표 (카톡의 그것) ──
+       오랜만에 들어오면 `여기까지 읽으셨습니다` 줄로 옮겨 놓기 때문에, 밀린
+       글이 많은 날에는 최근 대화까지 한참을 굴려 내려가야 했다.
+
+       **굴릴 때마다 state를 건드리면 안 된다** — 말풍선이 `memo`라도 화면이
+       매번 다시 그려지면 긴 대화에서 눈에 띄게 끊긴다(입력칸에서 겪은 것과
+       같은 자리다). 그래서 참/거짓이 **뒤집힐 때만** 알린다.
+       `atBottom`의 잣대(80px)와 **일부러 벌려 놓았다** — 그 사이가 없으면
+       바닥 언저리에서 단추가 깜빡인다. */
+    const [showJump, setShowJump] = useState(false);
+    const jumpShown = useRef(false);
 
     /* ── `여기까지 읽으셨습니다` ──
        **들어온 순간의 '여기까지 봤다'를 얼려 둔다.** 아래 `markSeen`이 새 글이
@@ -834,11 +850,27 @@ export function Chat() {
     const onScroll = () => {
         const el = listRef.current;
         if (!el) return;
-        atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        const below = el.scrollHeight - el.scrollTop - el.clientHeight;
+        atBottom.current = below < 80;
         // 굴릴 때마다 높이를 다시 적어 둔다 — 사진이 도착했을 때 얼마나
         // 자랐는지 견줄 잣대다(위 `onImageLoad`).
         listH.current = el.scrollHeight;
+        // 화살표는 **뒤집힐 때만** 알린다 (위 `showJump` 주석 참고).
+        const far = below > JUMP_AT;
+        if (far !== jumpShown.current) { jumpShown.current = far; setShowJump(far); }
     };
+
+    /** 최근 대화로 한 번에 내려간다. **부드럽게 굴리지 않는다** — 300개까지
+     *  받아 둔 목록을 훑어 내려가는 일이라 느린 폰에서 그대로 끊긴다. */
+    const jumpToLatest = useCallback(() => {
+        const el = listRef.current;
+        if (!el) return;
+        atBottom.current = true;
+        jumpShown.current = false;
+        setShowJump(false);
+        el.scrollTop = el.scrollHeight;
+        listH.current = el.scrollHeight;
+    }, []);
 
     const loadMore = async () => {
         const el = listRef.current;
@@ -1688,6 +1720,18 @@ export function Chat() {
             {windowed && (
                 <button className="chat-recent" onClick={backToRecent}>
                     최근 대화로 ↓
+                </button>
+            )}
+
+            {/* **맨 아래로 내려가는 화살표**(카톡에 있는 그것 — 사용자 요청).
+                오랜만에 들어오면 `여기까지 읽으셨습니다` 줄에 내려놓으므로,
+                밀린 글이 많은 날에는 최근 대화까지 한참을 굴려야 했다.
+                `windowed`일 때는 안 띄운다 — 그때는 목록에 최근 대화가 아예
+                없어 굴려도 소용이 없고, 바로 위 `.chat-recent`가 그 몫이다. */}
+            {!windowed && showJump && (
+                <button className="chat-jump" onClick={jumpToLatest}
+                        aria-label="최근 대화로 이동">
+                    <span aria-hidden="true">↓</span>
                 </button>
             )}
 
