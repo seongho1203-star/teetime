@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-         type SyntheticEvent } from 'react';
+         type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatChatDay, formatStamp, formatTime, kstDate, kstMinute } from '../lib/format';
-import { FIND_AT, ROLE_LABEL, ROLE_TAG, personLabel,
-         type Gender, type Message, type Person, type Room } from '../lib/types';
+import { FIND_AT, REACTIONS, ROLE_LABEL, ROLE_TAG, personLabel,
+         type Gender, type Message, type MessageReaction,
+         type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
@@ -46,6 +47,41 @@ const WINDOW_AFTER = 20;
  *  **`atBottom`의 80px과 일부러 벌려 놓았다** — 두 잣대가 붙어 있으면
  *  바닥 언저리에서 단추가 떴다 사라졌다 깜빡인다. */
 const JUMP_AT = 240;
+/** 반응을 물어볼 때 한 번에 실을 글 개수. **늘리지 말 것** — 300개를
+ *  한 줄에 다 실으면 주소가 11KB가 되어 중간에서 잘린다. */
+const REACT_CHUNK = 60;
+
+type ReactSet = Dispatch<SetStateAction<Record<string, MessageReaction[]>>>;
+
+/** 반응 한 줄을 더한다. **내가 든 글의 것만** — 실시간은 방을 안 가리고 온다. */
+function addReact(set: ReactSet, r: MessageReaction, seen: Set<string>) {
+    if (!r.message_id || !seen.has(r.message_id)) return;
+    set(prev => {
+        const had = prev[r.message_id] ?? [];
+        if (had.some(x => x.user_id === r.user_id && x.emoji === r.emoji)) return prev;
+        return { ...prev, [r.message_id]: [...had, r] };
+    });
+}
+
+/** 반응 한 줄을 뗀다. 지울 때 오는 값은 기본키 셋뿐이라 그것만 본다. */
+function dropReact(set: ReactSet, r: Partial<MessageReaction>) {
+    const mid = r.message_id;
+    if (!mid) return;
+    set(prev => {
+        const had = prev[mid];
+        if (!had) return prev;
+        const left = had.filter(x => !(x.user_id === r.user_id && x.emoji === r.emoji));
+        if (left.length === had.length) return prev;
+        const next = { ...prev };
+        if (left.length) next[mid] = left; else delete next[mid];
+        return next;
+    });
+}
+
+/** ✕로 닫아 둔 공지를 **이 기기에** 적어 두는 열쇠.
+ *  **소문자 `teetime:` 그대로 둘 것** — 저장 열쇠는 앱 이름이 바뀌어도
+ *  안 바꾼다(바꾸면 닫아 둔 것이 도로 뜬다). */
+const PIN_X_KEY = 'teetime:pin-x';
 /* ── 곧 볼 그림을 미리 받아 두는 몫 (아래 `미리 받아 두기` 참고) ── */
 /** 사진 몇 장까지. **함부로 늘리지 말 것** — 사진은 Supabase에서 오고 무료
  *  통신량이 월 5GB다(위 '지난 것은 받지 않는다'). 한 번 받으면 1년 동안
@@ -265,6 +301,111 @@ export function Chat() {
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [roomId]);
+
+    /* ── 말풍선 반응 (카톡의 `😄 2`) ────────────────────────────
+     *
+     * 한마디 한마디에 `네` `ㅋㅋ`로 답하면 하루 백 마디가 이백 마디가 된다.
+     * 카톡이 그래서 둔 자리이고, 여기서도 같은 몫이다.
+     *
+     * **글 하나에 배열 하나로 담는다.** 바뀐 글의 몫만 갈아 끼우므로,
+     * 말풍선에 넘기는 배열은 그 글의 반응이 바뀔 때만 새것이 된다 —
+     * `Bubble`이 `memo`라 이게 어긋나면 쉰 개가 통째로 다시 그려진다.
+     */
+    const [reacts, setReacts] = useState<Record<string, MessageReaction[]>>({});
+    /** 화면 밖에서 읽어야 하는 자리가 둘이다(누를 때 · 실시간). 같이 들고 있는다. */
+    const reactsRef = useRef(reacts);
+    reactsRef.current = reacts;
+    /** 반응을 이미 받아 본 글. **실시간이 '내가 든 글인가'를 이걸로 가른다.** */
+    const reactSeen = useRef<Set<string>>(new Set());
+
+    /**
+     * 새로 들어온 글들의 반응을 받아 온다.
+     *
+     * **글 id를 나눠서 묻는다.** 밀린 사람은 한 번에 300개까지 받는데,
+     * 그 id를 한 줄에 다 실으면 주소가 11KB가 되어 중간에서 잘린다.
+     * 보통은 50개라 한 번으로 끝난다.
+     *
+     * **오류를 그냥 삼킨다.** 표가 아직 없는 저장소에서 400이 나는데,
+     * 그걸 던지면 대화가 통째로 안 열린다 — 앱은 밀면 몇 분 뒤 올라가지만
+     * 스키마는 그보다 늦을 수 있다. 못 받으면 반응만 안 뜨고 대화는 멀쩡하다.
+     */
+    useEffect(() => {
+        const missing = messages.map(m => m.id).filter(id => !reactSeen.current.has(id));
+        if (!missing.length) return;
+        missing.forEach(id => reactSeen.current.add(id));
+        let alive = true;
+        (async () => {
+            for (let i = 0; i < missing.length; i += REACT_CHUNK) {
+                const { data: rows, error: err } = await supabase
+                    .from('message_reactions').select('*')
+                    .in('message_id', missing.slice(i, i + REACT_CHUNK));
+                if (!alive) return;
+                if (err) return;                    // 표가 없는 저장소 — 조용히
+                if (!rows?.length) continue;
+                setReacts(prev => {
+                    const next = { ...prev };
+                    for (const r of rows as MessageReaction[]) {
+                        const had = next[r.message_id] ?? [];
+                        if (!had.some(x => x.user_id === r.user_id && x.emoji === r.emoji)) {
+                            next[r.message_id] = [...had, r];
+                        }
+                    }
+                    return next;
+                });
+            }
+        })();
+        return () => { alive = false; };
+    }, [messages]);
+
+    /**
+     * 남이 단 반응을 받는다.
+     *
+     * **가려서 받지 않는다.** 실시간 거르개는 칸 하나만 볼 수 있는데
+     * 이 표에는 방 번호가 없다 — 대신 **내가 든 글의 것만** 반영한다
+     * (`reactSeen`). 100명 모임에서 오가는 양이라 이편이 싸다.
+     *
+     * **다시 불러오지 않는다.** 반응은 줄끼리 안 얽히므로 들어온 줄만
+     * 갈아 끼우면 된다(읽음 표시와 같은 이유다).
+     */
+    useEffect(() => {
+        if (!roomId) return;
+        const channel = supabase
+            .channel(`reacts:${roomId}`)
+            .on('postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'message_reactions' },
+                payload => addReact(setReacts, payload.new as MessageReaction, reactSeen.current))
+            .on('postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'message_reactions' },
+                payload => dropReact(setReacts, payload.old as Partial<MessageReaction>))
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [roomId]);
+
+    /**
+     * 반응을 달거나 뗀다. **누른 것을 다시 누르면 떼어진다.**
+     *
+     * **먼저 화면에 반영하고 나중에 보낸다.** 누르자마자 켜지지 않으면
+     * 안 눌린 줄 알고 또 누른다. 실패하면 되돌리고 까닭을 알린다.
+     */
+    const toggleReact = useCallback(async (mid: string, emoji: string) => {
+        const mine = (reactsRef.current[mid] ?? [])
+            .some(r => r.user_id === me && r.emoji === emoji);
+        const row: MessageReaction = {
+            message_id: mid, user_id: me, emoji, created_at: new Date().toISOString(),
+        };
+        if (mine) dropReact(setReacts, row);
+        else addReact(setReacts, row, reactSeen.current);
+
+        const { error: err } = mine
+            ? await supabase.from('message_reactions').delete()
+                  .eq('message_id', mid).eq('user_id', me).eq('emoji', emoji)
+            : await supabase.from('message_reactions').insert(row);
+        if (err) {
+            if (mine) addReact(setReacts, row, reactSeen.current);
+            else dropReact(setReacts, row);
+            toast(readableError(err), 'error');
+        }
+    }, [me, toast]);
 
     /* ── 읽음 표시 ──────────────────────────────────────────────
      *
@@ -1300,6 +1441,28 @@ export function Chat() {
     const [pin, setPin] = useState<Message | null>(null);
     /** 펼쳐 놓았는가. 기본은 접힌 한 줄이다 — 긴 공지가 대화를 덮으면 안 된다. */
     const [pinOpen, setPinOpen] = useState(false);
+    /**
+     * **✕로 닫아 둔 공지**(카톡과 같다. 사용자 요청).
+     *
+     * **이 기기에만 남는다** — 내 눈에서 치우는 일이지 남의 화면에서
+     * 내리는 일이 아니다. 정말 내리는 것은 운영진의 `공지 내리기`이고,
+     * 그건 DB를 고쳐 모두에게서 사라진다. 둘을 섞지 말 것.
+     *
+     * **열쇠에 `pinned_at`을 함께 넣는다** — 같은 글을 내렸다 다시
+     * 올리면 새 공지로 보고 다시 띄워야 한다(id만 보면 영영 숨는다).
+     */
+    const [pinX, setPinX] = useState<string | null>(null);
+    const pinKey = pin ? `${pin.id}@${pin.pinned_at ?? ''}` : '';
+    useEffect(() => {
+        if (!pinKey) return;
+        try { setPinX(localStorage.getItem(PIN_X_KEY)); } catch { /* 비공개 모드 */ }
+    }, [pinKey]);
+    const closePin = useCallback(() => {
+        setPinOpen(false);
+        setPinX(pinKey);
+        try { localStorage.setItem(PIN_X_KEY, pinKey); } catch { /* 저장이 막혀도 화면은 돈다 */ }
+    }, [pinKey]);
+    const pinShown = pin && pinX !== pinKey;
 
     /**
      * 붙박아 둔 글 한 줄을 받아 온다.
@@ -1552,10 +1715,17 @@ export function Chat() {
 
     return (
         <div className="chat" ref={chatRef}>
-            {/* 카톡처럼 제목 한 줄만 가운데 세운다. 설명 줄을 두었더니
-                머리말이 두 겹이 되어 대화가 그만큼 내려앉았다.
-                **🔍는 오른쪽 끝에 얹는다** — 제목은 그대로 가운데 서야 하므로
-                흐름에서 빼서(`position: absolute`) 자리를 안 뺏는다. */}
+            {/* **머리말은 카톡 오픈톡과 같은 배치다**(사용자 요청) —
+                왼쪽에 제목과 사람 수, 오른쪽에 🔍와 ☰.
+
+                예전에는 제목을 가운데 세우고 단추 둘을 양끝에 얹었는데,
+                카톡은 제목이 왼쪽에 붙고 누르는 것이 오른쪽에 모여 있다.
+                **`←`(뒤로)는 안 둔다** — 카톡에서는 방을 나가는 자리지만
+                이 앱에서 대화는 **탭**이라 뒤로 갈 데가 없다(눌러 봐야 앱이
+                통째로 닫힌다). 방을 옮기는 일은 탭바가 맡는다.
+
+                단추 둘 다 흐름 안에 있다 — 제목이 왼쪽이라 자리를 뺏길
+                일이 없어, 예전처럼 `position: absolute`로 띄울 이유가 없다. */}
             <div className="chat-head">
                 {searchOn ? (
                     <div className="chat-search">
@@ -1567,23 +1737,27 @@ export function Chat() {
                     </div>
                 ) : (
                     <>
-                        {/* **참여자 목록**(카톡 오픈톡의 ☰). 제목은 그대로 가운데
-                            서야 하므로 흐름에서 빼서 왼쪽 끝에 얹는다. */}
-                        <button className="chat-who-btn" onClick={openPeople}
-                                aria-label={`참여자 ${roomPeople.length}명`}>
-                            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
-                                 strokeLinecap="round" aria-hidden="true">
-                                <path d="M4 7h16M4 12h16M4 17h16" />
-                            </svg>
-                            <span className="chat-who-n">{roomPeople.length}</span>
-                        </button>
-                        <h1 className="chat-title">{data.room.name}</h1>
+                        {/* 제목 옆에 사람 수를 흐리게 붙인다(카톡과 같다).
+                            ☰ 위에 숫자를 얹던 것을 여기로 옮긴 것이라
+                            **두 군데에 적지 않는다.** */}
+                        <h1 className="chat-title">
+                            {data.room.name}
+                            <span className="chat-title-n">{roomPeople.length}</span>
+                        </h1>
                         <button className="chat-find" onClick={() => setSearchOn(true)}
                                 aria-label="대화 검색">
                             <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
                                  strokeLinecap="round" aria-hidden="true">
                                 <circle cx="11" cy="11" r="7" />
                                 <path d="M20 20l-4-4" />
+                            </svg>
+                        </button>
+                        {/* **참여자 목록**(카톡 오픈톡의 ☰). */}
+                        <button className="chat-who-btn" onClick={openPeople}
+                                aria-label={`참여자 ${roomPeople.length}명`}>
+                            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                                 strokeLinecap="round" aria-hidden="true">
+                                <path d="M4 7h16M4 12h16M4 17h16" />
                             </svg>
                         </button>
                     </>
@@ -1595,37 +1769,46 @@ export function Chat() {
 
                 **기본은 접힌 한 줄이다.** 긴 공지를 펴 놓고 시작하면 대화가
                 그만큼 가려진다 — 누르면 펴지고 다시 누르면 접힌다. */}
-            {pin && !searchOn && (
-                <div className={`chat-pin${pinOpen ? ' open' : ''}`}>
-                    <button className="chat-pin-main" onClick={() => setPinOpen(v => !v)}
-                            aria-expanded={pinOpen}>
-                        <span className="chat-pin-mark" aria-hidden="true">📌</span>
-                        <span className="chat-pin-text">{preview(pin) || '메시지'}</span>
-                        <span className="chat-pin-caret" aria-hidden="true">
-                            {pinOpen ? '⌃' : '⌄'}
-                        </span>
-                    </button>
-                    {/* 펼쳤을 때만 나오는 줄. **누가 올렸는지 적는다** — 물어볼
-                        데가 있어야 한다. `대화에서 보기`는 그 말이 오간 자리로
-                        데려간다(앞뒤 이야기가 곧 공지의 뜻인 때가 많다). */}
-                    {pinOpen && (
-                        <div className="chat-pin-foot">
-                            <span className="chat-pin-by">
-                                {names[pin.pinned_by ?? '']?.name
-                                    ? `${names[pin.pinned_by ?? ''].name}님이 올림`
-                                    : '운영진이 올림'}
-                            </span>
-                            <button className="chat-pin-act"
-                                    onClick={() => { setPinOpen(false); jumpTo(pin.id); }}>
-                                대화에서 보기
+            {pinShown && !searchOn && (
+                <div className="chat-pin-wrap">
+                    <div className={`chat-pin${pinOpen ? ' open' : ''}`}>
+                        <div className="chat-pin-row">
+                            <button className="chat-pin-main" onClick={() => setPinOpen(v => !v)}
+                                    aria-expanded={pinOpen}>
+                                <span className="chat-pin-mark" aria-hidden="true">📢</span>
+                                <span className="chat-pin-text">{preview(pin) || '메시지'}</span>
+                                <span className="chat-pin-caret" aria-hidden="true">
+                                    {pinOpen ? '⌃' : '⌄'}
+                                </span>
                             </button>
-                            {isAdmin && (
-                                <button className="chat-pin-act" onClick={() => askPin(pin)}>
-                                    공지 내리기
-                                </button>
-                            )}
+                            {/* **✕는 내 화면에서만 치운다.** 남의 화면에서
+                                내리는 것은 아래의 `공지 내리기`(운영진)다 —
+                                생김새가 비슷하니 하는 일을 헷갈리지 말 것. */}
+                            <button className="chat-pin-x" onClick={closePin}
+                                    aria-label="공지 닫기">✕</button>
                         </div>
-                    )}
+                        {/* 펼쳤을 때만 나오는 줄. **누가 올렸는지 적는다** — 물어볼
+                            데가 있어야 한다. `대화에서 보기`는 그 말이 오간 자리로
+                            데려간다(앞뒤 이야기가 곧 공지의 뜻인 때가 많다). */}
+                        {pinOpen && (
+                            <div className="chat-pin-foot">
+                                <span className="chat-pin-by">
+                                    {names[pin.pinned_by ?? '']?.name
+                                        ? `${names[pin.pinned_by ?? ''].name}님이 올림`
+                                        : '운영진이 올림'}
+                                </span>
+                                <button className="chat-pin-act"
+                                        onClick={() => { setPinOpen(false); jumpTo(pin.id); }}>
+                                    대화에서 보기
+                                </button>
+                                {isAdmin && (
+                                    <button className="chat-pin-act" onClick={() => askPin(pin)}>
+                                        공지 내리기
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -1715,6 +1898,9 @@ export function Chat() {
                                 mentionNames={mentionNames}
                                 myName={myName}
                                 allowAll={staffIds.has(m.user_id ?? '')}
+                                reactions={reacts[m.id]}
+                                onReact={toggleReact}
+                                myId={me}
                             />}
                         </div>
                     );
@@ -2017,6 +2203,24 @@ export function Chat() {
                 <div className="chat-menu-back" onClick={() => setMenuFor(null)}>
                     <div className="chat-menu" onClick={e => e.stopPropagation()}>
                         <div className="chat-menu-head">{preview(menuFor) || '메시지'}</div>
+                        {/* **반응은 맨 위에 한 줄로 편다**(카톡과 같다).
+                            고르면 창이 닫히고 말풍선 아래에 칩이 붙는다 —
+                            **누른 것을 다시 고르면 떼어진다.**
+                            가린 글에는 안 붙인다: 덮어 둔 글에 좋다고
+                            누를 일이 없다(복사·답장을 안 붙이는 것과 같다). */}
+                        {!menuFor.hidden_at && (
+                            <div className="chat-menu-reacts">
+                                {REACTIONS.map(e => (
+                                    <button key={e} className="chat-menu-react"
+                                            aria-label={`${e} 반응`}
+                                            onClick={() => {
+                                                const m = menuFor;
+                                                setMenuFor(null);
+                                                toggleReact(m.id, e);
+                                            }}>{e}</button>
+                                ))}
+                            </div>
+                        )}
                         {/* **복사가 맨 위다** — 카톡의 그 창도 그렇고, 가장
                             자주 누르는 자리이면서 아무것도 안 바꾸는 일이다.
                             글이 없는 글(사진·이모티콘만)에는 안 붙인다. */}
@@ -2201,6 +2405,29 @@ function StickerImg({ mark, onLoad }: {
 }
 
 /**
+ * 반응을 그림글자별로 묶어 `[그림글자, 개수, 내가 눌렀나]`로 돌려준다.
+ *
+ * **차례는 먼저 달린 순서다** — 새 반응이 들어올 때마다 칩이 자리를
+ * 바꾸면 누르려던 것을 잘못 누른다. 개수순으로 정렬하지 말 것.
+ */
+function countReacts(rows: MessageReaction[], me: string): [string, number, boolean][] {
+    const by = new Map<string, { n: number; mine: boolean; at: string }>();
+    for (const r of rows) {
+        const got = by.get(r.emoji);
+        if (got) {
+            got.n += 1;
+            got.mine ||= r.user_id === me;
+            if (r.created_at < got.at) got.at = r.created_at;
+        } else {
+            by.set(r.emoji, { n: 1, mine: r.user_id === me, at: r.created_at });
+        }
+    }
+    return [...by.entries()]
+        .sort((a, b) => (a[1].at < b[1].at ? -1 : a[1].at > b[1].at ? 1 : 0))
+        .map(([emoji, v]) => [emoji, v.n, v.mine]);
+}
+
+/**
  * 말풍선 하나.
  *
  * **`memo`로 감싸 둔다.** 이 화면은 글을 치거나 초점이 오갈 때마다 다시
@@ -2213,7 +2440,7 @@ function StickerImg({ mark, onLoad }: {
 const Bubble = memo(function Bubble({
     message, who, mine, grouped, showTime, unread, onImageLoad,
     quoted, quotedWho, lostQuote, onJump, onReply, onHold, onFace,
-    mentionNames, myName, allowAll,
+    mentionNames, myName, allowAll, reactions, onReact, myId,
 }: {
     message: Message;
     who?: Person;
@@ -2242,6 +2469,10 @@ const Bubble = memo(function Bubble({
     myName: string;
     /** 쓴 사람이 운영진인가. `@전체`는 그때만 부른 것으로 본다. */
     allowAll: boolean;
+    /** 이 글에 달린 반응. 하나도 없으면 없다(그때는 줄 자체를 안 그린다). */
+    reactions?: MessageReaction[];
+    onReact: (messageId: string, emoji: string) => void;
+    myId: string;
 }) {
     const rowRef = useRef<HTMLDivElement>(null);
     /** 운영진이 가린 글인가. 가렸으면 글·사진·이모티콘 대신 안내 한 줄이다. */
@@ -2416,6 +2647,23 @@ const Bubble = memo(function Bubble({
                             <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                         </div>
                         <Stamp at={message.created_at} showTime={showTime} unread={unread} />
+                    </div>
+                )}
+                {/* **말풍선 반응**(카톡의 `😄 2`). 말풍선 아래 한 줄로 붙는다.
+                    **하나도 없으면 줄 자체가 없다** — 빈 자리를 늘 비워 두면
+                    말풍선 사이가 성겨진다. 다는 곳은 길게 누르는 창이다. */}
+                {!!reactions?.length && (
+                    <div className="chat-reacts">
+                        {countReacts(reactions, myId).map(([emoji, n, mineOn]) => (
+                            <button key={emoji}
+                                    className={`chat-react${mineOn ? ' on' : ''}`}
+                                    onClick={() => onReact(message.id, emoji)}
+                                    aria-pressed={mineOn}
+                                    aria-label={`${emoji} ${n}명`}>
+                                <span aria-hidden="true">{emoji}</span>
+                                <b>{n}</b>
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>

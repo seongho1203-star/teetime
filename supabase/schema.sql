@@ -1091,6 +1091,31 @@ create index if not exists messages_room_idx on messages (room_id, created_at de
 create index if not exists messages_pinned_idx on messages (room_id, pinned_at desc)
     where pinned_at is not null;
 
+-- ── 말풍선 반응 (카톡의 😄 2) ───────────────────────────────────
+--
+-- 한마디 한마디에 `네` `ㅋㅋ`로 답하면 하루 백 마디가 이백 마디가 된다.
+-- 카톡이 그래서 둔 자리이고, 여기서도 같은 몫이다.
+--
+-- **한 사람이 한 글에 같은 그림글자를 두 번 못 단다** — 그것이 기본키다.
+-- 다른 그림글자는 여럿 달 수 있다(카톡과 같다).
+-- **표를 새로 만든 것은 값이 사람마다 하나씩이기 때문이다.** 글에 개수만
+-- 적어 두면 '내가 눌렀나'를 알 수 없고, 동시에 누를 때 셈이 어긋난다
+-- (`settlement_shares`를 JSON으로 안 담은 것과 같은 이유다).
+--
+-- **알림은 안 간다.** 댓글과 같은 결이다 — 반응까지 폰을 울리면
+-- 대화 알림과 다를 바가 없어진다. 웹훅을 걸지 말 것.
+create table if not exists message_reactions (
+    message_id uuid not null references messages on delete cascade,
+    user_id    uuid not null references profiles on delete cascade,
+    -- 그림글자 한 자. 길이를 막아 두는 것은 여기에 글을 적어 넣지
+    -- 못하게 하려는 것이다(`👨‍👩‍👧` 같은 것이 여러 글자라 넉넉히 둔다).
+    emoji      text not null check (char_length(emoji) between 1 and 12),
+    created_at timestamptz not null default now(),
+    primary key (message_id, user_id, emoji)
+);
+-- 화면은 늘 '이 글들의 반응'을 묶어 받는다.
+create index if not exists message_reactions_msg_idx on message_reactions (message_id);
+
 /**
  * 라운드·투표가 올라오면 대화방에 한 줄 남긴다.
  *
@@ -1436,6 +1461,7 @@ alter table settle_reminders  enable row level security;
 alter table round_groups      enable row level security;
 alter table rooms         enable row level security;
 alter table messages      enable row level security;
+alter table message_reactions enable row level security;
 
 -- profiles ---------------------------------------------------
 drop policy if exists profiles_read      on profiles;
@@ -1722,6 +1748,17 @@ create policy messages_add   on messages for insert with check (is_member() and 
 create policy messages_own   on messages for delete using (user_id = auth.uid());
 create policy messages_admin on messages for all    using (is_admin()) with check (is_admin());
 
+-- 말풍선 반응. **읽기는 회원 전부, 쓰고 지우는 것은 제 것만.**
+-- 남의 반응을 떼어 낼 수 있으면 셈이 거짓말이 된다 — 운영진에게도
+-- 안 열었다(가릴 글이 있으면 글을 가리는 것이 맞다).
+drop policy if exists reactions_read on message_reactions;
+drop policy if exists reactions_add  on message_reactions;
+drop policy if exists reactions_del  on message_reactions;
+create policy reactions_read on message_reactions for select using (is_member());
+create policy reactions_add  on message_reactions for insert
+    with check (is_member() and user_id = auth.uid());
+create policy reactions_del  on message_reactions for delete using (user_id = auth.uid());
+
 
 -- ═══ 7-1. 읽음 표시 (카톡의 안 읽은 사람 수) ═══════════════════
 --
@@ -1918,7 +1955,8 @@ begin
     foreach t in array array[
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
         'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles',
-        'settlements', 'settlement_shares', 'room_reads', 'round_groups'
+        'settlements', 'settlement_shares', 'room_reads', 'round_groups',
+        'message_reactions'
     ] loop
         if not exists (
             select 1 from pg_publication_tables

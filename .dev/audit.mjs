@@ -79,7 +79,11 @@ const CHECK = (vw) => {
         const canScroll = /auto|scroll/.test(cs.overflowX + cs.overflowY);
         // 몇 줄까지만 보이게 일부러 자른 것(`-webkit-line-clamp`)은 넘치는 게
         // 맞다. 공지 목록의 미리보기가 그렇다 — 여기서 세면 늘 걸린다.
-        const clamped = cs.webkitLineClamp && cs.webkitLineClamp !== 'none';
+        // **말줄임(`…`)도 같다** — 한 줄로 접어 두고 뒤를 `…`로 알린 자리라
+        // 잘린 줄 모르고 지나갈 일이 없다(방 공지의 접힌 줄이 그렇다).
+        // 말줄임이 없는 채로 잘리는 것은 그대로 잡힌다.
+        const clamped = (cs.webkitLineClamp && cs.webkitLineClamp !== 'none')
+            || (cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap');
         if (!canScroll && !clamped && el.children.length === 0 && (overW > 1 || overH > 1)) {
             out.clipped.push(where(el) + ' → 가로 +' + overW + ' 세로 +' + overH
                 + ' (' + cs.overflow + ')');

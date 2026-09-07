@@ -474,6 +474,23 @@ export type RoomRead = {
     last_read_at: string;
 };
 
+/**
+ * 말풍선 반응 한 개 (카톡의 `😄 2`).
+ *
+ * **한 사람이 한 글에 같은 그림글자를 두 번 못 단다** — 그 셋이 기본키다.
+ * 개수만 세어 두지 않은 것은 '내가 눌렀나'를 알아야 하기 때문이다.
+ */
+export type MessageReaction = {
+    message_id: string;
+    user_id: string;
+    emoji: string;
+    created_at: string;
+};
+
+/** 말풍선에 달 수 있는 그림글자. **카톡과 같은 다섯이다.**
+ *  늘리면 창이 두 줄로 접혀 무엇을 누르는 중인지가 흐려진다. */
+export const REACTIONS = ['👍', '❤️', '😂', '😮', '😢'] as const;
+
 export type Room = {
     id: string;
     name: string;
@@ -599,6 +616,7 @@ export interface Database {
             rooms: Table<Room>;
             messages: Table<Message>;
             room_reads: Table<RoomRead>;
+            message_reactions: Table<MessageReaction>;
             push_subscriptions: Table<PushSubscriptionRow>;
             round_reminders: Table<RoundReminder>;
         };

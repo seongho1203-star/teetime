@@ -1048,6 +1048,82 @@ ok(!(await page.textContent('.chat-menu'))?.includes('공지로 올리기'),
 await page.click('.chat-menu-item.ghost');
 await page.waitForTimeout(200);
 
+/* **✕는 내 화면에서만 치운다**(카톡과 같다. 사용자 요청).
+   운영진의 `공지 내리기`와 하는 일이 다르다 — 이건 이 기기에만 남고,
+   새 공지가 올라오면 다시 뜬다. 새로고침해도 닫힌 채여야 한다. */
+await page.click('.chat-pin-x');
+await page.waitForTimeout(250);
+ok(await page.$('.chat-pin') === null, '✕를 누르면 공지가 내 화면에서 치워진다');
+ok((await page.evaluate(() => localStorage.getItem('teetime:pin-x')))?.startsWith('m4@'),
+   '닫아 둔 것은 이 기기에 남는다 — 남의 화면에서 내리는 것이 아니다');
+/* **문서를 새로 열어야 한다** — `#`만 바뀌는 이동은 화면을 새로 안 만들어서
+   state가 그대로 살아 있고, 그러면 저장을 안 했어도 통과해 버린다. */
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1200);
+ok(await page.$('.chat-pin') === null, '새로고침해도 닫힌 채로 있다');
+await page.evaluate(() => localStorage.removeItem('teetime:pin-x'));
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1200);
+ok(await page.$('.chat-pin') !== null, '표시를 지우면 다시 뜬다 — 새 공지가 그렇게 돌아온다');
+
+/* ── 6-1-1-3-1-10. 말풍선 반응 (카톡의 `😄 2`) ──────────────────
+ *
+ * 한마디마다 `네` `ㅋㅋ`로 답하면 하루 백 마디가 이백 마디가 된다.
+ * **다는 곳은 길게 누르는 창이고**, 붙는 곳은 말풍선 아래 칩 줄이다.
+ */
+console.log('\n── 말풍선 반응 ──');
+const reChips = await page.$$eval('[data-mid="m5"] .chat-react',
+    els => els.map(e => e.textContent + (e.classList.contains('on') ? '*' : '')));
+ok(JSON.stringify(reChips) === JSON.stringify(['👍3*', '❤️1']),
+   `그림글자별로 묶어 세고 내가 누른 것만 갈라 보인다 (실제 ${JSON.stringify(reChips)})`);
+/* **하나도 없으면 줄 자체가 없다** — 빈 자리를 늘 비워 두면 말풍선 사이가
+   성겨진다. */
+ok(await page.$('[data-mid="m1"] .chat-reacts') === null,
+   '반응이 없는 글에는 줄 자체가 없다');
+/* 창의 반응 줄. 다섯이 한 줄에 선다 — 늘리면 두 줄로 접혀 흐려진다. */
+const plain = await page.$('[data-mid="m1"] .chat-bubble');
+await plain.click({ button: 'right' });
+await page.waitForTimeout(300);
+const picks = await page.$$eval('.chat-menu-react', els => els.map(e => e.textContent));
+ok(picks.length === 5, `창 맨 위에 고를 그림글자가 다섯 선다 (실제 ${picks.length})`);
+/* 고르면 창이 닫히고 그 자리에 칩이 붙는다. */
+await page.click('.chat-menu-react >> nth=0');
+await page.waitForTimeout(500);
+ok(await page.$('.chat-menu') === null, '고르면 창이 닫힌다');
+const added = await page.textContent('[data-mid="m1"] .chat-react').catch(() => null);
+ok(added === '👍1', `고른 그림글자가 그 말풍선에 붙는다 (실제 ${added})`);
+/* **누른 것을 다시 누르면 떼어진다.** 칩을 눌러도 같다. */
+await page.click('[data-mid="m1"] .chat-react');
+await page.waitForTimeout(500);
+ok(await page.$('[data-mid="m1"] .chat-reacts') === null,
+   '칩을 다시 누르면 떼어지고, 마지막 하나가 빠지면 줄도 사라진다');
+/* **가린 글에는 안 붙인다** — 덮어 둔 글에 좋다고 누를 일이 없다
+   (복사·답장을 안 붙이는 것과 같은 잣대다). */
+const hid = await page.$('[data-mid="m17"] .chat-bubble');
+await hid.click({ button: 'right' });
+await page.waitForTimeout(300);
+ok(await page.$('.chat-menu-react') === null, '가린 글에는 반응 줄이 없다');
+await page.click('.chat-menu-item.ghost');
+await page.waitForTimeout(200);
+
+/* ── 6-1-1-3-1-11. 머리말 — 카톡 오픈톡과 같은 배치 ──────────────
+ *
+ * 왼쪽에 제목과 사람 수, 오른쪽에 🔍와 ☰. **`←`(뒤로)는 안 둔다** —
+ * 이 앱에서 대화는 탭이라 뒤로 갈 데가 없다.
+ */
+console.log('\n── 머리말 배치 ──');
+const head = await page.evaluate(() => {
+    const box = el => el?.getBoundingClientRect();
+    const t = box(document.querySelector('.chat-title'));
+    const f = box(document.querySelector('.chat-find'));
+    const w = box(document.querySelector('.chat-who-btn'));
+    return { t: t && Math.round(t.left), f: f && Math.round(f.left),
+             w: w && Math.round(w.left), n: document.querySelector('.chat-title-n')?.textContent };
+});
+ok(head.t < head.f && head.f < head.w,
+   `제목이 왼쪽, 🔍 ☰가 그 오른쪽에 선다 (제목 ${head.t} · 🔍 ${head.f} · ☰ ${head.w})`);
+ok(Number(head.n) > 0, `사람 수는 제목 옆에 적는다 (실제 ${head.n})`);
+
 /* ── 6-1-1-3-2. 대화 검색 ───────────────────────────────────────
  *
  * 카톡 오픈톡의 🔍다. 100명이 하루 100마디면 `무등산 몇 시라고 했지`를
@@ -1349,7 +1425,8 @@ oldTables.profiles = tables.profiles.map(({ gender, birth_year, region, ...rest 
 oldTables.polls = tables.polls.map(({ result_at, ...rest }) => rest);
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 oldTables.messages = tables.messages.map(({ poll_id, ...rest }) => rest);
-const MISSING = ['round_groups', 'settle_reminders', 'profile_private'];
+const MISSING = ['round_groups', 'settle_reminders', 'profile_private',
+                 'message_reactions'];
 /* **없는 칸을 달라고 하면 진짜 PostgREST는 400을 준다.** 흉내가 그냥
    빼고 주면 `fetchPeople()`이 좁은 목록으로 물러나는 길을 아예 안 타서,
    이 시험이 통과해도 실제로는 명단을 받는 화면이 전부 죽는다. */

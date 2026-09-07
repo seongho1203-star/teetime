@@ -296,6 +296,17 @@ export const push_subscriptions = [
       p256dh: 'x', auth: 'y', ua: 'headless', chat: true, created_at: iso(-3) },
 ];
 
+/* 말풍선 반응(카톡의 `😄 2`). **한 줄에 여러 그림글자가 서는 것**과
+   **내가 누른 칩이 갈려 보이는 것**을 함께 보려고 이렇게 둔다 —
+   m5는 👍이 셋(그중 하나가 나)이고 ❤️가 하나, m8은 😂 하나다. */
+export const message_reactions = [
+    { message_id: 'm5', user_id: ME,     emoji: '👍', created_at: iso(0, 9, 31) },
+    { message_id: 'm5', user_id: uid(2), emoji: '👍', created_at: iso(0, 9, 31) },
+    { message_id: 'm5', user_id: uid(3), emoji: '👍', created_at: iso(0, 9, 32) },
+    { message_id: 'm5', user_id: uid(4), emoji: '❤️', created_at: iso(0, 9, 33) },
+    { message_id: 'm8', user_id: uid(2), emoji: '😂', created_at: iso(0, 9, 34) },
+];
+
 /* 사람마다 대화를 어디까지 읽었나. 말풍선 옆의 `안 읽은 사람 수`가 이걸로
    셈해진다. 회원 다섯 중 셋만 최근까지 읽은 것으로 두어, 숫자가 나오는
    말풍선과 안 나오는(다 읽은) 말풍선이 한 화면에 같이 보이게 했다. */
@@ -318,5 +329,5 @@ export const tables = {
     settlements, settlement_shares, settle_reminders,
     polls, poll_options, poll_votes,
     poll_comments, posts, post_comments, rooms, messages, room_reads,
-    push_subscriptions,
+    message_reactions, push_subscriptions,
 };
