@@ -393,7 +393,11 @@
    맡는다(그때는 목록에 최근 대화가 아예 없어 굴려도 소용이 없다). */
 .chat-jump {
     position: absolute;
-    right: var(--gap);
+    /* **가운데다**(사용자 요청). 오른쪽 끝에 두었더니 이모티콘 여는 단추
+       바로 위에 겹쳐 보였다. `.chat-recent`와 같은 자리이고 둘은 함께
+       뜨지 않으므로(`!windowed`) 부딪히지 않는다. */
+    left: 50%;
+    transform: translateX(-50%);
     bottom: calc(var(--composer, 64px) + 10px);
     z-index: 5;
     /* 38px — `node .dev/audit.mjs`가 30px보다 작은 누름 자리를 잡아낸다. */
