@@ -605,6 +605,11 @@ export function Chat() {
      * 알려 주기도 한다. 누르는 순간 탭바부터 감춰 두면 그 사이에도
      * 대화가 가려지지 않는다. 높이는 알려 줄 때 채워 넣는다.
      */
+    /** 앱에서 **키보드가 올라오기 시작한다**고 미리 알려 주는 자리.
+     *  아래 `앱: 키보드와 같은 박자로` 효과가 채워 넣고, 글칸에 초점이
+     *  갈 때 부른다. 웹에서는 늘 비어 있다. */
+    const kbHint = useRef<(() => void) | null>(null);
+
     const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0,
                           /** 바로 앞에 키보드가 올라와 있었는가. 내려가는 **그 순간**만
                            *  목록을 따라 내리려고 둔다 — 화면을 처음 열 때도 이 갈래를
@@ -780,6 +785,19 @@ export function Chat() {
         let base = root.clientHeight;
         /** 키보드가 가릴 높이(플러그인이 알려 준 값). */
         let want = 0;
+        /**
+         * **지난번 키보드 높이를 기억해 둔다.**
+         *
+         * `keyboardWillShow`는 네이티브에서 웹으로 한 번 건너오므로 한두
+         * 프레임 늦게 도착한다. 0.25초짜리 움직임에서 그 30ms가 곧
+         * `살짝 따로 노는` 느낌이다. 그래서 **글칸에 초점이 가는 순간**
+         * (그건 우리 쪽 이벤트라 안 늦는다) 지난번 높이로 먼저 시작하고,
+         * `keyboardWillShow`가 오면 값만 바로잡는다 — 대개 같은 값이라
+         * 아무것도 안 바뀐다.
+         * 폰을 처음 켠 판에서도 맞게 시작하도록 기기에 적어 둔다.
+         */
+        const MEMO = `teetime:kbh:${window.innerWidth}`;
+        const recall = () => Number(localStorage.getItem(MEMO)) || 0;
         const paint = () => {
             const now = root.clientHeight;
             const eaten = Math.max(0, base - now);       // 창이 이미 줄어든 만큼
@@ -790,6 +808,11 @@ export function Chat() {
             document.body.classList.toggle('kb-open', on);
             root.classList.toggle('kb-open', on);
         };
+        /* **탭바는 따로 여닫는다.** `kb-open`을 내리는 순간 탭바가 도로
+           튀어나오는데, 그때 입력칸은 아직 0.25초에 걸쳐 내려오는 중이라
+           둘이 겹쳐 보인다. 탭바는 **다 내려간 뒤에**(`keyboardDidHide`)
+           내놓는다 — 그 자리는 입력칸의 아래 여백이 이미 비워 둔 뒤다. */
+        const bar = (on: boolean) => document.body.classList.toggle('kb-bar', on);
 
         paint();
         const onResize = () => paint();
@@ -805,7 +828,9 @@ export function Chat() {
             const hs = await Promise.all([
                 Keyboard.addListener('keyboardWillShow', info => {
                     want = info?.keyboardHeight ?? 0;
+                    if (want) localStorage.setItem(MEMO, String(want));
                     open(true);
+                    bar(true);
                     paint();
                     /* **줄어드는 동안 목록을 따라 앉힌다. 이게 빠지면 맨 아래
                        글이 잘려 안 보인다**(사용자 제보 · 사진 — 키보드를 올리니
@@ -816,6 +841,7 @@ export function Chat() {
                        그 동안 따라간다(`ResizeObserver`). */
                     settleList();
                 }),
+                /* 탭바(`bar`)는 여기서 안 내놓는다 — 위 `bar` 주석 참고. */
                 Keyboard.addListener('keyboardWillHide', () => {
                     want = 0; open(false); paint(); settleList();
                 }),
@@ -826,6 +852,7 @@ export function Chat() {
                 Keyboard.addListener('keyboardDidHide', () => {
                     want = 0;
                     base = root.clientHeight;
+                    bar(false);
                     paint();
                     settleList();
                 }),
@@ -834,14 +861,30 @@ export function Chat() {
             drop = hs.map(h => () => { void h.remove(); });
         })();
 
+        /* 글칸에 초점이 가는 순간 **지난번 높이로 먼저 시작한다**(위 `MEMO`
+           주석). 아직 한 번도 안 겪은 판이면 아무것도 안 한다 — 그때는
+           `keyboardWillShow`를 그대로 기다린다. */
+        kbHint.current = () => {
+            if (want) return;                 // 이미 올라와 있다
+            const h = recall();
+            if (!h) return;
+            want = h;
+            open(true);
+            bar(true);
+            paint();
+            settleList();
+        };
+
         return () => {
             dead = true;
+            kbHint.current = null;
             drop.forEach(f => f());
             drop = [];
             window.visualViewport?.removeEventListener('resize', onResize);
             window.removeEventListener('resize', onResize);
             root.style.removeProperty('--chat-h');
             open(false);
+            bar(false);
         };
     }, [settleList]);
 
@@ -958,6 +1001,10 @@ export function Chat() {
         s.typing = true;
         s.locked = false;
         setFocused(true);
+        /* **앱에서는 여기가 제일 이른 신호다.** 네이티브가 알려 주는
+           `keyboardWillShow`는 한 번 건너오느라 한두 프레임 늦는데,
+           0.25초짜리 움직임에서 그 30ms가 곧 `살짝 따로 노는` 느낌이다. */
+        kbHint.current?.();
         applyKeyboard(true);
         // 키보드가 올라오는 동안에도 높이가 여러 번 바뀐다. 다 올라온 뒤에
         // **한 번 붙박아 두고** 그 뒤로는 다시 재지 않는다.
