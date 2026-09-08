@@ -120,6 +120,14 @@ const go = async (hash, wait = 500) => {
     await page.waitForTimeout(wait);
 };
 
+/* 길게 누른 창을 닫는다. **`닫기` 줄이 없다** — 창이 누른 말풍선 옆에
+   뜨면서 카톡처럼 바탕을 눌러 닫는 것으로 바뀌었다. 가운데를 누르면
+   창 자체가 맞으므로 **왼쪽 위 구석**을 누른다(거기는 늘 바탕이다). */
+const shutHold = async (p) => {
+    await p.click('.chat-menu-back.soft', { position: { x: 4, y: 4 } });
+    await p.waitForTimeout(200);
+};
+
 /* ── 1. 읽음 쓰기는 **한 번만** 나간다 ──────────────────────────
    한 마디마다 나가면 100명이 떠들 때 그것만으로 쓰기가 쏟아진다.
    대화 화면이 '마지막 글이 밀렸을 때만, 700ms 모아서' 보내는 것이 그 장치다.
@@ -842,7 +850,7 @@ await page.click('[data-mid="m5"] .chat-bubble', { button: 'right' });
 await page.waitForTimeout(300);
 const menuOther = await page.textContent('.chat-menu') ?? '';
 ok(menuOther.includes('가리기'), '운영진이 남의 글을 길게 누르면 가리기가 나온다');
-ok(!menuOther.includes('지우기'), '남의 글에는 지우기가 안 나온다 — 되돌릴 수 없는 일이다');
+ok(!menuOther.includes('삭제'), '남의 글에는 삭제가 안 나온다 — 되돌릴 수 없는 일이다');
 await page.click('.chat-menu-item:text-is("가리기")');
 await page.waitForTimeout(300);
 ok(await page.$('.confirm-box') !== null, '가리기를 고르면 한 번 더 묻는다');
@@ -859,24 +867,23 @@ await page.click('[data-mid="m17"] .chat-bubble', { button: 'right' });
 await page.waitForTimeout(300);
 ok((await page.textContent('.chat-menu') ?? '').includes('가리기 풀기'),
    '이미 가린 글은 푸는 쪽이 나온다');
-await page.click('.chat-menu-item.ghost');
-await page.waitForTimeout(200);
+await shutHold(page);
 
 /* **내 글(m3)에는 지우기가 붙는다.** 운영진이라 가리기도 함께 나온다. */
 const delBefore = writes.filter(([w]) => w === 'messages DELETE').length;
 await page.click('[data-mid="m3"] .chat-bubble', { button: 'right' });
 await page.waitForTimeout(300);
-ok((await page.textContent('.chat-menu') ?? '').includes('지우기'),
-   '내가 쓴 글에는 지우기가 나온다');
-await page.click('.chat-menu-item:text-is("지우기")');
+ok((await page.textContent('.chat-menu') ?? '').includes('삭제'),
+   '내가 쓴 글에는 삭제가 나온다');
+await page.click('.chat-menu-item:text-is("삭제")');
 await page.waitForTimeout(300);
 ok((await page.textContent('.confirm-box') ?? '').includes('지울까요'),
-   '지우기도 한 번 더 묻는다 — 되돌릴 수 없기 때문이다');
+   '삭제도 한 번 더 묻는다 — 되돌릴 수 없기 때문이다');
 await page.click('.confirm-actions .btn:not(.ghost)');
 await page.waitForTimeout(400);
 const deleted = writes.filter(([w]) => w === 'messages DELETE').map(([, v]) => v);
 ok(deleted.length === delBefore + 1 && !!deleted.at(-1)?.includes('id=eq.m3'),
-   `지우기를 누르면 그 줄만 지운다 (실제 ${deleted.at(-1)})`);
+   `삭제를 누르면 그 줄만 지운다 (실제 ${deleted.at(-1)})`);
 ok(await page.$('[data-mid="m3"] .chat-bubble') === null,
    '지우면 그 자리에서 바로 사라진다');
 
@@ -898,17 +905,16 @@ await hPage.waitForTimeout(1200);
 await hPage.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
 await hPage.waitForTimeout(300);
 const menuTheirs = await hPage.textContent('.chat-menu') ?? '';
-ok(menuTheirs.includes('복사') && menuTheirs.includes('답장'),
-   '남의 글에서도 창은 뜬다 — 복사와 답장은 누구나 한다');
-ok(!menuTheirs.includes('가리기') && !menuTheirs.includes('지우기'),
-   '남의 글에는 가리기도 지우기도 안 붙는다');
-await hPage.click('.chat-menu-item.ghost');
-await hPage.waitForTimeout(200);
+ok(menuTheirs.includes('복사') && menuTheirs.includes('댓글'),
+   '남의 글에서도 창은 뜬다 — 복사와 댓글은 누구나 한다');
+ok(!menuTheirs.includes('가리기') && !menuTheirs.includes('삭제'),
+   '남의 글에는 가리기도 삭제도 안 붙는다');
+await shutHold(hPage);
 /* 제 글(m5)에는 지우기만 나온다 — 운영진이 아니라 가리기는 없다. */
 await hPage.click('[data-mid="m5"] .chat-bubble', { button: 'right' });
 await hPage.waitForTimeout(300);
 const menuMine = await hPage.textContent('.chat-menu') ?? '';
-ok(menuMine.includes('지우기'), '일반회원도 제 글은 지울 수 있다');
+ok(menuMine.includes('삭제'), '일반회원도 제 글은 지울 수 있다');
 ok(!menuMine.includes('가리기'), '가리기는 운영진 몫이라 일반회원에게는 안 나온다');
 ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 메시지입니다'),
    '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
@@ -1011,8 +1017,11 @@ console.log('\n── 말풍선 꼬리 ──');
 /* ── 6-1-1-3-1-12. 길게 누른 창의 크기 ─────────────────────────
  *
  * **카톡 화면을 픽셀로 재서 맞춘 값이다**(사용자 제보 — `우리껀 너무커`).
- * 같은 폰에서 찍은 두 사진을 견주니 카톡 한 줄이 34px, 우리는 52px이었다.
- * 눈에는 `좀 크네` 정도로만 보이는 자리라 숫자로 붙들어 둔다.
+ * **배율을 몰라도 되는 방법으로 잰다** — 같은 폰에서 우리 창과 카톡 창을
+ * 잇따라 찍어, **우리의 아는 값으로 카톡 쪽을 환산한다.** 우리 한 줄
+ * 34px이 사진에서 77픽셀이고 카톡이 91.5픽셀이었으므로
+ * `34 × 91.5 ÷ 77 ≈ 40px`이다. 눈에는 `좀 크네` 정도로만 보이는 자리라
+ * 숫자로 붙들어 둔다.
  */
 console.log('\n── 길게 누른 창의 크기 ──');
 await go('/#/chat', 1200);
@@ -1027,12 +1036,146 @@ await go('/#/chat', 1200);
         const line = getComputedStyle(document.querySelectorAll('.chat-menu > .chat-menu-item')[1]).borderTopWidth;
         return { items, align, line };
     });
-    ok(box.items.every(h => h === 34),
-       `한 줄이 34px이다 — 카톡에서 잰 값 (실제 ${JSON.stringify(box.items)})`);
+    ok(box.items.every(h => h === 40),
+       `한 줄이 40px이다 — 카톡에서 잰 값 (실제 ${JSON.stringify(box.items)})`);
     ok(box.align === 'left', `창의 줄은 왼쪽 정렬이다 (실제 ${box.align})`);
     ok(box.line === '1px', `줄 사이를 띄우지 않고 선으로 가른다 (실제 ${box.line})`);
-    await page.click('.chat-menu-item.ghost');
+    await shutHold(page);
+}
+
+/* ── 6-1-1-3-1-13. 창이 누른 자리에서 뜬다 ──────────────────────
+ *
+ * 사용자 요청(`누른 자리에서 나오도록해줘`). 예전에는 화면 아래에서
+ * 올라와서 **어느 글을 누른 것인지 창만 봐서는 몰랐고**, 그래서 미리보기
+ * 머리말을 한 줄 얹어야 했다.
+ *
+ * **자리는 `HoldAt`(Chat.tsx)이 재서 정한다** — 스크린샷으로는 '대충
+ * 말풍선 옆이네' 정도로만 보여 조용히 어긋나도 모른다. 숫자로 붙들어 둔다.
+ *
+ * 넷을 본다:
+ *  - 남의 글은 **말풍선 왼쪽 끝**에, 내 글은 **오른쪽 끝**에 맞는다.
+ *  - 창이 말풍선 바로 위나 아래에 붙는다(멀리 떨어지지 않는다).
+ *  - **반응 알약이 언제나 맨 아래다**(사용자 요청 — `이모티콘도 하단에`).
+ *  - 화면 밖으로 안 나간다.
+ */
+console.log('\n── 창이 누른 자리에서 뜬다 ──');
+{
+    const at = async (mid) => {
+        await page.click(`[data-mid="${mid}"] .chat-bubble`, { button: 'right' });
+        await page.waitForTimeout(300);
+        const v = await page.evaluate((id) => {
+            const b = document.querySelector(`[data-mid="${id}"] .chat-bubble`).getBoundingClientRect();
+            const hold = document.querySelector('.chat-hold').getBoundingClientRect();
+            const menu = document.querySelector('.chat-menu').getBoundingClientRect();
+            const pill = document.querySelector('.chat-menu-reacts').getBoundingClientRect();
+            return {
+                말풍선: [Math.round(b.left), Math.round(b.right), Math.round(b.top), Math.round(b.bottom)],
+                창: [Math.round(hold.left), Math.round(hold.right), Math.round(hold.top), Math.round(hold.bottom)],
+                알약이아래: pill.top >= menu.bottom,
+                안잘림: hold.left >= 0 && hold.top >= 0
+                        && hold.right <= window.innerWidth && hold.bottom <= window.innerHeight,
+                보임: getComputedStyle(document.querySelector('.chat-hold')).visibility,
+            };
+        }, mid);
+        await shutHold(page);
+        return v;
+    };
+    /** 말풍선 위나 아래에 6px쯤 띄워 붙었는가(둘 중 하나면 된다). */
+    const 붙었나 = (v) => Math.abs(v.창[2] - v.말풍선[3]) < 20 || Math.abs(v.창[3] - v.말풍선[2]) < 20;
+
+    const them = await at('m1');
+    ok(them.보임 === 'visible', `창이 보인다 — 재기 전에 숨겨 둔 것이 안 풀리면 안 뜬 것처럼 보인다 (실제 ${them.보임})`);
+    ok(Math.abs(them.창[0] - them.말풍선[0]) <= 1,
+       `남의 글은 말풍선 왼쪽 끝에 맞는다 (실제 창 ${them.창[0]} · 말풍선 ${them.말풍선[0]})`);
+    ok(붙었나(them), `창이 말풍선 바로 위나 아래에 붙는다 (실제 ${JSON.stringify(them)})`);
+    ok(them.알약이아래, '반응 알약이 메뉴 아래에 선다 — 누른 말풍선에 가장 가까운 쪽이다');
+    ok(them.안잘림, `창이 화면 밖으로 안 나간다 (실제 ${JSON.stringify(them.창)})`);
+
+    // **m3이 아니라 m7이다** — 앞의 `삭제` 칸이 m3을 지워 버려 여기서는 없다.
+    const mine = await at('m7');
+    ok(Math.abs(mine.창[1] - mine.말풍선[1]) <= 1,
+       `내 글은 말풍선 오른쪽 끝에 맞는다 (실제 창 ${mine.창[1]} · 말풍선 ${mine.말풍선[1]})`);
+    ok(mine.알약이아래, '내 글에서도 알약은 맨 아래다');
+    ok(mine.안잘림, `내 글에서도 창이 화면 밖으로 안 나간다 (실제 ${JSON.stringify(mine.창)})`);
+}
+
+/* ── 6-1-1-3-1-14. 메뉴에 무엇이 붙는가 · 선택 복사 ─────────────
+ *
+ * 줄 차례는 사용자가 정해 준 그대로다 —
+ * `복사 · 선택 복사 · 댓글 · 공유 · 캡쳐`에 운영진의 `가리기`·`공지로
+ * 올리기`, 쓴 사람의 `삭제`가 뒤에 붙는다. **`댓글`은 왼쪽으로 밀면
+ * 걸리는 그 답장과 같은 일이다**(사용자가 정한 이름이다).
+ *
+ * **`선택 복사`는 말풍선에서 못 하는 일을 되돌리는 자리다** — 말풍선에는
+ * `user-select: none`이 걸려 있어(iOS 글자 고르기가 길게 누르기를 덮지
+ * 않게) 글의 일부만 가져갈 길이 아예 없다. 그 창에서만 켜 둔다.
+ */
+console.log('\n── 메뉴 줄과 선택 복사 ──');
+{
+    await page.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
+    await page.waitForTimeout(300);
+    const rows = await page.$$eval('.chat-menu > .chat-menu-item', es => es.map(e => e.textContent));
+    ok(JSON.stringify(rows.slice(0, 5)) === JSON.stringify(['복사', '선택 복사', '댓글', '공유', '캡쳐']),
+       `앞 다섯 줄은 사용자가 정해 준 차례 그대로다 (실제 ${JSON.stringify(rows)})`);
+    const icons = await page.$$eval('.chat-menu > .chat-menu-item', es => es.map(e => !!e.querySelector('svg')));
+    ok(icons.every(Boolean), '줄마다 오른쪽에 그림이 선다 — 카톡과 같은 배치다');
+
+    await page.click('.chat-menu-item:text-is("선택 복사")');
+    await page.waitForTimeout(300);
+    const pick = await page.evaluate(() => {
+        const box = document.querySelector('.chat-pick-body');
+        if (!box) return null;
+        return { 글: box.textContent, 고를수있나: getComputedStyle(box).webkitUserSelect || getComputedStyle(box).userSelect };
+    });
+    ok(pick && pick.글 === '이번 주 무등산 날씨 어떤가요?',
+       `선택 복사는 그 글을 그대로 펼친다 (실제 ${JSON.stringify(pick?.글)})`);
+    ok(pick && pick.고를수있나 === 'text',
+       `거기서는 글자를 끌어서 고를 수 있다 — 말풍선에서는 막혀 있다 (실제 ${pick?.고를수있나})`);
+    await page.click('.chat-pick-foot .btn.ghost');
     await page.waitForTimeout(200);
+}
+
+/* ── 6-1-1-3-1-15. 공유와 캡쳐 ──────────────────────────────────
+ *
+ * 둘 다 **폰이 해 주는 일을 부르는 것**이라, 되는지 안 되는지가 기기마다
+ * 다르다. 여기서 붙들어 두는 것은 딱 두 가지다:
+ *
+ *  - **공유창이 없는 기기에서 아무 일도 안 일어나면 안 된다.** 헤드리스
+ *    크로미움에는 `navigator.share`가 없는데, 그때 조용히 돌아서면
+ *    사람 눈에는 고장이다 — 복사로 물러나고 그 사실을 알려야 한다.
+ *  - **캡쳐가 진짜 그림을 만든다.** 공유창이 없으면 내려받기로 가므로
+ *    파일이 실제로 나오는지까지 본다(빈 파일이면 그린 것이 없는 것이다).
+ *
+ * **아이폰에서는 둘 다 공유창으로 간다** — 그 길은 여기서 못 잰다.
+ */
+console.log('\n── 공유와 캡쳐 ──');
+{
+    await page.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
+    await page.waitForTimeout(300);
+    await page.click('.chat-menu-item:text-is("공유")');
+    await page.waitForTimeout(500);
+    const said = await page.$$eval('.toast', es => es.map(e => e.textContent).join(' | '));
+    ok(said.length > 0,
+       `공유창이 없는 기기에서는 복사로 물러나고 그 사실을 알린다 (실제 ${said || '아무 말도 없음'})`);
+
+    await page.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
+    await page.waitForTimeout(300);
+    const dl = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
+    await page.click('.chat-menu-item:text-is("캡쳐")');
+    const file = await dl;
+    ok(!!file, '캡쳐를 누르면 그림 파일이 나온다');
+    if (file) {
+        const path = '/tmp/behave-capture.png';
+        await file.saveAs(path);
+        const { statSync } = await import('node:fs');
+        const n = statSync(path).size;
+        ok(n > 5000, `그린 것이 있는 그림이다 (실제 ${n}바이트)`);
+        /* **이름이 영문인 것이 곧 이 검사다.** 한글 이름을 주면 브라우저가
+           통째로 버리고 `download`로 저장해 여러 장이 서로 덮어쓴다. */
+        ok(/^kkakkung-\d{4}-\d{6}\.png$/.test(file.suggestedFilename()),
+           `파일 이름에 시각이 붙는다 — 여러 장 찍어도 안 덮어쓴다 (실제 ${file.suggestedFilename()})`);
+    }
+    await page.waitForTimeout(300);
 }
 
 /* **폰에서는 이모티콘·사진에도 길게 누르기가 먹어야 한다**(사용자 제보 —
@@ -1042,7 +1185,7 @@ await go('/#/chat', 1200);
  * 그림에는 **iOS가 제 `이미지 저장 / 복사 / 공유` 시트**를 띄워 우리
  * 손짓을 통째로 덮는다(사진은 `<a>`라 링크 미리보기까지 뜬다).
  * 막는 CSS가 `.chat-bubble`에만 걸려 있어서, 폰에서만 이모티콘·사진의
- * 반응·답장·지우기가 아예 안 먹었다.
+ * 반응·댓글·삭제가 아예 안 먹었다.
  *
  * **여기서 창이 열리는지를 봐야 소용없다** — 크로미움에는 그 시트가
  * 없어서 고치기 전 코드도 초록으로 뜬다(깜빡임에서 얻은 교훈 그대로다).
@@ -1185,23 +1328,20 @@ await page.waitForTimeout(300);
 const menu = await page.textContent('.chat-menu');
 ok(menu?.includes('공지로 올리기'), '운영진에게는 창에 `공지로 올리기`가 있다');
 /* 이미 공지인 글에서는 말이 뒤집힌다 — 같은 자리에서 내릴 수 있어야 한다. */
-await page.click('.chat-menu-item.ghost');
-await page.waitForTimeout(200);
+await shutHold(page);
 const pinned = await page.$('[data-mid="m4"] .chat-bubble');
 await pinned.click({ button: 'right' });
 await page.waitForTimeout(300);
 ok((await page.textContent('.chat-menu'))?.includes('공지 내리기'),
    '이미 공지인 글에서는 `공지 내리기`로 뒤집힌다');
 /* **가린 글은 공지로 못 올린다** — 덮어 둔 내용이 맨 위로 샌다. */
-await page.click('.chat-menu-item.ghost');
-await page.waitForTimeout(200);
+await shutHold(page);
 const hidden = await page.$('[data-mid="m17"] .chat-bubble');
 await hidden.click({ button: 'right' });
 await page.waitForTimeout(300);
 ok(!(await page.textContent('.chat-menu'))?.includes('공지로 올리기'),
    '가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다');
-await page.click('.chat-menu-item.ghost');
-await page.waitForTimeout(200);
+await shutHold(page);
 
 /* **✕는 내 화면에서만 치운다**(카톡과 같다. 사용자 요청).
    운영진의 `공지 내리기`와 하는 일이 다르다 — 이건 이 기기에만 남고,
@@ -1258,8 +1398,7 @@ const hid = await page.$('[data-mid="m17"] .chat-bubble');
 await hid.click({ button: 'right' });
 await page.waitForTimeout(300);
 ok(await page.$('.chat-menu-react') === null, '가린 글에는 반응 줄이 없다');
-await page.click('.chat-menu-item.ghost');
-await page.waitForTimeout(200);
+await shutHold(page);
 
 /* ── 6-1-1-3-1-11. 머리말 — 카톡 오픈톡과 같은 배치 ──────────────
  *

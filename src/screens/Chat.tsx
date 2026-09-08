@@ -21,6 +21,8 @@ import { IS_NATIVE } from '../lib/native';
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
+import { HoldIcon } from '../components/HoldIcons';
+import { captureNode, shareText } from '../lib/share';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -1507,17 +1509,26 @@ export function Chat() {
     }, []);
 
     /**
-     * 길게 누른 글. 여기 값이 있으면 아래에서 고르는 창이 뜬다.
+     * 길게 누른 글. 여기 값이 있으면 **누른 자리에** 고르는 창이 뜬다.
      *
-     * **곧바로 묻지 않고 한 번 고르게 하는 것은 할 일이 둘이기 때문이다** —
-     * 운영진에게는 `가리기`, 쓴 사람에게는 `지우기`가 붙고, 운영진이 제 글을
-     * 길게 누르면 둘 다 나온다. 예전처럼 바로 확인창을 띄우면 그중 하나를
-     * 고를 자리가 없다.
+     * **곧바로 묻지 않고 한 번 고르게 하는 것은 할 일이 여럿이기 때문이다** —
+     * 복사·선택 복사·댓글·공유·캡쳐에 운영진의 가리기·공지, 쓴 사람의 삭제까지
+     * 붙는다. 바로 확인창을 띄우면 그중 하나를 고를 자리가 없다.
+     *
+     * **`at`은 누른 말풍선의 자리다**(사용자 요청 — `누른 자리에서 나오도록`).
+     * 예전에는 화면 아래에서 올라왔는데, 그러면 **어느 글을 누른 것인지
+     * 창만 봐서는 몰라서** 미리보기 머리말을 한 줄 얹어야 했다. 말풍선 옆에
+     * 뜨면 그 줄이 통째로 필요 없어진다(카톡도 머리말이 없다).
+     * `mine`은 어느 쪽에 붙일지다 — 내 글은 오른쪽, 남의 글은 왼쪽.
      */
-    const [menuFor, setMenuFor] = useState<Message | null>(null);
+    const [menuFor, setMenuFor] = useState<{ m: Message; at: DOMRect; mine: boolean } | null>(null);
+    /** `선택 복사`로 연 글. 글자를 끌어서 고를 수 있게 펼쳐 놓는 창이다. */
+    const [pickText, setPickText] = useState<string | null>(null);
     /* **`memo`로 감싼 말풍선에 넘기는 값이라 붙박아 둔다.** 매번 새 함수를
        넘기면 쉰 개가 통째로 다시 그려진다(위 `Bubble` 머리말 참고). */
-    const openMenu = useCallback((m: Message) => { setMenuFor(m); }, []);
+    const openMenu = useCallback((m: Message, at: DOMRect, mine: boolean) => {
+        setMenuFor({ m, at, mine });
+    }, []);
 
     /**
      * **운영진이 남의 글을 가린다**(카톡의 '가리기').
@@ -1712,6 +1723,42 @@ export function Chat() {
         navigator.clipboard?.writeText(text)
             .then(() => toast('복사했습니다.', 'ok'))
             .catch(() => toast('복사가 안 됩니다.', 'error'));
+    };
+
+    /**
+     * **다른 앱으로 보내기**(카톡의 `공유`).
+     *
+     * 폰의 공유창을 띄우는 것이 전부다 — 어디로 갈지는 사용자가 고른다.
+     * **공유창이 없는 기기에서는 복사로 물러난다**(PC 크롬 등). 아무 일도
+     * 안 일어나면 고장으로 보이므로, 대신 한 일을 토스트로 알린다.
+     * 사진은 주소까지 함께 보낸다 — 글만 가면 무슨 사진인지 알 수 없다.
+     */
+    const shareMessage = async (m: Message) => {
+        const text = m.body.trim() || preview(m);
+        const url = m.image_url && !isSticker(m.image_url) ? m.image_url : undefined;
+        if (await shareText(text, url)) return;
+        copyText(url ? `${text}\n${url}` : text);
+    };
+
+    /**
+     * **말풍선을 그림으로 만든다**(카톡의 `캡쳐`).
+     *
+     * 화면에 그려져 있는 그 줄을 그대로 찍으므로 **모양을 두 번 만들지
+     * 않는다** — 말풍선 규칙이 두 벌이 되면 언젠가 어긋난다.
+     * 그리는 데 한 박자 걸려서 **누르자마자 `만드는 중`이라고 알린다**:
+     * 아무 반응이 없으면 안 눌린 줄 알고 또 누른다.
+     */
+    const captureMessage = async (m: Message) => {
+        /* **`[data-mid]`가 아니라 그 안의 `.chat-row`다.** 바깥 칸에는
+           날짜 칸(`2026년 9월 7일`)과 `여기까지 읽으셨습니다` 줄이 함께
+           들어 있어, 그대로 찍으면 그것들까지 그림에 딸려 온다. */
+        const el = listRef.current?.querySelector<HTMLElement>(`[data-mid="${m.id}"] .chat-row`);
+        if (!el) { toast('그 메시지를 찾지 못했습니다.', 'error'); return; }
+        toast('그림으로 만드는 중…', 'ok');
+        const how = await captureNode(el);
+        if (how === 'saved') toast('그림으로 내려받았습니다.', 'ok');
+        else if (how === 'fail') toast('캡쳐가 안 됩니다.', 'error');
+        // 'shared'는 공유창이 뜬 것이라 따로 알릴 것이 없다.
     };
 
     /**
@@ -2384,73 +2431,118 @@ export function Chat() {
                 </div>
             )}
 
-            {menuFor && (
-                <div className="chat-menu-back" onClick={() => setMenuFor(null)}>
-                    <div className="chat-menu" onClick={e => e.stopPropagation()}>
-                        <div className="chat-menu-head">{preview(menuFor) || '메시지'}</div>
-                        {/* **반응은 맨 위에 한 줄로 편다**(카톡과 같다).
-                            고르면 창이 닫히고 말풍선 아래에 칩이 붙는다 —
-                            **누른 것을 다시 고르면 떼어진다.**
-                            가린 글에는 안 붙인다: 덮어 둔 글에 좋다고
-                            누를 일이 없다(복사·답장을 안 붙이는 것과 같다). */}
-                        {!menuFor.hidden_at && (
-                            <div className="chat-menu-reacts">
-                                {REACTIONS.map(e => (
-                                    <button key={e} className="chat-menu-react"
-                                            aria-label={`${e} 반응`}
-                                            onClick={() => {
-                                                const m = menuFor;
-                                                setMenuFor(null);
-                                                toggleReact(m.id, e);
-                                            }}>{e}</button>
-                                ))}
+            {menuFor && (() => {
+                /* 창을 그리는 동안 `menuFor`가 바뀔 일은 없지만, 아래 콜백들이
+                   전부 이 값을 붙들도록 한 번만 꺼내 둔다. */
+                const m = menuFor.m;
+                const shut = () => setMenuFor(null);
+                /** 고르면 창부터 닫고 그 일을 한다 — 둘이 겹쳐 보이면 안 된다. */
+                const pick = (go: () => void) => () => { shut(); go(); };
+                const hidden = !!m.hidden_at;
+                const hasText = !!m.body.trim();
+                return (
+                    <div className="chat-menu-back soft" onClick={shut}>
+                        <HoldAt at={menuFor.at} mine={menuFor.mine}>
+                            <div className="chat-menu" onClick={e => e.stopPropagation()}>
+                                {/* **미리보기 머리말이 없다**(카톡과 같다).
+                                    누른 말풍선 옆에 뜨므로 어느 글인지가
+                                    자리로 이미 말해진다 — 화면 아래에서
+                                    올라오던 때만 필요했던 줄이다. */}
+                                {/* **복사가 맨 위다** — 가장 자주 누르는 자리이면서
+                                    아무것도 안 바꾸는 일이다. 글이 없는 글
+                                    (사진·이모티콘만)에는 안 붙인다. */}
+                                {hasText && !hidden && (
+                                    <button className="chat-menu-item" onClick={pick(() => copyText(m.body))}>
+                                        복사<HoldIcon name="copy" />
+                                    </button>
+                                )}
+                                {/* **선택 복사** — 글의 일부만 가져가는 자리다.
+                                    가리거나 지울 수 있는 글에는 `user-select: none`이
+                                    걸려 있어(길게 누르기를 iOS의 글자 고르기가
+                                    덮지 않게) **말풍선에서는 끌어서 고를 수가
+                                    없다.** 그 손해를 여기서 되돌린다. */}
+                                {hasText && !hidden && (
+                                    <button className="chat-menu-item" onClick={pick(() => setPickText(m.body))}>
+                                        선택 복사<HoldIcon name="pick" />
+                                    </button>
+                                )}
+                                {/* **`댓글`은 왼쪽으로 밀면 걸리는 그것과 같은 일이다**
+                                    (사용자가 정한 이름이다 — `댓글이 답장기능과
+                                    같은거고`). 인용해서 답하는 자리다.
+                                    미는 손짓은 아는 사람만 쓰므로 여기에도 둔다. */}
+                                {!hidden && (
+                                    <button className="chat-menu-item" onClick={pick(() => startReply(m))}>
+                                        댓글<HoldIcon name="reply" />
+                                    </button>
+                                )}
+                                <button className="chat-menu-item" onClick={pick(() => void shareMessage(m))}>
+                                    공유<HoldIcon name="share" />
+                                </button>
+                                <button className="chat-menu-item" onClick={pick(() => void captureMessage(m))}>
+                                    캡쳐<HoldIcon name="capture" />
+                                </button>
+                                {/* 가리기는 **운영진만** 한다(사용자 요청).
+                                    되돌릴 수 있어 남의 글에도 쓴다. */}
+                                {isAdmin && (
+                                    <button className="chat-menu-item" onClick={pick(() => askHide(m))}>
+                                        {hidden ? '가리기 풀기' : '가리기'}<HoldIcon name="hide" />
+                                    </button>
+                                )}
+                                {/* **공지로 올리는 것도 운영진 몫이다**(카톡 오픈톡과 같다).
+                                    대화 맨 위에 붙박여 모두에게 늘 보이는 자리라,
+                                    아무나 올리면 그 자리가 곧 의미를 잃는다.
+                                    가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다. */}
+                                {isAdmin && !hidden && (
+                                    <button className="chat-menu-item" onClick={pick(() => askPin(m))}>
+                                        {m.pinned_at ? '공지 내리기' : '공지로 올리기'}<HoldIcon name="notice" />
+                                    </button>
+                                )}
+                                {/* **삭제는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라
+                                    남의 글에는 안 붙인다 — 운영진에게는 가리기가 있다. */}
+                                {m.user_id === me && (
+                                    <button className="chat-menu-item danger" onClick={pick(() => askDelete(m))}>
+                                        삭제<HoldIcon name="trash" />
+                                    </button>
+                                )}
                             </div>
-                        )}
-                        {/* **복사가 맨 위다** — 카톡의 그 창도 그렇고, 가장
-                            자주 누르는 자리이면서 아무것도 안 바꾸는 일이다.
-                            글이 없는 글(사진·이모티콘만)에는 안 붙인다. */}
-                        {!!menuFor.body.trim() && !menuFor.hidden_at && (
-                            <button className="chat-menu-item"
-                                    onClick={() => { const m = menuFor; setMenuFor(null); copyText(m.body); }}>
-                                복사
+                            {/* **반응은 창 아래에 알약으로 따로 선다**(사용자 요청 —
+                                `이모티콘도 카톡처럼 하단에 넣어줘`). 카톡의 그것도
+                                메뉴와 붙어 있지 않고 아래에 떠 있는 한 줄이다.
+                                **누른 말풍선에 가장 가까운 쪽이 이 줄이다** — 창이
+                                말풍선 위에 뜨든 아래에 뜨든 언제나 맨 아래다.
+                                가린 글에는 안 붙인다: 덮어 둔 글에 좋다고 누를
+                                일이 없다(복사·댓글을 안 붙이는 것과 같다).
+                                **카톡의 `+`(더 고르기)는 안 만든다** — 우리 반응은
+                                다섯으로 못박혀 있어(`REACTIONS`) 더 고를 것이 없다. */}
+                            {!hidden && (
+                                <div className="chat-menu-reacts" onClick={e => e.stopPropagation()}>
+                                    {REACTIONS.map(e => (
+                                        <button key={e} className="chat-menu-react"
+                                                aria-label={`${e} 반응`}
+                                                onClick={pick(() => toggleReact(m.id, e))}>{e}</button>
+                                    ))}
+                                </div>
+                            )}
+                        </HoldAt>
+                    </div>
+                );
+            })()}
+
+            {/* **선택 복사** — 글자를 끌어서 고를 수 있게 펼쳐 놓는다.
+                고르고 나면 폰이 띄워 주는 `복사`를 누르면 된다(iOS·안드로이드
+                둘 다 그렇다). 그게 안 되는 기기를 위해 `전체 복사`도 둔다. */}
+            {pickText !== null && (
+                <div className="chat-menu-back" onClick={() => setPickText(null)}>
+                    <div className="chat-pick" onClick={e => e.stopPropagation()}>
+                        <div className="chat-pick-hint">글자를 길게 눌러 고른 뒤 복사하세요</div>
+                        <div className="chat-pick-body">{pickText}</div>
+                        <div className="chat-pick-foot">
+                            <button className="btn ghost sm" onClick={() => setPickText(null)}>닫기</button>
+                            <button className="btn primary sm"
+                                    onClick={() => { const t = pickText; setPickText(null); copyText(t); }}>
+                                전체 복사
                             </button>
-                        )}
-                        {/* **답장도 여기 둔다.** 왼쪽으로 미는 손짓이 그대로
-                            있지만, 그건 아는 사람만 쓴다 — 카톡도 이 창에
-                            함께 두어 처음 온 사람이 길을 찾는다. */}
-                        {!menuFor.hidden_at && (
-                            <button className="chat-menu-item"
-                                    onClick={() => { const m = menuFor; setMenuFor(null); startReply(m); }}>
-                                답장
-                            </button>
-                        )}
-                        {/* 가리기는 운영진 몫이다. 되돌릴 수 있어 남의 글에도 쓴다. */}
-                        {isAdmin && (
-                            <button className="chat-menu-item"
-                                    onClick={() => { const m = menuFor; setMenuFor(null); askHide(m); }}>
-                                {menuFor.hidden_at ? '가리기 풀기' : '가리기'}
-                            </button>
-                        )}
-                        {/* **공지로 올리는 것도 운영진 몫이다**(카톡 오픈톡과 같다).
-                            대화 맨 위에 붙박여 모두에게 늘 보이는 자리라,
-                            아무나 올리면 그 자리가 곧 의미를 잃는다.
-                            가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다. */}
-                        {isAdmin && !menuFor.hidden_at && (
-                            <button className="chat-menu-item"
-                                    onClick={() => { const m = menuFor; setMenuFor(null); askPin(m); }}>
-                                {menuFor.pinned_at ? '공지 내리기' : '공지로 올리기'}
-                            </button>
-                        )}
-                        {/* **지우기는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라
-                            남의 글에는 안 붙인다 — 운영진에게는 가리기가 있다. */}
-                        {menuFor.user_id === me && (
-                            <button className="chat-menu-item danger"
-                                    onClick={() => { const m = menuFor; setMenuFor(null); askDelete(m); }}>
-                                지우기
-                            </button>
-                        )}
-                        <button className="chat-menu-item ghost"
-                                onClick={() => setMenuFor(null)}>닫기</button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -2508,6 +2600,58 @@ function PeopleList({ people, me, onPick, onClose }: {
             ))}
         </div>
     );
+}
+
+/**
+ * **길게 누른 창을 그 말풍선 옆에 세운다**(사용자 요청 —
+ * `누른 자리에서 나오도록해줘`).
+ *
+ * 안에 든 것(메뉴 카드 + 반응 알약)의 크기를 **그려 놓고 재서** 자리를
+ * 정한다. 미리 알 수가 없기 때문이다 — 줄 수가 사람마다 다르고(운영진은
+ * 여덟, 남의 글을 누른 회원은 다섯), 가린 글에는 알약이 아예 없다.
+ *
+ * 규칙 넷:
+ * - **가로는 말풍선의 가까운 쪽에 붙인다** — 내 글은 오른쪽 끝을, 남의
+ *   글은 왼쪽 끝을 맞춘다. 카톡이 그렇고, 누른 자리에서 눈이 안 움직인다.
+ * - **세로는 아래를 먼저 본다.** 안 들어가면 위로 넘긴다 — 밑에서 두 번째
+ *   말풍선을 눌렀을 때 창이 화면 밖으로 나가는 것이 그 자리다.
+ * - **화면 가장자리에서 8px은 띄운다**(`M`). 어느 쪽으로도 안 잘린다.
+ * - **높이는 `visualViewport`로 본다** — 키보드가 올라와 있으면 보이는
+ *   높이가 그만큼 작다. `clientHeight`는 아이폰에서 안 줄어든다.
+ *
+ * **재기 전에는 안 보이게 둔다**(`visibility: hidden`). 안 그러면 첫
+ * 프레임에 왼쪽 위 구석에 한 번 번쩍인다. `useLayoutEffect`라 그리기
+ * 전에 자리가 잡히므로 사람 눈에는 처음부터 제자리다.
+ */
+function HoldAt({ at, mine, children }: {
+    at: DOMRect;
+    mine: boolean;
+    children: React.ReactNode;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const M = 8;      // 화면 가장자리에서 띄울 만큼
+        const GAP = 6;    // 말풍선과의 사이
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        const vw = window.innerWidth;
+        const vh = window.visualViewport?.height ?? document.documentElement.clientHeight;
+
+        let left = mine ? at.right - w : at.left;
+        left = Math.max(M, Math.min(left, vw - w - M));
+
+        let top = at.bottom + GAP;
+        if (top + h > vh - M) top = at.top - GAP - h;
+        top = Math.max(M, Math.min(top, vh - h - M));
+
+        el.style.left = `${Math.round(left)}px`;
+        el.style.top = `${Math.round(top)}px`;
+        el.style.visibility = 'visible';
+    }, [at, mine]);
+
+    return <div className={`chat-hold${mine ? ' mine' : ''}`} ref={ref}>{children}</div>;
 }
 
 /** 인용에 보일 한 줄. 사진·이모티콘만 보낸 글은 글자가 없다. */
@@ -2645,9 +2789,10 @@ const Bubble = memo(function Bubble({
     lostQuote: boolean;
     onJump: (id: string) => void;
     onReply: (m: Message) => void;
-    /** 길게 눌렀을 때. 복사·답장·가리기·지우기를 고르는 창을 연다.
-     *  **어느 글에서나 열린다** — 남의 글에서도 복사와 답장은 할 수 있다. */
-    onHold: (m: Message) => void;
+    /** 길게 눌렀을 때. 복사·댓글·공유·캡쳐 따위를 고르는 창을 연다.
+     *  **어느 글에서나 열린다** — 남의 글에서도 복사와 댓글은 할 수 있다.
+     *  **`at`은 누른 말풍선의 자리다** — 창이 거기 붙어 뜬다(`HoldAt`). */
+    onHold: (m: Message, at: DOMRect, mine: boolean) => void;
     /** 얼굴을 눌렀을 때. 그 사람 프로필 카드를 연다. */
     onFace: (p: Person) => void;
     mentionNames: string[];
@@ -2683,13 +2828,24 @@ const Bubble = memo(function Bubble({
     const stopHold = () => {
         if (hold.current !== null) { clearTimeout(hold.current); hold.current = null; }
     };
+    /**
+     * 창이 붙을 자리 — **줄 전체가 아니라 말풍선(또는 그림)이다.**
+     * 줄은 화면 폭을 다 쓰므로 그걸 넘기면 내 글에서도 창이 왼쪽에 뜬다.
+     * 그림·이모티콘도 같은 자리를 쓰고, 무엇도 못 찾으면 줄로 물러난다.
+     */
+    const anchor = (): DOMRect => {
+        const row = rowRef.current;
+        const el = row?.querySelector<HTMLElement>(
+            '.chat-bubble, .chat-sticker, .chat-image, .chat-sticker-gone');
+        return (el ?? row)?.getBoundingClientRect() ?? new DOMRect();
+    };
     const startHold = () => {
         held.current = false;
         stopHold();
         hold.current = window.setTimeout(() => {
             hold.current = null;
             held.current = true;
-            onHold(message);
+            onHold(message, anchor(), mine);
         }, HOLD_MS);
     };
 
@@ -2763,7 +2919,7 @@ const Bubble = memo(function Bubble({
                 손을 떼면 여기도 한 번 더 불릴 수 있어 그때는 건너뛴다. */
              onContextMenu={e => {
                  e.preventDefault();
-                 if (!held.current) onHold(message);
+                 if (!held.current) onHold(message, anchor(), mine);
              }}>
             {!mine && (
                 <div className="chat-avatar">
