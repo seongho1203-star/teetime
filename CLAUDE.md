@@ -2652,13 +2652,24 @@ PNG인데 **체커가 곧 '투명'이라는 뜻**이라, 영상 때와 같이 �
   `빌드 → 업로드 → 처리 → 갱신`으로 한 시간이 넘어, 키보드 밀림처럼
   **여러 번 고쳐 보며 잡아야 하는 것**을 그 속도로는 못 잡는다.
   **출시용으로 바꿀 때는 `server` 한 덩어리만 지운다.**
-- **`ios/`는 저장소에 있다.** 손으로 고쳐 둔 것이 셋이라 CI가 다시 만들면
+- **`ios/`는 저장소에 있다.** 손으로 고쳐 둔 것이 넷이라 CI가 다시 만들면
   날아간다: `Info.plist`의 **URL 스킴**(`kkakkung`)과 **수출 규정 답**
-  (`ITSAppUsesNonExemptEncryption`), 그리고 **공유 스킴 파일**
-  (`xcshareddata/xcschemes/App.xcscheme`).
+  (`ITSAppUsesNonExemptEncryption`), **공유 스킴 파일**
+  (`xcshareddata/xcschemes/App.xcscheme`), 그리고 **앱 타깃 Release의
+  `CODE_SIGN_IDENTITY`**.
   - **공유 스킴이 없으면 CI가 `scheme not found`로 통째로 멈춘다** —
     Xcode가 만드는 기본 스킴은 `xcuserdata/`에 들어가는데 그건 무시 목록에
     있다. Capacitor 템플릿이 안 넣어 주므로 우리가 넣었다.
+  - **Capacitor 템플릿은 프로젝트 전체에 `CODE_SIGN_IDENTITY = "iPhone
+    Developer"`(개발용)를 박아 둔다.** 그대로 두면 아카이브가 **개발용**
+    프로비저닝을 찾으러 가고, 개발용은 **기기를 미리 등록해 둬야** 하므로
+    CI에서 `Your team has no devices from which to generate a provisioning
+    profile`로 멈춘다(실제로 첫 판이 여기서 죽었다). TestFlight로 올리는
+    것은 배포용이라 기기 등록이 필요 없으므로, **앱 타깃의 Release에만**
+    `Apple Distribution`을 못박았다. Debug는 그대로 개발용이라 나중에
+    맥에 연결해 돌리는 길이 안 막힌다.
+    **`xcodebuild` 명령줄로 주지 않는다** — 명령줄 설정은 Pods 타깃까지
+    통째로 덮어 엉뚱한 데서 서명이 걸린다.
   - **앱 아이콘에 알파가 있으면 애플이 업로드를 거절한다.** `public/icon-512`을
     흰 바탕에 눌러 붙여 넣었다(첫 화면 그림도 같이). 아이콘을 바꾸면
     **여기까지 여섯 자리**가 된다(웹 넷 + 인라인 하나 + iOS).
