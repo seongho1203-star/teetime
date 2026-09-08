@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 
 /**
  * 탭 사이를 **밀어서 옮긴다**(사용자 요청 — `메뉴간 스와이프기능 만들어줘`).
@@ -59,9 +59,6 @@ export function useTabSwipe(): void {
     const at = TAB_PATHS.indexOf(pathname);
 
     useEffect(() => {
-        // 탭 화면에서만 돈다 — 상세 화면에서는 뒤로 가기가 그 자리를 맡는다.
-        if (at < 0) return;
-
         let x0 = 0, y0 = 0, live = false;
 
         const start = (e: TouchEvent) => {
@@ -77,6 +74,16 @@ export function useTabSwipe(): void {
             if (!t) return;
             const dx = t.clientX - x0, dy = t.clientY - y0;
             if (Math.abs(dx) < MIN_X || Math.abs(dx) < Math.abs(dy) * SLOPE) return;
+
+            /* **상세 화면에서는 오른쪽으로 밀면 뒤로 간다**(사용자 요청 —
+               `내정보를 들어갔다가 왼쪽에서 오른쪽으로 스와이프`). 아이폰의
+               그 손짓과 방향이 같다. 왼쪽으로 미는 것은 앞으로 갈 데가
+               없으므로 아무 일도 안 한다. */
+            if (at < 0) {
+                if (dx > 0) nav(-1);
+                return;
+            }
+
             const to = at + (dx < 0 ? 1 : -1);
             if (to < 0 || to >= TAB_PATHS.length) return;
             nav(TAB_PATHS[to]);
@@ -105,22 +112,32 @@ export function useTabSwipe(): void {
  */
 export function useTabSlide(ref: RefObject<HTMLElement | null>): void {
     const { pathname } = useLocation();
+    const how = useNavigationType();      // PUSH(들어감) · POP(뒤로) · REPLACE
     const prev = useRef(pathname);
 
     useLayoutEffect(() => {
         const from = TAB_PATHS.indexOf(prev.current);
         const to = TAB_PATHS.indexOf(pathname);
+        const same = prev.current === pathname;
         prev.current = pathname;
 
         const el = ref.current;
-        if (!el || from < 0 || to < 0 || from === to) return;
+        if (!el || same) return;
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-        const cls = to > from ? 'slide-l' : 'slide-r';
-        el.classList.remove('slide-l', 'slide-r');
+        /* **탭 사이와 화면 드나들기를 갈라 놓는다.**
+           탭은 나란히 있는 것이라 살짝(16px)만 움직이고, 화면에 들어가고
+           나오는 것은 **깊이가 바뀌는 일**이라 더 크게(40px) 움직인다 —
+           아이폰이 그렇게 갈라 놓았고, 그래야 '옆으로 옮겼나 안으로
+           들어갔나'가 눈에 바로 읽힌다. */
+        const cls =
+            from >= 0 && to >= 0 ? (to > from ? 'slide-l' : 'slide-r')
+            : how === 'POP' ? 'slide-back'      // 뒤로 — 왼쪽에서 들어온다
+            : 'slide-in';                       // 들어감 — 오른쪽에서 들어온다
+        el.classList.remove('slide-l', 'slide-r', 'slide-in', 'slide-back');
         void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
         el.classList.add(cls);
-        const off = window.setTimeout(() => el.classList.remove(cls), 260);
+        const off = window.setTimeout(() => el.classList.remove(cls), 300);
         return () => window.clearTimeout(off);
-    }, [pathname, ref]);
+    }, [pathname, how, ref]);
 }

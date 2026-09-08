@@ -685,6 +685,10 @@ export function Chat() {
      * 글을 쓰는 동안 크기가 바뀌지 않으므로 한 번 정하면 그만이다.
      */
     const applyKeyboard = useCallback((force = false) => {
+        /* **앱에서는 이 함수가 통째로 물러난다.** 키보드에 맞춰 화면을
+           움직이는 일은 아래 `앱: 키보드와 같은 박자로` 효과가 혼자 맡는다 —
+           두 곳이 같은 값을 건드리면 서로 엇박이 난다. */
+        if (IS_NATIVE) return;
         const vv = window.visualViewport;
         const s = kbRef.current;
         const vh = Math.round(vv ? vv.height : window.innerHeight);
@@ -701,20 +705,6 @@ export function Chat() {
         document.body.classList.toggle('kb-open', open);
         // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
         document.documentElement.classList.toggle('kb-open', open);
-
-        /* **앱에서는 여기서 끝난다.** `resize: 'native'`가 웹뷰 자체를 줄여
-           주므로 `.chat`은 이미 보이는 높이에 딱 맞다 — `--vvh`·`--kb`를
-           적어 자리를 한 번 더 잡으면 그 두 번째가 눈에 보인다(`키보드가
-           먼저 뜨고 대화창이 뒤따라 뜬다`는 사용자 제보). 탭바를 감추는
-           `kb-open`만 남기고 나머지는 웹뷰에 맡긴다.
-           `Chat.css`의 `html:not(.native)`와 한 쌍이다 — 한쪽만 고치지 말 것.
-           키보드가 내려가 목록이 커지는 것은 앱에서도 같으므로 `settleList`는
-           그대로 부른다(iOS는 넘어간 `scrollTop`을 스스로 안 당겨 준다). */
-        if (IS_NATIVE) {
-            if (closing) settleList();
-            s.wasOpen = open;
-            return;
-        }
 
         // 붙박아 둔 동안에는 화면 크기를 건드리지 않는다. 가로세로를 돌리면
         // 그때는 다시 재야 하므로 폭이 바뀐 것은 예외로 둔다.
@@ -747,6 +737,104 @@ export function Chat() {
             if (closing) settleList();
             s.wasOpen = false;
         }
+    }, [settleList]);
+
+    /**
+     * **앱: 키보드와 같은 박자로 대화 화면을 움직인다.**
+     *
+     * `resize: 'native'`는 키보드가 미는 문제를 없애 줬지만, **엇박자가
+     * 남았다**(사용자 제보 — `메시지창을 누르면 키보드가 뜨고 그 후에
+     * 메시지창이 떠 · 내려갈 때도 뭔가 엇박자야`).
+     *
+     * **원인은 우리 코드가 아니라 플러그인의 타이밍이다.** `Keyboard.m`을
+     * 읽어 보면 그대로 적혀 있다:
+     *
+     *   열 때  `delay = 키보드 애니메이션 시간 + 0.2` 뒤에 창을 줄인다
+     *   닫을 때 `delay = 0.01` — 거의 즉시 창을 늘린다
+     *
+     * 키보드는 0.25초에 걸쳐 올라오는데 창은 **0.45초 뒤에 툭** 줄어들고,
+     * 내릴 때는 반대로 **창이 먼저 늘어나고** 키보드가 뒤늦게 사라진다.
+     * 그 어긋남이 눈에 보인 것이다.
+     *
+     * 그래서 **플러그인이 창을 줄이기 전까지의 틈을 우리가 메운다.**
+     * 플러그인은 `keyboardWillShow`를 **애니메이션이 시작하는 그 순간**
+     * 알려 주므로(늦는 것은 창을 줄이는 일뿐이다) 그때 우리가 먼저 줄인다.
+     *
+     * 셈은 한 줄이다 — **아직 창이 안 먹은 만큼만 우리가 먹는다:**
+     *
+     *   메울 몫 = 키보드 높이 − (원래 높이 − 지금 창 높이)
+     *
+     * 열 때는 0.45초 동안 우리가 다 메우다가, 창이 줄어드는 순간 몫이 0이
+     * 되어 **높이가 한 픽셀도 안 바뀐다**(그래서 그 자리에서 안 튄다).
+     * 닫을 때는 창이 먼저 늘어나므로 높이가 한 번에 커지는데, CSS가 그것을
+     * 0.25초에 걸쳐 펴 줘 키보드가 내려가는 속도와 맞는다.
+     *
+     * **높이를 한 값(`--chat-h`)으로만 몬다.** `100dvh`와 `--kb`를 함께
+     * 쓰면 창이 줄어드는 그 프레임에 둘이 따로 바뀌어 한 번 튄다.
+     * `Chat.css`의 `html.native .chat`과 한 쌍이다 — 한쪽만 고치지 말 것.
+     */
+    useEffect(() => {
+        if (!IS_NATIVE) return;
+        const root = document.documentElement;
+        /** 키보드가 없을 때의 창 높이. 다 닫힌 뒤에 다시 잰다. */
+        let base = root.clientHeight;
+        /** 키보드가 가릴 높이(플러그인이 알려 준 값). */
+        let want = 0;
+        const paint = () => {
+            const now = root.clientHeight;
+            const eaten = Math.max(0, base - now);       // 창이 이미 줄어든 만큼
+            const gap = Math.max(0, want - eaten);       // 아직 우리가 메울 몫
+            root.style.setProperty('--chat-h', `${now - gap}px`);
+        };
+        const open = (on: boolean) => {
+            document.body.classList.toggle('kb-open', on);
+            root.classList.toggle('kb-open', on);
+        };
+
+        paint();
+        const onResize = () => paint();
+        window.visualViewport?.addEventListener('resize', onResize);
+        window.addEventListener('resize', onResize);
+
+        let drop: Array<() => void> = [];
+        let dead = false;
+        void (async () => {
+            /* `addListener`는 이름마다 형이 갈려 있어 **하나로 묶어 부를 수
+               없다**(묶으면 타입 검사가 막는다). 넷을 그냥 나란히 건다. */
+            const { Keyboard } = await import('@capacitor/keyboard');
+            const hs = await Promise.all([
+                Keyboard.addListener('keyboardWillShow', info => {
+                    want = info?.keyboardHeight ?? 0;
+                    open(true);
+                    paint();
+                }),
+                Keyboard.addListener('keyboardWillHide', () => {
+                    want = 0; open(false); paint();
+                }),
+                Keyboard.addListener('keyboardDidShow', () => paint()),
+                /* 다 닫히고 나서 원래 높이를 다시 잰다 — 상태 막대나
+                   가로세로가 바뀌었을 수 있다. 목록이 커진 만큼 굴러간
+                   자리도 그때 앉힌다. */
+                Keyboard.addListener('keyboardDidHide', () => {
+                    want = 0;
+                    base = root.clientHeight;
+                    paint();
+                    settleList();
+                }),
+            ]);
+            if (dead) { hs.forEach(h => { void h.remove(); }); return; }
+            drop = hs.map(h => () => { void h.remove(); });
+        })();
+
+        return () => {
+            dead = true;
+            drop.forEach(f => f());
+            drop = [];
+            window.visualViewport?.removeEventListener('resize', onResize);
+            window.removeEventListener('resize', onResize);
+            root.style.removeProperty('--chat-h');
+            open(false);
+        };
     }, [settleList]);
 
     /** 한 프레임에 한 번만 재도록 모은다. 끄는 동안 이벤트가 쏟아진다. */
