@@ -1,0 +1,145 @@
+name: 아이폰 앱 (TestFlight)
+
+# 맥 없이 아이폰 앱을 만들어 TestFlight로 보낸다.
+# **저장소가 공개라 GitHub의 macOS 러너가 공짜다** — 그게 맥을 안 사도 되는
+# 까닭이다. 절차와 넣을 비밀값은 `docs/출시-전-할일.md` 0-3번에 있다.
+#
+# **웹 화면만 고칠 때는 이걸 돌릴 필요가 없다.** 지금은 확인용 껍데기라
+# 앱이 웹 주소를 그대로 띄우므로(`capacitor.config.ts`의 `server.url`),
+# 화면 고침은 밀기만 하면 폰에서 바로 보인다. 이 워크플로가 필요한 때는
+# **앱 쪽(껍데기)이 바뀌었을 때**뿐이다.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'capacitor.config.ts'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+# 두 판이 겹치면 TestFlight에 같은 번호가 두 번 올라가 뒤엣것이 거절된다.
+concurrency:
+  group: ios
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # **비밀값이 없으면 조용히 지나간다** — 아직 안 넣어 두었을 때
+      # 빨간 X만 쌓이면 안 된다. 다만 단추를 눌러 손으로 돌린 것은
+      # 알고 싶어서 누른 것이므로 그때는 또렷이 알린다.
+      - id: keys
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          KEY_P8: ${{ secrets.APPSTORE_KEY_P8 }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$KEY_ID" ] && [ -n "$ISSUER_ID" ] && [ -n "$KEY_P8" ] && [ -n "$TEAM_ID" ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::애플 비밀값 넷이 다 있어야 합니다 (APPSTORE_KEY_ID · APPSTORE_ISSUER_ID · APPSTORE_KEY_P8 · APPLE_TEAM_ID). docs/출시-전-할일.md 0-3번 참고."
+            exit 1
+          else
+            echo "::notice::애플 비밀값이 아직 없어 건너뜁니다."
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.keys.outputs.ready == 'yes'
+        with:
+          node-version: '22'
+          cache: npm
+
+      - if: steps.keys.outputs.ready == 'yes'
+        run: npm ci
+
+      # 지금은 껍데기라 이 결과가 앱에 안 담기지만, `cap sync`가 `dist`를
+      # 찾으므로 만들어 둔다. 출시용으로 바꾸면 이게 그대로 앱에 들어간다.
+      - name: 웹 빌드
+        if: steps.keys.outputs.ready == 'yes'
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      # 플러그인을 iOS 쪽에 물리고 CocoaPods를 받는다.
+      - name: 앱 껍데기 맞추기
+        if: steps.keys.outputs.ready == 'yes'
+        run: npx cap sync ios
+
+      # `xcodebuild`가 인증서와 프로비저닝을 **스스로 만들어 받는다**
+      # (`-allowProvisioningUpdates`). 맥에서 손으로 만들어 옮길 필요가
+      # 없는 것이 이 방식을 고른 까닭이다.
+      - name: 애플 열쇠 놓기
+        if: steps.keys.outputs.ready == 'yes'
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          KEY_P8: ${{ secrets.APPSTORE_KEY_P8 }}
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s' "$KEY_P8" > ~/private_keys/AuthKey_$KEY_ID.p8
+          chmod 600 ~/private_keys/AuthKey_$KEY_ID.p8
+
+      - name: 아카이브
+        if: steps.keys.outputs.ready == 'yes'
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -o pipefail
+          cd ios/App
+          xcodebuild archive \
+            -workspace App.xcworkspace -scheme App \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_$KEY_ID.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
+
+      # **빌드 번호는 올릴 때마다 달라야 한다** — 같은 번호를 두 번 올리면
+      # 애플이 거절한다. `github.run_number`가 저절로 하나씩 오르므로
+      # 사람이 챙길 것이 없다(위 아카이브 단계에서 함께 준다).
+      - name: TestFlight로 보내기
+        if: steps.keys.outputs.ready == 'yes'
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -o pipefail
+          cat > "$RUNNER_TEMP/Export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+            <key>destination</key><string>upload</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/Export.plist" \
+            -exportPath "$RUNNER_TEMP/out" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_$KEY_ID.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      - name: 열쇠 지우기
+        if: always()
+        run: rm -rf ~/private_keys

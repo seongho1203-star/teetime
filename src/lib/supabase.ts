@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { Capacitor } from '@capacitor/core';
 import type { Database } from './types';
 
 /**
@@ -52,15 +53,45 @@ export const supabase = createClient<Database>(
  * 참고: supabase/supabase#36878 — 개인 개발자가 카카오 로그인을 못 쓰는 문제로
  * 열려 있다. 그쪽이 고쳐지면 이 전환은 필요 없어진다.
  */
+/**
+ * 앱(Capacitor)에서 로그인을 마치고 돌아올 주소.
+ *
+ * **앱 안에서는 카카오가 로그인을 막는다** — 앱에 박힌 웹 화면(웹뷰)에서
+ * 들어오는 로그인을 카카오가 거절하기 때문이다. 그래서 앱에서는 로그인만
+ * **바깥 브라우저로 내보내고**, 끝나면 이 주소로 앱을 다시 부른다.
+ * 받는 곳은 `lib/native.ts`다.
+ *
+ * **카카오 콘솔은 안 건드려도 된다** — 카카오가 보는 것은 늘 Supabase의
+ * 콜백 주소 하나뿐이고, 이 스킴은 그 **뒤에** Supabase가 우리를 부를 때만
+ * 쓰인다. 그래서 등록할 곳은 **Supabase의 Redirect URLs 한 곳**이다
+ * (`docs/출시-전-할일.md` 0-3번).
+ */
+export const NATIVE_REDIRECT = 'kkakkung://auth';
+
 export async function signInWithKakao() {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const native = Capacitor.isNativePlatform();
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'kakao',
         options: {
-            redirectTo: window.location.origin + window.location.pathname,
+            redirectTo: native
+                ? NATIVE_REDIRECT
+                : window.location.origin + window.location.pathname,
             scopes: 'profile_nickname profile_image',
+            // 앱에서는 웹뷰를 옮기지 않는다 — 주소만 받아서 바깥 브라우저로
+            // 연다. 이게 없으면 웹뷰 안에서 열려 카카오가 막는다.
+            skipBrowserRedirect: native,
         },
     });
     if (error) throw error;
+
+    if (native && data?.url) {
+        // **`window.open`이 아니라 이 플러그인이어야 한다** — 아이폰에서
+        // 사파리 창(SFSafariViewController)으로 떠서 카카오가 정상 브라우저로
+        // 봐 준다. 무겁지 않게 native일 때만 불러온다.
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: data.url });
+    }
 }
 
 export async function signOut() {
