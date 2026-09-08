@@ -7,7 +7,7 @@ import { needsProfile } from './lib/types';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { TabBar } from './components/TabBar';
-import { useTabSlide, useTabSwipe } from './lib/tabs';
+import { useBackSwipe, useScreenSlide } from './lib/tabs';
 
 import { Login } from './screens/Login';
 import { Pending } from './screens/Pending';
@@ -44,12 +44,14 @@ import { Help } from './screens/Help';
 function Gate() {
     const { session, profile, isMember, loading } = useAuth();
 
-    /* 탭을 **밀어서 옮기고**, 옮길 때 새 화면이 미끄러져 들어오게 한다
-       (`lib/tabs.ts`). 훅은 아래 갈림길들보다 **먼저** 불러야 한다 —
-       렌더마다 같은 차례로 돌아야 하기 때문이다. */
+    /* **오른쪽으로 밀면 뒤로 가고**, 화면에 들고 날 때 미끄러져 들어온다
+       (`lib/tabs.ts`). 탭 사이를 미는 기능은 사용자 요청으로 걷어냈다 —
+       되살리지 말 것(그 파일 머리말에 내력이 있다).
+       훅은 아래 갈림길들보다 **먼저** 불러야 한다 — 렌더마다 같은 차례로
+       돌아야 하기 때문이다. */
     const appRef = useRef<HTMLDivElement>(null);
-    useTabSwipe();
-    useTabSlide(appRef);
+    useBackSwipe();
+    useScreenSlide(appRef);
 
     if (!isConfigured) return <Setup />;
 

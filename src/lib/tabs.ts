@@ -2,19 +2,21 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 
 /**
- * 탭 사이를 **밀어서 옮긴다**(사용자 요청 — `메뉴간 스와이프기능 만들어줘`).
+ * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
+ * 오른쪽으로 스와이프`). 아이폰의 그 손짓과 방향이 같다.
  *
- * ── **한 번 걷어냈다가 되살린 기능이다. 그 까닭을 알고 있을 것** ──────
+ * ── **탭 사이를 미는 기능은 없다. 되살리지 말 것** ──────────────────
  *
- * 예전에도 있었는데 **아이폰에서 좌우가 다르게 느껴진다**는 제보로 뺐었다.
- * 원인은 우리 코드가 아니었다 — 코드는 양쪽이 대칭인데, **사파리는 왼쪽
- * 가장자리에서 미는 '뒤로 가기'에만 제 애니메이션을 붙여 준다.** 그 한
- * 방향만 부드러워 나머지가 더 도드라졌다.
+ * 두 번 넣었다가 두 번 다 걷어냈다:
+ *  1. 처음에는 **아이폰에서 좌우가 다르게 느껴진다**는 제보였다. 원인은 우리
+ *     코드가 아니었다 — 코드는 대칭인데, **사파리는 왼쪽 가장자리에서 미는
+ *     '뒤로 가기'에만 제 애니메이션을 붙여 준다.**
+ *  2. 앱에는 그 손짓이 없어 대칭이 되므로 다시 넣었는데, 실기기에서 써 보고
+ *     **사용자가 지웠다**(`탭바 슬라이딩은 삭제해줘. 뒤로가기는 놔두고`).
+ *     탭을 옮기는 일은 탭바가 맡는다.
  *
- * **앱(Capacitor)에는 그 뒤로 가기 손짓이 없다.** 그래서 이번에는 좌우가
- * 정말로 대칭이고, 예전에 뺐던 이유가 사라졌다. 웹에서도 같이 돌지만
- * 거기서는 예전의 그 어긋남이 남아 있다 — **되살릴지 다시 물을 일이
- * 생기면 이 문단을 볼 것.**
+ * 그래서 지금 미는 손짓은 **뒤로 가기 하나뿐**이고, 화면이 미끄러져 들어오는
+ * 것도 **드나들 때만**이다(탭 사이는 안 움직인다).
  *
  * ── 무엇을 안 건드리는가 ─────────────────────────────────────
  *
@@ -27,7 +29,9 @@ import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
  *   - 화면을 덮는 창 — 길게 누른 창·프로필 카드·확인창.
  */
 
-/** 탭바와 **같은 순서여야 한다**(`components/TabBar.tsx`). 한쪽만 고치지 말 것. */
+/** 탭바와 **같은 순서여야 한다**(`components/TabBar.tsx`). 한쪽만 고치지 말 것.
+ *  여기서는 **'이 화면이 탭인가'를 가리는 데만** 쓴다 — 탭 화면에서는
+ *  뒤로 갈 데가 없으므로 미는 손짓을 안 받는다. */
 export const TAB_PATHS = ['/', '/board', '/rounds', '/polls', '/chat'];
 
 /** 손짓이 이미 임자가 있는 자리에서 시작했는가. */
@@ -53,12 +57,15 @@ function taken(from: EventTarget | null): boolean {
 const MIN_X = 60;
 const SLOPE = 1.6;
 
-export function useTabSwipe(): void {
+export function useBackSwipe(): void {
     const nav = useNavigate();
     const { pathname } = useLocation();
-    const at = TAB_PATHS.indexOf(pathname);
+    const onTab = TAB_PATHS.includes(pathname);
 
     useEffect(() => {
+        // 탭 화면에서는 뒤로 갈 데가 없다.
+        if (onTab) return;
+
         let x0 = 0, y0 = 0, live = false;
 
         const start = (e: TouchEvent) => {
@@ -73,20 +80,9 @@ export function useTabSwipe(): void {
             const t = e.changedTouches[0];
             if (!t) return;
             const dx = t.clientX - x0, dy = t.clientY - y0;
-            if (Math.abs(dx) < MIN_X || Math.abs(dx) < Math.abs(dy) * SLOPE) return;
-
-            /* **상세 화면에서는 오른쪽으로 밀면 뒤로 간다**(사용자 요청 —
-               `내정보를 들어갔다가 왼쪽에서 오른쪽으로 스와이프`). 아이폰의
-               그 손짓과 방향이 같다. 왼쪽으로 미는 것은 앞으로 갈 데가
-               없으므로 아무 일도 안 한다. */
-            if (at < 0) {
-                if (dx > 0) nav(-1);
-                return;
-            }
-
-            const to = at + (dx < 0 ? 1 : -1);
-            if (to < 0 || to >= TAB_PATHS.length) return;
-            nav(TAB_PATHS[to]);
+            // 오른쪽으로 그은 것만 받는다. 왼쪽은 앞으로 갈 데가 없다.
+            if (dx < MIN_X || dx < Math.abs(dy) * SLOPE) return;
+            nav(-1);
         };
 
         /* **`preventDefault`를 부르지 않는다** — 세로 스크롤을 막으면 안 되고,
@@ -97,12 +93,14 @@ export function useTabSwipe(): void {
             document.removeEventListener('touchstart', start);
             document.removeEventListener('touchend', end);
         };
-    }, [at, nav]);
+    }, [onTab, nav]);
 }
 
 /**
- * 탭이 바뀌면 새 화면이 **옮겨 온 쪽에서 미끄러져 들어온다**
- * (사용자 요청 — `메뉴이동시 부드럽게 이동될수있게`).
+ * 화면에 **들어가고 나올 때** 새 화면이 온 쪽에서 미끄러져 들어온다.
+ *
+ * **탭 사이는 안 움직인다**(사용자 요청 — 위 참고). 탭은 나란히 있는 것이라
+ * 눌러서 곧바로 바뀌는 편이 낫다는 판단이다.
  *
  * **`transform`과 `opacity`만 움직이고 한 번 돌고 끝난다** — 늘 켜져 있는
  * 그리기 비용이 안드로이드에서 화면을 끊기게 한다는 규칙 그대로다.
@@ -110,31 +108,26 @@ export function useTabSwipe(): void {
  * 사이에 무엇을 끼우면 `.page`의 `flex: 1`이 어긋난다. 대신 `.app`에
  * 방향을 적어 두고 **첫 자식**(=지금 화면)만 CSS가 움직인다.
  */
-export function useTabSlide(ref: RefObject<HTMLElement | null>): void {
+export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
     const { pathname } = useLocation();
     const how = useNavigationType();      // PUSH(들어감) · POP(뒤로) · REPLACE
     const prev = useRef(pathname);
 
     useLayoutEffect(() => {
-        const from = TAB_PATHS.indexOf(prev.current);
-        const to = TAB_PATHS.indexOf(pathname);
+        const wasTab = TAB_PATHS.includes(prev.current);
+        const isTab = TAB_PATHS.includes(pathname);
         const same = prev.current === pathname;
         prev.current = pathname;
 
         const el = ref.current;
         if (!el || same) return;
+        // **탭 사이는 안 움직인다.**
+        if (wasTab && isTab) return;
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-        /* **탭 사이와 화면 드나들기를 갈라 놓는다.**
-           탭은 나란히 있는 것이라 살짝(16px)만 움직이고, 화면에 들어가고
-           나오는 것은 **깊이가 바뀌는 일**이라 더 크게(40px) 움직인다 —
-           아이폰이 그렇게 갈라 놓았고, 그래야 '옆으로 옮겼나 안으로
-           들어갔나'가 눈에 바로 읽힌다. */
-        const cls =
-            from >= 0 && to >= 0 ? (to > from ? 'slide-l' : 'slide-r')
-            : how === 'POP' ? 'slide-back'      // 뒤로 — 왼쪽에서 들어온다
-            : 'slide-in';                       // 들어감 — 오른쪽에서 들어온다
-        el.classList.remove('slide-l', 'slide-r', 'slide-in', 'slide-back');
+        const cls = how === 'POP' ? 'slide-back'   // 뒤로 — 왼쪽에서 들어온다
+                                  : 'slide-in';    // 들어감 — 오른쪽에서 들어온다
+        el.classList.remove('slide-in', 'slide-back');
         void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
         el.classList.add(cls);
         const off = window.setTimeout(() => el.classList.remove(cls), 300);

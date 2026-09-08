@@ -50,33 +50,21 @@ h1, h2, h3, h4, p { margin: 0; }
     flex-direction: column;
 }
 
-/* ── 탭을 옮길 때 새 화면이 미끄러져 들어온다 ────────────────────
+/* ── 화면에 들고 날 때 미끄러져 들어온다 ────────────────────────
    손짓과 방향 판단은 `lib/tabs.ts`가 하고, 여기서는 그리기만 한다.
+
+   **탭 사이는 안 움직인다**(사용자 요청 — `탭바 슬라이딩은 삭제해줘`).
+   탭은 나란히 있는 것이라 눌러서 곧바로 바뀌는 편이 낫다는 판단이다.
+   그 규칙(`tab-slide-*`)은 통째로 걷어냈다 — 되살리지 말 것.
 
    **감싸는 칸을 새로 만들지 않았다** — `.app`이 flex 기둥이라 사이에
    무엇을 끼우면 `.page`의 `flex: 1`이 어긋난다. 대신 `.app`에 방향을
    적어 두고 **첫 자식**(=지금 화면)만 움직인다. 탭바는 마지막 자식이라
-   가만히 있는다 — 카톡·밴드도 막대는 안 움직인다.
+   가만히 있는다.
 
-   **`transform`과 `opacity`만 쓰고 한 번 돌고 끝난다.** 늘 켜져 있는
-   그리기 비용이 안드로이드에서 화면을 끊기게 한다는 규칙 그대로다.
-   길이를 늘리지 말 것 — 0.2초가 넘어가면 빠릿한 맛이 사라진다. */
-@keyframes tab-slide-l {
-    from { transform: translate3d(16px, 0, 0); opacity: .4; }
-    to   { transform: none; opacity: 1; }
-}
-@keyframes tab-slide-r {
-    from { transform: translate3d(-16px, 0, 0); opacity: .4; }
-    to   { transform: none; opacity: 1; }
-}
-.app.slide-l > :first-child { animation: tab-slide-l 200ms ease-out; }
-.app.slide-r > :first-child { animation: tab-slide-r 200ms ease-out; }
-
-/* 화면에 **들어가고 나오는 것**은 탭 사이보다 크게 움직인다 — 옆으로
-   옮긴 것과 안으로 들어간 것이 눈에 갈려야 하기 때문이다(아이폰도 그렇게
-   갈라 놓았다). `slide-in`은 오른쪽에서 들어오고(눌러서 들어감),
-   `slide-back`은 왼쪽에서 들어온다(뒤로 가기 — 오른쪽으로 미는 그 손짓과
-   방향이 같다). 여기도 `transform`·`opacity`만, 한 번 돌고 끝난다. */
+   `slide-in`은 오른쪽에서 들어오고(눌러서 들어감), `slide-back`은 왼쪽에서
+   들어온다(뒤로 가기 — 오른쪽으로 미는 그 손짓과 방향이 같다).
+   **`transform`과 `opacity`만 쓰고 한 번 돌고 끝난다.** */
 @keyframes screen-in {
     from { transform: translate3d(40px, 0, 0); opacity: 0; }
     to   { transform: none; opacity: 1; }
