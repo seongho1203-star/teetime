@@ -228,6 +228,17 @@ body.kb-typing .page { padding-bottom: var(--gap); }
 body.kb-typing .form-actions,
 body.kb-typing .round-actions { bottom: 0; }
 
+/* **끌어 올릴 때 얼마나 띄울지**(`lib/keyboard.ts`의 `reveal`).
+   `scrollIntoView({block:'nearest'})`는 칸을 화면 끝에 딱 붙여 놓는데,
+   그러면 **칸 아래에 붙는 `등록` 단추가 키보드에 잘린다.** 아래를 넉넉히
+   띄워 그 줄까지 함께 올라오게 한다. 위쪽도 조금 띄워 머리말에 안 닿게 한다. */
+body.kb-typing input,
+body.kb-typing textarea,
+body.kb-typing [contenteditable] {
+    scroll-margin-bottom: 64px;
+    scroll-margin-top: 16px;
+}
+
 /* ── 한 화면 안에서 보기를 바꾸는 탭 ──────────────────────────
  *
  * 투표 현황(`항목별 · 멤버별 · 미참여`)과 정산 현황(`내가 올린 것 · 전체`)이

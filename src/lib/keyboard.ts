@@ -83,15 +83,64 @@ export function useKeyboardChrome(): void {
             (document.activeElement as HTMLElement | null)?.blur();
         };
 
-        document.addEventListener('focusin', onFocusIn);
+        /**
+         * **키보드가 가린 자리에 있는 칸을 끌어 올린다**(사용자 제보 —
+         * `댓글쓰는창이 키보드가 가려서 볼수가없어`).
+         *
+         * 브라우저는 초점이 갈 때 한 번 굴려 주는데, **화면이 줄어드는 것은
+         * 그 뒤**다 — 앱은 `resize: 'native'`라 웹뷰가 나중에 줄고(플러그인이
+         * 0.45초 늦춘다), 그때 다시 굴려 주지는 않는다. 그래서 초점이 갈
+         * 때는 보이던 칸이 **키보드가 다 올라오고 나면 그 아래로 내려간다.**
+         * 재 보니 댓글 칸이 보이는 화면보다 165px 아래에 있었다.
+         *
+         * **`block: 'nearest'`라 이미 보이면 아무 일도 안 한다** — 사람이
+         * 굴려 둔 자리를 빼앗지 않는다. 얼마나 띄울지는 CSS의
+         * `scroll-margin`이 정한다(`.kb-typing` 규칙) — 칸 아래에 붙는
+         * `등록` 단추까지 함께 보이게 하려는 것이다.
+         *
+         * **부드럽게 굴리지 않는다.** 키보드가 올라오는 그 순간이라
+         * 느린 폰에서는 그대로 끊긴다.
+         */
+        const reveal = () => {
+            const el = document.activeElement;
+            if (!typingIn(el)) return;
+            (el as HTMLElement).scrollIntoView({ block: 'nearest' });
+        };
+        /* **여러 번 부른다 — 화면이 한 번에 줄지 않기 때문이다.**
+           초점이 간 다음 프레임에 한 번, 창이 줄어들 때마다 한 번,
+           그리고 다 올라왔을 때쯤 한 번 더(플러그인이 0.45초 늦는다).
+           `nearest`라 이미 보이는 판에서는 다 헛걸음이라 값이 싸다. */
+        let timers: number[] = [];
+        const revealSoon = () => {
+            timers.forEach(clearTimeout);
+            timers = [0, 350, 650].map(ms => window.setTimeout(reveal, ms));
+        };
+
+        const onFocusInAll = (e: FocusEvent) => {
+            onFocusIn(e);
+            if (!onChat && typingIn(e.target as Element)) revealSoon();
+        };
+        const onResize = () => {
+            if (onChat) return;
+            if (body.classList.contains('kb-typing')) reveal();
+        };
+
+        document.addEventListener('focusin', onFocusInAll);
         document.addEventListener('focusout', onFocusOut);
-        if (!onChat) document.addEventListener('pointerdown', onDown, true);
+        if (!onChat) {
+            document.addEventListener('pointerdown', onDown, true);
+            window.addEventListener('resize', onResize);
+            window.visualViewport?.addEventListener('resize', onResize);
+        }
 
         return () => {
-            document.removeEventListener('focusin', onFocusIn);
+            document.removeEventListener('focusin', onFocusInAll);
             document.removeEventListener('focusout', onFocusOut);
             document.removeEventListener('pointerdown', onDown, true);
+            window.removeEventListener('resize', onResize);
+            window.visualViewport?.removeEventListener('resize', onResize);
             if (off !== null) clearTimeout(off);
+            timers.forEach(clearTimeout);
             /* 화면을 옮길 때는 남기지 않는다 — 남으면 탭바가 사라진 채로 굳는다. */
             mark(false);
         };

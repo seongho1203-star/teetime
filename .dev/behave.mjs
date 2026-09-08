@@ -218,6 +218,50 @@ ok(patch && !('closes_at' in patch),
  * **`내가 고른 것이 접힌 자리에 있으면 아예 펴 둔다`도 함께 본다** —
  * 안 그러면 이미 던져 놓고 무엇을 골랐는지 몰라 또 들어가게 된다.
  */
+/* ── 2-0. 키보드가 댓글 칸을 가리지 않는가 ──────────────────────
+ *
+ * 사용자 제보 — `투표와 라운드에서 댓글을 쓰려고 누르면 키보드가 올라오는데
+ * 댓글쓰는창이 키보드가 가려서 볼수가없어`.
+ *
+ * **브라우저는 초점이 갈 때 한 번 굴려 주는데, 화면이 줄어드는 것은 그
+ * 뒤다** — 앱은 `resize: 'native'`라 웹뷰가 나중에 줄고(플러그인이 0.45초
+ * 늦춘다) 그때 다시 굴려 주지는 않는다. 그래서 누를 때는 보이던 칸이
+ * 키보드가 다 올라오고 나면 그 아래로 내려간다. 고치기 전에 재니 댓글
+ * 칸이 보이는 화면보다 **165px 아래**에 있었다.
+ *
+ * **여기서는 창을 줄여 키보드를 흉내 낸다** — 헤드리스에 키보드는 없지만
+ * `resize: 'native'`가 하는 일은 그것뿐이라 같은 길을 탄다.
+ * `lib/keyboard.ts`의 `reveal`을 빼면 두 줄이 다시 빨갛게 뜬다.
+ */
+console.log('\n── 키보드가 댓글 칸을 안 가린다 ──');
+{
+    const KB = 336;   // 아이폰 한글 자판 높이쯤
+    for (const [what, route] of [['투표 상세', '/#/polls/p1'], ['라운드 상세', '/#/rounds/r1']]) {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await go(route, 800);
+        const ta = await page.$('.comment-field .textarea');
+        await ta.scrollIntoViewIfNeeded();
+        await ta.click();
+        await page.waitForTimeout(150);
+        // 키보드가 올라오면 웹뷰가 그만큼 줄어든다.
+        await page.setViewportSize({ width: 390, height: 844 - KB });
+        await page.waitForTimeout(800);
+        const v = await page.evaluate(() => {
+            const t = document.querySelector('.comment-field .textarea').getBoundingClientRect();
+            const btn = document.querySelector('.comment-write .btn')?.getBoundingClientRect();
+            const H = window.innerHeight;
+            return {
+                칸: [Math.round(t.top), Math.round(t.bottom)], 창높이: H,
+                칸보임: t.top >= 0 && t.bottom <= H,
+                등록보임: !btn || (btn.top >= 0 && btn.bottom <= H),
+            };
+        });
+        ok(v.칸보임, `${what} — 댓글 칸이 키보드 위로 올라온다 (실제 ${JSON.stringify(v)})`);
+        ok(v.등록보임, `${what} — 옆의 \`등록\`까지 함께 보인다 (실제 ${JSON.stringify(v)})`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+}
+
 console.log('\n── 투표 목록이 길어지지 않는다 ──');
 await go('/#/polls', 700);
 {
