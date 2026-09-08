@@ -62,27 +62,40 @@ function ensureAudio(): HTMLAudioElement {
  * 소리를 끄고 한 번 재생했다 바로 멈춘다 — 사람 귀에는 아무것도 안
  * 들리지만 iOS는 '이 요소는 손짓 안에서 울렸다'고 기억한다.
  * **`once`로 한 번만 듣는다** — 누를 때마다 돌 이유가 없다.
+ *
+ * ── **여기서는 소리를 절대 되돌리지 않는다** ──────────────────
+ *
+ * 예전에는 `pause()` 뒤에 `muted`를 풀었는데, **앱(WKWebView)에서 앱을
+ * 처음 켜고 대화를 누르면 `까꿍`의 뒷부분(`꿍`)이 실제로 났다**(사용자
+ * 제보). iOS는 `play()` 직후에 부른 `pause()`를 **아직 재생이 시작되지
+ * 않았다고 보고 무시할 때가 있다** — 그러면 소리는 계속 흐르는데 바로
+ * 다음 줄에서 음소거가 풀려 중간부터 들린다. 들린 것이 앞이 아니라
+ * 뒤(`꿍`)였던 것이 그 증거다.
+ *
+ * 그래서 **음소거를 푸는 일은 `playDing()`에게만 맡긴다.** 여기서는
+ * 켜 두기만 하므로, `pause()`가 무시되더라도 끝까지 소리가 안 난다.
+ * **`muted`를 되돌리는 줄을 다시 넣지 말 것.**
  */
 function unlock() {
     if (tried || unlocked || unlocking) return;
     unlocking = true;
     const a = ensureAudio();
+    // 둘 다 건다 — 한쪽을 안 지키는 기기가 있어도 나머지가 막는다.
     a.muted = true;
+    a.volume = 0;
     a.play().then(() => {
         unlocking = false;
         /* **그새 진짜 소리가 시작됐으면 멈추지 않는다.**
            `pointerdown`은 `click`보다 **먼저** 오므로, 누름 하나로 여기가
            먼저 돌고 뒤이어 진짜 소리가 날 수 있다 — 그때 아래 `pause()`를
            그대로 부르면 **방금 난 소리를 스스로 끈다.** 실제로 겪은 일이다. */
-        if (tried) { a.muted = false; return; }
+        if (tried) return;
         a.pause();
         a.currentTime = 0;
-        a.muted = false;
         unlocked = true;
     }).catch(() => {
         // 여기서 막히면 아직 못 푼 것이다. 다음 손짓에 다시 해 본다.
         unlocking = false;
-        a.muted = false;
     });
 }
 
@@ -104,7 +117,9 @@ export function playDing() {
     tried = true;
     try {
         const a = ensureAudio();
+        // **소리를 되살리는 곳은 여기 하나뿐이다**(위 `unlock` 주석 참고).
         a.muted = false;
+        a.volume = 1;
         a.currentTime = 0;
         a.play().then(() => { unlocked = true; })
                 .catch(() => { /* 아직 안 풀렸거나 폰이 무음이다 */ });

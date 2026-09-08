@@ -50,6 +50,28 @@ h1, h2, h3, h4, p { margin: 0; }
     flex-direction: column;
 }
 
+/* ── 탭을 옮길 때 새 화면이 미끄러져 들어온다 ────────────────────
+   손짓과 방향 판단은 `lib/tabs.ts`가 하고, 여기서는 그리기만 한다.
+
+   **감싸는 칸을 새로 만들지 않았다** — `.app`이 flex 기둥이라 사이에
+   무엇을 끼우면 `.page`의 `flex: 1`이 어긋난다. 대신 `.app`에 방향을
+   적어 두고 **첫 자식**(=지금 화면)만 움직인다. 탭바는 마지막 자식이라
+   가만히 있는다 — 카톡·밴드도 막대는 안 움직인다.
+
+   **`transform`과 `opacity`만 쓰고 한 번 돌고 끝난다.** 늘 켜져 있는
+   그리기 비용이 안드로이드에서 화면을 끊기게 한다는 규칙 그대로다.
+   길이를 늘리지 말 것 — 0.2초가 넘어가면 빠릿한 맛이 사라진다. */
+@keyframes tab-slide-l {
+    from { transform: translate3d(16px, 0, 0); opacity: .4; }
+    to   { transform: none; opacity: 1; }
+}
+@keyframes tab-slide-r {
+    from { transform: translate3d(-16px, 0, 0); opacity: .4; }
+    to   { transform: none; opacity: 1; }
+}
+.app.slide-l > :first-child { animation: tab-slide-l 200ms ease-out; }
+.app.slide-r > :first-child { animation: tab-slide-r 200ms ease-out; }
+
 /* 상태바 뒤에 바탕색을 깔아 둔다.
    비워 두면 스크롤한 글이 상태바 아래로 지나가고, iOS가 그 위에 반투명
    막을 씌워 **위쪽만 뿌옇게** 보인다. 평평한 색 한 겹이면 그 얼룩이 없어진다.

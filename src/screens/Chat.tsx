@@ -17,6 +17,7 @@ import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
+import { IS_NATIVE } from '../lib/native';
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -682,6 +683,20 @@ export function Chat() {
         document.body.classList.toggle('kb-open', open);
         // 문서를 굴리는 주체는 브라우저마다 다르다(iOS는 html). 둘 다 잠근다.
         document.documentElement.classList.toggle('kb-open', open);
+
+        /* **앱에서는 여기서 끝난다.** `resize: 'native'`가 웹뷰 자체를 줄여
+           주므로 `.chat`은 이미 보이는 높이에 딱 맞다 — `--vvh`·`--kb`를
+           적어 자리를 한 번 더 잡으면 그 두 번째가 눈에 보인다(`키보드가
+           먼저 뜨고 대화창이 뒤따라 뜬다`는 사용자 제보). 탭바를 감추는
+           `kb-open`만 남기고 나머지는 웹뷰에 맡긴다.
+           `Chat.css`의 `html:not(.native)`와 한 쌍이다 — 한쪽만 고치지 말 것.
+           키보드가 내려가 목록이 커지는 것은 앱에서도 같으므로 `settleList`는
+           그대로 부른다(iOS는 넘어간 `scrollTop`을 스스로 안 당겨 준다). */
+        if (IS_NATIVE) {
+            if (closing) settleList();
+            s.wasOpen = open;
+            return;
+        }
 
         // 붙박아 둔 동안에는 화면 크기를 건드리지 않는다. 가로세로를 돌리면
         // 그때는 다시 재야 하므로 폭이 바뀐 것은 예외로 둔다.

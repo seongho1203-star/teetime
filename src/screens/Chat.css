@@ -700,8 +700,8 @@
     /* **카톡 안에서의 비율로 맞춘다** — 글꼴이 서로 달라 잉크를 그대로
        견주면 안 되고(헤드리스에서는 우리 글꼴이 CDN에서 안 와 더 그렇다),
        같은 화면 안에서 '이름 : 말풍선 글자'가 얼마인가는 글꼴과 무관하다.
-       카톡이 10.0 : 11.1 = 0.90이라 13px의 0.90을 준다. */
-    font-size: 11.7px;
+       카톡이 10.0 : 11.1 = 0.90이라 말풍선 15px의 0.90을 준다. */
+    font-size: 13.5px;
     color: var(--chat-soft);
 }
 
@@ -746,21 +746,35 @@
 .chat-react.on { border-color: var(--brand); }
 .chat-react.on b { color: var(--brand); }
 
-/* 말풍선 크기는 **카톡 화면을 픽셀로 재서** 맞췄다. 같은 폰에서 카톡은
-   한 줄짜리 말풍선이 30px, 우리는 38.5px이라 눈에 띄게 굵어 보였다.
-   줄높이와 안쪽 여백을 조여 그 30px에 맞춰 두었다(15 × 1.34 + 5 + 5 = 30.1).
-   **지금은 사용자 요청으로 두 단계 내려 13px이다** — 15 → 14 → 13으로
-   두 번에 걸쳐 내렸다. `13 × 1.34 + 5 + 5 = 27.4`이고 **테두리 2px까지
-   재면 29.4px**다(카톡 30px보다 0.6px 얇다. 위 15px 셈도 테두리를 안 센
-   값이라 실제로는 32.1px였다 — 그래서 그때 더 굵어 보였던 것이다).
-   이름·시각·안 읽은 수·인용도 같은 비율로 함께 내렸다.
-   **숫자를 만질 땐 이 합을 다시 셀 것.** 14px 이상으로 되돌리지 말 것 —
-   사용자가 두 번 다 작은 쪽을 골랐다. */
+/* ── 말풍선 크기 — **실기기의 카톡을 재서 맞춘 값이다** ────────────
+ *
+ * **여기 숫자는 눈대중이 아니다. 고칠 땐 반드시 다시 재서 고칠 것.**
+ *
+ * 예전 값(13px)은 헤드리스 스크린샷으로 견줘 정한 것이었는데,
+ * **헤드리스에는 CDN이 막혀 Pretendard가 아예 안 온다** — 대체 글꼴로
+ * 그려져 잉크가 부풀어 보였고, 그걸 보고 15 → 14 → 13으로 두 번 내렸다.
+ * 앱이 실기기에 깔린 뒤 **같은 폰에서 카톡과 우리 화면을 잇따라 찍어**
+ * 다시 재니 우리 쪽이 눈에 띄게 작았다(사용자 요청 — `카톡과 똑같이`).
+ *
+ * 재는 법 — **아는 크기의 요소로 배율부터 구한다.** 우리 아바타 29px이
+ * 사진에서 87픽셀이라 **배율 3.0**이다(iPhone 16 Pro, 1206×2622).
+ * 그 자로 카톡을 재면:
+ *
+ *   줄 간격        54픽셀 → **18.0px**   (두 줄 말풍선 − 한 줄 = 딱 이 값)
+ *   글자 잉크      39픽셀 → 13.0px
+ *   한 줄 말풍선  105픽셀 → **35.0px**
+ *   가로 안여백  32/34픽셀 → **약 11px**
+ *
+ * 그래서 `15px × 1.2 = 18`(줄 간격 ✓), `18 + 7.5×2 + 테두리 2 = 35`(높이 ✓),
+ * `10 + 테두리 1 = 11`(가로 ✓)이다. 잉크도 15px Pretendard가 39픽셀로
+ * 카톡과 같게 나온다.
+ * 이름·시각·안 읽은 수·인용도 **같은 비율로 함께 올렸다.**
+ *
+ * **글자 크기를 잉크로 견주지 말 것**은 그대로다 — 글꼴이 다르다.
+ * 위처럼 **줄 간격과 말풍선 높이**로 견주는 것이 글꼴과 무관해 정확하다. */
 .chat-bubble {
-    /* **여백·모서리·줄 간격 모두 카톡에서 잰 값이다**(위 `.chat-list` 참고).
-       가로 안여백 9.1 · 모서리 11.1 · 줄 간격 15.4. 예전에는 11/15/17.4라
-       한 줄이 더 두툼하고 모서리가 알약처럼 둥글었다. */
-    padding: 3px 8px;
+    /* 세로 7.5 + 테두리 1 = 8.5, 가로 10 + 테두리 1 = 11. 위 셈 참고. */
+    padding: 7.5px 10px;
     border-radius: 11px;
     background: var(--chat-bubble, var(--surface));
     /* **테두리는 자리만 잡아 두고 색을 안 준다.** 밝은 바탕에서는 흰
@@ -769,8 +783,8 @@
        위의 한 줄 셈이 그것을 안고 있어서다. */
     border: 1px solid transparent;
     color: var(--text);
-    font-size: 13px;
-    line-height: 1.18;
+    font-size: 15px;
+    line-height: 1.2;
     white-space: pre-wrap;
     word-break: break-word;
 }
@@ -975,8 +989,8 @@
    죽어 보였다. 위 팔레트 꼭지 참고. */
 .chat-unread-n {
     /* 시각과 같은 크기다. 카톡에서 '시각 : 말풍선 글자'가 7.4 : 11.1 =
-       0.667이라 13px의 0.667을 준다(위 `.chat-who`와 같은 셈이다). */
-    font-size: 8.7px;
+       0.667이라 말풍선 15px의 0.667을 준다(위 `.chat-who`와 같은 셈이다). */
+    font-size: 10px;
     font-weight: 800;
     line-height: 1;
     color: var(--chat-unread);
@@ -985,7 +999,7 @@
 
 .chat-time {
     flex: 0 0 auto;
-    font-size: 8.7px;
+    font-size: 10px;
     color: var(--chat-faint);
     padding-bottom: 2px;
     white-space: nowrap;
@@ -1316,8 +1330,14 @@ body.kb-open .tabbar { display: none; }
    `100dvh - --kb`로 셈하면 사파리 탭에서 끄는 동안 주소 막대가 접히며
    `dvh`까지 함께 움직여 화면이 떤다. --vvh는 키보드가 열리고 닫힐 때만
    바뀌므로 끄는 내내 붙박이다. (헤드리스 도구는 --vvh를 안 넣으므로
-   예전 셈이 예비로 남아 있다.) */
-body.kb-open .chat {
+   예전 셈이 예비로 남아 있다.)
+
+   **앱(`html.native`)에서는 이 규칙을 안 건다.** 거기서는 키보드 플러그인이
+   `resize: 'native'`로 **웹뷰 자체를 줄여** 주므로 `.chat`은 이미 보이는
+   높이에 딱 맞다 — 여기서 한 번 더 자리를 잡으면 **키보드가 먼저 뜨고
+   대화창이 뒤따라 뜨는** 두 단계가 눈에 보인다(사용자 제보).
+   `Chat.tsx`도 앱에서는 `--kb`·`--vvh`를 아예 안 적는다. 한쪽만 되돌리지 말 것. */
+html:not(.native) body.kb-open .chat {
     height: var(--vvh, calc(100dvh - var(--kb, 0px)));
     /* 문서가 아니라 **화면**에 붙여 둔다. 밀린 만큼 `transform`으로 따라
        내려가게도 해 봤는데 오히려 두 번 움직였다 — 손대지 않는 것이 맞다. */
@@ -1344,8 +1364,11 @@ body.kb-open .chat-input { padding-bottom: var(--gap-sm); }
    지금까지 입력칸은 `.chat` 안에 얹혀 있었다. `.chat`이 `fixed`여도
    그 안의 입력칸은 평범한 흐름이라, iOS가 화면을 밀면 통째로 따라간다.
    스스로 `fixed`인 요소는 iOS가 따로 다룬다.
-   `bottom`을 키보드 높이(--kb)로 두면 자리는 예전과 똑같다. */
-body.kb-open .chat-input {
+   `bottom`을 키보드 높이(--kb)로 두면 자리는 예전과 똑같다.
+
+   **앱에서는 이것도 안 건다** — 위 `.chat`과 같은 까닭이다. 웹뷰가 줄어
+   입력칸이 이미 키보드 바로 위에 앉으므로 꺼낼 이유가 없다. */
+html:not(.native) body.kb-open .chat-input {
     position: fixed;
     left: 0;
     right: 0;
@@ -1354,8 +1377,10 @@ body.kb-open .chat-input {
     max-width: var(--page-w);
     z-index: 2;
 }
-/* 입력칸이 흐름에서 빠졌으니 목록이 그 아래로 숨지 않게 자리를 비운다. */
-body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap-sm)); }
+/* 입력칸이 흐름에서 빠졌으니 목록이 그 아래로 숨지 않게 자리를 비운다.
+   **앱에서는 입력칸을 안 빼내므로 이 자리도 비우면 안 된다** — 비우면
+   목록 아래에 입력칸 높이만큼 빈 띠가 남는다. */
+html:not(.native) body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap-sm)); }
 
 /* ── 답장 ────────────────────────────────────────────────────
    카톡처럼 **말풍선을 왼쪽으로 밀면** 답장이 걸린다. 손짓은 Chat.tsx가
@@ -1408,8 +1433,8 @@ body.kb-open .chat-list { padding-bottom: calc(var(--composer, 59px) + var(--gap
     border-left: 0;
     border-right: 3px solid #edc82c;
 }
-.chat-quote-who { font-size: 10px; font-weight: 800; color: var(--text-dim); }
-.chat-quote-text { font-size: 10.7px; max-width: 100%; }
+.chat-quote-who { font-size: 11.5px; font-weight: 800; color: var(--text-dim); }
+.chat-quote-text { font-size: 12.3px; max-width: 100%; }
 .chat-quote:disabled { opacity: 0.7; }
 
 /* 인용을 눌러 원본으로 갔을 때 어디인지 알려 주는 한 번짜리 깜빡임.

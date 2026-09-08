@@ -10,6 +10,17 @@ import { supabase, NATIVE_REDIRECT } from './supabase';
  * 내보내는 쪽은 `supabase.ts`의 `signInWithKakao()`다.
  */
 
+/**
+ * **앱(Capacitor) 안에서 도는가.**
+ *
+ * 웹과 갈라야 하는 자리에서 본다. 지금 갈리는 곳은 **키보드 보정** 하나다 —
+ * 앱에서는 `resize: 'native'`가 **웹뷰 자체를 줄여** 주므로, 웹에서 하던
+ * 보정(`--kb`·`--vvh`·`.chat`을 화면에 붙이기)이 **한 번 더 도는 군더더기**가
+ * 된다. 그 군더더기가 눈에는 `키보드가 먼저 뜨고 대화창이 뒤따라 뜨는`
+ * 두 단계로 보였다(사용자 제보).
+ */
+export const IS_NATIVE = Capacitor.isNativePlatform();
+
 const SCHEME = NATIVE_REDIRECT.split('://')[0] + '://';
 
 /** 돌아온 주소에서 값을 꺼낸다.
@@ -67,7 +78,12 @@ async function handleAuthUrl(url: string): Promise<void> {
 }
 
 export function watchNativeAuth(): void {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!IS_NATIVE) return;
+
+    /* **CSS도 앱인지 알아야 한다.** 키보드 보정 규칙 둘을 여기서 끈다
+       (`Chat.css`의 `html:not(.native)`). 클래스는 `html`에 붙인다 —
+       `body`는 다른 코드가 자주 여닫아서 섞이면 헷갈린다. */
+    document.documentElement.classList.add('native');
 
     void (async () => {
         const { App } = await import('@capacitor/app');

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { watchBadge } from './lib/badge';
@@ -7,6 +7,7 @@ import { needsProfile } from './lib/types';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { TabBar } from './components/TabBar';
+import { useTabSlide, useTabSwipe } from './lib/tabs';
 
 import { Login } from './screens/Login';
 import { Pending } from './screens/Pending';
@@ -42,6 +43,14 @@ import { Help } from './screens/Help';
 
 function Gate() {
     const { session, profile, isMember, loading } = useAuth();
+
+    /* 탭을 **밀어서 옮기고**, 옮길 때 새 화면이 미끄러져 들어오게 한다
+       (`lib/tabs.ts`). 훅은 아래 갈림길들보다 **먼저** 불러야 한다 —
+       렌더마다 같은 차례로 돌아야 하기 때문이다. */
+    const appRef = useRef<HTMLDivElement>(null);
+    useTabSwipe();
+    useTabSlide(appRef);
+
     if (!isConfigured) return <Setup />;
 
     /* 세션을 확인하는 동안. **index.html에 박아 둔 첫 화면과 같은 그림**이라,
@@ -60,7 +69,7 @@ function Gate() {
     if (needsProfile(profile)) return <FillProfile />;
 
     return (
-        <div className="app">
+        <div className="app" ref={appRef}>
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rounds" element={<Rounds />} />
