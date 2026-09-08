@@ -58,7 +58,8 @@ export function PollDetail() {
         const [poll, options, votes, comments, people] = await Promise.all([
             supabase.from('polls').select('*').eq('id', id!).maybeSingle(),
             supabase.from('poll_options').select('*').eq('poll_id', id!).order('sort'),
-            supabase.from('poll_votes').select('poll_id, option_id, user_id').eq('poll_id', id!),
+            // 한 투표만 부르므로 `poll_id`는 이미 아는 값이다 — 줄마다 안 받는다.
+            supabase.from('poll_votes').select('option_id, user_id').eq('poll_id', id!),
             supabase.from('poll_comments').select('*').eq('poll_id', id!)
                     .order('created_at'),
             fetchPeople(),

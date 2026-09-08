@@ -84,7 +84,15 @@ const CHECK = (vw) => {
         // 말줄임이 없는 채로 잘리는 것은 그대로 잡힌다.
         const clamped = (cs.webkitLineClamp && cs.webkitLineClamp !== 'none')
             || (cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap');
-        if (!canScroll && !clamped && el.children.length === 0 && (overW > 1 || overH > 1)) {
+        /* **일부러 바깥으로 내보낸 장식은 넘침이 아니다.** `::before`·`::after`를
+           `position: absolute`로 칸 밖에 내놓으면 `scrollWidth`가 그만큼
+           늘어나는데, 그건 글자가 잘린 것이 아니라 그리려던 모양이다.
+           말풍선 꼬리(`.chat-bubble`의 뿔)가 여기 걸려 가로 +6으로 잡혔다. */
+        const decor = ['::before', '::after'].some(p => {
+            const d = getComputedStyle(el, p);
+            return d.content !== 'none' && d.position === 'absolute';
+        });
+        if (!canScroll && !clamped && !decor && el.children.length === 0 && (overW > 1 || overH > 1)) {
             out.clipped.push(where(el) + ' → 가로 +' + overW + ' 세로 +' + overH
                 + ' (' + cs.overflow + ')');
         }

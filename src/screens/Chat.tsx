@@ -2828,7 +2828,10 @@ const Bubble = memo(function Bubble({
                     붙으며, 시각도 이 줄 끝에 온다. */}
                 {caption && !hidden && (
                     <div className="chat-line">
-                        <div className="chat-bubble">
+                        {/* `chat-cap` — **꼬리를 안 단다.** 꼬리는 덩어리의
+                            첫 말풍선에만 붙는데, 이 줄은 사진 아래에 딸린
+                            두 번째 줄이라 위가 사진으로 막혀 있다. */}
+                        <div className="chat-bubble chat-cap">
                             <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                         </div>
                         <Stamp at={message.created_at} showTime={showTime} unread={unread} />

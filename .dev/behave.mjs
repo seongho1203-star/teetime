@@ -943,7 +943,10 @@ await go('/#/chat', 1200);
         return {
             목록여백: C('.chat-list', 'paddingLeft'),
             말풍선바탕: C('[data-mid="m1"] .chat-bubble', 'backgroundColor'),
-            모서리: C('[data-mid="m1"] .chat-bubble', 'borderTopLeftRadius'),
+            /* **아래쪽 모서리로 잰다.** 위 왼쪽은 꼬리가 붙는 자리라
+               일부러 3px으로 줄여 두었다(아래 `말풍선 꼬리` 칸 참고) —
+               말풍선의 둥글기 자체는 여전히 11px이다. */
+            모서리: C('[data-mid="m1"] .chat-bubble', 'borderBottomLeftRadius'),
             줄간격: C('[data-mid="m1"] .chat-bubble', 'lineHeight'),
             칸최대: C('.chat-col', 'maxWidth'),
             아바타: Math.round(av.getBoundingClientRect().width),
@@ -959,6 +962,50 @@ await go('/#/chat', 1200);
     ok(v.칸최대 === '87%', `말풍선 칸 87% — 78%면 한 글자가 넘어간다 (실제 ${v.칸최대})`);
     ok(v.아바타 === 29, `아바타 29px — 카톡 29.1 (실제 ${v.아바타})`);
     ok(v.한줄 > 34 && v.한줄 < 36, `한 줄 말풍선 35px — 실기기에서 잰 카톡 35.0 (실제 ${v.한줄})`);
+}
+
+/* ── 6-1-1-3-1-11-2. 말풍선 꼬리 ──────────────────────────────
+ *
+ * 카톡 말풍선의 **왼쪽 위로 삐져나온 작은 뿔**(내 글은 오른쪽).
+ * 5×4px짜리라 작지만 '카톡 같다'는 인상에는 크게 든다.
+ * 눈으로는 있는지 없는지도 잘 안 보이는 자리라 숫자로 붙들어 둔다.
+ *
+ * **붙는 곳과 안 붙는 곳이 규칙의 전부다** — 덩어리의 첫 말풍선에만 붙고,
+ * 이모지만 보낸 글(말풍선을 벗긴다)과 사진 아래 딸린 글(위가 사진으로
+ * 막혀 있다)에는 안 붙는다.
+ */
+console.log('\n── 말풍선 꼬리 ──');
+{
+    const t = await page.evaluate(() => {
+        const tail = el => {
+            const c = getComputedStyle(el, '::before');
+            return c.content === 'none' ? null
+                 : { w: c.width, h: c.height, l: c.left, r: c.right, bg: c.backgroundColor };
+        };
+        const pick = sel => document.querySelector(sel);
+        const them = pick('.chat-row:not(.mine):not(.grouped) .chat-bubble:not(.emoji-only):not(.chat-cap)');
+        const mine = pick('.chat-row.mine:not(.grouped) .chat-bubble:not(.emoji-only):not(.chat-cap)');
+        return {
+            남: tail(them), 남모서리: getComputedStyle(them).borderTopLeftRadius,
+            내: tail(mine), 내모서리: getComputedStyle(mine).borderTopRightRadius,
+            이모지: tail(pick('.chat-bubble.emoji-only')),
+            사진글: tail(pick('.chat-bubble.chat-cap')),
+            // 가로로 넘치지 않는가 — 뿔은 목록의 좌우 여백(9px) 안에 든다.
+            넘침: document.querySelector('.chat-list').scrollWidth
+                - document.querySelector('.chat-list').clientWidth,
+        };
+    });
+    ok(t.남 && t.남.w === '8px' && t.남.h === '5px' && t.남.l === '-6px',
+       `남의 말풍선은 왼쪽 위로 뿔이 난다 (실제 ${JSON.stringify(t.남)})`);
+    ok(t.남모서리 === '3px', `뿔이 붙는 모서리만 3px으로 줄인다 — 11px이면 뿔과 몸통 사이가 벌어진다 (실제 ${t.남모서리})`);
+    /* `left`는 `auto`로 적어도 실제로 쓰인 값(픽셀)으로 돌아온다 —
+       `right`가 `-6px`인 것으로 뒤집혔음을 가린다. */
+    ok(t.내 && t.내.r === '-6px' && t.내.bg === 'rgb(255, 223, 71)',
+       `내 말풍선은 오른쪽 위로 뒤집힌다 (실제 ${JSON.stringify(t.내)})`);
+    ok(t.내모서리 === '3px', `내 말풍선도 뿔 쪽 모서리만 줄인다 (실제 ${t.내모서리})`);
+    ok(t.이모지 === null, '이모지만 보낸 글에는 안 붙는다 — 말풍선 자체가 없다');
+    ok(t.사진글 === null, '사진 아래 딸린 글에는 안 붙는다 — 위가 사진으로 막혀 있다');
+    ok(t.넘침 === 0, `뿔이 가로 스크롤을 만들지 않는다 (실제 ${t.넘침}px)`);
 }
 
 /* ── 6-1-1-3-1-12. 길게 누른 창의 크기 ─────────────────────────

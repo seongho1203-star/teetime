@@ -8,7 +8,7 @@ import { useAuth } from '../lib/auth';
 import { formatDateTime, timeAgo } from '../lib/format';
 import {
     personLabel, pollClosed,
-    type Poll, type PollOption, type PollVoteLite, type Person,
+    type Poll, type PollOptionLite, type PollVoteLite, type Person,
 } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -17,8 +17,10 @@ import './Polls.css';
 
 interface Loaded {
     polls: Poll[];
-    options: PollOption[];
-    votes: PollVoteLite[];
+    /** 투표 id → 그 투표의 항목·표. **평평한 배열로 펴지 말 것** —
+     *  펴려면 줄마다 `poll_id`를 받아야 하는데 그게 통신량의 3분의 1이다. */
+    options: Record<string, PollOptionLite[]>;
+    votes: Record<string, PollVoteLite[]>;
     people: Person[];
 }
 
@@ -38,23 +40,28 @@ const LIVE_POLLS = 20;
 const DONE_POLLS = 5;
 
 /** 투표 하나에 딸려 오는 항목과 표. */
-type PollRow = Poll & { poll_options?: PollOption[]; poll_votes?: PollVoteLite[] };
+type PollRow = Poll & { poll_options?: PollOptionLite[]; poll_votes?: PollVoteLite[] };
 
 export function Polls() {
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
-        /* **항목과 표를 딸려 받는다**(`poll_options(*)` · `poll_votes(...)`).
+        /* **항목과 표를 딸려 받는다**(`poll_options(...)` · `poll_votes(...)`).
            따로 부르면 지난 투표 것까지 다 온다 — 홈이 신청 기록을 라운드에
            딸려 받는 것과 같은 이유다.
-           표는 세 칸만 받는다: 화면이 보는 것은 **어느 투표의 · 어느 항목을 ·
-           누가** 골랐나뿐이다.
+           표는 두 칸만 받는다: 화면이 보는 것은 **어느 항목을 · 누가**
+           골랐나뿐이다.
+
+           **`poll_id`를 안 받는 것이 딸려 받기의 값이다.** 어느 투표 것인지는
+           딸려 온 자리가 이미 말해 주므로, 줄마다 UUID를 하나씩 더 받을
+           이유가 없다 — 표 천 줄이면 그것만으로 수십 KB다. 그래서 아래에서도
+           **펴지 않고 투표별로 묶어 둔다.**
 
            **진행중과 마감을 따로 부른다.** 한 번에 최근 것부터 받으면, 끝난
            투표가 여러 개 쌓인 주에 **아직 안 끝난 투표가 목록에서 밀려난다.**
            `closed=false`인데 마감 시각이 지난 것은 아래에서 `pollClosed()`가
            다시 갈라 `마감된 투표` 칸으로 보낸다 — 그래서 두 조회의 잣대가
            화면의 잣대와 달라도 괜찮다. */
-        const cols = '*, poll_options(*), poll_votes(poll_id, option_id, user_id)';
+        const cols = '*, poll_options(id, label, sort), poll_votes(option_id, user_id)';
         const [live, done, people] = await Promise.all([
             supabase.from('polls').select(cols).eq('closed', false)
                     .order('created_at', { ascending: false }).limit(LIVE_POLLS),
@@ -63,17 +70,23 @@ export function Polls() {
             fetchPeople(),
         ]);
 
-        /* 화면 코드는 예전처럼 평평한 배열을 본다. `types.ts`의 `Database`에
-           표 사이의 관계가 안 적혀 있어 타입은 `unknown`을 거쳐 바꾼다 —
-           실행에는 문제가 없다(홈도 같은 방식이다). */
+        /* `types.ts`의 `Database`에 표 사이의 관계가 안 적혀 있어 타입은
+           `unknown`을 거쳐 바꾼다 — 실행에는 문제가 없다(홈도 같은 방식이다). */
         const rows = [...(unwrap(live) ?? []), ...(unwrap(done) ?? [])] as unknown as PollRow[];
         rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
+        const options: Record<string, PollOptionLite[]> = {};
+        const votes: Record<string, PollVoteLite[]> = {};
+        for (const r of rows) {
+            // 딸려 온 항목은 순서가 없다. `sort`는 여기서 매긴다.
+            options[r.id] = [...(r.poll_options ?? [])].sort((a, b) => a.sort - b.sort);
+            votes[r.id] = r.poll_votes ?? [];
+        }
+
         return {
             polls: rows.map(({ poll_options: _o, poll_votes: _v, ...p }) => p as Poll),
-            // 딸려 온 항목은 순서가 없다. `sort`는 여기서 매긴다.
-            options: rows.flatMap(r => r.poll_options ?? []).sort((a, b) => a.sort - b.sort),
-            votes: rows.flatMap(r => r.poll_votes ?? []),
+            options,
+            votes,
             people,
         };
     }, [], 'polls');
@@ -159,7 +172,7 @@ export function PollOptions({
     poll, options, votes, names, me, onChange, hideVoters,
 }: {
     poll: Poll;
-    options: PollOption[];
+    options: PollOptionLite[];
     votes: PollVoteLite[];
     names: Record<string, Person>;
     me: string;
@@ -229,8 +242,8 @@ function PollCard({
     const toast = useToast();
     const confirm = useConfirm();
 
-    const options = data.options.filter(o => o.poll_id === poll.id);
-    const votes = data.votes.filter(v => v.poll_id === poll.id);
+    const options = data.options[poll.id] ?? [];
+    const votes = data.votes[poll.id] ?? [];
     const names = byId(data.people);
     const closed = pollClosed(poll);
 

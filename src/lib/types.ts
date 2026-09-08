@@ -419,12 +419,25 @@ export type PollVote = {
 /**
  * 목록·상세에서 쓰는 표의 최소 조각.
  *
- * 화면이 보는 것은 **어느 투표의 · 어느 항목을 · 누가** 골랐나, 이 셋뿐이다.
+ * 화면이 보는 것은 **어느 항목을 · 누가** 골랐나, 이 둘뿐이다.
  * 표 한 줄의 `id`와 `created_at`은 아무 데서도 안 쓰는데 둘이 합쳐 줄의
  * 절반이 넘는다. 100명이 스물네 번 투표하면 표가 3천 줄이라 그 차이가 곧
  * 수백 KB다.
+ *
+ * **`poll_id`도 뺐다.** 목록은 표를 **투표에 딸려** 받으므로(`polls(*,
+ * poll_votes(...))`) 어느 투표의 것인지가 이미 자리로 정해져 있고, 상세는
+ * 한 투표만 부른다 — 줄마다 다시 적을 이유가 없다. UUID 한 칸이 줄의
+ * 3분의 1이라, 표 천 줄이면 그것만으로 50KB다.
+ * 대신 **평평한 배열로 펴지 말 것** — 펴는 순간 어느 투표 것인지를 잃는다.
  */
-export type PollVoteLite = Pick<PollVote, 'poll_id' | 'option_id' | 'user_id'>;
+export type PollVoteLite = Pick<PollVote, 'option_id' | 'user_id'>;
+
+/**
+ * 목록에서 쓰는 항목의 최소 조각. `poll_id`를 빼는 이유는 위와 같다.
+ * (상세·수정 화면은 한 투표만 부르므로 `PollOption`을 그대로 쓴다 —
+ * 넓은 쪽은 좁은 쪽에 그대로 들어맞는다.)
+ */
+export type PollOptionLite = Pick<PollOption, 'id' | 'label' | 'sort'>;
 
 /** 투표에 달린 댓글. `PostComment`와 같은 모양이다. */
 export type PollComment = {
