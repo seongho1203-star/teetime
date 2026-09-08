@@ -70,7 +70,10 @@ export function useKeyboardChrome(): void {
             if (off !== null) clearTimeout(off);
             off = window.setTimeout(() => {
                 off = null;
-                if (!typingIn(document.activeElement)) mark(false);
+                if (typingIn(document.activeElement)) return;
+                mark(false);
+                // 빈자리도 함께 걷는다 — 남기면 글 아래가 휑하게 남는다.
+                body.style.removeProperty('--kb-pad');
             }, 120);
         };
 
@@ -93,36 +96,110 @@ export function useKeyboardChrome(): void {
          * 때는 보이던 칸이 **키보드가 다 올라오고 나면 그 아래로 내려간다.**
          * 재 보니 댓글 칸이 보이는 화면보다 165px 아래에 있었다.
          *
-         * **`block: 'nearest'`라 이미 보이면 아무 일도 안 한다** — 사람이
-         * 굴려 둔 자리를 빼앗지 않는다. 얼마나 띄울지는 CSS의
-         * `scroll-margin`이 정한다(`.kb-typing` 규칙) — 칸 아래에 붙는
-         * `등록` 단추까지 함께 보이게 하려는 것이다.
+         * **줄어들기를 기다리지 않는다 — 줄어들 것을 미리 빼고 지금 굴린다.**
+         * 처음에는 창이 줄어든 뒤에 굴리게 두었는데 **그 0.45초가 그대로 눈에
+         * 보였다**(사용자 제보 — `순간 댓글창이 안보여서 뭐지? 이러면 댓글창이
+         * 보여`). 대화 화면이 `kbHint`로 지난번 키보드 높이를 미리 써먹는
+         * 것과 같은 수다.
          *
-         * **부드럽게 굴리지 않는다.** 키보드가 올라오는 그 순간이라
-         * 느린 폰에서는 그대로 끊긴다.
+         * **이미 보일 자리면 아무 일도 안 한다** — 사람이 굴려 둔 자리를
+         * 빼앗지 않는다. **부드럽게 굴리지 않는다** — 키보드가 올라오는 그
+         * 순간이라 느린 폰에서는 그대로 끊긴다.
          */
+        /** 칸 아래로 이만큼은 보이게 둔다 — 옆·아래에 붙는 `등록` 단추 몫이다. */
+        const GAP = 64;
+        /** 키보드가 없을 때의 높이. 초점이 처음 갈 때 집어 둔다. */
+        let baseH = window.innerHeight;
+        const seenH = () => window.visualViewport?.height ?? window.innerHeight;
+        /**
+         * 키보드가 얼마나 가릴까.
+         *
+         * **`Chat.tsx`가 쓰는 그 열쇠를 같이 쓴다**(`teetime:kbh:<가로폭>`).
+         * 거기서는 플러그인이 알려 준 값을, 여기서는 창이 줄어든 만큼을
+         * 적는다 — 뜻이 같아 서로 배워 준다. **한쪽만 고치지 말 것.**
+         * 한 번도 안 겪은 판에서는 화면의 42%로 잡는다(아이폰 한글 자판이
+         * 그 언저리다). 넘겨 잡아도 칸이 조금 더 위로 갈 뿐이라 손해가 적다.
+         */
+        const MEMO = () => `teetime:kbh:${window.innerWidth}`;
+        const guessKb = () => {
+            let n = 0;
+            try { n = Number(localStorage.getItem(MEMO())) || 0; } catch { /* 막힌 판 */ }
+            return n > 120 && n < baseH * 0.75 ? n : Math.round(baseH * 0.42);
+        };
+        /**
+         * **굴릴 자리를 먼저 만든다.**
+         *
+         * 미리 굴리려고 해도 **화면이 줄기 전에는 굴릴 자리가 없다** —
+         * 댓글 칸은 글의 맨 아래에 있어서 이미 끝까지 굴러가 있다(재 보니
+         * `scrollTop`이 딱 최대값이었다). 그래서 치는 동안에만 `.page`
+         * 아래에 **키보드가 가릴 만큼 빈자리를 붙여** 그만큼 더 굴러가게 한다.
+         *
+         * **이미 줄어든 만큼은 뺀다.** 앱은 웹뷰가 줄어들어(`resize: native`)
+         * 저절로 자리가 생기지만, **사파리 탭에서는 문서 높이가 안 줄어들어**
+         * 이 빈자리가 없으면 끝내 못 올라간다 — 두 판을 한 셈으로 덮으려고
+         * `documentElement.clientHeight`(문서가 놓인 높이)로 견준다.
+         */
+        const padFor = () => {
+            const layout = document.documentElement.clientHeight;
+            /* `GAP`까지 더한다 — 딱 키보드 높이만 붙이면 **끝까지 굴려도
+               모자라** 칸이 키보드에 아슬아슬하게 붙는다(라운드 상세에서
+               28px밖에 안 남았다). */
+            return Math.max(0, guessKb() + GAP - Math.max(0, baseH - layout));
+        };
+
+        /** 그 칸을 담고 있는 굴러가는 칸. 없으면 문서 자체다. */
+        const scrollerOf = (el: HTMLElement): HTMLElement => {
+            let p = el.parentElement;
+            while (p) {
+                const s = getComputedStyle(p);
+                if (/auto|scroll/.test(s.overflowY) && p.scrollHeight > p.clientHeight + 1) return p;
+                p = p.parentElement;
+            }
+            return (document.scrollingElement as HTMLElement | null) ?? document.documentElement;
+        };
         const reveal = () => {
             const el = document.activeElement;
             if (!typingIn(el)) return;
-            (el as HTMLElement).scrollIntoView({ block: 'nearest' });
+            const node = el as HTMLElement;
+            // 자리를 먼저 만들고(위 `padFor`) 그다음에 잰다 — 순서가 뒤집히면
+            // 굴릴 데가 없어 그대로 주저앉는다.
+            body.style.setProperty('--kb-pad', `${padFor()}px`);
+            const vh = seenH();
+            /* 창이 아직 안 줄었으면 **줄어들 것을 미리 뺀다.** 이미 줄었으면
+               그 높이가 곧 답이다(40px은 주소 막대가 접히는 정도의 흔들림). */
+            const seen = vh < baseH - 40 ? vh : Math.max(200, vh - guessKb());
+            const over = node.getBoundingClientRect().bottom + GAP - seen;
+            if (over <= 1) return;
+            scrollerOf(node).scrollTop += over;
         };
         /* **여러 번 부른다 — 화면이 한 번에 줄지 않기 때문이다.**
-           초점이 간 다음 프레임에 한 번, 창이 줄어들 때마다 한 번,
-           그리고 다 올라왔을 때쯤 한 번 더(플러그인이 0.45초 늦는다).
-           `nearest`라 이미 보이는 판에서는 다 헛걸음이라 값이 싸다. */
+           초점이 가는 그 자리에서 곧바로 한 번(이게 눈에 보이는 그 한 번이다),
+           창이 줄어들 때마다 한 번, 다 올라왔을 때쯤 한 번 더. */
         let timers: number[] = [];
         const revealSoon = () => {
             timers.forEach(clearTimeout);
-            timers = [0, 350, 650].map(ms => window.setTimeout(reveal, ms));
+            reveal();
+            timers = [350, 650].map(ms => window.setTimeout(reveal, ms));
         };
 
         const onFocusInAll = (e: FocusEvent) => {
+            const first = !body.classList.contains('kb-typing');
             onFocusIn(e);
-            if (!onChat && typingIn(e.target as Element)) revealSoon();
+            if (onChat || !typingIn(e.target as Element)) return;
+            /* **키보드가 없을 때의 높이여야 한다** — 칸에서 칸으로 옮겨 가는
+               중이면 이미 줄어 있으므로 그때는 그대로 둔다. */
+            if (first) baseH = window.innerHeight;
+            revealSoon();
         };
         const onResize = () => {
-            if (onChat) return;
-            if (body.classList.contains('kb-typing')) reveal();
+            if (onChat || !body.classList.contains('kb-typing')) return;
+            /* **줄어든 만큼이 곧 키보드 높이다 — 적어 두고 다음에 써먹는다.**
+               가로세로가 바뀐 것과 헷갈리지 않게 그럴듯한 값만 받는다. */
+            const gap = baseH - seenH();
+            if (gap > 120 && gap < baseH * 0.75) {
+                try { localStorage.setItem(MEMO(), String(Math.round(gap))); } catch { /* 막힌 판 */ }
+            }
+            reveal();
         };
 
         document.addEventListener('focusin', onFocusInAll);
@@ -143,6 +220,7 @@ export function useKeyboardChrome(): void {
             timers.forEach(clearTimeout);
             /* 화면을 옮길 때는 남기지 않는다 — 남으면 탭바가 사라진 채로 굳는다. */
             mark(false);
+            body.style.removeProperty('--kb-pad');
         };
     }, [onChat]);
 }

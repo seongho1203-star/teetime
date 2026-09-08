@@ -239,14 +239,7 @@ console.log('\n── 키보드가 댓글 칸을 안 가린다 ──');
     for (const [what, route] of [['투표 상세', '/#/polls/p1'], ['라운드 상세', '/#/rounds/r1']]) {
         await page.setViewportSize({ width: 390, height: 844 });
         await go(route, 800);
-        const ta = await page.$('.comment-field .textarea');
-        await ta.scrollIntoViewIfNeeded();
-        await ta.click();
-        await page.waitForTimeout(150);
-        // 키보드가 올라오면 웹뷰가 그만큼 줄어든다.
-        await page.setViewportSize({ width: 390, height: 844 - KB });
-        await page.waitForTimeout(800);
-        const v = await page.evaluate(() => {
+        const look = () => page.evaluate(() => {
             const t = document.querySelector('.comment-field .textarea').getBoundingClientRect();
             const btn = document.querySelector('.comment-write .btn')?.getBoundingClientRect();
             const H = window.innerHeight;
@@ -256,8 +249,27 @@ console.log('\n── 키보드가 댓글 칸을 안 가린다 ──');
                 등록보임: !btn || (btn.top >= 0 && btn.bottom <= H),
             };
         });
+        const ta = await page.$('.comment-field .textarea');
+        await ta.scrollIntoViewIfNeeded();
+        await ta.click();
+        await page.waitForTimeout(80);
+        /* **아직 창을 안 줄였다.** 그런데도 칸이 키보드가 설 자리 위로
+           올라와 있어야 한다 — 줄어들기를 기다리면 그 0.45초가 그대로
+           눈에 보인다(사용자 제보 — `순간 댓글창이 안보여서 뭐지?`). */
+        const 먼저 = await look();
+        ok(먼저.칸[1] <= 844 - KB,
+           `${what} — 창이 줄기 전에 이미 키보드 자리 위로 올라와 있다 (실제 ${JSON.stringify(먼저)})`);
+
+        // 이제 키보드가 다 올라와 웹뷰가 줄어든다.
+        await page.setViewportSize({ width: 390, height: 844 - KB });
+        await page.waitForTimeout(800);
+        const v = await look();
         ok(v.칸보임, `${what} — 댓글 칸이 키보드 위로 올라온다 (실제 ${JSON.stringify(v)})`);
         ok(v.등록보임, `${what} — 옆의 \`등록\`까지 함께 보인다 (실제 ${JSON.stringify(v)})`);
+        /* **줄어든 뒤에 또 움직이면 안 된다** — 그 흔들림이 곧 `늦게 뜬다`는
+           느낌이다. 미리 굴려 둔 자리가 그대로 답이어야 한다. */
+        ok(Math.abs(v.칸[1] - 먼저.칸[1]) <= 2,
+           `${what} — 키보드가 다 올라온 뒤에 다시 안 움직인다 (실제 ${먼저.칸[1]} → ${v.칸[1]})`);
     }
     await page.setViewportSize({ width: 390, height: 844 });
 }
