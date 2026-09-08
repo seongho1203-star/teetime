@@ -8,6 +8,7 @@ import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { TabBar } from './components/TabBar';
 import { useBackSwipe, useScreenSlide } from './lib/tabs';
+import { useKeyboardChrome } from './lib/keyboard';
 
 import { Login } from './screens/Login';
 import { Pending } from './screens/Pending';
@@ -52,6 +53,9 @@ function Gate() {
     const appRef = useRef<HTMLDivElement>(null);
     useBackSwipe();
     useScreenSlide(appRef);
+    /* 키보드가 올라오면 탭바를 감추고, 글칸 밖을 누르면 내린다.
+       **대화 화면은 제 셈을 따로 들고 있어 누르기로는 안 내린다.** */
+    useKeyboardChrome();
 
     if (!isConfigured) return <Setup />;
 

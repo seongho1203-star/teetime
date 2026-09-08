@@ -64,6 +64,27 @@
     margin-top: var(--gap-xs);
 }
 
+/* **접어 둔 항목을 그 자리에서 편다**(사용자 제보 — 목록이 너무 길다).
+   목록에서 표를 던지는 것이 이 화면의 핵심이라, 상세로 보내지 않고
+   여기서 펴 준다. **분홍을 안 쓴다** — 이 카드에서 '지금 눌러야 할 것'은
+   항목 칸이지 이 줄이 아니다. */
+.poll-more { align-self: flex-start; }
+
+/* 마감된 카드의 1위 한 줄. **항목 목록을 통째로 대신하는 줄이다** —
+   끝난 투표에서 할 일은 없고 무엇으로 정해졌는지만 궁금하기 때문이다.
+   길면 한 줄로 자른다(`.truncate`) — 동점이면 이름이 여럿이라 넘친다. */
+.poll-won {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    margin-top: var(--gap-xs);
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    font-size: var(--fs-sm);
+}
+.poll-won.empty { color: var(--text-dim); }
+
 .poll-option {
     position: relative;
     display: flex;

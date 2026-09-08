@@ -206,6 +206,28 @@ body::before {
     background: linear-gradient(to bottom, transparent, var(--bg) 18px);
 }
 
+/* ── 키보드가 올라와 있는 동안 ──────────────────────────────────
+ *
+ * `lib/keyboard.ts`가 글칸에 초점이 있는 동안 `body.kb-typing`을 세운다.
+ * **대화 화면만 챙기고 폼 화면은 아무것도 안 하고 있었다**(사용자 제보 —
+ * `키보드가 탭바 밑으로 나와서 화면도 이상하고`).
+ *
+ * 앱은 `resize: 'native'`라 키보드가 올라오면 웹뷰가 그만큼 줄어든다.
+ * 탭바는 `position: fixed; bottom: 0`이라 **줄어든 창의 바닥**, 곧 키보드
+ * 바로 위에 그대로 얹힌다 — 글을 치는 동안 탭이 보일 이유가 없다.
+ */
+body.kb-typing .tabbar { display: none; }
+
+/* 탭바가 없어졌으니 그만큼 비워 두던 아래 여백도 뺀다. 안 빼면 폼 아래에
+   탭바 높이(+홈 표시줄)만큼 빈 자리가 남아, 안 그래도 좁은 화면이 더
+   좁아 보인다. */
+body.kb-typing .page { padding-bottom: var(--gap); }
+
+/* **저장·신청 단추는 키보드 바로 위에 붙는다.** 탭바 자리를 피하려고
+   띄워 둔 값이라, 탭바가 없어지면 그만큼 내려와야 손에 닿는다. */
+body.kb-typing .form-actions,
+body.kb-typing .round-actions { bottom: 0; }
+
 /* ── 한 화면 안에서 보기를 바꾸는 탭 ──────────────────────────
  *
  * 투표 현황(`항목별 · 멤버별 · 미참여`)과 정산 현황(`내가 올린 것 · 전체`)이

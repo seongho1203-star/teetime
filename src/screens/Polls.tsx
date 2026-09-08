@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
@@ -148,6 +148,34 @@ export function Polls() {
 const NAMES_SHOWN = 3;
 
 /**
+ * **목록 카드에 항목을 몇까지 펼칠지**(사용자 제보 — `투표에서 항목이
+ * 많아지거나 투표 진행하는게 많아지면 화면이 너무 길어져`).
+ *
+ * 날짜를 고르는 투표는 후보가 열 개를 넘기도 하는데, 그런 투표가 서넛만
+ * 열려 있어도 목록이 화면 대여섯 장이 된다. **다섯까지만 펴고 나머지는
+ * 접는다** — 앞의 다섯은 대개 바로 다음 주말들이라 거기서 끝나는 일이 많다.
+ * 더 필요하면 `+N개 더 보기`로 그 자리에서 펴고, 다 보려면 제목을 눌러
+ * 상세로 간다.
+ */
+const OPTIONS_SHOWN = 5;
+
+/**
+ * 표를 가장 많이 받은 항목. 마감된 카드에 한 줄로 적는다.
+ *
+ * **동점이면 다 적는다** — 하나를 골라 버리면 거짓말이 된다.
+ * **대화방에 남는 결과 카드(`post_poll_result`)와 같은 규칙이다** —
+ * 한쪽만 고치면 같은 투표를 두고 화면과 대화방의 1위가 갈린다.
+ */
+function topOptions(options: PollOptionLite[], votes: PollVoteLite[]):
+    { names: string[]; n: number } | null {
+    if (!options.length) return null;
+    const count = (id: string) => votes.filter(v => v.option_id === id).length;
+    const best = Math.max(...options.map(o => count(o.id)));
+    if (best === 0) return null;
+    return { names: options.filter(o => count(o.id) === best).map(o => o.label), n: best };
+}
+
+/**
  * `이관교, 김지명, 박승수 외 12명`.
  *
  * 이 줄은 한 줄로 잘리는데(`.truncate`), 그냥 두면 `정우…`에서 끝나
@@ -169,7 +197,7 @@ function votersLine(list: string[]): string {
  * 생기므로 여기 하나로 둔다.
  */
 export function PollOptions({
-    poll, options, votes, names, me, onChange, hideVoters,
+    poll, options, votes, names, me, onChange, hideVoters, max,
 }: {
     poll: Poll;
     options: PollOptionLite[];
@@ -179,11 +207,20 @@ export function PollOptions({
     onChange: () => void;
     /** 상세에서는 이름을 여기 안 적는다 — 아래 `현황` 탭이 그 일을 한다. */
     hideVoters?: boolean;
+    /** 몇까지만 펴고 나머지는 접을지. **목록 카드만 준다** — 상세는 다 편다. */
+    max?: number;
 }) {
     const toast = useToast();
+    const [showAll, setShowAll] = useState(false);
     const closed = pollClosed(poll);
     const voters = new Set(votes.map(v => v.user_id)).size;
     const mine = new Set(votes.filter(v => v.user_id === me).map(v => v.option_id));
+    /* **내가 고른 것이 접힌 자리에 있으면 아예 펴 둔다.** 안 그러면 목록에서
+       내가 무엇을 골랐는지 알 길이 없어, 이미 던져 놓고 또 던지러 들어간다. */
+    const hidPick = !!max && options.slice(max).some(o => mine.has(o.id));
+    const open = showAll || hidPick || !max;
+    const shown = open ? options : options.slice(0, max);
+    const rest = options.length - shown.length;
     /* **누가 골랐는지 줄은 항목마다 다 있거나 다 없어야 한다.**
        표를 받은 항목에만 붙이면 그 줄만 키가 커져 칸들이 들쭉날쭉해진다.
        한 표라도 들어온 뒤에 모든 항목에 자리를 잡아 준다 — 아무도 안
@@ -201,7 +238,7 @@ export function PollOptions({
 
     return (
         <div className="poll-options">
-            {options.map(o => {
+            {shown.map(o => {
                 const on = votes.filter(v => v.option_id === o.id);
                 const pct = voters ? Math.round((on.length / voters) * 100) : 0;
                 const chosen = mine.has(o.id);
@@ -226,6 +263,11 @@ export function PollOptions({
                     </button>
                 );
             })}
+            {rest > 0 && (
+                <button className="btn ghost sm poll-more" onClick={() => setShowAll(true)}>
+                    항목 {rest}개 더 보기
+                </button>
+            )}
         </div>
     );
 }
@@ -246,6 +288,7 @@ function PollCard({
     const votes = data.votes[poll.id] ?? [];
     const names = byId(data.people);
     const closed = pollClosed(poll);
+    const won = closed ? topOptions(options, votes) : null;
 
     /* 투표한 사람 수 (복수 선택이면 표 수와 다르다).
        **지금 회원인 사람만 센다** — 표를 던진 뒤 추방되거나 대기로 내려간
@@ -301,8 +344,22 @@ function PollCard({
                 <p className="sm dim" style={{ whiteSpace: 'pre-wrap' }}>{poll.body}</p>
             )}
 
-            <PollOptions poll={poll} options={options} votes={votes}
-                         names={names} me={me} onChange={onChange} />
+            {/* **마감된 투표는 항목을 아예 안 편다**(사용자 제보 — 목록이
+                너무 길다). 끝난 투표에서 할 일은 없고 **무엇으로 정해졌는지만**
+                궁금하므로, 항목 목록 대신 1위 한 줄로 줄인다. 다 보려면 제목을
+                눌러 상세로 간다 — 거기에 `항목별·멤버별·미참여` 셋이 다 있다.
+                마감 다섯 개가 각각 항목을 펴고 있으면 그것만으로 화면 두 장이다. */}
+            {closed
+                ? (won
+                    ? <div className="poll-won">
+                          <span className="badge live">{won.names.length > 1 ? '공동 1위' : '1위'}</span>
+                          <span className="grow truncate">{won.names.join(', ')}</span>
+                          <span className="xs faint nowrap">{won.n}표</span>
+                      </div>
+                    : <div className="poll-won empty">아무도 투표하지 않았습니다</div>)
+                : <PollOptions poll={poll} options={options} votes={votes}
+                               names={names} me={me} onChange={onChange}
+                               max={OPTIONS_SHOWN} />}
 
             <div className="row between poll-foot">
                 <span className="xs faint grow">

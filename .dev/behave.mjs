@@ -202,6 +202,68 @@ await page.waitForTimeout(500);
 ok(patch && !('closes_at' in patch),
    `마감 시각이 없던 투표는 그 칸을 안 건드린다 (보낸 값 ${JSON.stringify(patch)})`);
 
+/* ── 2-1. 투표 목록이 길어지지 않는가 ───────────────────────────
+ *
+ * 사용자 제보 — `투표에서 항목이 많아지거나 투표 진행하는게 많아지면
+ * 화면이 너무 길어져`. 100명·1년치로 재 보니 목록이 **화면 4.5장**이었다
+ * (`node .dev/scale.mjs 100 --shots`).
+ *
+ * 두 곳을 접어 절반으로 줄였고, 그 둘을 여기서 붙들어 둔다:
+ *  - **진행중 카드는 항목을 다섯까지만 편다**(`OPTIONS_SHOWN`).
+ *    나머지는 `항목 N개 더 보기`로 그 자리에서 펴진다 — 목록에서 표를
+ *    던지는 것이 이 화면의 핵심이라 상세로 보내지 않는다.
+ *  - **마감된 카드는 항목을 아예 안 편다.** 1위 한 줄로 줄인다 — 끝난
+ *    투표에서 할 일은 없고 무엇으로 정해졌는지만 궁금하다.
+ *
+ * **`내가 고른 것이 접힌 자리에 있으면 아예 펴 둔다`도 함께 본다** —
+ * 안 그러면 이미 던져 놓고 무엇을 골랐는지 몰라 또 들어가게 된다.
+ */
+console.log('\n── 투표 목록이 길어지지 않는다 ──');
+await go('/#/polls', 700);
+{
+    const v = await page.evaluate(() => {
+        const cards = [...document.querySelectorAll('.poll-card')];
+        const live = cards.find(c => !c.classList.contains('closed'));
+        const done = cards.find(c => c.classList.contains('closed'));
+        return {
+            편항목: live.querySelectorAll('.poll-option').length,
+            더보기: live.querySelector('.poll-more')?.textContent ?? null,
+            마감항목: done.querySelectorAll('.poll-option').length,
+            마감1위: done.querySelector('.poll-won')?.textContent ?? null,
+            /* 표가 있는 마감 투표는 **무엇이 1위였는지**까지 적어야 한다 —
+               표가 하나도 없는 것(p3)만 보면 그 줄이 늘 빈 채로 지나간다. */
+            이긴것: cards.filter(c => c.classList.contains('closed'))
+                .map(c => c.querySelector('.poll-won')?.textContent)
+                .find(t => t?.includes('1위')) ?? null,
+            높이: document.documentElement.scrollHeight,
+        };
+    });
+    ok(v.편항목 === 5, `진행중 카드는 항목을 다섯까지만 편다 (실제 ${v.편항목}개)`);
+    ok(v.더보기 === '항목 2개 더 보기',
+       `나머지는 몇 개인지 적어 접는다 (실제 ${JSON.stringify(v.더보기)})`);
+    ok(v.마감항목 === 0, `마감된 카드는 항목을 아예 안 편다 (실제 ${v.마감항목}개)`);
+    ok(!!v.마감1위, `대신 1위 한 줄을 적는다 (실제 ${JSON.stringify(v.마감1위)})`);
+    ok(!!v.이긴것 && v.이긴것.includes('제주'),
+       `표가 있으면 무엇이 1위였는지 적는다 (실제 ${JSON.stringify(v.이긴것)})`);
+
+    await page.click('.poll-more');
+    await page.waitForTimeout(200);
+    const after = await page.$$eval('.poll-card:not(.closed) .poll-option', e => e.length);
+    ok(after === 7, `누르면 그 자리에서 다 펴진다 — 상세로 안 보낸다 (실제 ${after}개)`);
+
+    /* **내가 고른 것이 접힌 자리에 있으면 처음부터 펴져 있다.**
+       마지막 항목(o9)에 표를 던져 놓고 다시 들어와 본다. */
+    await page.click('.poll-card:not(.closed) .poll-option:last-of-type');
+    await page.waitForTimeout(400);
+    await go('/#/polls', 700);
+    const kept = await page.evaluate(() => ({
+        편항목: document.querySelectorAll('.poll-card:not(.closed) .poll-option').length,
+        더보기: !!document.querySelector('.poll-more'),
+    }));
+    ok(kept.편항목 === 7 && !kept.더보기,
+       `내가 고른 것이 접힌 자리에 있으면 아예 펴 둔다 (실제 ${JSON.stringify(kept)})`);
+}
+
 /* ── 3. 투표 수정 ───────────────────────────────────────────────
    **표가 들어온 뒤에는 잠기는 것이 둘이다** — `익명`을 끄면 비밀인 줄 알고
    고른 사람이 드러나고, `복수 선택`을 끄면 이미 여러 개 고른 사람의 표가

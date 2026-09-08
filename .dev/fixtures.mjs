@@ -131,6 +131,13 @@ export const poll_options = [
     { id: 'o1', poll_id: 'p1', label: '9월 6일 (토)',  sort: 0 },
     { id: 'o2', poll_id: 'p1', label: '9월 13일 (토)', sort: 1 },
     { id: 'o3', poll_id: 'p1', label: '9월 20일 (토)', sort: 2 },
+    /* **p1은 항목이 일곱이다.** 목록 카드가 다섯까지만 펴고 나머지를
+       `항목 2개 더 보기`로 접는지 보려면 다섯보다 많아야 한다
+       (`OPTIONS_SHOWN` in Polls.tsx). 표는 앞의 셋에만 있다. */
+    { id: 'o6', poll_id: 'p1', label: '9월 27일 (토)', sort: 3 },
+    { id: 'o7', poll_id: 'p1', label: '10월 4일 (토)', sort: 4 },
+    { id: 'o8', poll_id: 'p1', label: '10월 11일 (토)', sort: 5 },
+    { id: 'o9', poll_id: 'p1', label: '10월 18일 (토)', sort: 6 },
     { id: 'o4', poll_id: 'p2', label: '제주',   sort: 0 },
     { id: 'o5', poll_id: 'p2', label: '경주',   sort: 1 },
 ];
