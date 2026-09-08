@@ -807,9 +807,17 @@ export function Chat() {
                     want = info?.keyboardHeight ?? 0;
                     open(true);
                     paint();
+                    /* **줄어드는 동안 목록을 따라 앉힌다. 이게 빠지면 맨 아래
+                       글이 잘려 안 보인다**(사용자 제보 · 사진 — 키보드를 올리니
+                       마지막 글이 사라졌다). 목록이 330px쯤 짧아지는데 굴러간
+                       자리는 그대로라, 보고 있던 창이 글 아래로 넘어가 앉는다.
+                       `settleList`는 **맨 아래를 보고 있었으면 끝으로, 아니면
+                       넘어간 만큼만** 되돌리고, 높이가 0.25초에 걸쳐 바뀌므로
+                       그 동안 따라간다(`ResizeObserver`). */
+                    settleList();
                 }),
                 Keyboard.addListener('keyboardWillHide', () => {
-                    want = 0; open(false); paint();
+                    want = 0; open(false); paint(); settleList();
                 }),
                 Keyboard.addListener('keyboardDidShow', () => paint()),
                 /* 다 닫히고 나서 원래 높이를 다시 잰다 — 상태 막대나
