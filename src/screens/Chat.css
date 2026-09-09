@@ -1699,20 +1699,22 @@ html.nc:not(.nc2) body.kb-open .chat-input { padding-bottom: 0; }
 html.nc2 .chat-input { padding-bottom: calc(var(--composer, 60px) + var(--safe-b)); }
 html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }
 
-/* 임시 진단 줄(앱에서만 · Chat.tsx의 `kb-probe`). 확인이 끝나면 함께 지운다. */
+/* 임시 진단 줄(앱에서만 · Chat.tsx의 `kb-probe`). 확인이 끝나면 함께 지운다.
+   **여러 줄이라 `white-space: pre`다** — 움직이는 동안을 한 줄씩 쌓아 두고
+   사진 한 장으로 읽는 자리다(영상 대신). `pointer-events: none`이라
+   가려도 그 아래가 그대로 눌린다. */
 .kb-probe {
     position: absolute;
     top: 2px;
     left: 4px;
-    right: 4px;
     z-index: 50;
-    font-size: 10px;
-    line-height: 1.2;
+    font-size: 9px;
+    line-height: 1.15;
     font-family: ui-monospace, monospace;
+    white-space: pre;
     color: #fff;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.62);
     border-radius: 6px;
-    padding: 2px 5px;
+    padding: 3px 5px;
     pointer-events: none;
-    word-break: break-all;
 }

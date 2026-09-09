@@ -2138,29 +2138,73 @@ export function Chat() {
            바를 다시 세우는 일은 없다. */
     }, [settleList]);
 
-    /* 임시 진단 줄(위 JSX 주석). 0.25초마다 값만 갈아 끼운다 — 리액트를
-       안 거치므로 말풍선이 다시 그려지지 않는다. */
+    /* 임시 진단 줄(위 JSX 주석).
+     *
+     * **움직이는 동안을 한 줄씩 쌓아 둔다 — 영상 대신이다.** 사용자가
+     * `동영상을 찍어서 보여주면 괜찮을까?`라고 물었는데 여기서는 영상을
+     * 못 연다. 대신 값이 바뀔 때마다 한 줄씩 적어 두면, 다 움직인 뒤에
+     * **사진 한 장**으로 그 움직임 전체가 보인다.
+     *
+     * **가만히 있을 때는 아무것도 안 잰다.** 매 프레임 `clientHeight`·
+     * `scrollHeight`를 읽으면 그 자체가 배치를 다시 잡게 해서, **재려는
+     * 끊김을 우리가 만들어 낸다.** 그래서 무언가 바뀌었다는 신호
+     * (`--chat-h`·`--composer`가 적히거나 `kb-open`이 붙거나 창이 줄거나)가
+     * 왔을 때만 1.5초 동안 프레임마다 훑는다.
+     */
     const probeRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         if (!IS_NATIVE) return;
         const root = document.documentElement;
-        const tick = () => {
+        const num = (n: string) => Math.round(parseFloat(root.style.getPropertyValue(n)) || 0);
+        let rows: string[] = [];
+        let last = '';
+        let t0 = 0;
+        let until = 0;
+        let raf = 0;
+
+        const sample = () => {
             const el = probeRef.current;
             const list = listRef.current;
-            if (!el) return;
-            const st = root.style;
-            const max = list ? list.scrollHeight - list.clientHeight : 0;
-            el.textContent =
-                `창${root.clientHeight} vv${Math.round(window.visualViewport?.height ?? 0)}`
-                + ` h${st.getPropertyValue('--chat-h') || '-'} 바${st.getPropertyValue('--composer') || '-'}`
-                + ` 목록${list?.clientHeight ?? 0} 자리${list ? Math.round(list.scrollTop) : 0}/${max}`
-                + ` kb${document.body.classList.contains('kb-open') ? 1 : 0}`
-                + ` nc${root.classList.contains('nc') ? 1 : 0}${root.classList.contains('nc2') ? '2' : ''}`
-                + ` 아래${atBottom.current ? 1 : 0}`;
+            if (el) {
+                const max = list ? Math.round(list.scrollHeight - list.clientHeight) : 0;
+                const row = `c${root.clientHeight} v${Math.round(window.visualViewport?.height ?? 0)}`
+                    + ` h${num('--chat-h')} b${num('--composer')}`
+                    + ` L${list?.clientHeight ?? 0} s${list ? Math.round(list.scrollTop) : 0}/${max}`;
+                if (row !== last) {
+                    last = row;
+                    rows.push(`${String(Math.round(performance.now() - t0)).padStart(4)} ${row}`);
+                    if (rows.length > 16) rows.shift();
+                    el.textContent =
+                        `${document.body.classList.contains('kb-open') ? '올림' : '내림'}`
+                        + ` nc${root.classList.contains('nc2') ? 2 : 1}`
+                        + ` 아래${atBottom.current ? 1 : 0}\n${rows.join('\n')}`;
+                }
+            }
+            raf = performance.now() < until ? requestAnimationFrame(sample) : 0;
         };
-        tick();
-        const t = window.setInterval(tick, 250);
-        return () => clearInterval(t);
+        /* 무언가 바뀌었다. **멈춰 있다가 깨어난 것이면 새 움직임이라** 처음부터
+           다시 적는다 — 그래야 한 장에 그 한 번만 담긴다. */
+        const wake = () => {
+            if (!raf) { rows = []; last = ''; t0 = performance.now(); }
+            until = performance.now() + 1500;
+            if (!raf) raf = requestAnimationFrame(sample);
+        };
+
+        /* `--chat-h`·`--composer`는 root의 style에, `kb-open`은 body의 class에
+           적힌다. 우리 코드가 그것을 적는 순간이 곧 움직임의 시작이다. */
+        const mo = new MutationObserver(wake);
+        mo.observe(root, { attributes: true, attributeFilter: ['style', 'class'] });
+        mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        window.visualViewport?.addEventListener('resize', wake);
+        window.addEventListener('resize', wake);
+        wake();
+
+        return () => {
+            cancelAnimationFrame(raf);
+            mo.disconnect();
+            window.visualViewport?.removeEventListener('resize', wake);
+            window.removeEventListener('resize', wake);
+        };
     }, []);
 
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
