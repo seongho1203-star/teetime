@@ -636,7 +636,12 @@ export function Chat() {
     const kbBeat = useRef<((on: boolean, dur: number, at: number) => void) | null>(null);
     /** 진단 — 마지막 키보드 신호를 **그리는 프레임에서** 잰 늦음(ms)과 그래서
      *  쓴 시간, 그리고 `kb`가 iOS 신호보다 얼마나 먼저/늦게 닿았나(음수면 먼저). */
-    const kbLate = useRef({ late: 0, anim: 0, kb: 0, ios: 0 });
+    const kbLate = useRef({ late: 0, anim: 0, kb: 0, ios: 0, ticks: 0 });
+    /** 네이티브 바(4판)가 **그려지는 자리를 프레임마다** 알려 준다. 아래
+     *  `앱: 키보드와 같은 박자로` 효과가 채워 넣고, `frame` 신호가 부른다. */
+    const kbFrame = useRef<((e: { bottom: number; h: number; p: number; end: boolean }) => void) | null>(null);
+    /** 지금 바를 따라가는 중인가. 그동안은 높이를 **다른 데서 안 적는다.** */
+    const kbFollow = useRef(false);
 
     const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0,
                           /** 바로 앞에 키보드가 올라와 있었는가. 내려가는 **그 순간**만
@@ -853,6 +858,7 @@ export function Chat() {
          */
         const flush = () => {
             flushAt = 0;
+            if (kbFollow.current) return;       // 따라가는 동안은 `kbFrame`이 적는다
             if (beat.at) {
                 const gone = Date.now() - beat.at;
                 /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
@@ -981,10 +987,55 @@ export function Chat() {
             else hide();
         };
 
+        /**
+         * **바가 그려지는 자리를 그대로 따라간다**(네이티브 바 4판).
+         *
+         * 위 `kbBeat`까지가 곡선을 **흉내 내는** 길이었다 — 시간을 iOS가
+         * 알려 준 값(실기기에서 0.383초였다. 0.25초가 아니다)으로 맞추고
+         * 늦은 만큼을 빼도 실기기에서는 `아직 늦다`가 남았다. 곡선 자체가
+         * 다른 것이다. 바는 iOS가 키보드와 한 움직임으로 옮기므로 **바의
+         * 실제 자리가 곧 키보드의 자리**다. 그 값을 프레임마다 받아 화면
+         * 높이로 그대로 쓴다 — 전환(`--chat-anim`)은 0으로 두어 CSS가
+         * 저 알아서 부드럽게 하려 들지 않게 한다. 한 번 건너오는 데 10ms쯤이다.
+         *
+         * 홈 인디케이터 몫(`--safe-b`)은 키보드가 내려가 있을 때만 화면
+         * 안에 있으므로 `p`(0~1)로 섞는다 — 다 내려가면 34, 다 올라가면 0.
+         * 그동안 입력칸 아래 여백은 `--composer` 하나로 몬다(`Chat.css`의
+         * `kb-follow`). 끝나면 여느 때의 셈(`paint`)으로 돌아간다.
+         */
+        const safeB = () => {
+            const v = parseFloat(getComputedStyle(root).getPropertyValue('--safe-b'));
+            return Number.isFinite(v) ? v : 0;
+        };
+        kbFrame.current = e => {
+            if (!e.end) {
+                if (!kbFollow.current) {
+                    kbFollow.current = true;
+                    kbLate.current.ticks = 0;
+                    root.classList.add('kb-follow');
+                    root.style.setProperty('--chat-anim', '0ms');
+                }
+                kbLate.current.ticks += 1;
+                const extra = safeB() * (1 - e.p);
+                root.style.setProperty('--chat-h', `${Math.round(e.bottom + extra)}px`);
+                root.style.setProperty('--composer', `${Math.round(e.h + extra)}px`);
+                return;
+            }
+            if (!kbFollow.current) return;
+            kbFollow.current = false;
+            root.classList.remove('kb-follow');
+            if (ncH.current) root.style.setProperty('--composer', `${ncH.current}px`);
+            paint();
+            settleList();
+        };
+
         return () => {
             dead = true;
             kbHint.current = null;
             kbBeat.current = null;
+            kbFrame.current = null;
+            kbFollow.current = false;
+            root.classList.remove('kb-follow');
             cancelAnimationFrame(flushAt);
             root.style.removeProperty('--chat-anim');
             drop.forEach(f => f());
@@ -2185,6 +2236,9 @@ export function Chat() {
                 NativeComposer.addListener('kb', e => {
                     kbBeat.current?.(e.on, e.dur, e.at);
                 }),
+                /* **바가 그려지는 자리, 프레임마다**(4판부터). 화면 높이를
+                   그 값으로 그대로 몬다 — 까닭은 위 `kbFrame` 주석에 있다. */
+                NativeComposer.addListener('frame', e => { kbFrame.current?.(e); }),
                 /* 바가 가리는 만큼 목록 아래를 비운다. 줄이 늘면 함께 늘어난다. */
                 NativeComposer.addListener('height', e => {
                     const h = Math.round(e.height);
@@ -2200,7 +2254,10 @@ export function Chat() {
                        내려 버리므로, **바꾸기 전에** 집어 둔 값을 넘긴다. */
                     const wasBottom = atBottom.current;
                     ncH.current = h;
-                    document.documentElement.style.setProperty('--composer', `${h}px`);
+                    /* 따라가는 동안(4판 `kbFrame`)은 그쪽이 프레임마다 적는다 —
+                       여기서 목표값을 먼저 적으면 여백이 툭 뛴다. 끝날 때
+                       `ncH`에서 도로 적는다. */
+                    if (!kbFollow.current) document.documentElement.style.setProperty('--composer', `${h}px`);
                     if (wasBottom) settleList(true);
                 }),
             ]);
@@ -2291,6 +2348,7 @@ export function Chat() {
                            `kb`가 iOS 신호보다 몇 ms 뒤에 닿았나(음수면 먼저). */
                         + ` 늦${kbLate.current.late} 움${kbLate.current.anim}`
                         + ` Δ${Math.round(kbLate.current.kb - kbLate.current.ios)}`
+                        + ` 틱${kbLate.current.ticks}`
                         + `\n${rows.join('\n')}`;
                 }
             }

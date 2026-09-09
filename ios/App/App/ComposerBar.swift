@@ -58,6 +58,13 @@ protocol ComposerBarDelegate: AnyObject {
      * 시간만큼만 움직여 함께 끝낼 수 있다.
      */
     func composerKeyboard(on: Bool, dur: Double, at: Double)
+    /**
+     * 키보드가 움직이는 동안 바가 **실제로 그려지는 자리**(4판).
+     * `bottom`은 바 아랫변(= 키보드 윗변, 화면 기준) · `h`는 바 높이 ·
+     * `p`는 0(내려가 있음)~1(다 올라옴) · `end`는 다 움직였다는 표시다.
+     * 까닭은 `follow()` 주석에 있다.
+     */
+    func composerFrame(bottom: Double, h: Double, p: Double, end: Bool)
 }
 
 final class ComposerBar: UIView, UITextViewDelegate {
@@ -313,6 +320,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
            웹은 그 값과 상관없이 시각을 알아야 한다. */
         barDelegate?.composerKeyboard(on: on, dur: dur,
                                       at: Date().timeIntervalSince1970 * 1000)
+        follow(dur: dur, info: info)
 
         guard kbUp != on else { return }
         kbUp = on
@@ -342,6 +350,62 @@ final class ComposerBar: UIView, UITextViewDelegate {
                여기서는 억지로 보낸다. */
             self.tellHeight(force: true)
         })
+    }
+
+    // ── 그려지는 자리 따라가기 ────────────────────────────────
+
+    private var link: CADisplayLink?
+    private var followUntil: CFTimeInterval = 0
+    /// 키보드 윗변(superview 기준). 올라오는 알림에서 잡아 둔다.
+    private var kbTop: CGFloat = 0
+    /// 키보드가 없을 때 바 아랫변(안전 영역 위).
+    private var restBottom: CGFloat = 0
+
+    /**
+     * **키보드가 움직이는 동안 바가 실제로 그려지는 자리를 프레임마다 웹에
+     * 알린다.** 웹은 그 값을 그대로 화면 높이로 쓴다(`Chat.tsx`의 `kbFrame`).
+     *
+     * 왜 이렇게까지 하는가 — 웹이 iOS의 곡선을 **흉내 내는 길은 끝까지 안
+     * 맞았다.** 시간(0.25초라고 알고 있었는데 실기기는 0.383초를 알려 왔다)과
+     * 곡선(`cubic-bezier`로 옮긴 것)을 아무리 맞춰도 실기기에서는 `늦다`가
+     * 남았다(사용자 제보 두 번). 바는 iOS가 키보드와 한 움직임으로 옮기므로
+     * **바의 실제 자리가 곧 키보드의 실제 자리**다 — 그걸 그대로 읽어 주면
+     * 곡선을 알 필요가 없다. 한 번 건너가는 데 10ms쯤이라(실기기에서 쟀다)
+     * 한 프레임 안이다.
+     *
+     * `layer.presentation()`이 **지금 화면에 그려진 값**이다(`frame`은 이미
+     * 목표값이다). `p`는 웹이 홈 인디케이터 몫(34px)을 그 비율로 섞으려고
+     * 준다 — 키보드가 내려가 있을 때만 그 자리가 화면 안에 있다.
+     */
+    private func follow(dur: Double, info: [AnyHashable: Any]?) {
+        guard let sv = superview else { return }
+        restBottom = sv.bounds.maxY - sv.safeAreaInsets.bottom
+        if let end = info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            let f = sv.convert(end, from: nil)
+            if f.minY < restBottom - 1 { kbTop = f.minY }     // 올라오는 것
+        }
+        followUntil = CACurrentMediaTime() + dur + 0.05
+        if link == nil {
+            let l = CADisplayLink(target: self, selector: #selector(tick))
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+    }
+
+    @objc private func tick() {
+        let done = CACurrentMediaTime() >= followUntil
+        let f = (done ? nil : layer.presentation()?.frame) ?? frame
+        let span = max(1, restBottom - kbTop)
+        let p = min(1, max(0, (restBottom - f.maxY) / span))
+        barDelegate?.composerFrame(bottom: Double(f.maxY), h: Double(f.height),
+                                   p: Double(p), end: done)
+        if done { link?.invalidate(); link = nil }
+    }
+
+    /// `CADisplayLink`는 대상을 붙들고 있어 **떼어 낼 때 끊어야** 바가 해제된다.
+    override func willMove(toSuperview newSuperview: UIView?) {
+        super.willMove(toSuperview: newSuperview)
+        if newSuperview == nil { link?.invalidate(); link = nil }
     }
 
     /// 아래 빈자리는 우리 것이 아니다 — 손짓을 그대로 흘려보낸다.

@@ -1708,6 +1708,12 @@ html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }
    **여러 줄이라 `white-space: pre`다** — 움직이는 동안을 한 줄씩 쌓아 두고
    사진 한 장으로 읽는 자리다(영상 대신). `pointer-events: none`이라
    가려도 그 아래가 그대로 눌린다. */
+/* **바를 따라가는 동안**(4판, `Chat.tsx`의 `kbFrame`) 입력칸 아래 여백은
+   `--composer` 하나다 — 홈 인디케이터 몫(`--safe-b`)은 웹이 그 비율(`p`)로
+   섞어서 `--composer`에 이미 넣어 두었다. `kb-open` 규칙보다 뒤에 있어야
+   이긴다(특이도가 같다). */
+html.nc2.kb-follow body .chat-input { padding-bottom: var(--composer, 60px); }
+
 .kb-probe.fixed { position: fixed; }   /* 댓글 칸 — 흐름 밖에서 화면 위에 */
 .kb-probe {
     position: absolute;

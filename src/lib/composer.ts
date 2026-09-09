@@ -48,6 +48,13 @@ type Native = {
      * 늦게 도착한다. `Date.now()`와 견주면 늦은 만큼이 그대로 나온다.
      */
     addListener(n: 'kb', cb: (e: { on: boolean; dur: number; at: number }) => void): Promise<Handle>;
+    /**
+     * 키보드가 움직이는 동안 **바가 실제로 그려지는 자리**(4판부터, 프레임마다).
+     * `bottom`은 바 아랫변(= 키보드 윗변) · `h`는 바 높이 · `p`는 0(내려가
+     * 있음)~1(다 올라옴) · `end`는 다 움직였다는 표시. 웹이 이 값을 그대로
+     * 화면 높이로 쓴다 — 곡선을 흉내 내지 않는다(`ComposerBar.follow` 주석).
+     */
+    addListener(n: 'frame', cb: (e: { bottom: number; h: number; p: number; end: boolean }) => void): Promise<Handle>;
 };
 
 export const NativeComposer = registerPlugin<Native>('NativeComposer');

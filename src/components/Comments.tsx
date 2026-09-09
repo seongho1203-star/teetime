@@ -380,10 +380,18 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             /* 바에 가리지 않게 칸을 끌어 올린다. **여러 번 부른다** —
                웹뷰가 줄어드는 것은 키보드보다 0.45초 늦어서(플러그인의
                그 타이밍이다) 한 번만 하면 줄기 전 크기로 계산된다. */
-            const up = () => wrapRef.current?.scrollIntoView({ block: 'end' });
+            const up = () => { log('끌어올림'); wrapRef.current?.scrollIntoView({ block: 'end' }); };
             requestAnimationFrame(up);
             setTimeout(up, 300);
             setTimeout(up, 650);
+            /* **창이 줄어드는 그 순간에도 한 번 더.** 앱은 웹뷰를 키보드보다
+               0.45~0.8초 늦게 줄이는데(실기기 진단 — `c512`가 800ms에 찍혔다),
+               위 셋은 그 전에 다 돌아서 **줄기 전 크기로 굴린 것이 키보드
+               뒤로 들어갔다** — 키보드는 뜨는데 댓글 칸은 안 올라오던 자리다
+               (사용자 제보 — `댓글창이 안올라와`). 창이 줄면 `resize`가 오므로
+               그때 굴리면 맞다. 1.5초만 듣는다. */
+            window.addEventListener('resize', up);
+            setTimeout(() => window.removeEventListener('resize', up), 1500);
         })();
     };
 

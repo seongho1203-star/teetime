@@ -58,7 +58,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     /// 이 판의 번호. 바를 세우는 방식이 바뀌면 올린다(웹이 `html.nc2`로 가른다).
     /// 3판 — 초점을 붙들어 두기(`holdFocus`)와 키보드 시각 알림(`kb`)이 들어갔다.
-    private static let version = 3
+    /// 4판 — 바가 그려지는 자리를 프레임마다 알린다(`frame`).
+    private static let version = 4
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -333,6 +334,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     func composerKeyboard(on: Bool, dur: Double, at: Double) {
         guard live else { return }
         notifyListeners("kb", data: ["on": on, "dur": dur, "at": at])
+    }
+
+    /// 키보드가 움직이는 동안 바가 그려지는 자리(프레임마다 · 4판).
+    func composerFrame(bottom: Double, h: Double, p: Double, end: Bool) {
+        guard live else { return }
+        notifyListeners("frame", data: ["bottom": bottom, "h": h, "p": p, "end": end])
     }
 }
 
