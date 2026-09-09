@@ -41,6 +41,7 @@ function taken(from: EventTarget | null): boolean {
         if (el.matches('input, textarea, select, [contenteditable]'
                      + ', .chat-row'          /* 왼쪽으로 밀어 답장 */
                      + ', .chat-menu, .chat-card, .sheet, .modal'  /* 덮는 창 */
+                     + ', .photo-zoom'        /* 크게 본 사진 — 벌리고 끄는 자리 */
                      + ', .sticker-tray, .chat-hits'  /* 위에 얹힌 판 */
         )) return true;
         // 가로로 굴러갈 수 있는 줄이면 그쪽이 임자다.
@@ -53,9 +54,93 @@ function taken(from: EventTarget | null): boolean {
     return false;
 }
 
-/** 가로로 이만큼은 그어야 넘긴다. 세로가 더 크면 굴리는 손짓이다. */
-const MIN_X = 60;
-const SLOPE = 1.6;
+/* ── 앞 화면을 찍어 둔다 ──────────────────────────────────────
+ *
+ * **손가락을 따라 뒤로 가려면 앞 화면이 뒤에 깔려 있어야 한다**(사용자 요청 —
+ * `아이폰처럼 손가락따라가면서 뒤로가기`). 그런데 그 화면은 이미 없어진 뒤라,
+ * **떠날 때 찍어 두는 수밖에 없다.**
+ *
+ * **앞 화면을 리액트로 한 번 더 그리는 길로 가지 말 것**(`<Routes location>`을
+ * 하나 더 띄우는 그것이다). 화면이 통째로 다시 **살아나면서** 딸린 일까지
+ * 다시 돈다 — 대화를 열면 읽음이 찍히고, 투표 목록은 결과 알리기를 부르고,
+ * 실시간 구독이 두 벌이 된다. 그림만 필요한 자리에 그 위험을 질 이유가 없다.
+ * **찍어 둔 것은 죽은 그림이라** 아무 일도 안 한다.
+ *
+ * **찍는 자리가 `pushState`인 까닭.** 리액트의 효과는 전부 DOM이 바뀐
+ * **뒤에** 도는데, 그때는 앞 화면이 이미 사라지고 없다. `pushState`는
+ * 리액트가 주소가 바뀐 걸 알아채기 **전에** 도는 유일한 자리다.
+ * 원래 하던 일은 그대로 부르므로 라우터는 아무것도 모른다.
+ */
+type Shot = { path: string; node: HTMLElement; scroll: number };
+const shots: Shot[] = [];
+const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
+
+/** 지금 화면(`.app`의 첫 자식)을 찾는다. */
+function pageEl(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('.app > :first-child');
+}
+
+/**
+ * 주소에서 **화면 경로**를 꺼낸다.
+ *
+ * **이 앱은 해시 라우팅이다**(`/#/rounds` — 그 까닭은 CLAUDE.md에 있다).
+ * 그래서 `pathname`은 어느 화면에 있든 늘 `/`이고, 그것으로 가리면
+ * **모든 길이 탭으로 보여 그림을 한 장도 안 찍는다**(실제로 그렇게 짰다가
+ * 헤드리스에서 잡았다 — 앞 화면이 늘 빈 채로 깔렸다).
+ */
+function routeOf(href: string): string {
+    try {
+        const h = new URL(href, location.href).hash;
+        return h.startsWith('#') ? (h.slice(1) || '/') : '/';
+    } catch { return '/'; }
+}
+
+function snap(toPath: string) {
+    /* **탭으로 가는 길은 안 찍는다** — 탭 화면에서는 뒤로 갈 데가 없어
+       그 그림을 쓸 일이 아예 없다(찍는 값만 든다). */
+    if (TAB_PATHS.includes(toPath)) return;
+    const el = pageEl();
+    if (!el) return;
+    shots.push({ path: routeOf(location.href), node: el.cloneNode(true) as HTMLElement,
+                 scroll: window.scrollY });
+    while (shots.length > MAX_SHOTS) shots.shift();
+}
+
+let patched = false;
+function watchHistory() {
+    if (patched || typeof history === 'undefined') return;
+    patched = true;
+    const push = history.pushState.bind(history);
+    history.pushState = function (data: unknown, title: string, url?: string | URL | null) {
+        try {
+            if (url != null) snap(routeOf(String(url)));
+        } catch { /* 주소가 이상해도 넘어가는 것이 낫다 */ }
+        return push(data as never, title, url);
+    } as typeof history.pushState;
+    /* 뒤로 갔으면 그 그림은 다 쓴 것이다. */
+    window.addEventListener('popstate', () => { shots.pop(); });
+}
+watchHistory();
+
+/** 손가락으로 끌어 뒤로 간 직후에는 화면이 또 미끄러지지 않게 한다. */
+let skipSlide = false;
+
+/** 이만큼 끌면 넘어간다(화면 폭의 몫). */
+const TAKE = 0.34;
+/** 짧게 튕겨도 넘어가는 빠르기(px/ms). 800px/s쯤 — 마음먹고 튕긴 것만
+ *  걸리게 둔다. 낮추면 **천천히 끌다 놓은 것까지 넘어간다.** */
+const FLICK = 0.8;
+/** 튕김으로 볼 최소 거리. 이보다 짧은 것은 손 떨림에 가깝다. */
+const FLICK_MIN = 40;
+/** 마지막으로 움직인 지 이만큼 지났으면 **멈춘 것으로 본다.**
+ *  안 그러면 끌다가 망설이고 놓았을 때 옛 빠르기가 그대로 남아 넘어간다. */
+const STALE = 120;
+/** 가로로 이만큼은 그어야 '뒤로 가려는 것'으로 본다. */
+const WAKE = 12;
+const SLOPE = 1.2;
+/** 앞 화면이 뒤에서 따라 나오는 몫(아이폰의 그 어긋남). */
+const PARALLAX = 0.25;
+const DIM = 0.18;
 
 export function useBackSwipe(): void {
     const nav = useNavigate();
@@ -65,33 +150,157 @@ export function useBackSwipe(): void {
     useEffect(() => {
         // 탭 화면에서는 뒤로 갈 데가 없다.
         if (onTab) return;
+        /* 움직임을 줄여 달라고 해 둔 기기에서는 끌리는 것 없이 곧바로
+           간다 — 아래 효과가 그 몫을 맡는다. */
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-        let x0 = 0, y0 = 0, live = false;
+        let x0 = 0, y0 = 0, dx = 0, vx = 0, lastX = 0, lastT = 0;
+        let cand = false, live = false, W = 1;
+        let page: HTMLElement | null = null;
+        let ghost: HTMLDivElement | null = null;
+        let dim: HTMLDivElement | null = null;
+
+        const paint = () => {
+            const p = Math.max(0, Math.min(1, dx / W));
+            if (page) page.style.transform = `translate3d(${dx}px,0,0)`;
+            if (ghost) ghost.style.transform = `translate3d(${(p - 1) * W * PARALLAX}px,0,0)`;
+            if (dim) dim.style.opacity = String(DIM * (1 - p));
+        };
+
+        /** 앞 화면을 뒤에 깐다. 찍어 둔 것이 없으면 바탕만 깐다. */
+        const build = () => {
+            const g = document.createElement('div');
+            g.className = 'back-ghost';
+            const shot = shots[shots.length - 1];
+            if (shot) {
+                const c = shot.node.cloneNode(true) as HTMLElement;
+                /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
+                   늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
+                if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
+                g.appendChild(c);
+            }
+            const d = document.createElement('div');
+            d.className = 'back-ghost-dim';
+            g.appendChild(d);
+            document.body.insertBefore(g, document.body.firstChild);
+            ghost = g;
+            dim = d;
+        };
+
+        /**
+         * 끄는 동안에만 **세로 굴리기를 막는다.**
+         *
+         * **늘 걸어 두지 말 것** — `passive: false`인 `touchmove`가 문서에
+         * 붙어 있으면 브라우저가 굴릴 때마다 우리 코드를 먼저 기다린다.
+         * 상세 화면마다 그 값을 무는 셈이라, 손짓이 우리 것으로 정해진
+         * 뒤에 붙였다 끝나면 뗀다(늘 켜져 있는 값을 안 만든다는 규칙 그대로다).
+         */
+        const block = (e: TouchEvent) => { if (e.cancelable) e.preventDefault(); };
+
+        const clean = () => {
+            document.removeEventListener('touchmove', block);
+            document.documentElement.classList.remove('back-drag', 'back-ease');
+            ghost?.remove();
+            ghost = dim = null;
+            /* **지금 화면과 우리가 잡아 둔 것을 둘 다 지운다.** 리액트가
+               같은 자리의 DOM을 다시 쓰는 일이 있어, 잡아 둔 것만 지우면
+               새 화면에 옛 `transform`이 남는다. */
+            for (const el of [page, pageEl()]) {
+                if (el) { el.style.transform = ''; el.style.transition = ''; }
+            }
+            page = null;
+            live = false;
+        };
 
         const start = (e: TouchEvent) => {
-            if (e.touches.length !== 1 || taken(e.target)) { live = false; return; }
-            x0 = e.touches[0].clientX;
+            cand = live = false;
+            if (e.touches.length !== 1 || taken(e.target)) return;
+            x0 = lastX = e.touches[0].clientX;
             y0 = e.touches[0].clientY;
-            live = true;
-        };
-        const end = (e: TouchEvent) => {
-            if (!live) return;
-            live = false;
-            const t = e.changedTouches[0];
-            if (!t) return;
-            const dx = t.clientX - x0, dy = t.clientY - y0;
-            // 오른쪽으로 그은 것만 받는다. 왼쪽은 앞으로 갈 데가 없다.
-            if (dx < MIN_X || dx < Math.abs(dy) * SLOPE) return;
-            nav(-1);
+            lastT = e.timeStamp;
+            cand = true;
         };
 
-        /* **`preventDefault`를 부르지 않는다** — 세로 스크롤을 막으면 안 되고,
-           그래서 `passive`로 붙여 브라우저가 굴리는 일을 안 기다리게 한다. */
+        const move = (e: TouchEvent) => {
+            if (!cand || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const gx = t.clientX - x0, gy = t.clientY - y0;
+            if (!live) {
+                // 세로가 크면 굴리는 손짓이다 — 통째로 넘긴다.
+                if (Math.abs(gy) > Math.abs(gx) && Math.abs(gy) > WAKE) { cand = false; return; }
+                if (gx < WAKE || gx < Math.abs(gy) * SLOPE) return;
+                page = pageEl();
+                if (!page) { cand = false; return; }
+                W = window.innerWidth || 1;
+                document.documentElement.classList.add('back-drag');
+                /* 여기서부터는 우리 손짓이다 — 굴리는 것을 막는 듣기를
+                   **이제** 붙인다(위 `block` 주석). */
+                document.addEventListener('touchmove', block, { passive: false });
+                build();
+                live = true;
+            }
+            dx = Math.max(0, gx);
+            const dt = e.timeStamp - lastT;
+            if (dt > 0) vx = (t.clientX - lastX) / dt;
+            lastX = t.clientX; lastT = e.timeStamp;
+            paint();
+        };
+
+        const end = () => {
+            if (!cand) return;
+            cand = false;
+            if (!live) return;
+            /* 손이 멈춘 채로 있었으면 빠르기는 없던 것으로 본다. */
+            const still = performance.now() - lastT > STALE;
+            const go = dx > W * TAKE
+                    || (!still && vx > FLICK && dx > FLICK_MIN);
+            document.documentElement.classList.add('back-ease');
+            dx = go ? W : 0;
+            paint();
+            window.setTimeout(() => {
+                if (go) { skipSlide = true; nav(-1); }
+                /* 새 화면이 한 번 그려진 **뒤에** 걷는다 — 바로 걷으면
+                   그 한 프레임에 옛 화면이 비친다. */
+                requestAnimationFrame(() => requestAnimationFrame(clean));
+            }, 230);
+        };
+
+        /* 흔들림 없이 되돌아오게, 손짓이 끊기면 그대로 접는다. */
+        const cancel = () => { if (live) { dx = 0; paint(); } clean(); cand = false; };
+
         document.addEventListener('touchstart', start, { passive: true });
+        /* 알아채는 듣기는 **passive다** — 막는 일은 위 `block`이 맡는다. */
+        document.addEventListener('touchmove', move, { passive: true });
         document.addEventListener('touchend', end, { passive: true });
+        document.addEventListener('touchcancel', cancel, { passive: true });
         return () => {
             document.removeEventListener('touchstart', start);
+            document.removeEventListener('touchmove', move);
             document.removeEventListener('touchend', end);
+            document.removeEventListener('touchcancel', cancel);
+            clean();
+        };
+    }, [onTab, nav]);
+
+    useEffect(() => {
+        if (onTab) return;
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        let x0 = 0, y0 = 0, ok0 = false;
+        const s = (e: TouchEvent) => {
+            ok0 = e.touches.length === 1 && !taken(e.target);
+            if (ok0) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }
+        };
+        const t = (e: TouchEvent) => {
+            if (!ok0) return;
+            ok0 = false;
+            const c = e.changedTouches[0];
+            if (c && c.clientX - x0 > 60 && c.clientX - x0 > Math.abs(c.clientY - y0) * 1.6) nav(-1);
+        };
+        document.addEventListener('touchstart', s, { passive: true });
+        document.addEventListener('touchend', t, { passive: true });
+        return () => {
+            document.removeEventListener('touchstart', s);
+            document.removeEventListener('touchend', t);
         };
     }, [onTab, nav]);
 }
@@ -121,6 +330,9 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
 
         const el = ref.current;
         if (!el || same) return;
+        /* **손가락으로 끌어 뒤로 온 참이면 아무것도 안 한다.** 이미 손을
+           따라 끝까지 옮겨 놓은 화면을 여기서 또 미끄러뜨리면 두 번 움직인다. */
+        if (skipSlide) { skipSlide = false; return; }
         // **탭 사이는 안 움직인다.**
         if (wasTab && isTab) return;
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;

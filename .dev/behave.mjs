@@ -2188,6 +2188,115 @@ console.log('\n── 사진 크게 보기 ──');
     await zCtx.close();
 }
 
+/* ── 14. 손가락을 따라 뒤로 가는가 ────────────────────────────────
+ *
+ * 아이폰의 그 손짓이다(사용자 요청 — `아이폰처럼 손가락따라가면서
+ * 뒤로가기`). **앞 화면은 떠날 때 찍어 둔 죽은 그림이다**(`lib/tabs.ts`의
+ * `snap`) — 리액트로 한 번 더 그리면 읽음 찍기·결과 알리기 같은 딸린
+ * 일까지 다시 돈다.
+ *
+ * **여기서 잡은 것이 둘이다:**
+ *  1. 이 앱은 **해시 라우팅**이라 `pathname`이 늘 `/`다. 그것으로 가리면
+ *     모든 길이 탭으로 보여 **그림을 한 장도 안 찍는다**(앞 화면이 늘 빈
+ *     채로 깔렸다). `routeOf`가 해시를 본다.
+ *  2. 끌다가 **멈추고 놓았는데도 넘어갔다** — 마지막 빠르기를 그대로
+ *     들고 있었기 때문이다. `STALE`이 그걸 없던 것으로 본다.
+ *
+ * **손짓은 천천히 던져야 한다** — 한 번에 몰아 던지면 눈 깜짝할 새라
+ * 빠르기가 무한대가 되어 전부 '튕김'으로 읽힌다.
+ */
+console.log('\n── 손가락을 따라 뒤로 가기 ──');
+{
+    const bCtx2 = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR',
+        timezoneId: 'Asia/Seoul', hasTouch: true, isMobile: true });
+    await bCtx2.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(bCtx2);
+    await bCtx2.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const bp = await bCtx2.newPage();
+
+    const touchAt = (type, x, y) => bp.evaluate(([type, x, y]) => {
+        const el = document.querySelector('.app > :first-child');
+        const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: y,
+                              pageX: x, pageY: y });
+        el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+            touches: type === 'touchend' ? [] : [t],
+            targetTouches: type === 'touchend' ? [] : [t],
+            changedTouches: [t] }));
+    }, [type, x, y]);
+    const draw = async (dx, dy = 0, hold = false, steps = 8, gap = 24) => {
+        const x0 = 8, y0 = 420;
+        await touchAt('touchstart', x0, y0);
+        for (let i = 1; i <= steps; i++) {
+            await bp.waitForTimeout(gap);
+            await touchAt('touchmove', x0 + dx * i / steps, y0 + dy * i / steps);
+        }
+        if (!hold) await touchAt('touchend', x0 + dx, y0 + dy);
+    };
+    const shift = () => bp.evaluate(() => {
+        const el = document.querySelector('.app > :first-child');
+        const g = document.querySelector('.back-ghost');
+        return {
+            page: Math.round(new DOMMatrixReadOnly(getComputedStyle(el).transform).e),
+            ghost: g ? Math.round(new DOMMatrixReadOnly(getComputedStyle(g).transform).e) : null,
+            있나: !!g,
+        };
+    });
+    const at = () => bp.evaluate(() => location.hash);
+    const dive = async () => {
+        await bp.click('.round-card a, .round-card', { timeout: 5000 }).catch(() => {});
+        await bp.waitForTimeout(700);
+    };
+
+    await bp.goto(`${BASE}/#/rounds`);
+    await bp.waitForSelector('.app', { timeout: 20000 });
+    await bp.waitForTimeout(600);
+    await dive();
+    ok((await at()).startsWith('#/rounds/'), `상세로 들어간다 (${await at()})`);
+
+    await draw(120, 0, true);
+    const mid = await shift();
+    ok(mid.page >= 100 && mid.page <= 130, `끄는 만큼 화면이 따라온다 (${mid.page}px)`);
+    ok(mid.있나 && mid.ghost < 0 && mid.ghost > -100,
+       `앞 화면이 뒤에서 어긋나 따라온다 (${mid.ghost}px)`);
+    const ghost = await bp.evaluate(() => {
+        const g = document.querySelector('.back-ghost');
+        return { 장: g.querySelectorAll('.page').length, 눌림: getComputedStyle(g).pointerEvents };
+    });
+    /* **여기가 해시 라우팅에 걸렸던 자리다** — 0장이면 그림을 안 찍은 것이다. */
+    ok(ghost.장 === 1, `앞 화면 그림이 실제로 들어 있다 (${ghost.장}장)`);
+    ok(ghost.눌림 === 'none', '그 그림은 눌리지 않는다(죽은 그림이다)');
+
+    /* 끌다가 멈추고 놓으면 되돌아온다 — 위 `STALE`이 지키는 자리다. */
+    const stay = await at();
+    await touchAt('touchend', 128, 420);
+    await bp.waitForTimeout(600);
+    ok((await at()) === stay, '조금 끌다 멈추고 놓으면 안 넘어간다');
+    const home = await shift();
+    ok(home.page === 0 && !home.있나, '제자리로 돌아오고 그림도 걷힌다');
+
+    await draw(300);
+    await bp.waitForTimeout(700);
+    ok((await at()) === '#/rounds', `충분히 끌면 뒤로 간다 (${await at()})`);
+    const done = await shift();
+    ok(done.page === 0 && !done.있나, '넘어간 뒤에 옛 자리가 안 남는다');
+
+    await dive();
+    const before = await at();
+    await draw(20, 160);
+    await bp.waitForTimeout(400);
+    ok((await at()) === before && (await shift()).page === 0,
+       '세로로 그으면 뒤로 안 가고 화면도 안 움직인다');
+
+    await bp.goto(`${BASE}/#/rounds`);
+    await bp.waitForTimeout(600);
+    await draw(300);
+    await bp.waitForTimeout(500);
+    ok((await at()) === '#/rounds', '탭 화면에서는 미는 손짓을 안 받는다');
+
+    await bCtx2.close();
+}
+
 await browser.close();
 
 if (errors.length) {

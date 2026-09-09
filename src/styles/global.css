@@ -76,6 +76,48 @@ h1, h2, h3, h4, p { margin: 0; }
 .app.slide-in   > :first-child { animation: screen-in 240ms cubic-bezier(.32, .72, 0, 1); }
 .app.slide-back > :first-child { animation: screen-back 240ms cubic-bezier(.32, .72, 0, 1); }
 
+/* ── 손가락을 따라 뒤로 가기 ────────────────────────────────────
+   아이폰의 그 손짓이다(사용자 요청). 자리 셈은 `lib/tabs.ts`가 하고
+   여기서는 **층과 생김새만** 정한다.
+
+   **지금 화면에 바탕색을 꼭 깔 것** — `.page`는 원래 속이 비어 있어
+   `body`의 색이 비쳐 보이는데, 그대로 밀면 뒤에 깔아 둔 앞 화면이
+   **두 겹으로 겹쳐** 보인다. 왼쪽 가장자리의 그림자가 두 화면을 갈라 준다. */
+html.back-drag .app > :first-child {
+    position: relative;
+    z-index: 2;
+    background: var(--bg);
+    box-shadow: -10px 0 26px rgba(0, 0, 0, 0.20);
+    will-change: transform;
+}
+/* 뒤에 깔리는 앞 화면. **찍어 둔 죽은 그림이라 손짓을 안 받는다.**
+   `.app`과 같은 flex 기둥이어야 그 안의 `.page`가 같은 모양으로 선다. */
+.back-ghost {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    pointer-events: none;
+    will-change: transform;
+}
+.back-ghost-dim {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    opacity: 0.18;
+}
+/* 손을 뗀 뒤 남은 거리를 마저 간다. **끄는 동안에는 걸지 않는다** —
+   손가락을 그대로 따라와야 하므로 그때 전환이 걸리면 늦게 따라온다. */
+html.back-ease .app > :first-child,
+html.back-ease .back-ghost,
+html.back-ease .back-ghost-dim {
+    transition: transform 230ms cubic-bezier(.32, .72, 0, 1),
+                opacity 230ms linear;
+}
+
 /* 상태바 뒤에 바탕색을 깔아 둔다.
    비워 두면 스크롤한 글이 상태바 아래로 지나가고, iOS가 그 위에 반투명
    막을 씌워 **위쪽만 뿌옇게** 보인다. 평평한 색 한 겹이면 그 얼룩이 없어진다.
