@@ -3,7 +3,12 @@
     left: 50%;
     bottom: calc(var(--tabbar-h) + var(--safe-b) + 16px);
     transform: translateX(-50%);
-    z-index: 900;
+    /* **덮는 창(1000)보다 위여야 한다.** 900으로 두었더니 사진을 크게 본
+       화면에서 `사진첩에 저장했습니다`가 그 밑에 깔려 안 보였고, 저장이
+       된 줄 모르고 여러 번 눌러 **같은 사진이 여러 장 저장됐다**
+       (사용자 제보). 토스트는 `pointer-events: none`이라 위로 올려도
+       뒤를 가로막지 않는다. */
+    z-index: 1200;
     display: flex;
     flex-direction: column;
     gap: 8px;

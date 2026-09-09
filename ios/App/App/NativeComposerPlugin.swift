@@ -68,11 +68,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///       다시 세우는 것이 빠르다.
     /// 7판 — 감춰 둘 수 있다(`hidden`). 댓글이 바를 미리 세워 두는 데 쓴다.
     /// 8판 — 사진을 앱이 고르고·저장하고·공유한다(`pickPhoto`·`savePhoto`·`sharePhoto`).
+    /// 9판 — 고르는 창을 `+` 옆에 작게 붙이고, 저장은 **끝난 뒤에** 답한다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 8
+    private static let version = 9
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -307,13 +308,25 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             sheet.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in
                 self.finishPick(nil)
             })
-            /* 아이패드에서는 붙일 자리가 없으면 그대로 죽는다 — 화면 아래
-               가운데에 붙여 둔다(아이폰에서는 안 쓰인다). */
+            /* **`+` 바로 위에 조그맣게 띄운다**(9판 · 사용자 요청 —
+               `좌측하단으로 옮겨주고 버튼 크기도 좀 작게`). 그냥 두면
+               아이폰에서 화면 아래를 가로지르는 큰 창이 된다.
+               팝오버로 붙이면 누른 자리에 작은 카드로 서는데, 아이폰은
+               기본으로 그걸 다시 큰 창으로 바꾸므로 **`delegate`가
+               `.none`을 돌려줘야** 작은 채로 남는다.
+               붙일 자리가 없으면 그대로 죽으므로 바가 없을 때의 예비
+               자리(왼쪽 아래)도 함께 둔다. */
             if let pop = sheet.popoverPresentationController {
-                pop.sourceView = vc.view
-                pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.maxY - 1,
-                                        width: 1, height: 1)
-                pop.permittedArrowDirections = []
+                if let bar = self.bar, bar.superview != nil {
+                    pop.sourceView = bar
+                    pop.sourceRect = bar.plusBtn.frame
+                } else {
+                    pop.sourceView = vc.view
+                    pop.sourceRect = CGRect(x: 16, y: vc.view.bounds.maxY - 96,
+                                            width: 44, height: 44)
+                }
+                pop.permittedArrowDirections = .down
+                pop.delegate = self
             }
             vc.present(sheet, animated: true)
         }
@@ -380,12 +393,32 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }.resume()
     }
 
-    /// 사진첩에 저장한다. `NSPhotoLibraryAddUsageDescription`이 필요하다.
+    /// 저장이 끝나기를 기다리는 약속. 한 번에 하나뿐이다.
+    private var saveCall: CAPPluginCall?
+
+    /**
+     * 사진첩에 저장한다. `NSPhotoLibraryAddUsageDescription`이 필요하다.
+     *
+     * **끝난 뒤에 답한다** — 예전에는 넣자마자 `ok`로 답했는데, 그러면
+     * 권한을 거절당해 **정말로 안 저장된 때도 `저장했습니다`가 떴다.**
+     * 저장은 몇 초가 걸리기도 해서 이 기다림이 곧 화면의 `저장 중…`이다.
+     */
     @objc func savePhoto(_ call: CAPPluginCall) {
         fetch(call) { img in
-            UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
-            call.resolve(["ok": true])
+            self.saveCall?.resolve(["ok": false])   // 겹쳐 불리면 앞엣것은 닫는다
+            self.saveCall = call
+            UIImageWriteToSavedPhotosAlbum(
+                img, self,
+                #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
         }
+    }
+
+    @objc private func image(_ image: UIImage,
+                             didFinishSavingWithError error: Error?,
+                             contextInfo: UnsafeRawPointer?) {
+        let call = saveCall
+        saveCall = nil
+        call?.resolve(["ok": error == nil])
     }
 
     /// 폰이 띄워 주는 공유창에 넘긴다.
@@ -564,6 +597,27 @@ extension NativeComposerPlugin: PHPickerViewControllerDelegate,
 
     public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
+        finishPick(nil)
+    }
+}
+
+/**
+ * 고르는 창을 **`+` 옆에 작게** 붙여 두는 자리(9판).
+ *
+ * 아이폰은 팝오버를 기본으로 큰 창(`.fullScreen`)으로 바꿔 버린다 —
+ * `.none`을 돌려줘야 누른 자리에 작은 카드로 남는다.
+ *
+ * **작은 카드에서는 iOS가 `취소` 줄을 스스로 뺀다.** 바탕을 눌러 닫는
+ * 것이 그 자리를 대신하는데, 그때는 아무 손잡이도 안 불려 **약속이 영영
+ * 안 닫힌다** — 그래서 닫히는 것을 여기서 받아 `finishPick(nil)`을 부른다.
+ */
+extension NativeComposerPlugin: UIPopoverPresentationControllerDelegate {
+
+    public func adaptivePresentationStyle(for controller: UIPresentationController)
+        -> UIModalPresentationStyle { return .none }
+
+    public func popoverPresentationControllerDidDismissPopover(
+        _ popoverPresentationController: UIPopoverPresentationController) {
         finishPick(nil)
     }
 }

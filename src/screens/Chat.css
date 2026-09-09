@@ -1501,12 +1501,18 @@
     padding: 0 18px;
     border: 0;
     border-radius: var(--r-pill);
-    background: rgba(255, 255, 255, 0.16);
+    /* **0.16으로 두었더니 안 보였다**(사용자 제보 — `시인성이 좀 떨어져`).
+       바탕이 거의 검정이라 흰색 16%는 단추로 안 읽힌다. 테두리를 함께
+       둘러 사진 위에 걸쳐도 가장자리가 살아 있게 했다.
+       **분홍을 쓰지 말 것** — 이 화면에서도 그 색은 다른 몫이다. */
+    background: rgba(255, 255, 255, 0.30);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
     color: #fff;
     font-size: 15px;
     font-weight: 600;
 }
-.photo-zoom-btn:active { background: rgba(255, 255, 255, 0.28); }
+.photo-zoom-btn:active { background: rgba(255, 255, 255, 0.44); }
+.photo-zoom-btn:disabled { opacity: 0.55; }
 
 .photo-zoom-x {
     position: absolute;

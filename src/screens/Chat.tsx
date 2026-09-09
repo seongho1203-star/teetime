@@ -546,6 +546,11 @@ export function Chat() {
      * `Bubble`이 `memo`라 새 함수를 넘기면 쉰 개가 다시 그려진다.
      */
     const [zoom, setZoom] = useState<string | null>(null);
+    /* 저장·공유가 도는 동안 단추를 잠근다. **저장은 끝나기까지 몇 초가
+       걸리는데 그동안 아무 말이 없어**, 안 된 줄 알고 또 눌러 **같은
+       사진이 여러 장 저장됐다**(사용자 제보). 토스트를 위로 올린 것과
+       한 벌이다. */
+    const [busy, setBusy] = useState<'save' | 'share' | null>(null);
     const onPhotoTap = useCallback((e: React.MouseEvent) => {
         const a = (e.target as HTMLElement).closest?.('.chat-photo-link');
         if (!(a instanceof HTMLAnchorElement)) return;
@@ -561,24 +566,32 @@ export function Chat() {
      * 띄워 주는 공유창으로 물러난다(거기에 `이미지 저장`이 들어 있다).
      */
     const savePhoto = async (url: string) => {
-        if (ncOn.current && ncLog.v >= 8) {
-            const r = await NativeComposer.savePhoto({ url }).catch(() => null);
-            toast(r?.ok ? '사진첩에 저장했습니다.' : '저장하지 못했습니다.',
-                  r?.ok ? 'ok' : 'error');
-            return;
-        }
-        if (await sharePhotoFile(url)) return;
-        toast('길게 눌러 저장해 주세요.', 'ok');
+        if (busy) return;
+        setBusy('save');
+        try {
+            if (ncOn.current && ncLog.v >= 8) {
+                const r = await NativeComposer.savePhoto({ url }).catch(() => null);
+                toast(r?.ok ? '사진첩에 저장했습니다.' : '저장하지 못했습니다.',
+                      r?.ok ? 'ok' : 'error');
+                return;
+            }
+            if (await sharePhotoFile(url)) return;
+            toast('길게 눌러 저장해 주세요.', 'ok');
+        } finally { setBusy(null); }
     };
 
     /** 크게 본 사진을 공유창에 넘긴다. 위 `savePhoto`와 같은 갈래다. */
     const sharePhoto = async (url: string) => {
-        if (ncOn.current && ncLog.v >= 8) {
-            const r = await NativeComposer.sharePhoto({ url }).catch(() => null);
-            if (!r?.ok) toast('공유하지 못했습니다.', 'error');
-            return;
-        }
-        if (!await sharePhotoFile(url)) toast('이 기기에서는 공유를 지원하지 않습니다.', 'error');
+        if (busy) return;
+        setBusy('share');
+        try {
+            if (ncOn.current && ncLog.v >= 8) {
+                const r = await NativeComposer.sharePhoto({ url }).catch(() => null);
+                if (!r?.ok) toast('공유하지 못했습니다.', 'error');
+                return;
+            }
+            if (!await sharePhotoFile(url)) toast('이 기기에서는 공유를 지원하지 않습니다.', 'error');
+        } finally { setBusy(null); }
     };
 
     /** 맨 아래를 보고 있었으면 다시 맨 아래로 붙인다. */
@@ -3164,10 +3177,12 @@ export function Chat() {
                         들어 있다). 바탕을 누르면 닫히므로 **여기서는 안 닫는다**
                         (`stopPropagation`). */}
                     <div className="photo-zoom-bar" onClick={e => e.stopPropagation()}>
-                        <button className="photo-zoom-btn" onClick={() => savePhoto(zoom)}>
-                            저장
+                        <button className="photo-zoom-btn" disabled={busy !== null}
+                                onClick={() => savePhoto(zoom)}>
+                            {busy === 'save' ? '저장 중…' : '저장'}
                         </button>
-                        <button className="photo-zoom-btn" onClick={() => sharePhoto(zoom)}>
+                        <button className="photo-zoom-btn" disabled={busy !== null}
+                                onClick={() => sharePhoto(zoom)}>
                             공유
                         </button>
                     </div>
