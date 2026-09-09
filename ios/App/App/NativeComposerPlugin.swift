@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import PhotosUI
 import Capacitor
 
 /*
@@ -53,7 +54,10 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "focus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "blur", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "resume", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "resume", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pickPhoto", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "savePhoto", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise)
     ]
 
     /// 이 판의 번호. 바를 세우는 방식이 바뀌면 올린다(웹이 `html.nc2`로 가른다).
@@ -63,11 +67,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 6판 — 그 신호를 **늘** 보낸다(웹이 다른 셈을 아예 안 쓴다) · 바를 살려 두어
     ///       다시 세우는 것이 빠르다.
     /// 7판 — 감춰 둘 수 있다(`hidden`). 댓글이 바를 미리 세워 두는 데 쓴다.
+    /// 8판 — 사진을 앱이 고르고·저장하고·공유한다(`pickPhoto`·`savePhoto`·`sharePhoto`).
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 7
+    private static let version = 8
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -260,6 +265,145 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     @objc func pause(_ call: CAPPluginCall) { call.resolve() }
     @objc func resume(_ call: CAPPluginCall) { call.resolve() }
 
+    // ── 사진 (8판) ───────────────────────────────────────
+    //
+    // **왜 앱이 맡는가.** 예전에는 웹의 `<input type="file">`을 눌러
+    // 열었는데, `+`가 **앱의 단추**라 웹에는 누른 자리가 없다 — iOS는
+    // 고르는 창을 '그 칸이 있는 자리'에 붙이므로 붙일 데를 못 찾고
+    // **화면 아무 데나 띄웠다**(사용자 제보 · 사진 두 장. 칸을 화면 아래에
+    // 44px로 두어도 안 봤다). 앱이 직접 띄우면 그런 자리가 아예 없다.
+    //
+    // 덤으로 **사진 저장·공유**도 여기서 한다. 웹으로는 `<a download>`가
+    // 앱 안에서 안 먹고 새 창은 사파리로 나가 버린다.
+
+    /// 사진을 고르는 동안 들고 있는 약속. 한 번에 하나뿐이다.
+    private var pickCall: CAPPluginCall?
+
+    /**
+     * 사진을 고른다 — **아래에서 올라오는 앱 창**이라 자리가 어긋날 수 없다.
+     *
+     * 사진 보관함은 `PHPickerViewController`다. **권한을 안 묻는 것이
+     * 이것을 고른 까닭이다** — 앱 밖에서 도는 창이라 고른 한 장만 건네준다.
+     * 사진 찍기만 `NSCameraUsageDescription`이 필요하다(Info.plist).
+     *
+     * 돌려주는 것은 **이미 줄인 JPEG**(긴 변 1600 · 품질 0.82)를 base64로
+     * 담은 것이다 — 웹의 `lib/image.ts`와 같은 값이라 받는 쪽이 그대로 올린다.
+     */
+    @objc func pickPhoto(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let vc = self.bridge?.viewController else { call.reject("no vc"); return }
+            self.pickCall?.resolve(["ok": false])      // 겹쳐 불리면 앞엣것은 닫는다
+            self.pickCall = call
+
+            let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+            sheet.addAction(UIAlertAction(title: "사진 보관함", style: .default) { _ in
+                self.openLibrary(vc)
+            })
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                sheet.addAction(UIAlertAction(title: "사진 찍기", style: .default) { _ in
+                    self.openCamera(vc)
+                })
+            }
+            sheet.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in
+                self.finishPick(nil)
+            })
+            /* 아이패드에서는 붙일 자리가 없으면 그대로 죽는다 — 화면 아래
+               가운데에 붙여 둔다(아이폰에서는 안 쓰인다). */
+            if let pop = sheet.popoverPresentationController {
+                pop.sourceView = vc.view
+                pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.maxY - 1,
+                                        width: 1, height: 1)
+                pop.permittedArrowDirections = []
+            }
+            vc.present(sheet, animated: true)
+        }
+    }
+
+    private func openLibrary(_ vc: UIViewController) {
+        var cfg = PHPickerConfiguration()
+        cfg.filter = .images
+        cfg.selectionLimit = 1
+        let p = PHPickerViewController(configuration: cfg)
+        p.delegate = self
+        vc.present(p, animated: true)
+    }
+
+    private func openCamera(_ vc: UIViewController) {
+        let p = UIImagePickerController()
+        p.sourceType = .camera
+        p.delegate = self
+        vc.present(p, animated: true)
+    }
+
+    /// 고르기가 끝났다(취소도 여기로 온다). **약속은 반드시 한 번 닫는다.**
+    fileprivate func finishPick(_ image: UIImage?) {
+        guard let call = pickCall else { return }
+        pickCall = nil
+        guard let image = image, let b64 = NativeComposerPlugin.jpegBase64(image) else {
+            call.resolve(["ok": false])
+            return
+        }
+        call.resolve(["ok": true, "data": b64])
+    }
+
+    /**
+     * 줄여서 JPEG base64로. **웹의 `lib/image.ts`와 같은 값이다**
+     * (긴 변 1600 · 품질 0.82) — 한쪽만 고치면 사진 크기가 갈린다.
+     * `UIImage.draw`가 사진의 방향까지 바로잡아 그린다.
+     */
+    fileprivate static func jpegBase64(_ image: UIImage,
+                                       maxEdge: CGFloat = 1600,
+                                       quality: CGFloat = 0.82) -> String? {
+        let w = image.size.width, h = image.size.height
+        guard w > 0, h > 0 else { return nil }
+        let k = min(1, maxEdge / max(w, h))
+        let size = CGSize(width: floor(w * k), height: floor(h * k))
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = 1
+        let out = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return out.jpegData(compressionQuality: quality)?.base64EncodedString()
+    }
+
+    /// 주소에서 사진을 받아 온다. 저장·공유가 같이 쓴다.
+    private func fetch(_ call: CAPPluginCall, _ done: @escaping (UIImage) -> Void) {
+        guard let s = call.getString("url"), let url = URL(string: s) else {
+            call.reject("no url"); return
+        }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data, let img = UIImage(data: data) else {
+                DispatchQueue.main.async { call.resolve(["ok": false]) }
+                return
+            }
+            DispatchQueue.main.async { done(img) }
+        }.resume()
+    }
+
+    /// 사진첩에 저장한다. `NSPhotoLibraryAddUsageDescription`이 필요하다.
+    @objc func savePhoto(_ call: CAPPluginCall) {
+        fetch(call) { img in
+            UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+            call.resolve(["ok": true])
+        }
+    }
+
+    /// 폰이 띄워 주는 공유창에 넘긴다.
+    @objc func sharePhoto(_ call: CAPPluginCall) {
+        fetch(call) { img in
+            guard let vc = self.bridge?.viewController else { call.resolve(["ok": false]); return }
+            let av = UIActivityViewController(activityItems: [img], applicationActivities: nil)
+            if let pop = av.popoverPresentationController {
+                pop.sourceView = vc.view
+                pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.maxY - 1,
+                                        width: 1, height: 1)
+                pop.permittedArrowDirections = []
+            }
+            vc.present(av, animated: true)
+            call.resolve(["ok": true])
+        }
+    }
+
     // ── 값 옮겨 담기 ─────────────────────────────────────
 
     /**
@@ -387,5 +531,39 @@ extension UIColor {
         let b = CGFloat((n >> (has ? 8 : 0)) & 0xff) / 255
         let a = has ? CGFloat(n & 0xff) / 255 : 1
         self.init(red: r, green: g, blue: b, alpha: a)
+    }
+}
+
+/**
+ * 사진 고르는 창들이 답을 주는 자리(8판).
+ *
+ * **어느 길이든 `finishPick`으로 모인다** — 취소도 거기로 온다. 약속을
+ * 한 번은 반드시 닫아야 웹 쪽 `await`가 안 걸린다.
+ */
+extension NativeComposerPlugin: PHPickerViewControllerDelegate,
+                                UIImagePickerControllerDelegate,
+                                UINavigationControllerDelegate {
+
+    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let item = results.first?.itemProvider,
+              item.canLoadObject(ofClass: UIImage.self) else {
+            finishPick(nil)
+            return
+        }
+        item.loadObject(ofClass: UIImage.self) { obj, _ in
+            DispatchQueue.main.async { self.finishPick(obj as? UIImage) }
+        }
+    }
+
+    public func imagePickerController(_ picker: UIImagePickerController,
+                                      didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        picker.dismiss(animated: true)
+        finishPick(info[.originalImage] as? UIImage)
+    }
+
+    public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+        finishPick(nil)
     }
 }

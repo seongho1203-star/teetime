@@ -112,3 +112,31 @@ function stamp(): string {
     const p = (n: number) => String(n).padStart(2, '0');
     return `${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
+
+/**
+ * 사진 한 장을 **폰이 띄워 주는 공유창**에 넘긴다.
+ *
+ * 앱(8판+)에서는 앱이 직접 맡으므로 여기까지 안 온다 — **웹과 옛 앱의
+ * 물러남**이다. 아이폰 공유창에는 `이미지 저장`이 들어 있어서 저장도 이
+ * 길로 된다.
+ *
+ * **주소만 넘기지 않고 파일로 만들어 넘긴다** — 주소만 주면 사진이 아니라
+ * 링크가 공유되어 `이미지 저장`이 안 나온다.
+ */
+export async function sharePhotoFile(url: string): Promise<boolean> {
+    if (!navigator.share) return false;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return false;
+        const blob = await res.blob();
+        const file = new File([blob], 'kkakkung.jpg', { type: blob.type || 'image/jpeg' });
+        /* 파일을 못 받는 기기가 있다 — 그때는 아무 일도 안 하는 것보다
+           낫게 주소라도 넘긴다. */
+        if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] });
+        else await navigator.share({ url });
+        return true;
+    } catch {
+        // 사용자가 창을 닫은 것도 여기로 온다 — 실패와 구분할 길이 없다.
+        return false;
+    }
+}

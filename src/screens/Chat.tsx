@@ -38,7 +38,7 @@ import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
 import { HoldIcon } from '../components/HoldIcons';
-import { captureNode, shareText } from '../lib/share';
+import { captureNode, shareText, sharePhotoFile } from '../lib/share';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -552,6 +552,34 @@ export function Chat() {
         e.preventDefault();
         setZoom(a.href);
     }, []);
+
+    /**
+     * 크게 본 사진을 **사진첩에 저장**한다(카톡의 그 단추다 · 사용자 요청).
+     *
+     * **앱에서는 앱이 맡는다** — 웹의 `<a download>`는 앱 안에서 아무 일도
+     * 안 하고, 새 창으로 띄우면 사파리로 나간다. 옛 앱과 웹에서는 폰이
+     * 띄워 주는 공유창으로 물러난다(거기에 `이미지 저장`이 들어 있다).
+     */
+    const savePhoto = async (url: string) => {
+        if (ncOn.current && ncLog.v >= 8) {
+            const r = await NativeComposer.savePhoto({ url }).catch(() => null);
+            toast(r?.ok ? '사진첩에 저장했습니다.' : '저장하지 못했습니다.',
+                  r?.ok ? 'ok' : 'error');
+            return;
+        }
+        if (await sharePhotoFile(url)) return;
+        toast('길게 눌러 저장해 주세요.', 'ok');
+    };
+
+    /** 크게 본 사진을 공유창에 넘긴다. 위 `savePhoto`와 같은 갈래다. */
+    const sharePhoto = async (url: string) => {
+        if (ncOn.current && ncLog.v >= 8) {
+            const r = await NativeComposer.sharePhoto({ url }).catch(() => null);
+            if (!r?.ok) toast('공유하지 못했습니다.', 'error');
+            return;
+        }
+        if (!await sharePhotoFile(url)) toast('이 기기에서는 공유를 지원하지 않습니다.', 'error');
+    };
 
     /** 맨 아래를 보고 있었으면 다시 맨 아래로 붙인다. */
     const pinBottom = useCallback(() => {
@@ -2280,10 +2308,34 @@ export function Chat() {
             toast('사진만 올릴 수 있습니다.', 'error');
             return;
         }
+        await sendPhoto(await shrinkImage(file));
+    };
 
+    /**
+     * **앱에서는 사진도 앱이 고른다**(8판부터).
+     *
+     * `+`가 앱의 단추라 웹에는 누른 자리가 없다 — 웹의 `<input type="file">`을
+     * 쓰면 iOS가 고르는 창을 붙일 데를 못 찾고 **화면 아무 데나 띄웠다**
+     * (사용자 제보 · 사진 두 장. 화면 아래에 44px짜리 칸을 두어도 안 봤다).
+     * 앱이 띄우면 아래에서 올라오는 앱 창이라 그 자리가 아예 없다.
+     * 옛 앱과 웹에서는 예전처럼 숨은 칸을 누른다.
+     */
+    const photo = async () => {
+        if (!ncOn.current || ncLog.v < 8) { fileRef.current?.click(); return; }
+        const r = await NativeComposer.pickPhoto().catch(() => null);
+        if (!r?.ok || !r.data) return;      // 취소도 여기로 온다 — 조용히 돌아선다
+        // 앱이 이미 줄여서 준다(`lib/image.ts`와 같은 값) — 여기서 또 안 줄인다.
+        const bin = atob(r.data);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        await sendPhoto(new Blob([buf], { type: 'image/jpeg' }));
+    };
+
+    /** 줄여 둔 사진 한 장을 올려 보낸다. 웹 칸과 앱이 같이 쓴다. */
+    const sendPhoto = async (blob: Blob) => {
+        if (!roomId) return;
         setUploading(true);
         try {
-            const blob = await shrinkImage(file);
             const path = `${roomId}/${crypto.randomUUID()}.jpg`;
             const { error: upErr } = await supabase.storage
                 .from('chat-photos')
@@ -2329,12 +2381,12 @@ export function Chat() {
         있으면 옛 값을 보고 돈다. */
     const nc = useRef({
         send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-        photo: () => fileRef.current?.click(),
+        photo,
     });
     useEffect(() => {
         nc.current = {
             send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-            photo: () => fileRef.current?.click(),
+            photo,
         };
     });
 
@@ -3105,6 +3157,20 @@ export function Chat() {
                 <div className="photo-zoom" onClick={() => setZoom(null)}>
                     <img src={zoom} alt="보낸 사진" />
                     <button className="photo-zoom-x" aria-label="닫기">✕</button>
+                    {/* **카톡처럼 저장·공유를 단추로 둔다**(사용자 요청).
+                        앱에서는 앱이 맡는다 — 웹의 `<a download>`는 앱 안에서
+                        안 먹고 새 창은 사파리로 나간다. 옛 앱과 웹에서는
+                        폰이 띄워 주는 공유창으로 물러난다(거기에 `이미지 저장`이
+                        들어 있다). 바탕을 누르면 닫히므로 **여기서는 안 닫는다**
+                        (`stopPropagation`). */}
+                    <div className="photo-zoom-bar" onClick={e => e.stopPropagation()}>
+                        <button className="photo-zoom-btn" onClick={() => savePhoto(zoom)}>
+                            저장
+                        </button>
+                        <button className="photo-zoom-btn" onClick={() => sharePhoto(zoom)}>
+                            공유
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

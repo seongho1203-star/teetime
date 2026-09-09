@@ -33,6 +33,17 @@ type Native = {
     blur(): Promise<void>;
     pause(): Promise<void>;
     resume(): Promise<void>;
+    /**
+     * 사진을 고른다(8판부터). **`+`가 앱의 단추라 웹에는 누른 자리가 없어서**,
+     * 웹의 `<input type="file">`을 쓰면 iOS가 고르는 창을 붙일 데를 못 찾고
+     * 화면 아무 데나 띄웠다. 앱이 직접 띄우면 그 자리가 아예 없다.
+     * `data`는 **이미 줄인 JPEG**의 base64다(`lib/image.ts`와 같은 값).
+     */
+    pickPhoto(): Promise<{ ok: boolean; data?: string }>;
+    /** 사진첩에 저장(8판부터). 웹에서는 `<a download>`가 앱 안에서 안 먹는다. */
+    savePhoto(o: { url: string }): Promise<{ ok: boolean }>;
+    /** 폰이 띄워 주는 공유창에 넘긴다(8판부터). */
+    sharePhoto(o: { url: string }): Promise<{ ok: boolean }>;
     addListener(n: 'change', cb: (e: { text: string; sel: number }) => void): Promise<Handle>;
     addListener(n: 'send', cb: (e: { text: string }) => void): Promise<Handle>;
     addListener(n: 'action', cb: (e: { name: ComposerAction }) => void): Promise<Handle>;

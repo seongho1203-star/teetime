@@ -1484,6 +1484,30 @@
     -webkit-user-select: auto;
     user-select: auto;
 }
+/* 저장·공유. **카톡처럼 아래에 둔다**(사용자 요청) — 사진을 가리지 않는
+   자리이고, 엄지가 닿는 곳이다. */
+.photo-zoom-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+.photo-zoom-btn {
+    min-width: 92px;
+    height: 44px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+}
+.photo-zoom-btn:active { background: rgba(255, 255, 255, 0.28); }
+
 .photo-zoom-x {
     position: absolute;
     top: calc(env(safe-area-inset-top, 0px) + 8px);

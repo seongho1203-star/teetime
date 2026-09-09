@@ -41,6 +41,14 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- 사진 찍어 보내기. 이 줄이 없으면 카메라를 여는 순간 앱이 죽는다.
+	     사진 보관함은 PHPicker(앱 밖에서 도는 창)라 권한 문구가 필요 없다. -->
+	<key>NSCameraUsageDescription</key>
+	<string>대화방에 보낼 사진을 찍습니다.</string>
+	<!-- 크게 본 사진을 사진첩에 저장할 때. 읽기가 아니라 '더하기'라
+	     Add 쪽 문구만 있으면 된다. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>대화방의 사진을 사진첩에 저장합니다.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
