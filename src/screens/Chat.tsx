@@ -663,10 +663,15 @@ export function Chat() {
      */
     const settling = useRef<{ ro: ResizeObserver | null; off: number }>({ ro: null, off: 0 });
 
-    const settleList = useCallback(() => {
+    /**
+     * `force`를 주면 '맨 아래였는가'를 그 값으로 본다. **부르기 직전에
+     * 목록이 이미 줄어들어 `atBottom`이 거짓으로 뒤집힌 자리**에서 쓴다
+     * (네이티브 바가 자랄 때가 그렇다 — 위 `height` 주석).
+     */
+    const settleList = useCallback((force?: boolean) => {
         const el = listRef.current;
         if (!el) return;
-        const stick = atBottom.current;
+        const stick = force ?? atBottom.current;
         const drop = () => {
             const box = listRef.current;
             if (!box) return;
@@ -2064,7 +2069,16 @@ export function Chat() {
                     if (h <= 0) return;
                     stood = true;
                     ncLog.stood = true;
+                    /* **바가 자라면 목록이 그만큼 줄어드니 다시 앉힌다.**
+                       키보드가 내려갈 때 바는 탭바 자리(58px)와 홈 인디케이터
+                       몫을 도로 물어 90px쯤 자란다. 그 순간 목록이 그만큼
+                       짧아지는데 여기서 다시 안 앉히면 **맨 아래 글이 잘려
+                       안 보인다**(실기기 제보 — 키보드를 내리니 마지막 글이
+                       사라졌다). 그 사이 `onScroll`이 '맨 아래가 아니다'로
+                       내려 버리므로, **바꾸기 전에** 집어 둔 값을 넘긴다. */
+                    const wasBottom = atBottom.current;
                     document.documentElement.style.setProperty('--composer', `${h}px`);
+                    if (wasBottom) settleList(true);
                 }),
             ]);
             if (dead) { hs.forEach(h => { void h.remove(); }); return; }
@@ -2106,7 +2120,9 @@ export function Chat() {
             drops = [];
             void hush(NativeComposer.detach());
         };
-    }, []);
+        /* `settleList`는 `useCallback([])`이라 안 바뀐다 — 여기에 적어도
+           바를 다시 세우는 일은 없다. */
+    }, [settleList]);
 
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {

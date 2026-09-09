@@ -81,6 +81,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             self.apply(call, on: bar)
             self.live = true
             _ = host.becomeFirstResponder()
+            /* `focus: true`면 세우면서 바로 글칸에 초점을 준다 — 댓글 칸이
+               그렇게 쓴다(누른 그 순간 키보드가 올라와야 한다).
+               **다리를 두 번 건너지 않는 것이 요점이다**: 세우고 나서
+               `focus()`를 따로 부르면 그 사이에 바가 아직 창에 안 붙어
+               있어 실패한다(아래 `grabFocus` 주석). */
+            if call.getBool("focus") == true { self.grabFocus(tries: 8) }
             call.resolve()
         }
     }
@@ -126,8 +132,30 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     @objc func focus(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            _ = self.bar?.textView.becomeFirstResponder()
+            self.grabFocus(tries: 8)
             call.resolve()
+        }
+    }
+
+    /**
+     * **될 때까지 몇 번 다시 해 본다.**
+     *
+     * `UIView.becomeFirstResponder()`는 **그 뷰가 창에 붙어 있지 않으면
+     * 그냥 false를 돌려준다.** 우리 바는 `inputAccessoryView`라, `host`가
+     * first responder가 된 **뒤에** iOS가 창에 얹어 주는데 그게 몇 프레임
+     * 걸린다. 그래서 세우자마자 초점을 주면 조용히 실패한다 —
+     * **댓글 칸에서 바는 떴는데 키보드가 안 올라오던 것이 이것이다**
+     * (대화는 사람이 한참 뒤에 글칸을 눌러서 안 걸렸다).
+     *
+     * 실패는 값이 싸므로 0.05초 간격으로 여덟 번까지 두드린다.
+     */
+    private func grabFocus(tries: Int) {
+        guard self.live, let bar = self.bar else { return }
+        if bar.textView.isFirstResponder { return }
+        if bar.textView.becomeFirstResponder() { return }
+        guard tries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.grabFocus(tries: tries - 1)
         }
     }
 

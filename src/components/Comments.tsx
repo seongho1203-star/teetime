@@ -293,6 +293,11 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                    검은 띠가 남는다(대화에서 실제로 그랬다). */
                 tabH: 0,
                 text: ref.current?.value ?? '',
+                /* **세우면서 그 자리에서 초점을 준다.** 세운 뒤에 `focus()`를
+                   따로 부르면 그때는 바가 아직 창에 안 붙어 있어 조용히
+                   실패한다 — 바는 떴는데 키보드가 안 올라오던 자리다
+                   (`NativeComposerPlugin`의 `grabFocus` 주석). */
+                focus: true,
             })));
             barRef.current = true;
             setBarUp(true);
