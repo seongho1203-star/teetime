@@ -395,9 +395,27 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     @objc private func tick() {
         let done = CACurrentMediaTime() >= followUntil
-        let f = (done ? nil : layer.presentation()?.frame) ?? frame
+        report(end: done)
+        if done { link?.invalidate(); link = nil }
+    }
+
+    /**
+     * **지금 이 순간 바가 그려지는 자리를 웹에 알린다.**
+     *
+     * 움직이는 동안에는 `CADisplayLink`가 프레임마다, 그 밖에는 자리가
+     * 잡힐 때마다(`layoutSubviews`) 부른다 — **웹이 이 값 말고 다른 셈을
+     * 쓰지 않게 하려는 것이다.** 값을 적는 곳이 둘이 되면 서로 엇갈려
+     * 목록이 흔들린다(실기기 진단 — `--composer`가 116과 150을 오가며
+     * 목록이 618↔652로 뛰었다).
+     */
+    private func report(end: Bool) {
+        guard let sv = superview else { return }
+        restBottom = sv.bounds.maxY - sv.safeAreaInsets.bottom
+        // 움직이는 중에는 **그려진 값**을, 아니면 제자리 값을 쓴다.
+        let f = (link != nil && !end ? layer.presentation()?.frame : nil) ?? frame
         let span = max(1, restBottom - kbTop)
-        let p = min(1, max(0, (restBottom - f.maxY) / span))
+        var p = min(1, max(0, (restBottom - f.maxY) / span))
+        if link == nil || end { p = kbUp ? 1 : 0 }   // 안 움직일 땐 상태가 곧 답이다
         /* **웹이 쓸 두 값을 자리(`maxY`) 하나에서 셈한다.** 바의 그려지는
            높이(`f.height`)를 함께 보냈더니 실기기에서 목록이 넘쳤다 돌아왔다
            (사용자 제보 — `내려갔다가 다시 올라와`): 자리는 iOS가 키보드와
@@ -411,9 +429,21 @@ final class ComposerBar: UIView, UITextViewDelegate {
         let chatH = f.maxY + safe * (1 - p)
         let pad = core + (tabH + safe) * (1 - p)
         barDelegate?.composerFrame(bottom: Double(f.maxY), h: Double(f.height),
-                                   p: Double(p), end: done,
+                                   p: Double(p), end: end,
                                    chatH: Double(chatH), pad: Double(pad))
-        if done { link?.invalidate(); link = nil }
+    }
+
+    /**
+     * 지금 값을 **억지로 한 번 알린다.** 세운 직후에 부른다.
+     *
+     * `tellHeight`는 높이가 바뀔 때만 보내는데, 바를 살려 두고 다시 쓰면
+     * (6판) 높이가 지난번과 같아 **아무 말도 안 하게 된다** — 웹은 그것을
+     * '바가 안 섰다'로 보고 1.5초 뒤 되돌린다(`watchdog`). 그래서 여기서
+     * 한 번 못을 박는다.
+     */
+    func announce() {
+        tellHeight(force: true)
+        report(end: true)
     }
 
     /// `CADisplayLink`는 대상을 붙들고 있어 **떼어 낼 때 끊어야** 바가 해제된다.
@@ -468,6 +498,10 @@ final class ComposerBar: UIView, UITextViewDelegate {
                                width: sendW, height: sendW)
 
         tellHeight()
+        /* 자리가 잡힐 때마다 알린다 — 움직이는 동안이 아니어도 웹은 이
+           값 하나만 쓴다(`report` 주석). 움직이는 중이면 `tick`이 이미
+           프레임마다 보내고 있으므로 건너뛴다. */
+        if link == nil { report(end: true) }
     }
 
     /// 높이가 바뀌면 웹에 알린다 — 웹이 그만큼 자리를 비워야

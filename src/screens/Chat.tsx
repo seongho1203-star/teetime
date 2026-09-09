@@ -845,6 +845,11 @@ export function Chat() {
            옮기면 들어갈 때 글이 내려갔다 올라오는 것으로 보인다. */
         const follows = ncLog.v >= 4;
         if (follows) root.style.setProperty('--chat-anim', '0ms');
+        /* **6판부터는 바가 두 값의 주인이다**(`--chat-h`·`--composer`).
+           5판까지는 움직이는 동안만 바가 적고 그 밖에는 여기서 셈했는데,
+           **둘이 엇갈려 목록이 흔들렸다**(진단 — `--composer`가 116과 150을
+           오가며 `L618↔652`). 값을 적는 곳을 하나로 몰면 그럴 자리가 없다. */
+        const owns = ncLog.v >= 6;
         /* 지난번 바 높이를 먼저 적어 둔다(`lastBarH` 주석). */
         if (lastBarH) root.style.setProperty('--composer', `${lastBarH}px`);
         /** 키보드가 가릴 높이(플러그인이 알려 준 값). */
@@ -877,7 +882,7 @@ export function Chat() {
          */
         const flush = () => {
             flushAt = 0;
-            if (kbFollow.current) return;       // 따라가는 동안은 `kbFrame`이 적는다
+            if (owns || kbFollow.current) return;   // 바가 적는다
             if (beat.at && !follows) {          // 4판부터는 전환 시간을 안 쓴다(늘 0)
                 const gone = Date.now() - beat.at;
                 /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
@@ -1027,6 +1032,22 @@ export function Chat() {
             return Number.isFinite(v) ? v : 0;
         };
         kbFrame.current = e => {
+            /* **6판은 늘 바가 적는다** — 움직이는 동안인지 가리지 않는다.
+               `end`는 '이번 움직임이 끝났다'는 뜻일 뿐이라, 거기서 웹 셈으로
+               돌아가면 그때부터 둘이 엇갈린다(위 `owns` 주석). */
+            if (owns) {
+                if (!kbFollow.current) {
+                    kbFollow.current = true;
+                    root.classList.add('kb-follow');
+                }
+                kbLate.current.ticks += 1;
+                if (e.chatH !== undefined && e.pad !== undefined) {
+                    root.style.setProperty('--chat-h', `${Math.round(e.chatH)}px`);
+                    root.style.setProperty('--composer', `${Math.round(e.pad)}px`);
+                }
+                if (e.end) settleList();
+                return;
+            }
             if (!e.end) {
                 if (!kbFollow.current) {
                     kbFollow.current = true;
@@ -2292,6 +2313,9 @@ export function Chat() {
                        `ncH`에서 도로 적는다. */
                     if (!kbFollow.current) document.documentElement.style.setProperty('--composer', `${h}px`);
                     if (wasBottom) settleList(true);
+                    /* 6판에서는 이 값을 안 쓴다 — `frame`이 여백까지 셈해서
+                       보낸다. `stood`(바가 섰다는 증거)와 `lastBarH`만 여기서
+                       챙긴다. `kbFollow`가 늘 참이라 위 줄은 안 돈다. */
                 }),
             ]);
             if (dead) { hs.forEach(h => { void h.remove(); }); return; }

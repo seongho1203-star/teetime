@@ -60,7 +60,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 3판 — 초점을 붙들어 두기(`holdFocus`)와 키보드 시각 알림(`kb`)이 들어갔다.
     /// 4판 — 바가 그려지는 자리를 프레임마다 알린다(`frame`).
     /// 5판 — 그 신호에 화면 높이·여백을 자리 하나에서 셈해 실어 보낸다(`chatH`·`pad`).
-    private static let version = 5
+    /// 6판 — 그 신호를 **늘** 보낸다(웹이 다른 셈을 아예 안 쓴다) · 바를 살려 두어
+    ///       다시 세우는 것이 빠르다.
+    private static let version = 6
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -100,6 +102,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             /* 세우자마자 자리를 잡아 둔다 — 그래야 `height`가 곧바로 웹에
                가고, 아래 초점 주기도 창에 붙은 바에서 돈다. */
             root.layoutIfNeeded()
+            bar.announce()          // 지난번과 높이가 같아도 한 번은 알린다
             /* `focus: true`면 세우면서 바로 글칸에 초점을 준다 — 댓글 칸이
                그렇게 쓴다(누른 그 순간 키보드가 올라와야 한다). */
             if call.getBool("focus") == true { self.grabFocus(tries: 10) }
@@ -137,8 +140,13 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             self.release()
             _ = self.bar?.textView.resignFirstResponder()
             self.bar?.removeFromSuperview()
-            self.bar?.barDelegate = nil
-            self.bar = nil
+            /* **바는 버리지 않는다 — 다음에 다시 쓴다.**
+               `UITextView`를 만드는 것이 만만치 않아서, 댓글 칸을 누를
+               때마다 새로 만들면 바가 뜨기까지 50ms가 걸렸다(실기기 진단 —
+               `누름 0` → `바 51`). 화면에서 떼어 두기만 하면 다음 `attach`는
+               다시 붙이고 값만 갈아 끼우면 된다.
+               `barDelegate`는 그대로 둔다 — 떼어 낸 뒤 오는 신호는 `live`가
+               막는다(그러라고 있는 값이다). */
             call.resolve()
         }
     }

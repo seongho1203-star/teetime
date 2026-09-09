@@ -168,8 +168,14 @@ function px(name: string, fallback: number): number {
  * 쓰고 있어서(댓글 칸이 적어 둔 글을 그렇게 실어 보낸다), 예전에 색을
  * `text`로 보냈다가 **글칸에 `#1b1f19`가 그대로 찍혀 나왔다**(실기기).
  */
+/** 토큰에서 읽어 온 값. **한 번만 읽고 기억한다** — `getComputedStyle`을
+    열두 번 부르는 일이라, 댓글 칸을 누르는 그 순간에 하면 바가 그만큼 늦게
+    선다. 색은 앱이 도는 동안 안 바뀐다(어두운 테마가 없다). */
+let skinCache: Record<string, unknown> | null = null;
+
 export function composerSkin(over: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
+    if (skinCache) return { ...skinCache, ...over };
+    skinCache = {
         padV: 10, padH: 6, gap: 2,
         minH: 38, maxH: 120,
         plusW: 32, sendW: 34, iconW: 30,
@@ -186,8 +192,8 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
         offBg: hex('--surface-3', '#e4e9da'),
         offFg: hex('--text-faint', '#8b9486'),
         line: hex('--line', '#dde3d1'),
-        ...over,
     };
+    return { ...skinCache, ...over };
 }
 
 /** 던지는 것을 삼킨다. **글칸 하나 때문에 화면이 죽으면 안 된다.** */
