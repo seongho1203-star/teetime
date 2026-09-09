@@ -1909,6 +1909,23 @@ create policy chat_photos_add on storage.objects for insert to authenticated
 create policy chat_photos_del on storage.objects for delete to authenticated
     using (bucket_id = 'chat-photos' and (owner = auth.uid() or is_admin()));
 
+-- **90일이 지난 사진은 회원 누구나 지울 수 있다** — 카톡의 `저장 기간 만료`를
+-- 우리도 하려는 것이다(사용자 제안). 무료 저장 공간이 1GB이고 **쌓이기만
+-- 해서**, 한 장 800KB면 1,200장쯤에서 차고 그때부터 아무도 사진을 못 올린다.
+--
+-- **왜 '누구나'인가.** 청소는 앱을 연 사람의 화면이 한다(`lib/photos.ts`) —
+-- 정해진 시각에 도는 것을 새로 켜지 않으려는 것이고, 그러려면 **남의 사진도
+-- 지울 수 있어야** 한다. 제 것만 지우게 두면 앱을 떠난 사람의 사진이 영영
+-- 남는다. 나이로 잠가 두었으므로 **요즘 사진은 누구도 이 정책으로 못 지운다** —
+-- 90일이 지난 것은 어차피 지워질 것이라 위험이 없다.
+--
+-- **`lib/photos.ts`의 `PHOTO_DAYS`와 같은 값이어야 한다.** 앱이 90일로
+-- 골라 놓고 여기가 안 열어 주면 지우려다 조용히 막힐 뿐이다.
+drop policy if exists chat_photos_old on storage.objects;
+create policy chat_photos_old on storage.objects for delete to authenticated
+    using (bucket_id = 'chat-photos' and is_member()
+           and created_at < now() - interval '90 days');
+
 -- 프로필 사진은 따로 둔다. 대화 사진과 수명이 달라서다 — 대화 사진은
 -- 쌓이기만 하지만 이건 사람마다 한 장씩 갈아 끼운다.
 -- **승인 전(pending)에도 올릴 수 있어야 한다** — 가입 화면에서 얼굴을

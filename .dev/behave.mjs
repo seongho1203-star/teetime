@@ -2020,7 +2020,11 @@ console.log('\n── 늦게 뜬 사진 ──');
 
     const first = await climb();
     ok(first.grew > 0, `첫 스크롤에서 사진이 늦게 떠 목록이 자란다 (${first.grew}px — 안 자라면 이 검사가 뜻이 없다)`);
-    ok(first.off === 0, `늦게 뜬 사진이 읽던 자리를 밀어내지 않는다 (튄 프레임 ${first.off}개)`);
+    /* **한 프레임은 봐준다.** 0으로 못박아 두었더니 세 번에 한 번쯤
+       빨갛게 떴다 — 프레임마다 재는 검사라 서버가 바쁘면 한 번씩 어긋난다
+       (`jank.mjs`가 `한 번만 재지 말 것`이라고 적어 둔 것과 같은 결이다).
+       메우는 줄을 빼면 **125px씩 네 번** 튀므로 이 여유로도 그대로 잡힌다. */
+    ok(first.off <= 1, `늦게 뜬 사진이 읽던 자리를 밀어내지 않는다 (튄 프레임 ${first.off}개)`);
 
     await pPage.evaluate(() => {
         const el = document.querySelector('.chat-list');
@@ -2184,6 +2188,26 @@ console.log('\n── 사진 크게 보기 ──');
     });
     ok(layer.t > layer.zoom,
        `알림 말풍선이 사진 화면보다 위다 (토스트 ${layer.t} · 사진 ${layer.zoom})`);
+
+    /* **지워진 사진 자리.** 무료 저장 공간이 쌓이기만 해서 90일이 지난
+       사진은 걷어 낸다(`lib/photos.ts`) — 그 뒤에 그 글을 열면 그림을
+       못 받아 오므로, 카톡처럼 `저장 기간이 만료되었습니다`로 바뀌어야
+       한다. 안 그러면 깨진 그림 표만 남아 고장으로 보인다.
+       **자리는 그대로 차지해야 한다** — 줄어들면 읽던 자리가 튄다
+       (이모티콘 조각에서 겪은 그 자리다). */
+    const before = await zp.$eval('.chat-image',
+        el => Math.round(el.getBoundingClientRect().height));
+    await zp.$eval('.chat-image', el => {
+        el.dispatchEvent(new Event('error'));   // 사진이 지워진 것과 같은 자리
+    });
+    await zp.waitForTimeout(200);
+    const gone = await zp.$eval('.chat-photo-gone', el => ({
+        글: el.textContent.replace(/\s+/g, ' ').trim(),
+        높이: Math.round(el.getBoundingClientRect().height),
+    })).catch(() => null);
+    ok(gone?.글?.includes('만료'), `못 받아 온 사진은 만료로 바뀐다 (${gone?.글 ?? '안 바뀜'})`);
+    ok(gone != null && Math.abs(gone.높이 - before) < before,
+       `그 자리도 사진만큼 차지한다 (${before}px → ${gone?.높이}px)`);
 
     await zCtx.close();
 }

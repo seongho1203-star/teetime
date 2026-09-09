@@ -39,6 +39,7 @@ import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
 import { HoldIcon } from '../components/HoldIcons';
 import { captureNode, shareText, sharePhotoFile } from '../lib/share';
+import { purgeOldPhotos } from '../lib/photos';
 import './Chat.css';
 
 /** 한 번에 불러오는 지난 대화 수. 위로 올리면 더 받는다. */
@@ -466,6 +467,16 @@ export function Chat() {
      * 카톡처럼 말풍선 옆에 **아직 안 읽은 사람 수**를 적는다.
      * 사람마다 '어디까지 읽었나' 시각 하나만 오간다(`lib/reads.ts` 참고).
      */
+
+    /* **오래된 사진을 걷는다**(카톡의 `저장 기간 만료` · `lib/photos.ts`).
+       무료 저장 공간이 쌓이기만 해서 언젠가 사진을 아예 못 올리게 되는 것을
+       막는 자리다. 기기마다 **하루 한 번**만 돌고, 실패해도 아무 말 없이
+       지나간다 — 청소가 안 됐다고 대화가 안 열리면 안 된다.
+       투표 결과를 대화방에 남기는 일과 같은 결이다(정해진 시각에 도는 것을
+       새로 켜지 않는다). */
+    useEffect(() => {
+        if (roomId) void purgeOldPhotos(roomId);
+    }, [roomId]);
 
     // 들어올 때 한 번 받는다. 100명이라도 100줄, 7KB 남짓이다.
     useEffect(() => {
@@ -3175,6 +3186,38 @@ export function Chat() {
     );
 }
 
+/**
+ * 대화방의 사진 한 장.
+ *
+ * **못 받아 오면 `저장 기간이 만료되었습니다`로 바꾼다**(카톡과 같다).
+ * 무료 저장 공간이 1GB라 **90일이 지난 사진은 지워지므로**(`lib/photos.ts`),
+ * 지난 사진에는 언젠가 반드시 이 자리가 온다. 안 두면 깨진 그림 표만
+ * 덩그러니 남아 고장으로 보인다.
+ *
+ * **글은 그대로 남는다** — 사진에 함께 적은 말은 아래 줄에 그대로 있다.
+ * 자리를 이모티콘 없는 조각과 같은 크기로 두는 것도 같은 까닭이다:
+ * 그림이 없다고 자리가 줄면 읽던 자리가 위아래로 튄다.
+ */
+function ChatPhoto({ url, onLoad }: {
+    url: string;
+    onLoad: (e: SyntheticEvent<HTMLImageElement>) => void;
+}) {
+    const [gone, setGone] = useState(false);
+    if (gone) {
+        return (
+            <div className="chat-photo-gone">
+                <span>사진 저장 기간이<br />만료되었습니다</span>
+            </div>
+        );
+    }
+    return (
+        <a className="chat-photo-link" href={url}>
+            <img className="chat-image" src={url} alt="보낸 사진" loading="lazy"
+                 onLoad={onLoad} onError={() => setGone(true)} />
+        </a>
+    );
+}
+
 /** 손짓이 도는 동안 붙들어 두는 값. */
 type Grip = {
     mode: 'pan' | 'pinch';
@@ -3779,13 +3822,9 @@ const Bubble = memo(function Bubble({
                         // 자리에 이름만 덩그러니 남는 것이 지난번 그 증상이다.
                         ? <StickerImg mark={message.image_url!} onLoad={onImageLoad} />
                         : message.image_url
-                        // 사진은 말풍선 없이 그 자체로 보여 준다. 눌러서 원본을
-                        // 새 창에 띄운다 — 저장은 거기서 길게 눌러 한다.
-                        ? <a className="chat-photo-link" href={message.image_url}
-                             target="_blank" rel="noreferrer">
-                              <img className="chat-image" src={message.image_url}
-                                   alt="보낸 사진" loading="lazy" onLoad={onImageLoad} />
-                          </a>
+                        // 사진은 말풍선 없이 그 자체로 보여 준다. 누르면
+                        // 앱 안에서 크게 뜬다(`onPhotoTap`).
+                        ? <ChatPhoto url={message.image_url} onLoad={onImageLoad} />
                         : <div className={`chat-bubble${big ? ' emoji-only' : ''}`}>
                               <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                           </div>}

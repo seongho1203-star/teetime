@@ -1544,6 +1544,22 @@
     font-size: 18px;
     line-height: 1;
 }
+/* 지워진 사진 자리(카톡의 `저장 기간 만료`). **자리를 사진만큼 차지한다** —
+   그림이 없다고 자리가 줄면, 목록이 그만큼 짧아져 읽던 자리가 위아래로
+   튄다(이모티콘 조각에서 겪은 그 자리다). */
+.chat-photo-gone {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 200px;
+    height: 150px;
+    border-radius: 15px;
+    background: var(--chat-chip);
+    color: var(--chat-on);
+    font-size: 13px;
+    line-height: 1.5;
+    text-align: center;
+}
 .chat-image {
     /* 카톡의 사진은 말풍선보다 좁다. 폭을 채우면 사진 한 장에 화면이
        통째로 넘어가 대화가 끊긴다. */
