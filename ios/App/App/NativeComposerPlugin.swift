@@ -69,11 +69,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 7판 — 감춰 둘 수 있다(`hidden`). 댓글이 바를 미리 세워 두는 데 쓴다.
     /// 8판 — 사진을 앱이 고르고·저장하고·공유한다(`pickPhoto`·`savePhoto`·`sharePhoto`).
     /// 9판 — 고르는 창을 `+` 옆에 작게 붙이고, 저장은 **끝난 뒤에** 답한다.
+    /// 10판 — 사진을 2560px으로, 곱게 줄인다(웹 `lib/image.ts`와 같은 값).
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 9
+    private static let version = 10
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -361,11 +362,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     /**
      * 줄여서 JPEG base64로. **웹의 `lib/image.ts`와 같은 값이다**
-     * (긴 변 1600 · 품질 0.82) — 한쪽만 고치면 사진 크기가 갈린다.
+     * (긴 변 2560 · 품질 0.82) — 한쪽만 고치면 **어느 길로 올렸느냐에
+     * 따라 사진 화질이 갈린다**(8판부터 앱에서 고른 사진은 이리로 온다).
      * `UIImage.draw`가 사진의 방향까지 바로잡아 그린다.
+     *
+     * **`interpolationQuality = .high`를 빼지 말 것** — 크게 줄일 때
+     * 계단이 지고 잔무늬가 생긴다. 웹 쪽 `imageSmoothingQuality`와
+     * 같은 몫이고, 거기서는 그 잡티 때문에 **파일이 되레 커졌다.**
      */
     fileprivate static func jpegBase64(_ image: UIImage,
-                                       maxEdge: CGFloat = 1600,
+                                       maxEdge: CGFloat = 2560,
                                        quality: CGFloat = 0.82) -> String? {
         let w = image.size.width, h = image.size.height
         guard w > 0, h > 0 else { return nil }
@@ -373,7 +379,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         let size = CGSize(width: floor(w * k), height: floor(h * k))
         let fmt = UIGraphicsImageRendererFormat.default()
         fmt.scale = 1
-        let out = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
+        let out = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
+            ctx.cgContext.interpolationQuality = .high
             image.draw(in: CGRect(origin: .zero, size: size))
         }
         return out.jpegData(compressionQuality: quality)?.base64EncodedString()

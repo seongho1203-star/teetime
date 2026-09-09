@@ -3,14 +3,28 @@
  *
  * 요즘 폰 사진은 한 장에 3~5MB다. 그대로 올리면 저장 공간이 금방 차고,
  * 데이터가 넉넉하지 않은 곳에서 대화를 열 때마다 그걸 다 받아야 한다.
- * 긴 변 1600px · JPEG 82%면 폰 화면에서는 차이를 못 느끼면서 대개
- * 300KB 안쪽으로 떨어진다.
+ *
+ * **긴 변 2560px · JPEG 82%다**(사용자가 고른 값 — `사진 화질이 너무
+ * 떨어진다`). 예전에는 1600이었는데, 크게 본 사진을 손가락으로 벌려
+ * 키울 수 있게 되면서 그 크기로는 흐릿했다. 한 장 800KB쯤이다.
+ * **바꿀 때는 사용자에게 물을 것** — 무료 저장 공간이 1GB라 여기가
+ * 곧 '사진을 몇 장 올릴 수 있는가'다.
+ *
+ * **`imageSmoothingQuality`가 이 파일의 핵심이다.** 브라우저의 기본값은
+ * `low`인데, 4032px을 2560px으로 줄이는 것처럼 크게 줄일 때 계단이 지고
+ * 잔무늬가 생긴다. 재 보니 **화질이 나쁘면서 파일은 오히려 더 컸다**
+ * (1600px 기준 529KB·차이 19.1 → `high`로 449KB·차이 16.5) — JPEG이
+ * 그 잡티까지 저장하기 때문이다. **지우지 말 것: 공짜로 얻는 것이다.**
  *
  * **줄이지 못하면 원본을 그대로 돌려준다.** 사진을 못 올리는 것보다
  * 큰 사진이라도 올라가는 편이 낫다.
+ *
+ * **앱은 이 셈을 따로 들고 있다**(`ios/App/App/NativeComposerPlugin.swift`의
+ * `jpegBase64`). 8판부터 사진을 앱이 고르므로 그 길로 올라간다 —
+ * **한쪽만 고치지 말 것.**
  */
 
-const MAX_EDGE = 1600;
+const MAX_EDGE = 2560;
 const QUALITY = 0.82;
 
 /**
@@ -31,6 +45,9 @@ export async function shrinkImage(file: File, maxEdge = MAX_EDGE): Promise<Blob>
         canvas.height = h;
         const ctx = canvas.getContext('2d');
         if (!ctx) return file;
+        // 위 머리말 참고 — 이 두 줄이 화질과 파일 크기를 함께 좋게 한다.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(bitmap, 0, 0, w, h);
         bitmap.close?.();
 
