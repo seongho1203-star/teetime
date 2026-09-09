@@ -630,6 +630,11 @@ export function Chat() {
      *  갈 때 부른다. 웹에서는 늘 비어 있다. */
     const kbHint = useRef<(() => void) | null>(null);
 
+    /** 네이티브 바(3판)가 알려 주는 **키보드가 움직이기 시작한 그 순간**.
+     *  아래 `앱: 키보드와 같은 박자로` 효과가 채워 넣고, 네이티브 글칸의
+     *  `kb` 신호가 부른다. 옛 앱과 웹에서는 늘 비어 있다. */
+    const kbBeat = useRef<((on: boolean, dur: number, at: number) => void) | null>(null);
+
     const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0,
                           /** 바로 앞에 키보드가 올라와 있었는가. 내려가는 **그 순간**만
                            *  목록을 따라 내리려고 둔다 — 화면을 처음 열 때도 이 갈래를
@@ -846,6 +851,23 @@ export function Chat() {
            내놓는다 — 그 자리는 입력칸의 아래 여백이 이미 비워 둔 뒤다. */
         const bar = (on: boolean) => document.body.classList.toggle('kb-bar', on);
 
+        /** 키보드가 내려간다. `keyboardWillHide`와 네이티브 바의 `kb`가
+            같이 쓴다 — 먼저 닿은 쪽이 하고 나중 것은 같은 값이라 그냥 지나간다. */
+        const hide = () => {
+            want = 0;
+            open(false);
+            /* **2판부터는 탭바를 여기서 바로 내놓는다.** 바가 늘 화면
+               아래에 서 있고 키보드만 내려가므로, 바가 탭바 자리(`tabH`)를
+               도로 비워 주는 **바로 그 순간** 탭바가 있어야 한다.
+               `keyboardDidHide`까지 미루면 그 사이가 빈 채로 남아
+               **탭바가 사라졌다 나타나는 것처럼 보인다**(실기기 제보 —
+               `키보드 내릴때 탭바가 사라졌다가 나타나고`).
+               1판은 바가 키보드와 함께 내려가므로 그대로 미룬다. */
+            if (root.classList.contains('nc2')) bar(false);
+            paint();
+            settleList();
+        };
+
         paint();
         const onResize = () => paint();
         window.visualViewport?.addEventListener('resize', onResize);
@@ -874,18 +896,7 @@ export function Chat() {
                     settleList();
                 }),
                 /* 탭바(`bar`)는 여기서 안 내놓는다 — 위 `bar` 주석 참고. */
-                Keyboard.addListener('keyboardWillHide', () => {
-                    want = 0; open(false);
-                    /* **2판에서는 탭바를 여기서 바로 내놓는다.** 바가 늘 화면
-                       아래에 서 있고 키보드만 내려가므로, 바가 탭바 자리(`tabH`)를
-                       도로 비워 주는 **바로 그 순간** 탭바가 있어야 한다.
-                       `keyboardDidHide`까지 미루면 그 사이가 빈 채로 남아
-                       **탭바가 사라졌다 나타나는 것처럼 보인다**(실기기 제보 —
-                       `키보드 내릴때 탭바가 사라졌다가 나타나고`).
-                       1판은 바가 키보드와 함께 내려가므로 그대로 미룬다. */
-                    if (root.classList.contains('nc2')) bar(false);
-                    paint(); settleList();
-                }),
+                Keyboard.addListener('keyboardWillHide', hide),
                 Keyboard.addListener('keyboardDidShow', () => paint()),
                 /* 다 닫히고 나서 원래 높이를 다시 잰다 — 상태 막대나
                    가로세로가 바뀌었을 수 있다. 목록이 커진 만큼 굴러간
@@ -916,9 +927,36 @@ export function Chat() {
             settleList();
         };
 
+        /**
+         * **늦게 받은 만큼 짧게 움직인다**(네이티브 바 3판).
+         *
+         * 화면이 키보드와 같은 시간(0.25초)·같은 곡선으로 움직이는데도
+         * **늦게 따라오는 것처럼 보이는 까닭은 시작이 늦어서다**(사용자 제보 —
+         * `키보드 나오고 내려갈때 채팅배경이 좀 늦게 따라와`). 소식이 앱에서
+         * 웹으로 다리를 건너오느라 한두 프레임이 이미 지나가 있는데, 거기서
+         * 0.25초를 **다 쓰면** 그만큼 늦게 도착한다.
+         *
+         * 그래서 바가 **보낸 시각**을 함께 실어 준다(`at`). `Date.now()`와
+         * 견주면 늦은 만큼이 그대로 나오므로, 남은 시간만큼만 움직여
+         * 키보드와 **같이 끝난다.**
+         * 0.25초라는 값 자체는 그대로다 — 눈대중으로 줄인 것이 아니다.
+         */
+        kbBeat.current = (on, dur, at) => {
+            const full = Math.round((dur || 0.25) * 1000);
+            const late = Math.min(Math.max(0, Date.now() - at), full * 0.6);
+            root.style.setProperty('--chat-anim', `${full - late}ms`);
+            /* 높이보다 **먼저** 적어야 이번 움직임에 먹는다(이미 도는 것의
+               시간은 못 바꾼다). 그다음은 여느 신호와 같다 — 먼저 닿은 쪽이
+               하고 나중 것은 같은 값이라 그냥 지나간다. */
+            if (on) kbHint.current?.();
+            else hide();
+        };
+
         return () => {
             dead = true;
             kbHint.current = null;
+            kbBeat.current = null;
+            root.style.removeProperty('--chat-anim');
             drop.forEach(f => f());
             drop = [];
             window.visualViewport?.removeEventListener('resize', onResize);
@@ -2109,6 +2147,13 @@ export function Chat() {
                 NativeComposer.addListener('focus', e => {
                     if (e.on) nc.current.onComposerFocus();
                     else nc.current.onComposerBlur();
+                }),
+                /* **키보드가 움직이기 시작한 그 순간**(3판부터). 늦게 받은
+                   만큼 짧게 움직여 키보드와 같이 끝낸다 — 까닭은 위
+                   `kbBeat` 주석에 있다. 옛 앱은 이 신호를 안 보내므로
+                   `keyboardWillShow`/`Hide`만으로 예전처럼 돈다. */
+                NativeComposer.addListener('kb', e => {
+                    kbBeat.current?.(e.on, e.dur, e.at);
                 }),
                 /* 바가 가리는 만큼 목록 아래를 비운다. 줄이 늘면 함께 늘어난다. */
                 NativeComposer.addListener('height', e => {

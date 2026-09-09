@@ -38,6 +38,15 @@ type Native = {
     addListener(n: 'action', cb: (e: { name: ComposerAction }) => void): Promise<Handle>;
     addListener(n: 'focus', cb: (e: { on: boolean }) => void): Promise<Handle>;
     addListener(n: 'height', cb: (e: { height: number }) => void): Promise<Handle>;
+    /**
+     * 키보드가 오르내리기 **시작했다**(3판부터). `dur`는 iOS가 쓸 시간(초),
+     * `at`은 네이티브가 보낸 시각(1970년부터 ms)이다.
+     *
+     * **`at`이 이 신호의 값이다.** 소식이 다리를 건너오느라 한두 프레임
+     * 늦는데, 그만큼 늦게 시작해 놓고 0.25초를 다 쓰면 화면이 키보드보다
+     * 늦게 도착한다. `Date.now()`와 견주면 늦은 만큼이 그대로 나온다.
+     */
+    addListener(n: 'kb', cb: (e: { on: boolean; dur: number; at: number }) => void): Promise<Handle>;
 };
 
 export const NativeComposer = registerPlugin<Native>('NativeComposer');

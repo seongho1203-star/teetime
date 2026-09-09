@@ -57,11 +57,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ]
 
     /// 이 판의 번호. 바를 세우는 방식이 바뀌면 올린다(웹이 `html.nc2`로 가른다).
-    private static let version = 2
+    /// 3판 — 초점을 붙들어 두기(`holdFocus`)와 키보드 시각 알림(`kb`)이 들어갔다.
+    private static let version = 3
+
+    /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
+    /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
+    private static let holdFor = 0.8
 
     private var bar: ComposerBar?
     /// 붙어 있는가. 떼어 낸 뒤에 오는 신호를 흘려보내는 데 쓴다.
     private var live = false
+    /// 붙들어 두기가 몇 번째인가. 겹쳐 불려도 **늦게 부른 쪽**이 이긴다.
+    private var holdSeq = 0
 
     // ── 웹이 부르는 것들 ──────────────────────────────────
 
@@ -125,6 +132,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     @objc func detach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.live = false
+            self.release()
             _ = self.bar?.textView.resignFirstResponder()
             self.bar?.removeFromSuperview()
             self.bar?.barDelegate = nil
@@ -167,32 +175,61 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     }
 
     /**
-     * 초점을 준다 — **한 번 성공해도 잠시 더 지켜본다.**
+     * 초점을 준다 — **주고 나서 잠깐 붙들어 둔다.**
      *
      * 바가 보통 뷰라 세우자마자 창에 붙어 있어 `becomeFirstResponder()`는
      * 대개 한 번에 되는데, **아이폰은 손을 떼는 순간 웹뷰가 first
-     * responder를 도로 가져간다.** 웹 칸을 누른 것이 아니어도 그렇다 —
+     * responder를 도로 가져간다.** 웹 칸을 누른 것이 아니어도 그렇고,
      * 웹의 `preventDefault`는 그 요소의 초점만 막지 웹뷰가 가져가는 것은
-     * 못 막는다. 그래서 성공한 뒤에 조용히 뺏겨 **키보드가 안 올라온 것처럼
-     * 보였다**(실기기 제보 — `댓글은 키보드 자체가 안나와`).
+     * 못 막는다.
      *
-     * 그래서 성공/실패를 가리지 않고 **0.8초 동안 몇 번 더 확인**해서
-     * 초점이 없으면 다시 잡는다. 그 뒤는 사람이 내리는 것이라 안 건드린다.
-     * (`Comments.tsx`의 `openBar`가 웹에서도 같은 일을 한다 — 옛 앱 몫이다.
-     * **한쪽만 고치지 말 것.**)
+     * **뺏긴 뒤에 되찾는 길로 가지 말 것.** 처음에는 0.08초마다 살펴보다
+     * 없으면 다시 잡게 두었는데, 그러면 키보드가 **올라오다 내려갔다 다시
+     * 올라온다**(실기기 제보 — `키보드가 나오다 중간에 다시 내려갔다가
+     * 다시 올라와`). 지금은 `holdFocus`로 **놓는 것 자체를 막는다**
+     * (`ComposerBar.textViewShouldEndEditing`) — 뺏길 일이 없으니
+     * 되찾을 일도 없다.
+     *
+     * 되풀이가 남아 있는 것은 **주는 쪽**뿐이다 — 다른 것이 놓아 주는 중이라
+     * `becomeFirstResponder()`가 한 번 거절하는 판이 있다.
+     * (`Comments.tsx`의 `openBar`가 웹에서도 같은 일을 한다 — `holdFocus`가
+     * 없는 옛 앱 몫이다. **한쪽만 고치지 말 것.**)
      */
     private func grabFocus(tries: Int) {
         guard self.live, let bar = self.bar else { return }
-        if !bar.textView.isFirstResponder { _ = bar.textView.becomeFirstResponder() }
-        guard tries > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            self.grabFocus(tries: tries - 1)
+        holdSeq += 1
+        let mine = holdSeq
+        bar.holdFocus = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + NativeComposerPlugin.holdFor) {
+            // 그 사이 또 불렸으면 그쪽이 풀 몫이다.
+            guard mine == self.holdSeq else { return }
+            self.bar?.holdFocus = false
         }
+        tryFocus(tries: tries)
+    }
+
+    /// 초점이 갈 때까지 몇 번 더 해 본다. **이미 있으면 아무 일도 안 한다.**
+    private func tryFocus(tries: Int) {
+        guard self.live, let bar = self.bar else { return }
+        if bar.textView.isFirstResponder { return }
+        _ = bar.textView.becomeFirstResponder()
+        guard tries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.tryFocus(tries: tries - 1)
+        }
+    }
+
+    /// 붙들어 두기를 푼다. **우리가 초점을 뗄 때는 반드시 먼저 부른다** —
+    /// 안 풀면 `textViewShouldEndEditing`이 우리 것까지 막는다.
+    private func release() {
+        holdSeq += 1
+        bar?.holdFocus = false
     }
 
     /// 키보드만 내린다. 바는 보통 뷰라 그대로 서 있다.
     @objc func blur(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.release()
             _ = self.bar?.textView.resignFirstResponder()
             call.resolve()
         }
@@ -288,6 +325,14 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     func composerResized(_ height: Double) {
         guard live else { return }
         notifyListeners("height", data: ["height": height])
+    }
+
+    /// 키보드가 움직이기 시작했다. **시각을 함께 보낸다** — 웹이 얼마나 늦게
+    /// 받았는지를 재서 남은 시간만큼만 움직이게 하려는 것이다
+    /// (`ComposerBar.composerKeyboard` 주석 · `Chat.tsx`의 `kb` 듣기).
+    func composerKeyboard(on: Bool, dur: Double, at: Double) {
+        guard live else { return }
+        notifyListeners("kb", data: ["on": on, "dur": dur, "at": at])
     }
 }
 

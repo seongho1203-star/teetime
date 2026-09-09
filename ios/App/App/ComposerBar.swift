@@ -44,6 +44,17 @@ protocol ComposerBarDelegate: AnyObject {
     func composerFocus(_ on: Bool)
     /// 바 높이가 바뀌었다(줄이 늘거나 줄었다).
     func composerResized(_ height: Double)
+    /**
+     * 키보드가 오르내리기 **시작한다.** `dur`는 iOS가 쓸 시간(초),
+     * `at`은 지금 시각(1970년부터 ms)이다.
+     *
+     * **시각을 함께 보내는 것이 이 신호의 값이다.** 웹은 이 소식을 다리
+     * 건너 받으므로 늘 한두 프레임 늦는데, 그만큼 늦게 시작한 뒤 0.25초를
+     * 다 쓰면 화면이 키보드보다 늦게 도착한다(사용자 제보 — `채팅배경이
+     * 좀 늦게 따라와`). `at`을 견주면 **얼마나 늦었는지**가 나오므로 남은
+     * 시간만큼만 움직여 함께 끝낼 수 있다.
+     */
+    func composerKeyboard(on: Bool, dur: Double, at: Double)
 }
 
 final class ComposerBar: UIView, UITextViewDelegate {
@@ -291,6 +302,15 @@ final class ComposerBar: UIView, UITextViewDelegate {
      * 둘이 한 움직임으로 보인다.
      */
     private func setKb(_ on: Bool, _ n: Notification? = nil) {
+        let info = n?.userInfo
+        let dur = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+
+        /* **웹에 먼저 알린다 — 아래 `guard`보다 앞이다.** 아래 것은 바가
+           비워 둘 자리(`tabH`)를 걷는 일이라 상태가 같으면 건너뛰어도 되지만,
+           웹은 그 값과 상관없이 시각을 알아야 한다. */
+        barDelegate?.composerKeyboard(on: on, dur: dur,
+                                      at: Date().timeIntervalSince1970 * 1000)
+
         guard kbUp != on else { return }
         kbUp = on
         invalidateIntrinsicContentSize()
@@ -298,8 +318,6 @@ final class ComposerBar: UIView, UITextViewDelegate {
         guard let sv = superview else { return }
         sv.setNeedsLayout()
 
-        let info = n?.userInfo
-        let dur = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
         let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 7
         let opts = UIView.AnimationOptions(rawValue: UInt(curve) << 16)
 
@@ -421,6 +439,28 @@ final class ComposerBar: UIView, UITextViewDelegate {
         refreshHint()
         refreshSend()
         barDelegate?.composerFocus(true)
+    }
+
+    /**
+     * **잠깐 초점을 붙들어 둔다 — 놓지 않는 것이 되찾는 것보다 낫다.**
+     *
+     * 아이폰은 **손을 떼는 순간 웹뷰가 first responder를 도로 가져간다.**
+     * 웹 칸을 누른 것이 아니어도 그렇고, 웹의 `preventDefault`로도 못 막는다.
+     * 그래서 댓글 칸을 누르면 키보드가 올라오다 뺏겨 내려갔다가, 우리가
+     * 다시 잡아 또 올라왔다 — **오르락내리락하는 그 자국이 이것이다**
+     * (실기기 제보 — `키보드가 나오다 중간에 다시 내려갔다가 다시 올라와`).
+     *
+     * 뺏긴 뒤에 되찾으면 그 오르내림이 그대로 보이므로, 아예 **놓지 않는다.**
+     * `false`를 돌려주면 iOS가 first responder를 못 뗀다. 붙드는 것은
+     * 초점을 준 직후 잠깐뿐이고(`NativeComposerPlugin.grabFocus`), 그 뒤는
+     * 사람이 내리는 것이라 그대로 놓아 준다.
+     *
+     * **우리가 내릴 때도 먼저 풀어야 한다** — `blur`·`detach`가 그렇게 한다.
+     */
+    var holdFocus = false
+
+    func textViewShouldEndEditing(_ tv: UITextView) -> Bool {
+        return !holdFocus
     }
 
     func textViewDidEndEditing(_ tv: UITextView) {

@@ -219,10 +219,14 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
     /** 바의 글칸에 초점이 갔는가(= 키보드가 올라왔는가). 아래 `openBar`의
         되풀이가 언제 멈출지를 이 값으로 정한다. */
     const barFocused = useRef(false);
+    /** 초점을 **되찾아도 되는 때**가 언제까지인가(연 뒤 잠깐).
+        그 안에 초점이 떠나면 사람이 내린 것이 아니라 웹뷰가 뺏어 간 것이다. */
+    const grabUntil = useRef(0);
 
     const closeBar = () => {
         barRef.current = false;
         barFocused.current = false;
+        grabUntil.current = 0;
         setBarUp(false);
         document.body.classList.remove('nc-typing');
         void hush(NativeComposer.detach());
@@ -261,9 +265,21 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 NativeComposer.addListener('focus', e => {
                     barFocused.current = e.on;
                     clearTimeout(closeAt.current);
+                    if (e.on) return;
+                    /* **연 직후에 떠난 것이면 그 자리에서 도로 잡는다.**
+                       아이폰은 손을 떼는 순간 웹뷰가 first responder를 도로
+                       가져가는데, 그때 사람은 아무것도 안 한 것이므로 접을
+                       일이 아니다. **기다렸다 잡으면 그 사이가 그대로 보인다** —
+                       키보드가 올라오다 내려갔다 다시 올라온다(실기기 제보).
+                       3판 앱은 아예 안 놓으므로(`holdFocus`) 여기까지 안 온다.
+                       이 줄은 **그 판이 없는 옛 앱** 몫이다. */
+                    if (Date.now() < grabUntil.current) {
+                        void hush(NativeComposer.focus());
+                        return;
+                    }
                     // 초점이 떠도 **곧바로 접지 않는다** — 보내기를 누를 때
                     // 잠깐 떴다 돌아오는 기기가 있다(웹 칸에서 겪은 그것이다).
-                    if (!e.on) closeAt.current = window.setTimeout(closeBar, 250);
+                    closeAt.current = window.setTimeout(closeBar, 250);
                 }),
                 NativeComposer.addListener('height', e => {
                     const h = Math.round(e.height);
@@ -290,6 +306,9 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         void (async () => {
             clearTimeout(closeAt.current);
             barFocused.current = false;
+            /* 잠시 동안은 초점이 떠나도 **사람이 내린 것으로 안 본다**
+               (위 `focus` 듣는 곳 참고). */
+            grabUntil.current = Date.now() + 800;
             await hush(NativeComposer.attach(composerSkin({
                 showPlus: false, showIcon: false,
                 hintText: '댓글 남기기',
@@ -309,19 +328,15 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             barRef.current = true;
             setBarUp(true);
             document.body.classList.add('nc-typing');
-            /* **초점이 왔다가 다시 뺏기는 것까지 지켜본다 — 한 번 주고
-               끝내면 안 된다.**
-               아이폰은 **손을 떼는 순간 웹 화면이 first responder를 도로
-               가져간다.** `pointerdown`에서 막아도(덮개의 `preventDefault`)
-               웹뷰 자체가 가져가는 것은 못 막는다 — 그래서 `attach`가 준
-               초점이 곧바로 뺏겨 **키보드가 아예 안 올라왔다**(실기기 제보 —
-               `댓글은 키보드 자체가 안나와`). 예전에 `여러 번 시도하면
-               올라온다`던 것도 같은 자리다(두 번째 누를 때 타이밍이 달라져
-               우연히 성공한 것).
-               그래서 **0.8초 동안 지켜보며 초점이 없으면 다시 준다.**
-               `barFocused`는 멈출 신호가 아니라 **지금 있는가**를 보는 값이다. */
-            for (let i = 0; i < 10 && barRef.current; i++) {
-                if (!barFocused.current) await hush(NativeComposer.focus());
+            /* **초점이 올 때까지 몇 번 더 조른다.** 초점 주기는 `attach`가
+               그 자리에서 맡지만(위 `focus: true`), 그 되풀이는 **앱 안에**
+               있어서 아직 새 앱을 안 깐 폰에는 없다 — 웹은 밀면 바로
+               올라가므로 여기서도 같은 일을 해 두면 옛 앱에서도 키보드가 뜬다.
+               **왔다가 뺏기는 것은 여기서 안 본다** — 그건 위 `focus` 듣는
+               곳이 그 자리에서 도로 잡는다(여기서 보면 한 박자 늦어 키보드가
+               오르내리는 것이 눈에 보인다). */
+            for (let i = 0; i < 10 && barRef.current && !barFocused.current; i++) {
+                await hush(NativeComposer.focus());
                 await new Promise(r => setTimeout(r, 80));
             }
             /* 바에 가리지 않게 칸을 끌어 올린다. **여러 번 부른다** —

@@ -1479,11 +1479,16 @@ body.kb-bar .tabbar { display: none; }
    **0.25초는 iOS 키보드의 애니메이션 시간이고 곡선도 그것에서 왔다.**
    눈대중으로 바꾸지 말 것 — 이 둘이 어긋나면 그게 곧 엇박자다.
    입력칸의 아래 여백도 함께 편다(탭바를 피하려던 여백이 `kb-open`에서
-   한 번에 사라지면 그 순간 입력칸이 툭 내려앉는다). */
+   한 번에 사라지면 그 순간 입력칸이 툭 내려앉는다).
+
+   **`--chat-anim`은 250ms에서 '늦게 받은 만큼'을 뺀 값이다**(네이티브 바
+   3판. `Chat.tsx`의 `kbBeat`). 소식이 다리를 건너오느라 이미 한두 프레임이
+   지났는데 거기서 0.25초를 다 쓰면 화면이 키보드보다 늦게 도착한다 —
+   남은 만큼만 움직여 **같이 끝낸다.** 그 신호가 없는 판에서는 250ms 그대로다. */
 html.native .chat,
 html.native .chat-input {
-    transition: height 250ms cubic-bezier(.38, .7, .125, 1),
-                padding-bottom 250ms cubic-bezier(.38, .7, .125, 1);
+    transition: height var(--chat-anim, 250ms) cubic-bezier(.38, .7, .125, 1),
+                padding-bottom var(--chat-anim, 250ms) cubic-bezier(.38, .7, .125, 1);
 }
 
 /* 키보드가 올라와 있을 때는 **실제로 보이는 높이**(--vvh)를 그대로 쓴다.
