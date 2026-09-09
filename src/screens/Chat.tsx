@@ -2336,22 +2336,32 @@ export function Chat() {
     };
 
     /**
-     * **앱에서는 사진도 앱이 고른다**(8판부터).
+     * **앱에서는 사진도 앱이 고른다** — 다만 **12판부터다.**
      *
      * `+`가 앱의 단추라 웹에는 누른 자리가 없다 — 웹의 `<input type="file">`을
      * 쓰면 iOS가 고르는 창을 붙일 데를 못 찾고 **화면 아무 데나 띄웠다**
      * (사용자 제보 · 사진 두 장. 화면 아래에 44px짜리 칸을 두어도 안 봤다).
-     * 앱이 띄우면 아래에서 올라오는 앱 창이라 그 자리가 아예 없다.
-     * 옛 앱과 웹에서는 예전처럼 숨은 칸을 누른다.
+     * 그래서 8판에 고르는 일을 앱으로 옮겼다.
+     *
+     * **그런데 9~11판에서는 사진이 통째로 안 올라갔다**(사용자 제보 —
+     * `보관함하고 찍는 것도 둘 다 안돼`). 고르는 창은 뜨는데 보관함이든
+     * 카메라든 누르면 **아무 일도 안 일어났다** — 9판에서 그 창을
+     * 팝오버로 바꾸면서, 창이 닫히기 전에 다음 창을 띄우게 되어
+     * iOS가 조용히 무시한 것이다(`ComposerBar` 쪽 `afterSheet` 참고).
+     *
+     * **그 사이 판을 든 폰은 웹 칸으로 되돌린다.** 창이 엉뚱한 자리에
+     * 뜨긴 해도 **뜨기는 한다** — 자리가 어긋난 것과 아예 못 보내는 것
+     * 중에서는 앞엣것이 낫고, 무엇보다 **앱을 새로 안 깔아도 웹만 밀면
+     * 그날로 고쳐진다.** 12판을 깔면 저절로 앱 창으로 돌아간다.
      */
     const photo = async () => {
-        if (!ncOn.current || ncLog.v < 8) { fileRef.current?.click(); return; }
+        if (!ncOn.current || ncLog.v < 12) { fileRef.current?.click(); return; }
         /* **고르는 일이 실패하면 조용히 돌아서지 말 것.** 예전에는
            `catch(() => null)` 하나로 '취소'와 '고장'을 같이 삼켰다 —
            사진이 안 올라가는데 **아무 말도 안 뜨니** 어디가 막힌 것인지
            알 길이 없었다(`사진 크기를 키운 후로 안돼`가 그 자리였다).
            이제 고장이면 알리고 **웹 칸으로 물러나** 어떻게든 보낼 수 있게 한다. */
-        let r: { ok?: boolean; data?: string } | null = null;
+        let r: { ok?: boolean; data?: string; why?: string } | null = null;
         try {
             r = await NativeComposer.pickPhoto();
         } catch (err) {
@@ -2359,7 +2369,15 @@ export function Chat() {
             fileRef.current?.click();
             return;
         }
-        if (!r?.ok || !r.data) return;      // 취소는 여기로 온다 — 조용히 돌아선다
+        /* 취소는 `why` 없이 온다 — 조용히 돌아선다. 까닭이 실려 왔으면
+           **앱이 스스로 막힌 것을 안 것**이라, 알리고 웹 칸으로 물러난다. */
+        if (!r?.ok || !r.data) {
+            if (r?.why) {
+                toast(`사진을 못 불러왔습니다 — ${r.why}`, 'error');
+                fileRef.current?.click();
+            }
+            return;
+        }
         const bin = atob(r.data);
         const buf = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);

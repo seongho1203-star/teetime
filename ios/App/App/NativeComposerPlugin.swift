@@ -72,11 +72,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 10판 — 사진을 곱게 줄인다(`interpolationQuality = .high`).
     /// 11판 — 크기를 1600px으로 되돌렸다. 2560px으로 키웠더니 **사진이
     ///        아예 안 올라갔다**(사용자 제보). 웹도 같은 값이다.
+    /// 12판 — 고르는 창이 **닫힌 뒤에** 보관함·카메라를 띄운다(`afterSheet`).
+    ///        9~11판에서는 닫히는 중에 띄워 iOS가 조용히 무시했고,
+    ///        **보관함도 카메라도 아무 일이 안 일어났다**(사용자 제보).
+    ///        막히면 까닭(`why`)을 실어 답하므로 웹이 알릴 수 있다.
+    ///        **웹은 12판부터만 앱 창을 쓴다** — 그 사이 판은 웹 칸으로
+    ///        물러난다(`Chat.tsx`의 `photo`).
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 11
+    private static let version = 12
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -282,6 +288,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     /// 사진을 고르는 동안 들고 있는 약속. 한 번에 하나뿐이다.
     private var pickCall: CAPPluginCall?
+    /// 보관함·카메라를 띄우는 중인가. 고르는 창이 닫히는 것을 **취소로 잘못
+    /// 읽지 않으려고** 둔 표다(아래 `...DidDismissPopover` 참고).
+    private var pickGoing = false
 
     /**
      * 사진을 고른다 — **아래에서 올라오는 앱 창**이라 자리가 어긋날 수 없다.
@@ -298,14 +307,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             guard let vc = self.bridge?.viewController else { call.reject("no vc"); return }
             self.pickCall?.resolve(["ok": false])      // 겹쳐 불리면 앞엣것은 닫는다
             self.pickCall = call
+            self.pickGoing = false
 
             let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
             sheet.addAction(UIAlertAction(title: "사진 보관함", style: .default) { _ in
-                self.openLibrary(vc)
+                self.pickGoing = true
+                self.afterSheet(vc) { self.openLibrary(vc) }
             })
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 sheet.addAction(UIAlertAction(title: "사진 찍기", style: .default) { _ in
-                    self.openCamera(vc)
+                    self.pickGoing = true
+                    self.afterSheet(vc) { self.openCamera(vc) }
                 })
             }
             sheet.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in
@@ -335,6 +347,31 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }
     }
 
+    /**
+     * 고르는 창이 **완전히 닫힌 뒤에** 다음 창을 띄운다.
+     *
+     * **9판에서 사진이 통째로 안 올라가던 자리다**(사용자 제보 —
+     * `보관함하고 찍는 것도 둘 다 안돼`). 그 창을 팝오버로 바꾸면서
+     * 닫히는 방식이 달라졌는데, **아직 닫히는 중인 화면 위에
+     * `present`를 부르면 iOS가 조용히 무시한다** — 창은 떴고 눌리기도
+     * 하는데 그다음에 아무 일도 안 일어나므로, 밖에서는 고장 난 데를
+     * 짚을 수가 없다.
+     *
+     * 닫힐 때까지 몇 프레임 기다렸다 띄우고, **1초를 기다려도 안 닫히면
+     * 까닭을 실어 약속을 닫는다** — 열어 둔 채 두면 웹은 영영 기다린다.
+     */
+    private func afterSheet(_ vc: UIViewController, tries: Int = 20,
+                            _ go: @escaping () -> Void) {
+        if vc.presentedViewController == nil { go(); return }
+        guard tries > 0 else {
+            finishPick(nil, why: "고르는 창을 못 띄웠습니다")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.afterSheet(vc, tries: tries - 1, go)
+        }
+    }
+
     private func openLibrary(_ vc: UIViewController) {
         var cfg = PHPickerConfiguration()
         cfg.filter = .images
@@ -351,12 +388,24 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         vc.present(p, animated: true)
     }
 
-    /// 고르기가 끝났다(취소도 여기로 온다). **약속은 반드시 한 번 닫는다.**
-    fileprivate func finishPick(_ image: UIImage?) {
+    /**
+     * 고르기가 끝났다(취소도 여기로 온다). **약속은 반드시 한 번 닫는다.**
+     *
+     * **`why`가 붙어 오면 고장이다** — 취소는 까닭 없이 온다. 웹이 그 둘을
+     * 갈라, 고장일 때만 문구를 띄우고 웹 칸으로 물러난다(`Chat.tsx`의 `photo`).
+     */
+    fileprivate func finishPick(_ image: UIImage?, why: String? = nil) {
+        pickGoing = false
         guard let call = pickCall else { return }
         pickCall = nil
-        guard let image = image, let b64 = NativeComposerPlugin.jpegBase64(image) else {
-            call.resolve(["ok": false])
+        guard let image = image else {
+            var out: [String: Any] = ["ok": false]
+            if let why = why { out["why"] = why }
+            call.resolve(out)
+            return
+        }
+        guard let b64 = NativeComposerPlugin.jpegBase64(image) else {
+            call.resolve(["ok": false, "why": "사진을 못 읽었습니다"])
             return
         }
         call.resolve(["ok": true, "data": b64])
@@ -619,6 +668,11 @@ extension NativeComposerPlugin: PHPickerViewControllerDelegate,
  * **작은 카드에서는 iOS가 `취소` 줄을 스스로 뺀다.** 바탕을 눌러 닫는
  * 것이 그 자리를 대신하는데, 그때는 아무 손잡이도 안 불려 **약속이 영영
  * 안 닫힌다** — 그래서 닫히는 것을 여기서 받아 `finishPick(nil)`을 부른다.
+ *
+ * **다만 '보관함·카메라를 누른 것'과 갈라야 한다**(12판). 그때도 이 창은
+ * 닫히는데, 그걸 취소로 읽어 약속을 닫아 버리면 **정작 고른 사진이 갈
+ * 데가 없어진다** — 아무 일도 안 일어난 것처럼 보인다. `pickGoing`이
+ * 그 둘을 가른다.
  */
 extension NativeComposerPlugin: UIPopoverPresentationControllerDelegate {
 
@@ -627,6 +681,7 @@ extension NativeComposerPlugin: UIPopoverPresentationControllerDelegate {
 
     public func popoverPresentationControllerDidDismissPopover(
         _ popoverPresentationController: UIPopoverPresentationController) {
+        if pickGoing { return }     // 다음 창을 띄우는 중이다 — 취소가 아니다
         finishPick(nil)
     }
 }
