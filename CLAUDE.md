@@ -2958,8 +2958,36 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
 2. **키보드와 따로 노는 움직임.** 카톡의 입력칸은 키보드에 붙은 네이티브
    뷰(`inputAccessoryView`)라 iOS가 **한 번의 움직임으로 함께** 옮긴다.
 
-파일은 셋이다 — `ios/App/App/ComposerBar.swift`(바) ·
-`ios/App/App/NativeComposerPlugin.swift`(다리) · `src/lib/composer.ts`(웹 쪽).
+파일은 **넷**이다 — `ios/App/App/ComposerBar.swift`(바) ·
+`ios/App/App/NativeComposerPlugin.swift`(다리) ·
+`ios/App/App/MainViewController.swift`(**등록**) · `src/lib/composer.ts`(웹 쪽).
+
+**Capacitor는 앱 안에 넣어 둔 Swift 플러그인을 스스로 찾지 않는다 —
+손으로 등록해야 한다.** 첫판이 여기서 통째로 막혔다: 앱은 멀쩡히 빌드돼
+TestFlight까지 올라갔는데 폰에서는 **고친 것이 하나도 없어 보였다**
+(천지인 깜빡임도 키보드 엇박자도 그대로). 되물러남 규칙대로 예전 웹 글칸이
+조용히 그대로 쓰였기 때문이다.
+
+- `CapacitorBridge.registerPlugins()`는 **런타임을 훑지 않고**
+  `capacitor.config.json`의 `packageClassList`만 읽는다. 그 목록은
+  `npx cap sync`가 **npm으로 깐 플러그인 꾸러미**에서 뽑아 적는 것이라,
+  우리가 앱 폴더에 넣은 Swift는 `CAPBridgedPlugin`을 따라도 거기 없다.
+  (`node_modules/@capacitor/ios/.../CapacitorBridge.swift`에서 확인했다.)
+- 그래서 `CAPBridgeViewController`를 물려받은 `MainViewController`가
+  `capacitorDidLoad()`에서 `bridge?.registerPluginInstance(...)`로 넣는다.
+  그 자리는 **다리가 만들어진 직후·웹 화면을 열기 전**이라 첫 화면부터 있다.
+  플러그인이 `CAPPlugin`이 아니라 **`CAPInstancePlugin`인 것도 이것 때문이다**
+  (다리가 스스로 만들지 않는 갈래).
+- **`Main.storyboard`가 그 클래스를 가리켜야 한다**(`customClass`·`customModule="App"`).
+  스토리보드와 클래스는 한 쌍이라 **한쪽만 고치면 다시 조용히 안 불린다.**
+- **`npx cap sync`가 `capacitor.config.json`을 다시 만든다** — 그 파일에
+  손으로 이름을 적어 넣는 길로 가지 말 것. CI가 돌 때마다 지워진다.
+
+**그래서 `내 정보` 맨 아래에 한 줄을 적어 둔다**(`ncStatus()`) —
+`글칸 앱O·플러그인O·바O`. 폰에서만 갈리는 자리라 **물어볼 값이 없으면
+짐작만 하게 되고, 실제로 그래서 한 바퀴를 헛돌았다.** 셋이면 충분하다:
+앱인가 · 플러그인이 있나 · 바가 화면에 섰나. 확인이 끝나면 그 한 조각만
+지우면 된다(`badgeSupport`·`화면 판` 줄과 같은 자리다).
 
 - **얹지 않고 키보드에 붙였다.** 웹뷰 위에 네이티브 칸을 띄워 자리를
   따라다니게 하는 길은 깜빡임만 없애고 **엇박자는 그대로**이며, 굴리거나

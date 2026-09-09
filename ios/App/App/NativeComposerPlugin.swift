@@ -20,12 +20,19 @@ import Capacitor
  * (`pause`/`resume`) — 그때는 웹뷰가 first responder라 우리 바가 저절로
  * 사라지는데, 물러나 두지 않으면 서로 first responder를 뺏느라 다툰다.
  *
+ * **손으로 등록해야 불린다 — `MainViewController.swift`가 그 자리다.**
+ * Capacitor 7은 런타임을 훑지 않고 `capacitor.config.json`의
+ * `packageClassList`(npm 꾸러미에서 나온 목록)만 읽는다. 앱 안에 넣어 둔
+ * Swift는 거기 없으므로 **등록 줄이 없으면 영영 안 불린다** — 첫판이
+ * 실제로 여기서 통째로 막혔다. 그래서 `CAPPlugin`이 아니라
+ * `CAPInstancePlugin`이다(다리가 스스로 만들지 않는 갈래).
+ *
  * **플러그인이 없는 판에서도 앱은 그대로 돈다.** 웹이 `ready()`를 한 번
  * 불러 보고 안 되면 예전 웹 글칸을 그대로 쓴다 — 앱은 새로 만들어 깔기까지
  * 시간이 걸리는데 웹은 밀면 바로 올라가므로, 그 사이가 늘 생긴다.
  */
 @objc(NativeComposerPlugin)
-public class NativeComposerPlugin: CAPPlugin, CAPBridgedPlugin, ComposerBarDelegate {
+public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, ComposerBarDelegate {
 
     public let identifier = "NativeComposerPlugin"
     public let jsName = "NativeComposer"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { ncStatus } from '../lib/composer';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -343,7 +344,12 @@ export function Me() {
                 화면이 남은 것인지** 밖에서는 갈릴 방법이 없었다.
                 이 줄이 그 답이다 — 여기 시각이 안 바뀌었으면 아직 옛 화면이다.
                 **확인이 끝나면 이 줄만 도로 뺄 것**(회원이 볼 값이 아니다). */}
-            <p className="xs faint me-foot">앱제작: 악마제리 · 화면 판 {__BUILD__}</p>
+            {/* **글칸이 웹인지 앱인지 여기서 본다.** 폰에서만 갈리는 자리라
+                안 될 때 물어볼 값이 없으면 한 바퀴를 헛돈다(실제로 그랬다).
+                앱 쪽이 확인되면 `ncStatus()`만 지우면 된다. */}
+            <p className="xs faint me-foot">
+                앱제작: 악마제리 · 화면 판 {__BUILD__} · {ncStatus()}
+            </p>
         </div>
     );
 }

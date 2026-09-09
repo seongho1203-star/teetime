@@ -18,7 +18,7 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
-import { NativeComposer, composerReady, composerSkin, hush } from '../lib/composer';
+import { NativeComposer, composerReady, composerSkin, hush, ncLog } from '../lib/composer';
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -2063,6 +2063,7 @@ export function Chat() {
                     const h = Math.round(e.height);
                     if (h <= 0) return;
                     stood = true;
+                    ncLog.stood = true;
                     document.documentElement.style.setProperty('--composer', `${h}px`);
                 }),
             ]);

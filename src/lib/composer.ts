@@ -43,6 +43,27 @@ export const NativeComposer = registerPlugin<Native>('NativeComposer');
 
 const OFF_KEY = 'teetime:nc';
 
+/**
+ * **어디서 막혔는지 남겨 두는 자리.** `내 정보` 맨 아래에 한 줄로 적힌다.
+ *
+ * 여기서는 폰을 못 보므로, 안 될 때 물어볼 것이 없으면 짐작만 하게 된다 —
+ * 실제로 첫판에서 **플러그인이 등록조차 안 된 것**을 이 줄이 없어 한 바퀴
+ * 늦게 알았다. 셋이면 충분하다: 앱인가 · 플러그인이 있나 · 바가 섰나.
+ */
+export const ncLog = {
+    native: IS_NATIVE,
+    /** `ready()`가 답했나. null이면 아직 안 물어봤다. */
+    ready: null as boolean | null,
+    /** 바가 제 높이를 알려 왔나 — 화면에 실제로 섰다는 증거다. */
+    stood: false,
+};
+
+/** `내 정보` 아래에 적을 한 줄. */
+export function ncStatus(): string {
+    const yn = (v: boolean | null) => (v === null ? '?' : v ? 'O' : 'X');
+    return `글칸 앱${yn(ncLog.native)}·플러그인${yn(ncLog.ready)}·바${yn(ncLog.stood)}`;
+}
+
 let asked: Promise<boolean> | null = null;
 
 /**
@@ -58,10 +79,11 @@ export function composerReady(): Promise<boolean> {
         try { if (localStorage.getItem(OFF_KEY) === 'off') return false; } catch { /* 사파리 잠금 */ }
         try {
             const r = await NativeComposer.ready();
-            return r?.ok === true;
+            ncLog.ready = r?.ok === true;
         } catch {
-            return false;
+            ncLog.ready = false;
         }
+        return ncLog.ready;
     })();
     return asked;
 }
