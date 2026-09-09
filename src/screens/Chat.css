@@ -1416,7 +1416,17 @@
    그대로 남는데, 그냥 두면 깨진 그림 자국이 말풍선 자리에 남는다.
    **말풍선처럼 보이면 안 된다** — 누가 한 말이 아니라 '여기 그림이
    있었다'는 표시라, 안내 줄(`.chat-notice`)과 같은 옅은 조각으로 둔다. */
+/* **자리는 이모티콘과 똑같다**(118×118). 그림이 없다고 자리가 줄어들면,
+   미리 받아 두기가 그것을 알아내는 순간 목록이 그만큼 짧아져 읽던 자리가
+   튄다(`StickerImg` 주석). 눈에 보이는 알약은 그 안에 든다. */
 .chat-sticker-gone {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 118px;
+    height: 118px;
+}
+.chat-sticker-gone > span {
     padding: 5px 10px;
     border-radius: var(--r-pill);
     background: var(--chat-chip);

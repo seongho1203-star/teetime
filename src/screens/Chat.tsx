@@ -544,6 +544,36 @@ export function Chat() {
     useLayoutEffect(() => { pinBottom(); }, [messages, pinBottom]);
 
     /**
+     * **들어온 뒤 잠깐은 맨 아래를 붙들어 둔다.**
+     *
+     * 대화방을 열면 그림·글꼴이 뒤늦게 자리를 잡느라 목록 높이가 한동안
+     * 바뀐다(실기기 진단 — 들어갈 때 내용 높이가 1089px 줄었다). 그때마다
+     * 보던 자리가 어긋나 **글이 위아래로 순간 움직인다**(사용자 제보).
+     * 가장 큰 몫이던 '그림 없는 이모티콘'은 자리를 같게 해서 없앴지만,
+     * 늦게 오는 글꼴처럼 우리가 못 막는 것도 있어 여기서 한 번 더 받는다.
+     *
+     * - **맨 아래를 보고 있을 때만** 한다(`pinBottom`이 그것을 본다).
+     *   `여기까지 읽으셨습니다` 줄로 옮겨 놓은 자리를 빼앗으면 안 된다.
+     * - **1.5초만** 한다. 그 뒤는 사람이 굴리는 것이라 건드리면 안 된다.
+     * - 높이가 **바뀔 때만** 붙인다 — 매 프레임 `scrollTop`을 적으면
+     *   느린 폰에서 굴리는 것과 다툰다.
+     */
+    useEffect(() => {
+        const el = listRef.current;
+        if (!el || !roomId) return;
+        let raf = 0;
+        let last = el.scrollHeight;
+        const until = performance.now() + 1500;
+        const tick = () => {
+            const h = el.scrollHeight;
+            if (h !== last) { last = h; pinBottom(); }
+            raf = performance.now() < until ? requestAnimationFrame(tick) : 0;
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [roomId, pinBottom]);
+
+    /**
      * **늦게 뜬 사진이 읽던 자리를 밀어내지 않게 한다.**
      *
      * 사진은 화면에 보일 때가 되어야 받아 오고(`loading="lazy"`), 받기
@@ -3295,7 +3325,14 @@ function StickerImg({ mark, onLoad }: {
     /* 0 = 제 확장자 · 1 = 다른 확장자 · 2 = 포기하고 조각으로 */
     const [tried, setTried] = useState(0);
     const label = stickerLabel(mark);
-    if (tried >= 2) return <span className="chat-sticker-gone">{label}</span>;
+    /* **자리는 이모티콘과 똑같이 차지한다**(안쪽 알약만 작다). 그림이
+       없다고 자리까지 줄어들면, 미리 받아 두기가 그 사실을 알아내는
+       순간(80ms마다 세 장씩) 목록이 그만큼 짧아져 **읽던 자리가 위아래로
+       튄다** — 실기기 진단에서 들어갈 때 내용 높이가 272px씩 네 번
+       줄었고, 그것이 이모티콘 세 장 몫(96×3)이었다. */
+    if (tried >= 2) {
+        return <span className="chat-sticker-gone"><span>{label}</span></span>;
+    }
     const src = stickerSrc(mark);
     return <img className="chat-sticker" src={tried ? swapExt(src) : src}
                 alt={label} loading="lazy"
