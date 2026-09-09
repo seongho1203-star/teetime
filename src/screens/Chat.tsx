@@ -2346,20 +2346,41 @@ export function Chat() {
      */
     const photo = async () => {
         if (!ncOn.current || ncLog.v < 8) { fileRef.current?.click(); return; }
-        const r = await NativeComposer.pickPhoto().catch(() => null);
-        if (!r?.ok || !r.data) return;      // 취소도 여기로 온다 — 조용히 돌아선다
-        // 앱이 이미 줄여서 준다(`lib/image.ts`와 같은 값) — 여기서 또 안 줄인다.
+        /* **고르는 일이 실패하면 조용히 돌아서지 말 것.** 예전에는
+           `catch(() => null)` 하나로 '취소'와 '고장'을 같이 삼켰다 —
+           사진이 안 올라가는데 **아무 말도 안 뜨니** 어디가 막힌 것인지
+           알 길이 없었다(`사진 크기를 키운 후로 안돼`가 그 자리였다).
+           이제 고장이면 알리고 **웹 칸으로 물러나** 어떻게든 보낼 수 있게 한다. */
+        let r: { ok?: boolean; data?: string } | null = null;
+        try {
+            r = await NativeComposer.pickPhoto();
+        } catch (err) {
+            toast(`사진을 못 불러왔습니다 — ${readableError(err)}`, 'error');
+            fileRef.current?.click();
+            return;
+        }
+        if (!r?.ok || !r.data) return;      // 취소는 여기로 온다 — 조용히 돌아선다
         const bin = atob(r.data);
         const buf = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
         await sendPhoto(new Blob([buf], { type: 'image/jpeg' }));
     };
 
-    /** 줄여 둔 사진 한 장을 올려 보낸다. 웹 칸과 앱이 같이 쓴다. */
-    const sendPhoto = async (blob: Blob) => {
+    /**
+     * 사진 한 장을 올려 보낸다. 웹 칸과 앱이 같이 쓴다.
+     *
+     * **여기서 크기를 한 번 더 잰다.** 앱도 제 나름대로 줄여서 주지만
+     * (`jpegBase64`), 앱은 새로 깔아야 바뀌므로 **옛 앱을 든 폰에서는
+     * 웹이 아무리 고쳐도 큰 사진이 그대로 온다.** 실제로 2560px으로
+     * 올렸다가 사진이 통째로 안 올라가는 일이 있었고, 그때 웹만 밀어서
+     * 고칠 길이 없었다 — 이 한 줄이 그 길이다.
+     * `shrinkImage`는 **이미 작으면 그대로 돌려주므로** 헛일을 안 한다.
+     */
+    const sendPhoto = async (raw: Blob) => {
         if (!roomId) return;
         setUploading(true);
         try {
+            const blob = await shrinkImage(raw);
             const path = `${roomId}/${crypto.randomUUID()}.jpg`;
             const { error: upErr } = await supabase.storage
                 .from('chat-photos')

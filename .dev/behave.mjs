@@ -2321,6 +2321,66 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     await bCtx2.close();
 }
 
+/* ── 15. 사진을 줄여서 올리는가 ───────────────────────────────────
+ *
+ * **2560px으로 키웠다가 사진이 통째로 안 올라갔다**(사용자 제보 —
+ * `사진 크기를 키운 후로 안돼`). 크기를 되돌리면서, 올리기 직전에
+ * **한 번 더 재는 줄**을 넣었다(`sendPhoto`) — 앱은 새로 깔아야 바뀌므로
+ * 옛 앱을 든 폰에서는 웹이 그 길을 막아 줘야 한다.
+ *
+ * 화질만 보고 크기를 만지면 **올리는 길이 막힐 수 있다**는 것이 이 자리의
+ * 교훈이라, 실제로 올라가는 크기를 숫자로 붙들어 둔다.
+ */
+console.log('\n── 사진을 줄여서 올린다 ──');
+{
+    const uCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await uCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(uCtx);
+    let sent = 0;
+    await uCtx.route('**/storage/v1/object/**', route => {
+        const body = route.request().postDataBuffer();
+        if (body) sent = body.length;
+        route.fulfill({ status: 200, contentType: 'application/json',
+                        body: JSON.stringify({ Key: 'chat-photos/x.jpg' }) });
+    });
+    await uCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const up = await uCtx.newPage();
+    await up.goto(`${BASE}/#/chat`);
+    await up.waitForSelector('.chat-list', { timeout: 20000 });
+
+    /* 폰 사진만 한 큰 그림을 지어 숨은 칸에 넣는다. */
+    const big = await up.evaluate(async () => {
+        const c = new OffscreenCanvas(4032, 3024);
+        const x = c.getContext('2d');
+        for (let i = 0; i < 4032; i += 8) {
+            x.fillStyle = `hsl(${(i / 12) % 360} 60% 50%)`;
+            x.fillRect(i, 0, 5, 3024);
+        }
+        const b = await c.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+        return { size: b.size, bytes: Array.from(new Uint8Array(await b.arrayBuffer())) };
+    });
+    await up.setInputFiles('.file-anchor', {
+        name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(big.bytes),
+    });
+    await up.waitForTimeout(2500);
+    ok(sent > 0, `저장소로 올라간다 (원본 ${Math.round(big.size / 1024)}KB → ${Math.round(sent / 1024)}KB)`);
+    ok(sent > 0 && sent < 500 * 1024,
+       `올리기 전에 줄인다 — 500KB 아래 (${Math.round(sent / 1024)}KB)`);
+
+    /* 앱이 큰 것을 건네줘도 웹이 다시 줄이는가 — **옛 앱을 든 폰의 자리다.** */
+    const capped = await up.evaluate(async bytes => {
+        const mod = await import('/src/lib/image.ts');
+        const out = await mod.shrinkImage(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
+        const bmp = await createImageBitmap(out);
+        return { w: bmp.width, h: bmp.height };
+    }, big.bytes);
+    ok(Math.max(capped.w, capped.h) === 1600,
+       `긴 변이 1600px으로 맞춰진다 (${capped.w}×${capped.h})`);
+
+    await uCtx.close();
+}
+
 await browser.close();
 
 if (errors.length) {
