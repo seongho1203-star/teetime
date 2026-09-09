@@ -272,6 +272,26 @@ console.log('\n── 키보드가 댓글 칸을 안 가린다 ──');
            `${what} — 키보드가 다 올라온 뒤에 다시 안 움직인다 (실제 ${먼저.칸[1]} → ${v.칸[1]})`);
     }
     await page.setViewportSize({ width: 390, height: 844 });
+
+    /* **네이티브 바가 떠 있는 동안에는 웹 칸이 안 보여야 한다**
+       (사용자 제보 — `댓글쓰는데가 2군데야`). 헤드리스에는 그 바가
+       없으므로 표시(`nc-typing`)만 손으로 붙여 규칙 자체를 잰다.
+       **자리는 그대로 있어야 한다** — 지워 버리면 읽던 글이 밀리고
+       `openBar`가 끌어 올릴 자리도 함께 사라진다. */
+    const twin = await page.evaluate(() => {
+        const el = document.querySelector('.comment-form');
+        const before = { h: el.offsetHeight, vis: getComputedStyle(el).visibility };
+        document.body.classList.add('nc-typing');
+        const during = { h: el.offsetHeight, vis: getComputedStyle(el).visibility };
+        document.body.classList.remove('nc-typing');
+        const after = getComputedStyle(el).visibility;
+        return { before, during, after };
+    });
+    ok(twin.before.vis === 'visible' && twin.during.vis === 'hidden',
+       `바가 떠 있으면 웹 댓글 칸이 안 보인다 (${twin.before.vis} → ${twin.during.vis})`);
+    ok(twin.during.h === twin.before.h,
+       `그래도 자리는 그대로 차지한다 (${twin.before.h}px → ${twin.during.h}px)`);
+    ok(twin.after === 'visible', '바를 닫으면 도로 보인다');
 }
 
 console.log('\n── 투표 목록이 길어지지 않는다 ──');

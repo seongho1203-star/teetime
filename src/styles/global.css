@@ -239,6 +239,15 @@ body.nc-typing .page { padding-bottom: var(--gap); }
 html.nc2 body.nc-typing .page { padding-bottom: calc(var(--composer, 60px) + var(--gap)); }
 html.nc2 body.nc-typing .comment-form { scroll-margin-bottom: calc(var(--composer, 60px) + var(--gap)); }
 
+/* **바가 떠 있는 동안에는 웹 칸을 감춘다**(사용자 제보 — `댓글쓰는데가
+   2군데야`). 웹 칸은 네이티브 판에서 **누르는 자리**일 뿐인데, 친 글을
+   거기에도 옮겨 적어 두므로(바를 닫아도 남아야 한다) 글칸과 `등록`이
+   그대로 한 벌 더 보였다 — 어느 쪽에 적는 것인지 헷갈린다.
+   **`display: none`으로 지우지 말 것** — 그만큼 자리가 없어져 읽던
+   글이 통째로 밀리고, `openBar`가 끌어 올릴 자리(`scroll-margin`)도
+   함께 사라진다. 보이지만 않게 두는 것이 맞다. */
+body.nc-typing .comment-form { visibility: hidden; }
+
 /* **저장·신청 단추는 키보드 바로 위에 붙는다.** 탭바 자리를 피하려고
    띄워 둔 값이라, 탭바가 없어지면 그만큼 내려와야 손에 닿는다. */
 body.kb-typing .form-actions,
