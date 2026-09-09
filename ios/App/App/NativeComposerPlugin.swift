@@ -62,7 +62,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 5판 — 그 신호에 화면 높이·여백을 자리 하나에서 셈해 실어 보낸다(`chatH`·`pad`).
     /// 6판 — 그 신호를 **늘** 보낸다(웹이 다른 셈을 아예 안 쓴다) · 바를 살려 두어
     ///       다시 세우는 것이 빠르다.
-    private static let version = 6
+    /// 7판 — 감춰 둘 수 있다(`hidden`). 댓글이 바를 미리 세워 두는 데 쓴다.
+    ///
+    /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
+    /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
+    /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
+    private static let version = 7
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

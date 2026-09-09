@@ -342,12 +342,12 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
      * 뒤집으면 되어** 다리를 한 번만 건넌다.
      *
      * **감춰 둔 바는 아무 일도 안 한다** — 그리지도, 손짓을 받지도 않는다.
-     * 옛 앱(5판까지)은 `hidden`을 모르므로 미리 세우면 바가 그대로 **보인다.**
-     * 그래서 6판부터만 한다.
+     * `hidden`을 모르는 앱은 미리 세우면 바가 그대로 **보이므로**
+     * **7판부터만** 한다(그 값이 들어간 판이다).
      */
     const warm = useRef(false);
     useEffect(() => {
-        if (!canNative || ncLog.v < 6) return;
+        if (!canNative || ncLog.v < 7) return;
         let dead = false;
         void (async () => {
             await hush(NativeComposer.attach(composerSkin({

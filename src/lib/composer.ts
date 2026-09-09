@@ -181,6 +181,11 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
         plusW: 32, sendW: 34, iconW: 30,
         fontSize: 16, radius: 19,
         showPlus: true, showIcon: true, tray: false, forceSend: false,
+        /* **감춤은 늘 함께 보낸다.** 앱은 **보낸 값만** 고치므로, 안 보내면
+           지난 화면의 값이 그대로 남는다 — 댓글 화면이 감춰 둔 바가 대화까지
+           따라가 **입력칸이 통째로 안 보였다**(사용자 제보 — `메시지창 자체가
+           안보여`). 감추는 쪽(`warm`)이 `true`로 덮어쓴다. */
+        hidden: false,
         tabH: px('--tabbar-h', 56),
         bg: hex('--bg', '#f5f7f1'),
         field: hex('--surface-3', '#e4e9da'),
