@@ -19,6 +19,15 @@ import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import { NativeComposer, composerReady, composerSkin, hush, ncLog } from '../lib/composer';
+
+/**
+ * 네이티브 바가 마지막으로 알려 온 높이 — **화면을 나갔다 와도 남는다.**
+ * 새로 들어올 때 바가 높이를 알려 오기까지 한 프레임쯤 예비값(60px)이
+ * 쓰이고, 그 뒤 116으로 뛰면서 목록이 90px 줄어드는 것이 **들어갈 때
+ * 글이 아래로 내려갔다 올라오는 것**으로 보였다(실기기 제보). 지난번
+ * 값을 먼저 적어 두면 그 뜀이 없다.
+ */
+let lastBarH = 0;
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -639,7 +648,9 @@ export function Chat() {
     const kbLate = useRef({ late: 0, anim: 0, kb: 0, ios: 0, ticks: 0 });
     /** 네이티브 바(4판)가 **그려지는 자리를 프레임마다** 알려 준다. 아래
      *  `앱: 키보드와 같은 박자로` 효과가 채워 넣고, `frame` 신호가 부른다. */
-    const kbFrame = useRef<((e: { bottom: number; h: number; p: number; end: boolean }) => void) | null>(null);
+    const kbFrame = useRef<((e: {
+        bottom: number; h: number; p: number; end: boolean; chatH?: number; pad?: number;
+    }) => void) | null>(null);
     /** 지금 바를 따라가는 중인가. 그동안은 높이를 **다른 데서 안 적는다.** */
     const kbFollow = useRef(false);
 
@@ -828,6 +839,14 @@ export function Chat() {
         const root = document.documentElement;
         /** 키보드가 없을 때의 창 높이. 다 닫힌 뒤에 다시 잰다. */
         let base = root.clientHeight;
+        /* **4판부터는 CSS가 부드럽게 하지 않는다.** 움직임은 바가 프레임마다
+           보내는 자리(`kbFrame`)가 맡고, 그 밖의 값 변화(들어올 때 여백이
+           정해지는 것 등)는 곧바로 자리를 잡는 것이 맞다 — 250ms에 걸쳐
+           옮기면 들어갈 때 글이 내려갔다 올라오는 것으로 보인다. */
+        const follows = ncLog.v >= 4;
+        if (follows) root.style.setProperty('--chat-anim', '0ms');
+        /* 지난번 바 높이를 먼저 적어 둔다(`lastBarH` 주석). */
+        if (lastBarH) root.style.setProperty('--composer', `${lastBarH}px`);
         /** 키보드가 가릴 높이(플러그인이 알려 준 값). */
         let want = 0;
         /**
@@ -859,7 +878,7 @@ export function Chat() {
         const flush = () => {
             flushAt = 0;
             if (kbFollow.current) return;       // 따라가는 동안은 `kbFrame`이 적는다
-            if (beat.at) {
+            if (beat.at && !follows) {          // 4판부터는 전환 시간을 안 쓴다(늘 0)
                 const gone = Date.now() - beat.at;
                 /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
                    되돌린다 — 안 그러면 다음 움직임이 엉뚱하게 짧아진다. */
@@ -1014,8 +1033,21 @@ export function Chat() {
                     kbLate.current.ticks = 0;
                     root.classList.add('kb-follow');
                     root.style.setProperty('--chat-anim', '0ms');
+                    /* 따라가는 내내 맨 아래를 붙들어 둔다 — 신호 처리
+                       (`hide`·`kbHint`)의 600ms가 끝나기 전에 시작하는 것이
+                       보통이지만, 여기서 다시 걸어 두면 늦게 시작해도 된다. */
+                    settleList();
                 }
                 kbLate.current.ticks += 1;
+                /* **5판은 둘을 자리 하나에서 셈해 보낸다**(`chatH`·`pad`).
+                   4판은 바의 그려지는 높이를 따로 줬는데, 자리와 높이의 곡선이
+                   달라 목록이 넘쳤다 돌아왔다(실기기 제보 — `내려갔다가 다시
+                   올라와`). 4판이면 예전 셈으로 물러난다. */
+                if (e.chatH !== undefined && e.pad !== undefined) {
+                    root.style.setProperty('--chat-h', `${Math.round(e.chatH)}px`);
+                    root.style.setProperty('--composer', `${Math.round(e.pad)}px`);
+                    return;
+                }
                 const extra = safeB() * (1 - e.p);
                 root.style.setProperty('--chat-h', `${Math.round(e.bottom + extra)}px`);
                 root.style.setProperty('--composer', `${Math.round(e.h + extra)}px`);
@@ -2254,6 +2286,7 @@ export function Chat() {
                        내려 버리므로, **바꾸기 전에** 집어 둔 값을 넘긴다. */
                     const wasBottom = atBottom.current;
                     ncH.current = h;
+                    lastBarH = h;
                     /* 따라가는 동안(4판 `kbFrame`)은 그쪽이 프레임마다 적는다 —
                        여기서 목표값을 먼저 적으면 여백이 툭 뛴다. 끝날 때
                        `ncH`에서 도로 적는다. */

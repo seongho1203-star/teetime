@@ -54,7 +54,13 @@ type Native = {
      * 있음)~1(다 올라옴) · `end`는 다 움직였다는 표시. 웹이 이 값을 그대로
      * 화면 높이로 쓴다 — 곡선을 흉내 내지 않는다(`ComposerBar.follow` 주석).
      */
-    addListener(n: 'frame', cb: (e: { bottom: number; h: number; p: number; end: boolean }) => void): Promise<Handle>;
+    addListener(n: 'frame', cb: (e: {
+        bottom: number; h: number; p: number; end: boolean;
+        /** 5판부터 — 화면 높이와 입력칸 여백을 **자리 하나에서** 셈한 값.
+            바의 그려지는 높이(`h`)는 자리와 곡선이 달라 따로 쓰면 목록이
+            넘쳤다 돌아온다(`ComposerBar.tick` 주석). 있으면 이걸 쓴다. */
+        chatH?: number; pad?: number;
+    }) => void): Promise<Handle>;
 };
 
 export const NativeComposer = registerPlugin<Native>('NativeComposer');

@@ -64,7 +64,8 @@ protocol ComposerBarDelegate: AnyObject {
      * `p`는 0(내려가 있음)~1(다 올라옴) · `end`는 다 움직였다는 표시다.
      * 까닭은 `follow()` 주석에 있다.
      */
-    func composerFrame(bottom: Double, h: Double, p: Double, end: Bool)
+    func composerFrame(bottom: Double, h: Double, p: Double, end: Bool,
+                       chatH: Double, pad: Double)
 }
 
 final class ComposerBar: UIView, UITextViewDelegate {
@@ -397,8 +398,21 @@ final class ComposerBar: UIView, UITextViewDelegate {
         let f = (done ? nil : layer.presentation()?.frame) ?? frame
         let span = max(1, restBottom - kbTop)
         let p = min(1, max(0, (restBottom - f.maxY) / span))
+        /* **웹이 쓸 두 값을 자리(`maxY`) 하나에서 셈한다.** 바의 그려지는
+           높이(`f.height`)를 함께 보냈더니 실기기에서 목록이 넘쳤다 돌아왔다
+           (사용자 제보 — `내려갔다가 다시 올라와`): 자리는 iOS가 키보드와
+           함께 옮기는데 높이(탭바 자리를 되붙이는 것)는 우리 애니메이션이라
+           **둘이 같은 곡선이 아니다.** 자리에서 비율(`p`)을 내고 그 비율로
+           탭바 몫과 홈 인디케이터 몫을 섞으면 둘 다 한 곡선을 탄다.
+           - `chatH` = 대화 화면 높이 = 바 아랫변 + 홈 인디케이터 몫 × (1−p)
+           - `pad`   = 입력칸 아래 여백 = 바 알맹이 + (탭바 + 홈 인디케이터) × (1−p) */
+        let safe = superview?.safeAreaInsets.bottom ?? 0
+        let core = padV * 2 + fieldHeight()
+        let chatH = f.maxY + safe * (1 - p)
+        let pad = core + (tabH + safe) * (1 - p)
         barDelegate?.composerFrame(bottom: Double(f.maxY), h: Double(f.height),
-                                   p: Double(p), end: done)
+                                   p: Double(p), end: done,
+                                   chatH: Double(chatH), pad: Double(pad))
         if done { link?.invalidate(); link = nil }
     }
 
