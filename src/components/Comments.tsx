@@ -216,9 +216,13 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
 
     const closeAt = useRef(0);
     const barRef = useRef(false);
+    /** 바의 글칸에 초점이 갔는가(= 키보드가 올라왔는가). 아래 `openBar`의
+        되풀이가 언제 멈출지를 이 값으로 정한다. */
+    const barFocused = useRef(false);
 
     const closeBar = () => {
         barRef.current = false;
+        barFocused.current = false;
         setBarUp(false);
         document.body.classList.remove('nc-typing');
         void hush(NativeComposer.detach());
@@ -255,6 +259,7 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 NativeComposer.addListener('change', e => mirror(e.text)),
                 NativeComposer.addListener('send', e => { void sendIt(e.text); }),
                 NativeComposer.addListener('focus', e => {
+                    barFocused.current = e.on;
                     clearTimeout(closeAt.current);
                     // 초점이 떠도 **곧바로 접지 않는다** — 보내기를 누를 때
                     // 잠깐 떴다 돌아오는 기기가 있다(웹 칸에서 겪은 그것이다).
@@ -283,6 +288,8 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
     /** 웹 칸을 누르면 네이티브 바를 세우고 거기에 초점을 준다. */
     const openBar = () => {
         void (async () => {
+            clearTimeout(closeAt.current);
+            barFocused.current = false;
             await hush(NativeComposer.attach(composerSkin({
                 showPlus: false, showIcon: false,
                 hintText: '댓글 남기기',
@@ -302,7 +309,16 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             barRef.current = true;
             setBarUp(true);
             document.body.classList.add('nc-typing');
-            await hush(NativeComposer.focus());
+            /* **웹에서도 한 번 더 조른다.** 초점 주기는 `attach`가 그 자리에서
+               맡지만(위 `focus: true`), 그 되풀이는 **앱 안에** 있어서 아직
+               새 앱을 안 깐 폰에는 없다 — 웹은 밀면 바로 올라가므로 여기서도
+               같은 일을 해 두면 옛 앱에서도 키보드가 뜬다.
+               바가 알려 준 초점(`barFocused`)이 곧 멈출 신호다. */
+            for (let i = 0; i < 8 && barRef.current && !barFocused.current; i++) {
+                await hush(NativeComposer.focus());
+                if (barFocused.current) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
             /* 바에 가리지 않게 칸을 끌어 올린다. **여러 번 부른다** —
                웹뷰가 줄어드는 것은 키보드보다 0.45초 늦어서(플러그인의
                그 타이밍이다) 한 번만 하면 줄기 전 크기로 계산된다. */

@@ -685,7 +685,14 @@ export function Chat() {
         clearTimeout(s.off);
         s.ro = new ResizeObserver(drop);
         s.ro.observe(el);
-        s.off = window.setTimeout(() => { s.ro?.disconnect(); s.ro = null; }, 600);
+        s.off = window.setTimeout(() => {
+            s.ro?.disconnect();
+            s.ro = null;
+            /* 손을 떼면서 '맨 아래인가'를 한 번 다시 잰다 — 앉히는 동안에는
+               `onScroll`이 그 값을 안 고쳤으므로(위 주석) 여기서 맞춰 둔다. */
+            const box = listRef.current;
+            if (box) atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+        }, 600);
     }, []);
 
     useEffect(() => {
@@ -1207,7 +1214,13 @@ export function Chat() {
         const el = listRef.current;
         if (!el) return;
         const below = el.scrollHeight - el.scrollTop - el.clientHeight;
-        atBottom.current = below < 80;
+        /* **앉히는 동안에는 '맨 아래인가'를 고쳐 쓰지 않는다.** 키보드가
+           오르내리면 목록 높이가 여러 단계에 걸쳐 바뀌고 그때마다 브라우저가
+           스크롤 이벤트를 던지는데, 그 한 번이 `atBottom`을 거짓으로 내려
+           버리면 **뒤따라오는 신호가 전부 '맨 아래가 아니었다'로 읽힌다** —
+           네이티브 바가 자랐다고 알려 올 때(`height`)가 그 자리다.
+           `settleList`가 손을 떼면서 한 번 다시 잰다. */
+        if (!settling.current.ro) atBottom.current = below < 80;
         // 굴릴 때마다 높이를 다시 적어 둔다 — 사진이 도착했을 때 얼마나
         // 자랐는지 견줄 잣대다(위 `onImageLoad`).
         listH.current = el.scrollHeight;
