@@ -849,8 +849,14 @@ export function Chat() {
            보내는 자리(`kbFrame`)가 맡고, 그 밖의 값 변화(들어올 때 여백이
            정해지는 것 등)는 곧바로 자리를 잡는 것이 맞다 — 250ms에 걸쳐
            옮기면 들어갈 때 글이 내려갔다 올라오는 것으로 보인다. */
-        const follows = ncLog.v >= 4;
-        if (follows) root.style.setProperty('--chat-anim', '0ms');
+        /* **여기서도 판 번호를 값으로 잡으면 안 된다** — `owns6()`과 똑같은
+           자리다. 화면이 열리는 순간에는 아직 앱에 안 물어봐서 늘 0이라,
+           `--chat-anim`이 **250ms인 채로 남았다.** 그래서 앱이 준 값은 곧바로
+           들어가는데 화면만 CSS로 0.25초 더 끌려갔다 — 진단 줄에 `h874 b150`은
+           첫 줄부터 끝값인데 `L`만 348→618로 235ms에 걸쳐 자란 것이 그것이다
+           (사용자 제보 — `늦게 따라와`). 지금은 바가 값을 보내오는 그 자리에서
+           끈다(`kbFrame`). */
+        const follows = () => ncLog.v >= 4;
         /* **6판부터는 바가 두 값의 주인이다**(`--chat-h`·`--composer`).
            5판까지는 움직이는 동안만 바가 적고 그 밖에는 여기서 셈했는데,
            **둘이 엇갈려 목록이 흔들렸다**(진단 — `--composer`가 116과 150을
@@ -895,7 +901,7 @@ export function Chat() {
         const flush = () => {
             flushAt = 0;
             if (owns() || kbFollow.current) return;   // 바가 적는다
-            if (beat.at && !follows) {          // 4판부터는 전환 시간을 안 쓴다(늘 0)
+            if (beat.at && !follows()) {        // 4판부터는 전환 시간을 안 쓴다(늘 0)
                 const gone = Date.now() - beat.at;
                 /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
                    되돌린다 — 안 그러면 다음 움직임이 엉뚱하게 짧아진다. */
@@ -1062,6 +1068,10 @@ export function Chat() {
                    바를 세울 때 붙이던 것을 여기로 옮긴 까닭이다. */
                 if (!kbFollow.current) {
                     kbFollow.current = true;
+                    /* **CSS가 부드럽게 하려 드는 것을 끈다.** 움직임은 바가
+                       프레임마다 보내 주는 값이 맡으므로, 여기에 전환 시간이
+                       남아 있으면 그만큼 **한 번 더 늦게** 따라간다. */
+                    root.style.setProperty('--chat-anim', '0ms');
                     root.classList.add('kb-follow');
                 }
                 if (e.end) settleList();
