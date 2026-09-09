@@ -1705,7 +1705,9 @@ html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }
    가려도 그 아래가 그대로 눌린다. */
 .kb-probe {
     position: absolute;
-    top: 2px;
+    /* **상태 막대 아래로 내린다** — `top: 2px`로 두었더니 첫 줄들이 시계·
+       배터리 뒤로 들어가 사진에서 안 보였다. */
+    top: calc(env(safe-area-inset-top, 0px) + 2px);
     left: 4px;
     z-index: 50;
     font-size: 9px;

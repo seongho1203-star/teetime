@@ -190,6 +190,9 @@ export function Chat() {
      */
     const [nativeBar, setNativeBar] = useState(false);
     const ncOn = useRef(false);
+    /** 네이티브 바가 마지막으로 알려 준 제 높이. **`--composer`를 다시 적을
+        때 쓴다** — 그 값을 지우는 곳이 따로 있어서다(아래 `write()` 주석). */
+    const ncH = useRef(0);
     /** 네이티브 칸이 들고 있는 글의 사본. 칸이 값의 주인이라 읽기만 한다. */
     const ncText = useRef({ text: '', sel: 0 });
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
@@ -1081,8 +1084,14 @@ export function Chat() {
         if (!el) return;
         const write = () => {
             // 네이티브 바를 쓰는 판에서는 **그쪽이 제 높이를 알려 준다** —
-            // 여기서 재면 감춰 둔 웹 글칸의 높이로 덮어쓴다.
-            if (ncOn.current) return;
+            // 여기서 재면 감춰 둔 웹 글칸의 높이로 덮어쓴다. 대신 그쪽이
+            // 마지막으로 알려 준 값을 **다시 적어 둔다**(아래 주석).
+            if (ncOn.current) {
+                if (ncH.current) {
+                    document.documentElement.style.setProperty('--composer', `${ncH.current}px`);
+                }
+                return;
+            }
             const h = Math.round(el.getBoundingClientRect().height);
             if (h) document.documentElement.style.setProperty('--composer', `${h}px`);
         };
@@ -1095,7 +1104,22 @@ export function Chat() {
         ro.observe(el, { box: 'border-box' });
         return () => {
             ro.disconnect();
-            document.documentElement.style.removeProperty('--composer');
+            /* **네이티브 바가 쓰는 값은 여기서 안 지운다.**
+             *
+             * 이 효과는 `focused`가 바뀔 때마다 다시 도는데, 지우고 나서
+             * 다시 적는 일은 위 `write()`가 `ncOn`에서 되돌아서므로 **영영
+             * 안 채워졌다** — 그러면 CSS의 예비값(60px)이 쓰이는데 실제 바는
+             * 116px이라 **목록 아래 56px이 바 뒤로 숨어 마지막 글이 안 보인다**
+             * (실기기 · 진단 줄에 `b0 L674`로 찍혔다).
+             *
+             * 키보드를 **내릴** 때만 걸린 것도 그 때문이다 — 올릴 때는
+             * `setFocused(true)` 뒤에 바가 높이(58)를 알려 와 도로 채워지는데,
+             * 내릴 때는 `onComposerBlur`가 150ms 기다렸다 `setFocused(false)`를
+             * 부르므로 **바가 알려 준 116이 먼저 오고 그다음에 지워진다.**
+             *
+             * 화면을 떠날 때는 네이티브 효과의 뒷정리가 지운다(그쪽이
+             * `ncOn`을 내린 뒤에 지우므로 순서도 맞는다). */
+            if (!ncOn.current) document.documentElement.style.removeProperty('--composer');
         };
         // 키보드가 오르내릴 때도 다시 잰다.
     }, [roomId, focused]);
@@ -2091,6 +2115,7 @@ export function Chat() {
                        사라졌다). 그 사이 `onScroll`이 '맨 아래가 아니다'로
                        내려 버리므로, **바꾸기 전에** 집어 둔 값을 넘긴다. */
                     const wasBottom = atBottom.current;
+                    ncH.current = h;
                     document.documentElement.style.setProperty('--composer', `${h}px`);
                     if (wasBottom) settleList(true);
                 }),
