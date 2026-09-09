@@ -681,7 +681,6 @@ export function Chat() {
     const kbBeat = useRef<((on: boolean, dur: number, at: number) => void) | null>(null);
     /** 진단 — 마지막 키보드 신호를 **그리는 프레임에서** 잰 늦음(ms)과 그래서
      *  쓴 시간, 그리고 `kb`가 iOS 신호보다 얼마나 먼저/늦게 닿았나(음수면 먼저). */
-    const kbLate = useRef({ late: 0, anim: 0, kb: 0, ios: 0, ticks: 0 });
     /** 네이티브 바(4판)가 **그려지는 자리를 프레임마다** 알려 준다. 아래
      *  `앱: 키보드와 같은 박자로` 효과가 채워 넣고, `frame` 신호가 부른다. */
     const kbFrame = useRef<((e: {
@@ -936,9 +935,7 @@ export function Chat() {
                 /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
                    되돌린다 — 안 그러면 다음 움직임이 엉뚱하게 짧아진다. */
                 const late = gone < beat.dur ? Math.min(Math.max(0, gone), beat.dur * 0.6) : 0;
-                kbLate.current.late = Math.round(late);
-                kbLate.current.anim = Math.round(beat.dur - late);
-                root.style.setProperty('--chat-anim', `${kbLate.current.anim}ms`);
+                root.style.setProperty('--chat-anim', `${Math.round(beat.dur - late)}ms`);
                 beat.at = 0;
             }
             const now = root.clientHeight;
@@ -987,7 +984,6 @@ export function Chat() {
             const { Keyboard } = await import('@capacitor/keyboard');
             const hs = await Promise.all([
                 Keyboard.addListener('keyboardWillShow', info => {
-                    kbLate.current.ios = performance.now();   // 진단 — `kb`와의 앞뒤
                     want = info?.keyboardHeight ?? 0;
                     if (want) localStorage.setItem(MEMO, String(want));
                     open(true);
@@ -1049,7 +1045,6 @@ export function Chat() {
          * 0.25초라는 값 자체는 그대로다 — 눈대중으로 줄인 것이 아니다.
          */
         kbBeat.current = (on, dur, at) => {
-            kbLate.current.kb = performance.now();      // 진단 — iOS 신호와의 앞뒤
             /* 시각만 담아 두고 **재는 것은 그리는 프레임에서** 한다(`flush`).
                그다음은 여느 신호와 같다 — 먼저 닿은 쪽이 하고 나중 것은
                같은 값이라 그냥 지나간다. */
@@ -1084,7 +1079,6 @@ export function Chat() {
                `end`는 '이번 움직임이 끝났다'는 뜻일 뿐이라, 거기서 웹 셈으로
                돌아가면 그때부터 둘이 엇갈린다(위 `owns` 주석). */
             if (owns()) {
-                kbLate.current.ticks += 1;
                 if (e.chatH === undefined || e.pad === undefined) return;
                 /* **값을 먼저 다 적고, 그 뒤에 다른 일을 한다.** 사이에
                    `settleList()`처럼 배치를 읽는 것이 끼면 그 한 프레임만
@@ -1110,7 +1104,6 @@ export function Chat() {
             if (!e.end) {
                 if (!kbFollow.current) {
                     kbFollow.current = true;
-                    kbLate.current.ticks = 0;
                     root.classList.add('kb-follow');
                     root.style.setProperty('--chat-anim', '0ms');
                     /* 따라가는 내내 맨 아래를 붙들어 둔다 — 신호 처리
@@ -1118,7 +1111,6 @@ export function Chat() {
                        보통이지만, 여기서 다시 걸어 두면 늦게 시작해도 된다. */
                     settleList();
                 }
-                kbLate.current.ticks += 1;
                 /* **5판은 둘을 자리 하나에서 셈해 보낸다**(`chatH`·`pad`).
                    4판은 바의 그려지는 높이를 따로 줬는데, 자리와 높이의 곡선이
                    달라 목록이 넘쳤다 돌아왔다(실기기 제보 — `내려갔다가 다시
@@ -2434,87 +2426,6 @@ export function Chat() {
            바를 다시 세우는 일은 없다. */
     }, [settleList]);
 
-    /* 임시 진단 줄(위 JSX 주석).
-     *
-     * **움직이는 동안을 한 줄씩 쌓아 둔다 — 영상 대신이다.** 사용자가
-     * `동영상을 찍어서 보여주면 괜찮을까?`라고 물었는데 여기서는 영상을
-     * 못 연다. 대신 값이 바뀔 때마다 한 줄씩 적어 두면, 다 움직인 뒤에
-     * **사진 한 장**으로 그 움직임 전체가 보인다.
-     *
-     * **가만히 있을 때는 아무것도 안 잰다.** 매 프레임 `clientHeight`·
-     * `scrollHeight`를 읽으면 그 자체가 배치를 다시 잡게 해서, **재려는
-     * 끊김을 우리가 만들어 낸다.** 그래서 무언가 바뀌었다는 신호
-     * (`--chat-h`·`--composer`가 적히거나 `kb-open`이 붙거나 창이 줄거나)가
-     * 왔을 때만 1.5초 동안 프레임마다 훑는다.
-     */
-    const probeRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        if (!IS_NATIVE) return;
-        const root = document.documentElement;
-        const num = (n: string) => Math.round(parseFloat(root.style.getPropertyValue(n)) || 0);
-        let rows: string[] = [];
-        let last = '';
-        let t0 = 0;
-        let until = 0;
-        let raf = 0;
-
-        const sample = () => {
-            const el = probeRef.current;
-            const list = listRef.current;
-            if (el) {
-                const max = list ? Math.round(list.scrollHeight - list.clientHeight) : 0;
-                const row = `c${root.clientHeight} v${Math.round(window.visualViewport?.height ?? 0)}`
-                    + ` h${num('--chat-h')} b${num('--composer')}`
-                    + ` L${list?.clientHeight ?? 0} s${list ? Math.round(list.scrollTop) : 0}/${max}`;
-                if (row !== last) {
-                    last = row;
-                    rows.push(`${String(Math.round(performance.now() - t0)).padStart(4)} ${row}`);
-                    if (rows.length > 16) rows.shift();
-                    el.textContent =
-                        `${document.body.classList.contains('kb-open') ? '올림' : '내림'}`
-                        /* **판 번호와 주인 여부를 찍는다.** 어느 앱·어느 웹이
-                           도는지를 몰라 같은 자리를 두 번 헛돌았다 — 앱은
-                           새로 깔아야 하고 웹은 몇 분 뒤에 올라가므로,
-                           **둘이 어긋난 채로 찍힌 사진**을 고치기 전 코드로
-                           읽어 버린다. `v`가 앱 판, `주인`이 6판 코드가
-                           도는가다. */
-                        + ` v${ncLog.v} 주인${owns6() ? 1 : 0}`
-                        + ` 아래${atBottom.current ? 1 : 0}`
-                        /* 3판 — 그리는 프레임에서 잰 늦음 · 그래서 쓴 시간 ·
-                           `kb`가 iOS 신호보다 몇 ms 뒤에 닿았나(음수면 먼저). */
-                        + ` 늦${kbLate.current.late} 움${kbLate.current.anim}`
-                        + ` Δ${Math.round(kbLate.current.kb - kbLate.current.ios)}`
-                        + ` 틱${kbLate.current.ticks}`
-                        + `\n${rows.join('\n')}`;
-                }
-            }
-            raf = performance.now() < until ? requestAnimationFrame(sample) : 0;
-        };
-        /* 무언가 바뀌었다. **멈춰 있다가 깨어난 것이면 새 움직임이라** 처음부터
-           다시 적는다 — 그래야 한 장에 그 한 번만 담긴다. */
-        const wake = () => {
-            if (!raf) { rows = []; last = ''; t0 = performance.now(); }
-            until = performance.now() + 1500;
-            if (!raf) raf = requestAnimationFrame(sample);
-        };
-
-        /* `--chat-h`·`--composer`는 root의 style에, `kb-open`은 body의 class에
-           적힌다. 우리 코드가 그것을 적는 순간이 곧 움직임의 시작이다. */
-        const mo = new MutationObserver(wake);
-        mo.observe(root, { attributes: true, attributeFilter: ['style', 'class'] });
-        mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-        window.visualViewport?.addEventListener('resize', wake);
-        window.addEventListener('resize', wake);
-        wake();
-
-        return () => {
-            cancelAnimationFrame(raf);
-            mo.disconnect();
-            window.visualViewport?.removeEventListener('resize', wake);
-            window.removeEventListener('resize', wake);
-        };
-    }, []);
-
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {
         if (!nativeBar) return;
@@ -2535,10 +2446,6 @@ export function Chat() {
 
     return (
         <div className="chat" ref={chatRef}>
-            {/* **임시 진단 줄(앱에서만).** 헤드리스에는 키보드가 없어 이 자리는
-                폰에서 값을 읽어 주는 것이 결국 빠르다(`kb-probe`를 걷어냈던
-                자리와 같은 방식). 2판 글칸을 확인하면 함께 지운다. */}
-            {IS_NATIVE && <div className="kb-probe" ref={probeRef} />}
             {/* **머리말은 카톡 오픈톡과 같은 배치다**(사용자 요청) —
                 왼쪽에 제목과 사람 수, 오른쪽에 🔍와 ☰.
 
@@ -2815,9 +2722,15 @@ export function Chat() {
                     </div>
                 )}
 
+                {/* **`hidden`으로 두지 말 것.** iOS는 사진 고르는 창을
+                    **이 칸이 있는 자리**에 붙이는데, `display: none`이면
+                    자리가 없어 **화면 한가운데에 뜬다**(사용자 제보 · 사진).
+                    `+` 옆에 1px로 숨겨 두면 거기서 올라온다. 눈에 안 보이고
+                    눌리지도 않으므로 배치에는 아무 몫이 없다. */}
                 <input
                     ref={fileRef} type="file" accept="image/*"
-                    onChange={onPickPhoto} hidden
+                    onChange={onPickPhoto}
+                    className="file-anchor" tabIndex={-1} aria-hidden="true"
                 />
 
 
