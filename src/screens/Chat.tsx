@@ -1936,6 +1936,24 @@ export function Chat() {
     const [peopleOn, setPeopleOn] = useState(false);
     /** 얼굴을 눌러 펼친 사람. 목록에서도 여기로 온다. */
     const [card, setCard] = useState<Person | null>(null);
+
+    /**
+     * **화면을 덮는 창이 뜨면 네이티브 바를 감춘다.**
+     *
+     * 그 바는 웹 화면 **위에 얹힌 앱 부품**이라 웹의 `z-index`로는 못 덮는다 —
+     * 사진을 크게 봤는데 그 위로 입력칸이 그대로 보였다(사용자 제보 · 사진).
+     * 덮는 창은 넷이다: 사진 크게 보기 · 길게 누른 창 · 프로필 카드 ·
+     * 선택 복사. 감추면서 키보드도 내린다(창 뒤에 남아 있을 이유가 없다).
+     *
+     * **감출 수 있는 것은 7판부터다.** 옛 앱에서는 그대로 보이는데, 거기서
+     * 바를 떼었다 다시 붙이는 길로 가면 글칸이 통째로 안 뜨는 위험이 더 크다.
+     */
+    const overlayUp = !!zoom || !!card || pickText !== null || !!menuFor;
+    useEffect(() => {
+        if (!ncOn.current || ncLog.v < 7) return;
+        if (overlayUp) void hush(NativeComposer.blur());
+        void hush(NativeComposer.setState({ hidden: overlayUp }));
+    }, [overlayUp]);
     /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
     const [attend, setAttend] = useState<Record<string, number> | null>(null);
     const attendTried = useRef(false);
