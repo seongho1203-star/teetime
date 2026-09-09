@@ -875,7 +875,16 @@ export function Chat() {
                 }),
                 /* 탭바(`bar`)는 여기서 안 내놓는다 — 위 `bar` 주석 참고. */
                 Keyboard.addListener('keyboardWillHide', () => {
-                    want = 0; open(false); paint(); settleList();
+                    want = 0; open(false);
+                    /* **2판에서는 탭바를 여기서 바로 내놓는다.** 바가 늘 화면
+                       아래에 서 있고 키보드만 내려가므로, 바가 탭바 자리(`tabH`)를
+                       도로 비워 주는 **바로 그 순간** 탭바가 있어야 한다.
+                       `keyboardDidHide`까지 미루면 그 사이가 빈 채로 남아
+                       **탭바가 사라졌다 나타나는 것처럼 보인다**(실기기 제보 —
+                       `키보드 내릴때 탭바가 사라졌다가 나타나고`).
+                       1판은 바가 키보드와 함께 내려가므로 그대로 미룬다. */
+                    if (root.classList.contains('nc2')) bar(false);
+                    paint(); settleList();
                 }),
                 Keyboard.addListener('keyboardDidShow', () => paint()),
                 /* 다 닫히고 나서 원래 높이를 다시 잰다 — 상태 막대나

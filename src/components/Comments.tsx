@@ -309,15 +309,20 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             barRef.current = true;
             setBarUp(true);
             document.body.classList.add('nc-typing');
-            /* **웹에서도 한 번 더 조른다.** 초점 주기는 `attach`가 그 자리에서
-               맡지만(위 `focus: true`), 그 되풀이는 **앱 안에** 있어서 아직
-               새 앱을 안 깐 폰에는 없다 — 웹은 밀면 바로 올라가므로 여기서도
-               같은 일을 해 두면 옛 앱에서도 키보드가 뜬다.
-               바가 알려 준 초점(`barFocused`)이 곧 멈출 신호다. */
-            for (let i = 0; i < 8 && barRef.current && !barFocused.current; i++) {
-                await hush(NativeComposer.focus());
-                if (barFocused.current) break;
-                await new Promise(r => setTimeout(r, 100));
+            /* **초점이 왔다가 다시 뺏기는 것까지 지켜본다 — 한 번 주고
+               끝내면 안 된다.**
+               아이폰은 **손을 떼는 순간 웹 화면이 first responder를 도로
+               가져간다.** `pointerdown`에서 막아도(덮개의 `preventDefault`)
+               웹뷰 자체가 가져가는 것은 못 막는다 — 그래서 `attach`가 준
+               초점이 곧바로 뺏겨 **키보드가 아예 안 올라왔다**(실기기 제보 —
+               `댓글은 키보드 자체가 안나와`). 예전에 `여러 번 시도하면
+               올라온다`던 것도 같은 자리다(두 번째 누를 때 타이밍이 달라져
+               우연히 성공한 것).
+               그래서 **0.8초 동안 지켜보며 초점이 없으면 다시 준다.**
+               `barFocused`는 멈출 신호가 아니라 **지금 있는가**를 보는 값이다. */
+            for (let i = 0; i < 10 && barRef.current; i++) {
+                if (!barFocused.current) await hush(NativeComposer.focus());
+                await new Promise(r => setTimeout(r, 80));
             }
             /* 바에 가리지 않게 칸을 끌어 올린다. **여러 번 부른다** —
                웹뷰가 줄어드는 것은 키보드보다 0.45초 늦어서(플러그인의

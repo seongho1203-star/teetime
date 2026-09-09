@@ -93,7 +93,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             root.layoutIfNeeded()
             /* `focus: true`면 세우면서 바로 글칸에 초점을 준다 — 댓글 칸이
                그렇게 쓴다(누른 그 순간 키보드가 올라와야 한다). */
-            if call.getBool("focus") == true { self.grabFocus(tries: 8) }
+            if call.getBool("focus") == true { self.grabFocus(tries: 10) }
             call.resolve()
         }
     }
@@ -161,22 +161,31 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     @objc func focus(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            self.grabFocus(tries: 8)
+            self.grabFocus(tries: 10)
             call.resolve()
         }
     }
 
     /**
-     * 초점을 준다. 바가 보통 뷰라 세우자마자 창에 붙어 있으므로 대개
-     * 한 번에 되는데, `becomeFirstResponder()`가 거절하는 판(다른 것이
-     * 놓아 주는 중)이 있어 값이 싼 되풀이를 남겨 둔다.
+     * 초점을 준다 — **한 번 성공해도 잠시 더 지켜본다.**
+     *
+     * 바가 보통 뷰라 세우자마자 창에 붙어 있어 `becomeFirstResponder()`는
+     * 대개 한 번에 되는데, **아이폰은 손을 떼는 순간 웹뷰가 first
+     * responder를 도로 가져간다.** 웹 칸을 누른 것이 아니어도 그렇다 —
+     * 웹의 `preventDefault`는 그 요소의 초점만 막지 웹뷰가 가져가는 것은
+     * 못 막는다. 그래서 성공한 뒤에 조용히 뺏겨 **키보드가 안 올라온 것처럼
+     * 보였다**(실기기 제보 — `댓글은 키보드 자체가 안나와`).
+     *
+     * 그래서 성공/실패를 가리지 않고 **0.8초 동안 몇 번 더 확인**해서
+     * 초점이 없으면 다시 잡는다. 그 뒤는 사람이 내리는 것이라 안 건드린다.
+     * (`Comments.tsx`의 `openBar`가 웹에서도 같은 일을 한다 — 옛 앱 몫이다.
+     * **한쪽만 고치지 말 것.**)
      */
     private func grabFocus(tries: Int) {
         guard self.live, let bar = self.bar else { return }
-        if bar.textView.isFirstResponder { return }
-        if bar.textView.becomeFirstResponder() { return }
+        if !bar.textView.isFirstResponder { _ = bar.textView.becomeFirstResponder() }
         guard tries > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             self.grabFocus(tries: tries - 1)
         }
     }
