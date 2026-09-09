@@ -70,19 +70,23 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 8판 — 사진을 앱이 고르고·저장하고·공유한다(`pickPhoto`·`savePhoto`·`sharePhoto`).
     /// 9판 — 고르는 창을 `+` 옆에 작게 붙이고, 저장은 **끝난 뒤에** 답한다.
     /// 10판 — 사진을 곱게 줄인다(`interpolationQuality = .high`).
-    /// 11판 — 크기를 1600px으로 되돌렸다. 2560px으로 키웠더니 **사진이
-    ///        아예 안 올라갔다**(사용자 제보). 웹도 같은 값이다.
+    /// 11판 — 크기를 1600px으로 되돌렸다. 2560px으로 키운 뒤 사진이 아예
+    ///        안 올라가서 크기를 의심했는데, **범인은 크기가 아니라 아래
+    ///        12판이 고친 그 자리였다.**
     /// 12판 — 고르는 창이 **닫힌 뒤에** 보관함·카메라를 띄운다(`afterSheet`).
     ///        9~11판에서는 닫히는 중에 띄워 iOS가 조용히 무시했고,
     ///        **보관함도 카메라도 아무 일이 안 일어났다**(사용자 제보).
     ///        막히면 까닭(`why`)을 실어 답하므로 웹이 알릴 수 있다.
     ///        **웹은 12판부터만 앱 창을 쓴다** — 그 사이 판은 웹 칸으로
     ///        물러난다(`Chat.tsx`의 `photo`).
+    /// 13판 — 사진을 긴 변 2560px으로 줄인다(웹과 같은 값). 올라가는 것을
+    ///        확인한 뒤 화질을 되올린 것이다 — 크게 본 사진을 벌려 키우면
+    ///        1600px으로는 흐릿했다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 12
+    private static let version = 13
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -299,7 +303,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
      * 이것을 고른 까닭이다** — 앱 밖에서 도는 창이라 고른 한 장만 건네준다.
      * 사진 찍기만 `NSCameraUsageDescription`이 필요하다(Info.plist).
      *
-     * 돌려주는 것은 **이미 줄인 JPEG**(긴 변 1600 · 품질 0.82)를 base64로
+     * 돌려주는 것은 **이미 줄인 JPEG**(긴 변 2560 · 품질 0.82)를 base64로
      * 담은 것이다 — 웹의 `lib/image.ts`와 같은 값이라 받는 쪽이 그대로 올린다.
      */
     @objc func pickPhoto(_ call: CAPPluginCall) {
@@ -413,7 +417,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     /**
      * 줄여서 JPEG base64로. **웹의 `lib/image.ts`와 같은 값이다**
-     * (긴 변 1600 · 품질 0.82) — 한쪽만 고치면 **어느 길로 올렸느냐에
+     * (긴 변 2560 · 품질 0.82) — 한쪽만 고치면 **어느 길로 올렸느냐에
      * 따라 사진 화질이 갈린다**(8판부터 앱에서 고른 사진은 이리로 온다).
      * `UIImage.draw`가 사진의 방향까지 바로잡아 그린다.
      *
@@ -422,7 +426,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
      * 같은 몫이고, 거기서는 그 잡티 때문에 **파일이 되레 커졌다.**
      */
     fileprivate static func jpegBase64(_ image: UIImage,
-                                       maxEdge: CGFloat = 1600,
+                                       maxEdge: CGFloat = 2560,
                                        quality: CGFloat = 0.82) -> String? {
         let w = image.size.width, h = image.size.height
         guard w > 0, h > 0 else { return nil }

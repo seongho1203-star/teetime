@@ -2365,8 +2365,12 @@ console.log('\n── 사진을 줄여서 올린다 ──');
     });
     await up.waitForTimeout(2500);
     ok(sent > 0, `저장소로 올라간다 (원본 ${Math.round(big.size / 1024)}KB → ${Math.round(sent / 1024)}KB)`);
-    ok(sent > 0 && sent < 500 * 1024,
-       `올리기 전에 줄인다 — 500KB 아래 (${Math.round(sent / 1024)}KB)`);
+    /* **한도를 넉넉히 잡는다.** 여기서 보는 것은 '한 장이 몇 KB인가'가
+       아니라 **원본이 그대로 나가지는 않는가**다 — 4032px 원본이 2MB인데
+       2560px으로 줄이면 그 절반 아래로 떨어진다. 크기를 또 만질 때
+       이 줄이 먼저 빨개지면 줄이는 셈이 통째로 안 도는 것이다. */
+    ok(sent > 0 && sent < 1200 * 1024,
+       `올리기 전에 줄인다 — 1.2MB 아래 (${Math.round(sent / 1024)}KB)`);
 
     /* 앱이 큰 것을 건네줘도 웹이 다시 줄이는가 — **옛 앱을 든 폰의 자리다.** */
     const capped = await up.evaluate(async bytes => {
@@ -2375,8 +2379,8 @@ console.log('\n── 사진을 줄여서 올린다 ──');
         const bmp = await createImageBitmap(out);
         return { w: bmp.width, h: bmp.height };
     }, big.bytes);
-    ok(Math.max(capped.w, capped.h) === 1600,
-       `긴 변이 1600px으로 맞춰진다 (${capped.w}×${capped.h})`);
+    ok(Math.max(capped.w, capped.h) === 2560,
+       `긴 변이 2560px으로 맞춰진다 (${capped.w}×${capped.h})`);
 
     await uCtx.close();
 }
