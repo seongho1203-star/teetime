@@ -2013,6 +2013,161 @@ console.log('\n── 늦게 뜬 사진 ──');
     await pCtx.close();
 }
 
+/* ── 13. 사진을 크게 보면 벌려서 키울 수 있는가 ────────────────────
+ *
+ * 앱 안 웹뷰는 화면 자체를 벌려 키우는 것을 안 받아 준다(받아 준들
+ * 입력칸·탭바까지 같이 커진다). 그래서 **사진만 우리가 키운다**
+ * (`PhotoZoom` in Chat.tsx) — 웹과 앱이 같은 길을 타므로 여기서 잰
+ * 것이 폰에서도 맞는다.
+ *
+ * **손가락 둘은 직접 만들어야 한다** — playwright의 `touchscreen`은
+ * `tap`뿐이라 벌리는 손짓이 없다. `new Touch`로 지어 던진다.
+ *
+ * **닫는 규칙이 여기 걸려 있다** — 사진을 한 번 누른 그 자리에서
+ * 닫아 버리면 두 번 누르기가 아예 성립하지 않는다(첫 누름에서 창이
+ * 사라진다). 그래서 닫는 것은 사진 **바깥**과 `✕`가 맡는다.
+ */
+console.log('\n── 사진 크게 보기 ──');
+{
+    const zCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR',
+        timezoneId: 'Asia/Seoul', hasTouch: true, isMobile: true });
+    await zCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(zCtx);
+    await zCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const zp = await zCtx.newPage();
+    await zp.goto(`${BASE}/#/chat`);
+    await zp.waitForSelector('.chat-list', { timeout: 20000 });
+
+    const IMG = '.photo-zoom img';
+    const openZ = async () => {
+        if (await zp.$('.photo-zoom-view')) return;
+        await zp.click('.chat-photo-link');
+        await zp.waitForSelector('.photo-zoom-view', { timeout: 5000 });
+    };
+    const at = () => zp.$eval(IMG, el => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+        return { s: +m.a.toFixed(2), x: Math.round(m.e), y: Math.round(m.f) };
+    });
+    const alive = async () => !!(await zp.$('.photo-zoom'));
+    /* 두 손가락을 `from`px 벌린 데서 `to`px까지 벌린다(가운데 고정). */
+    const pinch = (from, to) => zp.evaluate(([f, t]) => {
+        const el = document.querySelector('.photo-zoom-view');
+        const b = el.getBoundingClientRect();
+        const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+        const mk = (id, x, y) => new Touch({ identifier: id, target: el,
+            clientX: x, clientY: y, pageX: x, pageY: y });
+        const fire = (type, d) => {
+            const a = mk(1, cx - d / 2, cy), c = mk(2, cx + d / 2, cy);
+            el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+                touches: type === 'touchend' ? [] : [a, c],
+                targetTouches: type === 'touchend' ? [] : [a, c],
+                changedTouches: [a, c] }));
+        };
+        fire('touchstart', f);
+        for (let i = 1; i <= 8; i++) fire('touchmove', f + (t - f) * (i / 8));
+        fire('touchend', t);
+    }, [from, to]);
+
+    await openZ();
+    ok((await at()).s === 1, '열면 1배다');
+
+    await zp.dblclick(IMG);
+    await zp.waitForTimeout(100);
+    const twice = await at();
+    ok(twice.s > 1, `두 번 누르면 커진다 (${twice.s}배)`);
+
+    await zp.waitForTimeout(400);
+    await zp.click(IMG);
+    await zp.waitForTimeout(150);
+    ok(await alive(), '키워 둔 동안에는 눌러도 안 닫힌다');
+
+    await zp.waitForTimeout(400);
+    await zp.dblclick(IMG);
+    await zp.waitForTimeout(100);
+    ok((await at()).s === 1, '다시 두 번 누르면 1배로 되돌아온다');
+
+    await zp.waitForTimeout(400);
+    await pinch(100, 300);
+    const wide = await at();
+    ok(wide.s > 1.5, `손가락으로 벌리면 커진다 (${wide.s}배)`);
+
+    await pinch(300, 60);
+    const home = await at();
+    ok(home.s === 1 && home.x === 0 && home.y === 0,
+       '오므리면 1배·가운데로 되돌아온다');
+
+    /* **넘칠 만큼 키워 두고 재야 뜻이 있다** — 사진이 창보다 작으면
+       옮길 자리가 없어 한도가 0이라 검사가 헛돈다. */
+    await pinch(60, 400);
+    await pinch(60, 400);
+    await zp.evaluate(() => {
+        const el = document.querySelector('.photo-zoom-view');
+        const mk = (x, y) => new Touch({ identifier: 1, target: el,
+            clientX: x, clientY: y, pageX: x, pageY: y });
+        const fire = (type, x, y) => el.dispatchEvent(new TouchEvent(type, {
+            bubbles: true, cancelable: true,
+            touches: type === 'touchend' ? [] : [mk(x, y)],
+            targetTouches: type === 'touchend' ? [] : [mk(x, y)],
+            changedTouches: [mk(x, y)] }));
+        fire('touchstart', 195, 400);
+        for (let i = 1; i <= 10; i++) fire('touchmove', 195, 400 - i * 200);
+        fire('touchend', 195, -1600);
+    });
+    const moved = await at();
+    const cap = await zp.evaluate(() => {
+        const v = document.querySelector('.photo-zoom-view');
+        const i = document.querySelector('.photo-zoom img');
+        const m = new DOMMatrixReadOnly(getComputedStyle(i).transform);
+        return Math.max(0, (i.offsetHeight * m.a - v.clientHeight) / 2);
+    });
+    ok(cap > 20 && moved.y < -20 && Math.abs(moved.y) <= cap + 1,
+       `끌면 옮겨지되 테두리 안에 머문다 (${moved.s}배 · y ${moved.y} · 한도 ${Math.round(cap)})`);
+
+    /* 닫는 길 — 사진을 누르는 것이 아니라 바깥과 `✕`다. */
+    await pinch(400, 60);
+    await zp.waitForTimeout(400);
+    await zp.click(IMG);
+    await zp.waitForTimeout(200);
+    ok(await alive(), '1배에서 사진을 누르는 것으로는 안 닫힌다');
+
+    await zp.waitForTimeout(400);
+    await zp.click('.photo-zoom-view', { position: { x: 6, y: 120 } });
+    await zp.waitForTimeout(200);
+    ok(!(await alive()), '사진 바깥을 누르면 닫힌다');
+
+    /* 저장·공유가 도는 동안 잠긴다 — 저장은 몇 초 걸리는데 그동안
+       아무 말이 없어 또 눌러 **같은 사진이 여러 장 저장됐다**(제보).
+       웹 갈래는 눈 깜짝할 새라 느린 공유창을 흉내 내 그 사이를 본다. */
+    await openZ();
+    await zp.evaluate(() => {
+        navigator.share = () => new Promise(r => setTimeout(r, 1200));
+        navigator.canShare = () => true;
+    });
+    await zp.click('.photo-zoom-btn >> nth=0');
+    await zp.waitForTimeout(250);
+    const locked = await zp.$$eval('.photo-zoom-btn', els => els.map(e => e.disabled));
+    ok(locked[0] && locked[1], '저장이 도는 동안 단추가 잠긴다');
+    const label = await zp.$eval('.photo-zoom-btn', e => e.textContent.trim());
+    ok(label.startsWith('저장 중'), `도는 동안 \`저장 중…\`으로 바뀐다 (${label})`);
+
+    /* **토스트가 이 창보다 위여야 한다.** 900으로 두었더니 `저장했습니다`가
+       사진(1000) 밑에 깔려 안 보였고, 그것이 곧 여러 장 저장된 원인이었다. */
+    const layer = await zp.evaluate(() => {
+        const zoom = +getComputedStyle(document.querySelector('.photo-zoom')).zIndex;
+        const el = document.createElement('div');
+        el.className = 'toast-stack';
+        document.body.appendChild(el);
+        const t = +getComputedStyle(el).zIndex;
+        el.remove();
+        return { zoom, t };
+    });
+    ok(layer.t > layer.zoom,
+       `알림 말풍선이 사진 화면보다 위다 (토스트 ${layer.t} · 사진 ${layer.zoom})`);
+
+    await zCtx.close();
+}
+
 await browser.close();
 
 if (errors.length) {

@@ -1474,12 +1474,29 @@
     justify-content: center;
     padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
 }
+/* 벌려서 키우는 자리. **`touch-action: none`이 한 쌍이다** — 안 주면
+   브라우저가 그 손짓을 제가 먹어 우리 셈이 아예 안 돈다(React의
+   touchmove는 passive라 `preventDefault`로는 못 막는다. 답장 밀기가
+   `pan-y`로 같은 일을 한다). */
+.photo-zoom-view {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    touch-action: none;
+}
 .photo-zoom img {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    /* 키우고 옮기는 것은 JS가 매 프레임 여기에 적는다(state가 아니다).
+       가운데를 기준으로 커져야 붙박아 두는 셈이 맞는다. */
+    transform-origin: center center;
+    will-change: transform;
     /* **여기서는 iOS 기본 손짓을 막지 않는다** — 길게 눌러 저장하는 길이
-       이것뿐이다. 목록의 `.chat-image`는 우리 길게 누르기 때문에 막아 둔다. */
+       그대로 남는다. 목록의 `.chat-image`는 우리 길게 누르기 때문에 막아 둔다. */
     -webkit-touch-callout: default;
     -webkit-user-select: auto;
     user-select: auto;

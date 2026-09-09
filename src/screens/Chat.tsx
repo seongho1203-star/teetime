@@ -3164,30 +3164,200 @@ export function Chat() {
 
             {/* **사진을 크게 보는 자리.** 앱에서 새 창으로 띄우면 사파리로
                 나가 버리므로 여기서 본다(위 `onPhotoTap` 주석).
-                **여기서는 iOS 기본 손짓을 안 막는다** — 길게 눌러 저장하는
-                길이 이것뿐이다(`.photo-zoom img`). 아무 데나 누르면 닫힌다. */}
+                벌려서 키우는 것까지 `PhotoZoom`이 맡는다. */}
             {zoom && (
-                <div className="photo-zoom" onClick={() => setZoom(null)}>
-                    <img src={zoom} alt="보낸 사진" />
-                    <button className="photo-zoom-x" aria-label="닫기">✕</button>
-                    {/* **카톡처럼 저장·공유를 단추로 둔다**(사용자 요청).
-                        앱에서는 앱이 맡는다 — 웹의 `<a download>`는 앱 안에서
-                        안 먹고 새 창은 사파리로 나간다. 옛 앱과 웹에서는
-                        폰이 띄워 주는 공유창으로 물러난다(거기에 `이미지 저장`이
-                        들어 있다). 바탕을 누르면 닫히므로 **여기서는 안 닫는다**
-                        (`stopPropagation`). */}
-                    <div className="photo-zoom-bar" onClick={e => e.stopPropagation()}>
-                        <button className="photo-zoom-btn" disabled={busy !== null}
-                                onClick={() => savePhoto(zoom)}>
-                            {busy === 'save' ? '저장 중…' : '저장'}
-                        </button>
-                        <button className="photo-zoom-btn" disabled={busy !== null}
-                                onClick={() => sharePhoto(zoom)}>
-                            공유
-                        </button>
-                    </div>
-                </div>
+                <PhotoZoom url={zoom} busy={busy}
+                           onSave={() => savePhoto(zoom)}
+                           onShare={() => sharePhoto(zoom)}
+                           onClose={() => setZoom(null)} />
             )}
+        </div>
+    );
+}
+
+/** 손짓이 도는 동안 붙들어 두는 값. */
+type Grip = {
+    mode: 'pan' | 'pinch';
+    /* 시작할 때의 자리와 크기 */
+    s0: number; x0: number; y0: number;
+    /* 손가락 하나면 그 자리, 둘이면 사이 거리와 가운데 */
+    px: number; py: number; dist: number;
+};
+
+/** 두 손가락 사이의 거리와 가운데(창 가운데를 0으로 본 자리). */
+function pinchOf(t: React.TouchList, box: DOMRect) {
+    const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+    return {
+        dist: Math.hypot(dx, dy) || 1,
+        mx: (t[0].clientX + t[1].clientX) / 2 - (box.left + box.width / 2),
+        my: (t[0].clientY + t[1].clientY) / 2 - (box.top + box.height / 2),
+    };
+}
+
+const ZOOM_MAX = 4;      // 이보다 더 키우면 화소만 보인다
+const ZOOM_TAP = 2.5;    // 두 번 눌렀을 때
+
+/**
+ * **크게 본 사진 — 벌려서 키우고, 끌어서 옮긴다**(사용자 제보 —
+ * `사진 확대는 안되네?`).
+ *
+ * 앱 안 웹뷰는 화면 자체를 벌려 키우는 것을 안 받아 준다(받아 준들
+ * 입력칸·탭바까지 같이 커져 더 나쁘다). 그래서 **사진만 우리가 키운다** —
+ * 웹으로 열었을 때와 앱에서 하는 일이 같아지고, 헤드리스로도 확인된다.
+ *
+ * 규칙 넷:
+ * - **크기를 state에 안 넣는다.** 손가락을 따라 매 프레임 다시 그리면
+ *   느린 폰에서 그대로 끊긴다 — 답장 밀기와 같은 자리라 요소를
+ *   직접 움직인다(`el.style.transform`).
+ * - **벌리는 가운데를 붙박아 둔다.** 그냥 키우면 사진이 손가락에서
+ *   달아나 보고 싶은 데를 못 본다.
+ * - **손을 뗄 때 테두리 안으로 도로 넣는다.** 1배로 돌아오면 자리도
+ *   가운데로 되돌린다.
+ * - **키워 둔 동안에는 눌러도 안 닫힌다.** 옮기려고 끌다가 창이
+ *   닫히면 그것대로 성가시다 — 닫는 것은 `✕`와 두 번 누르기가 맡는다.
+ */
+function PhotoZoom({ url, busy, onSave, onShare, onClose }: {
+    url: string;
+    busy: 'save' | 'share' | null;
+    onSave: () => void;
+    onShare: () => void;
+    onClose: () => void;
+}) {
+    const viewRef = useRef<HTMLDivElement>(null);
+    const imgRef = useRef<HTMLImageElement>(null);
+    const at = useRef({ s: 1, x: 0, y: 0 });
+    const grip = useRef<Grip | null>(null);
+    const moved = useRef(false);
+    const lastTap = useRef(0);
+
+    const paint = () => {
+        const el = imgRef.current;
+        const { s, x, y } = at.current;
+        if (el) el.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+    };
+
+    /** 테두리 안으로 되돌린다. 1배면 가운데로. */
+    const settle = () => {
+        const a = at.current, view = viewRef.current, img = imgRef.current;
+        a.s = Math.min(ZOOM_MAX, Math.max(1, a.s));
+        if (a.s <= 1.01 || !view || !img) {
+            at.current = { s: 1, x: 0, y: 0 };
+        } else {
+            /* 사진이 실제로 그려진 크기(키우기 전)로 잰다 — 세로 사진과
+               가로 사진이 남는 자리가 다르다. */
+            const vw = view.clientWidth, vh = view.clientHeight;
+            const iw = img.offsetWidth * a.s, ih = img.offsetHeight * a.s;
+            const mx = Math.max(0, (iw - vw) / 2), my = Math.max(0, (ih - vh) / 2);
+            a.x = Math.min(mx, Math.max(-mx, a.x));
+            a.y = Math.min(my, Math.max(-my, a.y));
+        }
+        paint();
+    };
+
+    /** 그 자리를 붙박은 채로 크기를 바꾼다. */
+    const zoomAt = (s: number, mx: number, my: number, from: Grip) => {
+        const a = at.current;
+        a.s = s;
+        a.x = mx - (mx - from.x0) * (s / from.s0);
+        a.y = my - (my - from.y0) * (s / from.s0);
+        paint();
+    };
+
+    const onStart = (e: React.TouchEvent) => {
+        const box = viewRef.current?.getBoundingClientRect();
+        if (!box) return;
+        moved.current = false;
+        const a = at.current;
+        if (e.touches.length >= 2) {
+            const p = pinchOf(e.touches, box);
+            grip.current = { mode: 'pinch', s0: a.s, x0: a.x, y0: a.y,
+                             px: p.mx, py: p.my, dist: p.dist };
+        } else {
+            grip.current = { mode: 'pan', s0: a.s, x0: a.x, y0: a.y,
+                             px: e.touches[0].clientX, py: e.touches[0].clientY, dist: 1 };
+        }
+    };
+
+    const onMove = (e: React.TouchEvent) => {
+        const g = grip.current, box = viewRef.current?.getBoundingClientRect();
+        if (!g || !box) return;
+        if (e.touches.length >= 2) {
+            /* 손가락 하나로 끌다가 하나를 더 얹으면 거기서 다시 잡는다. */
+            if (g.mode !== 'pinch') { onStart(e); return; }
+            const p = pinchOf(e.touches, box);
+            moved.current = true;
+            zoomAt(g.s0 * (p.dist / g.dist), p.mx, p.my, g);
+            return;
+        }
+        if (g.mode !== 'pan') return;
+        const dx = e.touches[0].clientX - g.px, dy = e.touches[0].clientY - g.py;
+        if (Math.hypot(dx, dy) > 8) moved.current = true;
+        /* 1배일 때는 안 옮긴다 — 그냥 누른 것이 되어야 닫힌다. */
+        if (at.current.s <= 1) return;
+        at.current.x = g.x0 + dx;
+        at.current.y = g.y0 + dy;
+        paint();
+    };
+
+    const onEnd = (e: React.TouchEvent) => {
+        if (e.touches.length === 0) grip.current = null;
+        settle();
+    };
+
+    /** 두 번 누르면 키우고, 키워 둔 것은 되돌린다(카톡과 같다). */
+    const onTap = (e: React.MouseEvent) => {
+        const box = viewRef.current?.getBoundingClientRect();
+        /* **표시는 누를 때마다 비운다.** `touchstart`에서만 비우면 손짓
+           뒤에 남은 값이 다음 누름까지 따라와 안 닫힌다. */
+        const dragged = moved.current;
+        moved.current = false;
+        const now = Date.now();
+        const twice = now - lastTap.current < 320;
+        /* 두 번 누르기가 이뤄졌으면 셈을 처음으로 — 세 번째가 또
+           짝지어져 방금 되돌린 것을 도로 키우면 안 된다. */
+        lastTap.current = twice ? 0 : now;
+        if (twice && box) {
+            const a = at.current;
+            if (a.s > 1) at.current = { s: 1, x: 0, y: 0 };
+            else zoomAt(ZOOM_TAP,
+                        e.clientX - (box.left + box.width / 2),
+                        e.clientY - (box.top + box.height / 2),
+                        { mode: 'pan', s0: 1, x0: 0, y0: 0, px: 0, py: 0, dist: 1 });
+            settle();
+            return;
+        }
+        /* 끌었거나 키워 둔 동안에는 안 닫는다. */
+        if (dragged || at.current.s > 1) return;
+        /* **사진을 누르는 것으로는 안 닫는다** — 한 번 누른 그 자리에서
+           바로 닫아 버리면 **두 번 누르기가 아예 성립하지 않는다**(첫
+           누름에서 창이 사라진다). 닫는 것은 사진 바깥·`✕`가 맡는다. */
+        if (e.target === imgRef.current) return;
+        onClose();
+    };
+
+    return (
+        <div className="photo-zoom">
+            <div className="photo-zoom-view" ref={viewRef} onClick={onTap}
+                 onTouchStart={onStart} onTouchMove={onMove}
+                 onTouchEnd={onEnd} onTouchCancel={onEnd}>
+                {/* **키우면 원본을 다시 안 받아 온다** — 같은 주소라 브라우저가
+                    들고 있던 것을 그대로 쓴다. */}
+                <img src={url} alt="보낸 사진" ref={imgRef} />
+            </div>
+            <button className="photo-zoom-x" aria-label="닫기" onClick={onClose}>✕</button>
+            {/* **카톡처럼 저장·공유를 단추로 둔다**(사용자 요청).
+                앱에서는 앱이 맡는다 — 웹의 `<a download>`는 앱 안에서
+                안 먹고 새 창은 사파리로 나간다. 옛 앱과 웹에서는
+                폰이 띄워 주는 공유창으로 물러난다(거기에 `이미지 저장`이
+                들어 있다). */}
+            <div className="photo-zoom-bar">
+                <button className="photo-zoom-btn" disabled={busy !== null} onClick={onSave}>
+                    {busy === 'save' ? '저장 중…' : '저장'}
+                </button>
+                <button className="photo-zoom-btn" disabled={busy !== null} onClick={onShare}>
+                    공유
+                </button>
+            </div>
         </div>
     );
 }
