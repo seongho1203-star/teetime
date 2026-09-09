@@ -42,8 +42,11 @@ protocol ComposerBarDelegate: AnyObject {
     func composerTapped(_ name: String)
     /// 글칸에 초점이 오갔다.
     func composerFocus(_ on: Bool)
-    /// 바 높이가 바뀌었다(줄이 늘거나 줄었다).
-    func composerResized(_ height: Double)
+    /// 바 높이가 바뀌었다(줄이 늘거나 줄었다). `y`는 바 윗변(화면 기준),
+    /// `fr`은 글칸에 초점이 있는가, `kb`는 키보드가 올라와 있는가 —
+    /// **바가 어디에 섰는지를 폰에서 읽어 오려는 진단값**이다(3판에서
+    /// `댓글창이 안 올라와`를 코드만 봐서는 못 가려서 넣었다).
+    func composerResized(_ height: Double, y: Double, fr: Bool, kb: Bool)
     /**
      * 키보드가 오르내리기 **시작한다.** `dur`는 iOS가 쓸 시간(초),
      * `at`은 지금 시각(1970년부터 ms)이다.
@@ -331,9 +334,14 @@ final class ComposerBar: UIView, UITextViewDelegate {
             c.constant = -rise
         }
 
-        UIView.animate(withDuration: dur, delay: 0, options: [opts, .beginFromCurrentState]) {
-            sv.layoutIfNeeded()
-        }
+        UIView.animate(withDuration: dur, delay: 0, options: [opts, .beginFromCurrentState],
+                       animations: { sv.layoutIfNeeded() },
+                       completion: { _ in
+            /* 다 움직인 뒤 **어디에 섰는지** 한 번 더 알린다(진단값 —
+               `tellHeight` 주석). 높이가 그대로면 평소엔 안 보내는 것이라
+               여기서는 억지로 보낸다. */
+            self.tellHeight(force: true)
+        })
     }
 
     /// 아래 빈자리는 우리 것이 아니다 — 손짓을 그대로 흘려보낸다.
@@ -386,11 +394,13 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     /// 높이가 바뀌면 웹에 알린다 — 웹이 그만큼 자리를 비워야
     /// 목록이 바 밑으로 숨지 않는다(`--composer`).
-    private func tellHeight() {
+    private func tellHeight(force: Bool = false) {
         let h = bounds.height
-        guard h > 1, abs(h - toldHeight) > 0.5 else { return }
+        guard h > 1, force || abs(h - toldHeight) > 0.5 else { return }
         toldHeight = h
-        barDelegate?.composerResized(Double(h))
+        let y = superview.map { $0.convert(frame.origin, to: nil).y } ?? -1
+        barDelegate?.composerResized(Double(h), y: Double(y),
+                                     fr: textView.isFirstResponder, kb: kbUp)
     }
 
     // ── 글 ───────────────────────────────────────────────
@@ -439,6 +449,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
         refreshHint()
         refreshSend()
         barDelegate?.composerFocus(true)
+        tellHeight(force: true)     // 초점이 온 순간의 자리(진단값)
     }
 
     /**

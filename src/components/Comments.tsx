@@ -223,7 +223,29 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         그 안에 초점이 떠나면 사람이 내린 것이 아니라 웹뷰가 뺏어 간 것이다. */
     const grabUntil = useRef(0);
 
+    /**
+     * **임시 진단 줄(앱에서만).** 3판에서 `댓글창이 안 올라와`(키보드는
+     * 뜨는데 바가 안 보인다)는 제보를 코드만 봐서는 못 가려서, 폰에서 값을
+     * 읽어 오려고 붙였다 — `kb-probe`와 같은 방식이다. 바가 알려 오는 것
+     * (높이·자리·초점)과 우리가 부른 것(attach)을 시각과 함께 적는다.
+     * 원인이 갈리면 함께 지운다.
+     */
+    const probeRef = useRef<HTMLPreElement>(null);
+    const probeT0 = useRef(0);
+    const probeRows = useRef<string[]>([]);
+    const log = (s: string) => {
+        const el = probeRef.current;
+        if (!el) return;
+        const t = Math.round(performance.now() - probeT0.current);
+        const vv = Math.round(window.visualViewport?.height ?? 0);
+        probeRows.current.push(`${String(t).padStart(4)} ${s} vv${vv} c${document.documentElement.clientHeight}`);
+        if (probeRows.current.length > 14) probeRows.current.shift();
+        el.textContent = `댓글 nc${document.documentElement.classList.contains('nc2') ? '2+' : '1'}\n`
+            + probeRows.current.join('\n');
+    };
+
     const closeBar = () => {
+        log('닫음');
         barRef.current = false;
         barFocused.current = false;
         grabUntil.current = 0;
@@ -262,7 +284,11 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             const hs = await Promise.all([
                 NativeComposer.addListener('change', e => mirror(e.text)),
                 NativeComposer.addListener('send', e => { void sendIt(e.text); }),
+                NativeComposer.addListener('kb', e => {
+                    log(`키보드${e.on ? '올림' : '내림'} 늦음${Math.round(Date.now() - e.at)}`);
+                }),
                 NativeComposer.addListener('focus', e => {
+                    log(`초점${e.on ? 'O' : 'X'}`);
                     barFocused.current = e.on;
                     clearTimeout(closeAt.current);
                     if (e.on) return;
@@ -283,6 +309,10 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 }),
                 NativeComposer.addListener('height', e => {
                     const h = Math.round(e.height);
+                    /* 3판부터 `y`(바 윗변, 화면 기준)·`fr`(초점)·`kb`도 실려 온다 —
+                       바가 **어디에** 섰는지를 보려는 진단값이다. */
+                    const x = e as { y?: number; fr?: boolean; kb?: boolean };
+                    log(`바 h${h}` + (x.y !== undefined ? ` y${Math.round(x.y)} fr${x.fr ? 1 : 0} kb${x.kb ? 1 : 0}` : ''));
                     if (h > 0) document.documentElement.style.setProperty('--composer', `${h}px`);
                 }),
             ]);
@@ -306,10 +336,14 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         void (async () => {
             clearTimeout(closeAt.current);
             barFocused.current = false;
+            probeT0.current = performance.now();
+            probeRows.current = [];
+            log('누름');
             /* 잠시 동안은 초점이 떠나도 **사람이 내린 것으로 안 본다**
                (위 `focus` 듣는 곳 참고). */
             grabUntil.current = Date.now() + 800;
-            await hush(NativeComposer.attach(composerSkin({
+            let attached = true;
+            await NativeComposer.attach(composerSkin({
                 showPlus: false, showIcon: false,
                 hintText: '댓글 남기기',
                 /* **여기서는 탭바 자리를 안 비운다.** 이 바는 적는 동안,
@@ -324,7 +358,11 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                    실패한다 — 바는 떴는데 키보드가 안 올라오던 자리다
                    (`NativeComposerPlugin`의 `grabFocus` 주석). */
                 focus: true,
-            })));
+            })).catch((err: unknown) => {
+                attached = false;
+                log(`attach 실패 ${String((err as { message?: string })?.message ?? err).slice(0, 24)}`);
+            });
+            if (attached) log('attach 됨');
             barRef.current = true;
             setBarUp(true);
             document.body.classList.add('nc-typing');
@@ -351,6 +389,8 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
 
     return (
         <div className="comment-form" ref={wrapRef}>
+            {/* 임시 진단 줄 — 위 `probeRef` 주석. 원인이 갈리면 함께 지운다. */}
+            {canNative && <pre className="kb-probe fixed" ref={probeRef} />}
             <div className="comment-field grow">
                 <textarea
                     ref={ref}

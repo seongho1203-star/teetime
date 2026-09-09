@@ -37,7 +37,8 @@ type Native = {
     addListener(n: 'send', cb: (e: { text: string }) => void): Promise<Handle>;
     addListener(n: 'action', cb: (e: { name: ComposerAction }) => void): Promise<Handle>;
     addListener(n: 'focus', cb: (e: { on: boolean }) => void): Promise<Handle>;
-    addListener(n: 'height', cb: (e: { height: number }) => void): Promise<Handle>;
+    /** `y`·`fr`·`kb`는 3판부터 — 바 윗변(화면 기준)·초점·키보드. 진단값이다. */
+    addListener(n: 'height', cb: (e: { height: number; y?: number; fr?: boolean; kb?: boolean }) => void): Promise<Handle>;
     /**
      * 키보드가 오르내리기 **시작했다**(3판부터). `dur`는 iOS가 쓸 시간(초),
      * `at`은 네이티브가 보낸 시각(1970년부터 ms)이다.

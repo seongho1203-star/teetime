@@ -322,9 +322,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         notifyListeners("focus", data: ["on": on])
     }
 
-    func composerResized(_ height: Double) {
+    func composerResized(_ height: Double, y: Double, fr: Bool, kb: Bool) {
         guard live else { return }
-        notifyListeners("height", data: ["height": height])
+        notifyListeners("height", data: ["height": height, "y": y, "fr": fr, "kb": kb])
     }
 
     /// 키보드가 움직이기 시작했다. **시각을 함께 보낸다** — 웹이 얼마나 늦게

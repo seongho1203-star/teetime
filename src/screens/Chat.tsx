@@ -634,6 +634,9 @@ export function Chat() {
      *  아래 `앱: 키보드와 같은 박자로` 효과가 채워 넣고, 네이티브 글칸의
      *  `kb` 신호가 부른다. 옛 앱과 웹에서는 늘 비어 있다. */
     const kbBeat = useRef<((on: boolean, dur: number, at: number) => void) | null>(null);
+    /** 진단 — 마지막 키보드 신호를 **그리는 프레임에서** 잰 늦음(ms)과 그래서
+     *  쓴 시간, 그리고 `kb`가 iOS 신호보다 얼마나 먼저/늦게 닿았나(음수면 먼저). */
+    const kbLate = useRef({ late: 0, anim: 0, kb: 0, ios: 0 });
 
     const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0,
                           /** 바로 앞에 키보드가 올라와 있었는가. 내려가는 **그 순간**만
@@ -835,12 +838,37 @@ export function Chat() {
          */
         const MEMO = `teetime:kbh:${window.innerWidth}`;
         const recall = () => Number(localStorage.getItem(MEMO)) || 0;
-        const paint = () => {
+        /** 마지막으로 받은 키보드 신호(3판 `kb`). `at`이 0이면 아직 안 쓴 것이 없다. */
+        const beat = { at: 0, dur: 250 };
+        let flushAt = 0;
+        /**
+         * **높이는 그리는 프레임에서 적는다**(`requestAnimationFrame`).
+         *
+         * 늦은 만큼을 빼는 셈(`--chat-anim`)을 신호가 **닿은 순간**에 하면
+         * 다리를 건너온 시간만 잡힌다. 그런데 화면이 실제로 움직이기 시작하는
+         * 것은 그다음 **그리는 프레임**이고, 그 사이에 React가 다시 그리고
+         * 목록을 앉히는 일이 끼어든다 — 폰에서는 그것만으로 한두 프레임이다.
+         * 그래서 여기서 재야 늦음이 다 잡힌다. 어차피 움직임은 이 프레임에
+         * 시작하므로 미룬다고 늦어지는 것도 없다.
+         */
+        const flush = () => {
+            flushAt = 0;
+            if (beat.at) {
+                const gone = Date.now() - beat.at;
+                /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
+                   되돌린다 — 안 그러면 다음 움직임이 엉뚱하게 짧아진다. */
+                const late = gone < beat.dur ? Math.min(Math.max(0, gone), beat.dur * 0.6) : 0;
+                kbLate.current.late = Math.round(late);
+                kbLate.current.anim = Math.round(beat.dur - late);
+                root.style.setProperty('--chat-anim', `${kbLate.current.anim}ms`);
+                beat.at = 0;
+            }
             const now = root.clientHeight;
             const eaten = Math.max(0, base - now);       // 창이 이미 줄어든 만큼
             const gap = Math.max(0, want - eaten);       // 아직 우리가 메울 몫
             root.style.setProperty('--chat-h', `${now - gap}px`);
         };
+        const paint = () => { if (!flushAt) flushAt = requestAnimationFrame(flush); };
         const open = (on: boolean) => {
             document.body.classList.toggle('kb-open', on);
             root.classList.toggle('kb-open', on);
@@ -881,6 +909,7 @@ export function Chat() {
             const { Keyboard } = await import('@capacitor/keyboard');
             const hs = await Promise.all([
                 Keyboard.addListener('keyboardWillShow', info => {
+                    kbLate.current.ios = performance.now();   // 진단 — `kb`와의 앞뒤
                     want = info?.keyboardHeight ?? 0;
                     if (want) localStorage.setItem(MEMO, String(want));
                     open(true);
@@ -942,12 +971,12 @@ export function Chat() {
          * 0.25초라는 값 자체는 그대로다 — 눈대중으로 줄인 것이 아니다.
          */
         kbBeat.current = (on, dur, at) => {
-            const full = Math.round((dur || 0.25) * 1000);
-            const late = Math.min(Math.max(0, Date.now() - at), full * 0.6);
-            root.style.setProperty('--chat-anim', `${full - late}ms`);
-            /* 높이보다 **먼저** 적어야 이번 움직임에 먹는다(이미 도는 것의
-               시간은 못 바꾼다). 그다음은 여느 신호와 같다 — 먼저 닿은 쪽이
-               하고 나중 것은 같은 값이라 그냥 지나간다. */
+            kbLate.current.kb = performance.now();      // 진단 — iOS 신호와의 앞뒤
+            /* 시각만 담아 두고 **재는 것은 그리는 프레임에서** 한다(`flush`).
+               그다음은 여느 신호와 같다 — 먼저 닿은 쪽이 하고 나중 것은
+               같은 값이라 그냥 지나간다. */
+            beat.at = at;
+            beat.dur = Math.round((dur || 0.25) * 1000);
             if (on) kbHint.current?.();
             else hide();
         };
@@ -956,6 +985,7 @@ export function Chat() {
             dead = true;
             kbHint.current = null;
             kbBeat.current = null;
+            cancelAnimationFrame(flushAt);
             root.style.removeProperty('--chat-anim');
             drop.forEach(f => f());
             drop = [];
@@ -2256,7 +2286,12 @@ export function Chat() {
                     el.textContent =
                         `${document.body.classList.contains('kb-open') ? '올림' : '내림'}`
                         + ` nc${root.classList.contains('nc2') ? 2 : 1}`
-                        + ` 아래${atBottom.current ? 1 : 0}\n${rows.join('\n')}`;
+                        + ` 아래${atBottom.current ? 1 : 0}`
+                        /* 3판 — 그리는 프레임에서 잰 늦음 · 그래서 쓴 시간 ·
+                           `kb`가 iOS 신호보다 몇 ms 뒤에 닿았나(음수면 먼저). */
+                        + ` 늦${kbLate.current.late} 움${kbLate.current.anim}`
+                        + ` Δ${Math.round(kbLate.current.kb - kbLate.current.ios)}`
+                        + `\n${rows.join('\n')}`;
                 }
             }
             raf = performance.now() < until ? requestAnimationFrame(sample) : 0;
