@@ -533,6 +533,26 @@ export function Chat() {
         return unreadCounts(messages, reads, ids);
     }, [messages, reads, data?.people]);
 
+    /**
+     * **사진을 누르면 앱 안에서 크게 본다.**
+     *
+     * 예전에는 `<a target="_blank">`로 새 창에 띄웠는데, **앱에서는 그것이
+     * 곧 사파리로 나가는 것**이라 앱을 떠나 버린다(사용자 제보 —
+     * `사진을 올리면 사파리에서 열려`). 홈 화면 앱에서도 마찬가지였다.
+     * 저장은 크게 본 화면에서 길게 눌러 한다 — 거기서는 iOS 기본 손짓을
+     * 막지 않는다(`.photo-zoom img`).
+     *
+     * **말풍선마다 손잡이를 넘기지 않고 목록에서 한 번에 받는다** —
+     * `Bubble`이 `memo`라 새 함수를 넘기면 쉰 개가 다시 그려진다.
+     */
+    const [zoom, setZoom] = useState<string | null>(null);
+    const onPhotoTap = useCallback((e: React.MouseEvent) => {
+        const a = (e.target as HTMLElement).closest?.('.chat-photo-link');
+        if (!(a instanceof HTMLAnchorElement)) return;
+        e.preventDefault();
+        setZoom(a.href);
+    }, []);
+
     /** 맨 아래를 보고 있었으면 다시 맨 아래로 붙인다. */
     const pinBottom = useCallback(() => {
         const el = listRef.current;
@@ -2568,7 +2588,7 @@ export function Chat() {
                 </div>
             )}
 
-            <div className="chat-list" ref={listRef} onScroll={onScroll}>
+            <div className="chat-list" ref={listRef} onScroll={onScroll} onClick={onPhotoTap}>
                 {hasMore && (
                     <button className="btn ghost sm chat-more" onClick={loadMore} disabled={loadingMore}>
                         {loadingMore ? '불러오는 중…' : '지난 대화 더 보기'}
@@ -3056,6 +3076,17 @@ export function Chat() {
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* **사진을 크게 보는 자리.** 앱에서 새 창으로 띄우면 사파리로
+                나가 버리므로 여기서 본다(위 `onPhotoTap` 주석).
+                **여기서는 iOS 기본 손짓을 안 막는다** — 길게 눌러 저장하는
+                길이 이것뿐이다(`.photo-zoom img`). 아무 데나 누르면 닫힌다. */}
+            {zoom && (
+                <div className="photo-zoom" onClick={() => setZoom(null)}>
+                    <img src={zoom} alt="보낸 사진" />
+                    <button className="photo-zoom-x" aria-label="닫기">✕</button>
                 </div>
             )}
         </div>

@@ -1421,10 +1421,16 @@
    `+` 단추 언저리(왼쪽 아래, 바 안쪽)에 1px로 둔다. */
 .file-anchor {
     position: fixed;
-    left: 14px;
-    bottom: max(8px, calc(var(--composer, 60px) - 34px));
-    width: 1px;
-    height: 1px;
+    left: 10px;
+    /* `+` 단추가 있는 줄(바 안쪽 한 줄)에 겹쳐 둔다. `--composer`는 바가
+       가리는 자리라, 거기서 한 줄 높이만큼 올라온 자리가 그 줄이다. */
+    bottom: max(8px, calc(var(--composer, 60px) - 50px));
+    /* **1px로 두지 말 것** — 그렇게 작은 자리는 iOS가 무시하고 창을 제
+       맘대로 띄운다(사용자 제보 — `팝업뜨는 위치가 지 맘대로야`).
+       `+` 단추만 한 크기로 둔다. 안 보이고 눌리지도 않으므로 배치에는
+       아무 몫이 없다. */
+    width: 44px;
+    height: 44px;
     opacity: 0;
     pointer-events: none;
     border: 0;
@@ -1453,6 +1459,44 @@
    높이를 미리 잡아 두지 않으면 다 받은 뒤에 목록이 아래로 밀려
    읽던 자리가 튄다 — 세로 사진을 넉넉히 담을 만큼만 허용한다. */
 .chat-photo-link { display: block; line-height: 0; }
+
+/* 사진을 크게 보는 자리. **앱에서 새 창으로 띄우면 사파리로 나가 버려서**
+   여기서 본다(`Chat.tsx`의 `onPhotoTap`). */
+.photo-zoom {
+    position: fixed;
+    inset: 0;
+    /* **탭바(800)보다 위여야 한다.** 60으로 두었더니 사진 위로 탭바가
+       그대로 보였다. 길게 누른 창(1000)과 같은 층으로 둔다. */
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.94);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+}
+.photo-zoom img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    /* **여기서는 iOS 기본 손짓을 막지 않는다** — 길게 눌러 저장하는 길이
+       이것뿐이다. 목록의 `.chat-image`는 우리 길게 누르기 때문에 막아 둔다. */
+    -webkit-touch-callout: default;
+    -webkit-user-select: auto;
+    user-select: auto;
+}
+.photo-zoom-x {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    right: 12px;
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    font-size: 18px;
+    line-height: 1;
+}
 .chat-image {
     /* 카톡의 사진은 말풍선보다 좁다. 폭을 채우면 사진 한 장에 화면이
        통째로 넘어가 대화가 끊긴다. */
