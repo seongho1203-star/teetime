@@ -240,7 +240,9 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         const vv = Math.round(window.visualViewport?.height ?? 0);
         probeRows.current.push(`${String(t).padStart(4)} ${s} vv${vv} c${document.documentElement.clientHeight}`);
         if (probeRows.current.length > 14) probeRows.current.shift();
-        el.textContent = `댓글 nc${document.documentElement.classList.contains('nc2') ? '2+' : '1'}\n`
+        /* 판 번호와 '미리 세워 뒀는가'를 함께 찍는다 — 앱과 웹이 어긋난 채
+           찍힌 사진을 고치기 전 코드로 잘못 읽는 일을 막는다. */
+        el.textContent = `댓글 v${ncLog.v} 미리${warm.current ? 1 : 0}\n`
             + probeRows.current.join('\n');
     };
 

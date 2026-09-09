@@ -2432,7 +2432,13 @@ export function Chat() {
                     if (rows.length > 16) rows.shift();
                     el.textContent =
                         `${document.body.classList.contains('kb-open') ? '올림' : '내림'}`
-                        + ` nc${root.classList.contains('nc2') ? 2 : 1}`
+                        /* **판 번호와 주인 여부를 찍는다.** 어느 앱·어느 웹이
+                           도는지를 몰라 같은 자리를 두 번 헛돌았다 — 앱은
+                           새로 깔아야 하고 웹은 몇 분 뒤에 올라가므로,
+                           **둘이 어긋난 채로 찍힌 사진**을 고치기 전 코드로
+                           읽어 버린다. `v`가 앱 판, `주인`이 6판 코드가
+                           도는가다. */
+                        + ` v${ncLog.v} 주인${owns6() ? 1 : 0}`
                         + ` 아래${atBottom.current ? 1 : 0}`
                         /* 3판 — 그리는 프레임에서 잰 늦음 · 그래서 쓴 시간 ·
                            `kb`가 iOS 신호보다 몇 ms 뒤에 닿았나(음수면 먼저). */
