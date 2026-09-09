@@ -1056,6 +1056,14 @@ export function Chat() {
                    `kb-follow`는 바를 세울 때 이미 붙여 두었다. */
                 root.style.setProperty('--chat-h', `${Math.round(e.chatH)}px`);
                 root.style.setProperty('--composer', `${Math.round(e.pad)}px`);
+                /* **값을 적은 뒤에 붙인다.** 이 표가 붙으면 `--composer`가
+                   '바 높이'가 아니라 '가리는 자리'라는 뜻이 되므로, 먼저
+                   붙이면 옛 값(34px 작은 것)으로 한 프레임이 그려진다.
+                   바를 세울 때 붙이던 것을 여기로 옮긴 까닭이다. */
+                if (!kbFollow.current) {
+                    kbFollow.current = true;
+                    root.classList.add('kb-follow');
+                }
                 if (e.end) settleList();
                 return;
             }
@@ -1279,6 +1287,12 @@ export function Chat() {
             // 여기서 재면 감춰 둔 웹 글칸의 높이로 덮어쓴다. 대신 그쪽이
             // 마지막으로 알려 준 값을 **다시 적어 둔다**(아래 주석).
             if (ncOn.current) {
+                /* **6판부터는 여기서 아무것도 안 적는다.** 바가 `frame`으로
+                   **가리는 자리**를 알려 주는데(홈 인디케이터·탭바 몫까지 든
+                   값이다), 여기서 적는 `ncH`는 **바의 높이**라 34px 작다 —
+                   둘이 섞이면 목록이 그만큼 흔들린다(실기기 — `b116↔150`).
+                   이 관찰자는 초점이 오갈 때마다 깨어나므로 그때마다 튀었다. */
+                if (owns6()) return;
                 if (ncH.current) {
                     document.documentElement.style.setProperty('--composer', `${ncH.current}px`);
                 }
@@ -2342,12 +2356,9 @@ export function Chat() {
             if (dead) return;
             ncOn.current = true;
             document.documentElement.classList.add('nc');
-            /* **6판부터는 바가 서는 순간부터 값의 주인이다.** 움직일 때만
-               붙였다 떼면 그 경계에서 웹 셈과 엇갈린다(`kbFrame` 주석). */
-            if (owns6()) {
-                kbFollow.current = true;
-                document.documentElement.classList.add('kb-follow');
-            }
+            /* `kb-follow`는 **여기서 안 붙인다** — 바가 첫 `frame`으로 값을
+               보내 준 뒤에 붙는다(`kbFrame` 주석). `attach`가 `announce()`로
+               그 자리에서 한 번 보내므로 곧바로다. */
             setNativeBar(true);
             document.addEventListener('focusin', onIn);
             document.addEventListener('focusout', onOut);
