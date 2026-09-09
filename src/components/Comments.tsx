@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -7,6 +7,7 @@ import { personLabel, type Person } from '../lib/types';
 import { Avatar } from './Avatar';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
+import { NativeComposer, composerReady, composerSkin, hush } from '../lib/composer';
 
 /** 세 댓글 표가 공통으로 가진 칸. 무엇에 달렸는지만 표마다 다르다. */
 export type AnyComment = {
@@ -121,8 +122,13 @@ export function Comments({
 /* oxlint-disable react/refs */
 function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean> }) {
     const ref = useRef<HTMLTextAreaElement>(null);
+    const wrapRef = useRef<HTMLDivElement>(null);
     const [focused, setFocused] = useState(false);
     const [sending, setSending] = useState(false);
+    /** 앱에 네이티브 글칸이 있는가. 없으면 예전 웹 칸을 그대로 쓴다. */
+    const [canNative, setCanNative] = useState(false);
+    /** 지금 이 칸이 네이티브 바를 띄워 두고 있는가. */
+    const [barUp, setBarUp] = useState(false);
     /** 적은 글이 있는가. **state가 아니라 곁에 적어 둔다** — 글자마다
         state에 넣으면 댓글 목록이 통째로 다시 그려진다. 읽는 곳(안내
         글씨·`등록` 단추)은 둘 다 초점이 오갈 때만 본다. */
@@ -187,8 +193,117 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         if (growAt.current) { cancelAnimationFrame(growAt.current); growAt.current = 0; }
     };
 
+    /* ── 네이티브 글칸 ──────────────────────────────────────────
+     *
+     * 앱에 그 플러그인이 있으면 **웹 칸 대신 화면 아래 네이티브 바에서
+     * 적는다.** 대화 입력칸과 같은 바이고 같은 까닭이다 — 천지인 깜빡임과
+     * 키보드 엇박자는 웹 글칸인 한 안 없어진다(`ComposerBar.swift` 머리말).
+     *
+     * **대화와 다른 점은 둘이다.** 여기서는 바가 **적는 동안만** 뜬다
+     * (댓글 칸은 화면 가운데 있는 칸이지 붙박이 입력줄이 아니다), 그리고
+     * `+`(사진)와 이모티콘 단추가 없다.
+     *
+     * **덤으로 `키보드가 댓글 칸을 가린다`가 아예 없어진다** — 적는 자리가
+     * 키보드에 붙어 있으므로 가릴 것이 없다(`lib/keyboard.ts`의 `reveal`은
+     * 웹 칸일 때만 돌게 남는다).
+     */
+    useEffect(() => { void composerReady().then(setCanNative); }, []);
+
+    /** 늘 최신 것을 가리키게 해 둔다 — 듣기는 한 번만 거는데 `onSubmit`은
+        화면이 다시 그려질 때마다 새 함수다. */
+    const live = useRef({ onSubmit, sending });
+    useEffect(() => { live.current = { onSubmit, sending }; });
+
+    const closeAt = useRef(0);
+    const barRef = useRef(false);
+
+    const closeBar = () => {
+        barRef.current = false;
+        setBarUp(false);
+        document.body.classList.remove('nc-typing');
+        void hush(NativeComposer.detach());
+    };
+
+    useEffect(() => {
+        if (!canNative) return;
+        let dead = false;
+        let drops: Array<() => void> = [];
+
+        /** 바에서 적은 글을 웹 칸에도 옮겨 적어 둔다 — 바를 닫아도 적던
+            글이 남아 있어야 한다. */
+        const mirror = (text: string) => {
+            hasText.current = text.trim() !== '';
+            if (ref.current) ref.current.value = text;
+            grow();
+        };
+
+        const sendIt = async (text: string) => {
+            const body = text.trim();
+            if (!body || live.current.sending) return;
+            setSending(true);
+            const ok = await live.current.onSubmit(body);
+            setSending(false);
+            if (!ok) return;            // 실패하면 적은 글을 남긴다
+            void hush(NativeComposer.setText({ text: '', sel: 0 }));
+            mirror('');
+            if (ref.current) ref.current.style.height = '';
+            lastLen.current = 0;
+        };
+
+        void (async () => {
+            const hs = await Promise.all([
+                NativeComposer.addListener('change', e => mirror(e.text)),
+                NativeComposer.addListener('send', e => { void sendIt(e.text); }),
+                NativeComposer.addListener('focus', e => {
+                    clearTimeout(closeAt.current);
+                    // 초점이 떠도 **곧바로 접지 않는다** — 보내기를 누를 때
+                    // 잠깐 떴다 돌아오는 기기가 있다(웹 칸에서 겪은 그것이다).
+                    if (!e.on) closeAt.current = window.setTimeout(closeBar, 250);
+                }),
+                NativeComposer.addListener('height', e => {
+                    const h = Math.round(e.height);
+                    if (h > 0) document.documentElement.style.setProperty('--composer', `${h}px`);
+                }),
+            ]);
+            if (dead) { hs.forEach(h => { void h.remove(); }); return; }
+            drops = hs.map(h => () => { void h.remove(); });
+        })();
+
+        return () => {
+            dead = true;
+            clearTimeout(closeAt.current);
+            drops.forEach(f => f());
+            drops = [];
+            if (barRef.current) closeBar();
+        };
+        /* 듣기는 **한 번만** 건다. 안에서 쓰는 것들은 전부 ref이거나
+           위의 `live`를 거치므로 다시 걸 이유가 없다. */
+    }, [canNative]);
+
+    /** 웹 칸을 누르면 네이티브 바를 세우고 거기에 초점을 준다. */
+    const openBar = () => {
+        void (async () => {
+            await hush(NativeComposer.attach(composerSkin({
+                showPlus: false, showIcon: false,
+                hintText: '댓글 남기기',
+                text: ref.current?.value ?? '',
+            })));
+            barRef.current = true;
+            setBarUp(true);
+            document.body.classList.add('nc-typing');
+            await hush(NativeComposer.focus());
+            /* 바에 가리지 않게 칸을 끌어 올린다. **여러 번 부른다** —
+               웹뷰가 줄어드는 것은 키보드보다 0.45초 늦어서(플러그인의
+               그 타이밍이다) 한 번만 하면 줄기 전 크기로 계산된다. */
+            const up = () => wrapRef.current?.scrollIntoView({ block: 'end' });
+            requestAnimationFrame(up);
+            setTimeout(up, 300);
+            setTimeout(up, 650);
+        })();
+    };
+
     return (
-        <div className="comment-form">
+        <div className="comment-form" ref={wrapRef}>
             <div className="comment-field grow">
                 <textarea
                     ref={ref}
@@ -196,14 +311,23 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                     onChange={e => { hasText.current = e.target.value.trim() !== ''; grow(); }}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
+                    /* 네이티브 바를 쓰는 판에서는 이 칸이 **누르는 자리**일
+                       뿐이다. `readOnly`라 아이폰이 키보드를 안 올리고,
+                       `onMouseDown`을 막아 초점도 안 넘어간다. */
+                    readOnly={canNative}
+                    /* **`pointerdown`이다.** `mousedown`은 손을 뗄 때쯤에야
+                       와서 누른 뒤 한 박자 쉬고 바가 뜬다 — 이 칸은 누르는
+                       것이 곧 일의 시작이라 그 틈이 그대로 느껴진다. */
+                    onPointerDown={canNative ? (e => { e.preventDefault(); openBar(); }) : undefined}
                     rows={1} maxLength={500}
                     aria-label="댓글 입력"
                 />
-                {!focused && !hasText.current && <span className="comment-hint">댓글 남기기</span>}
+                {!focused && !barUp && !hasText.current
+                    && <span className="comment-hint">댓글 남기기</span>}
             </div>
             <button className="btn primary" onClick={submit}
                     onMouseDown={e => e.preventDefault()}
-                    disabled={sending || (!focused && !hasText.current)}>
+                    disabled={sending || (!focused && !barUp && !hasText.current)}>
                 등록
             </button>
         </div>

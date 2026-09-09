@@ -18,6 +18,7 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
+import { NativeComposer, composerReady, composerSkin, hush } from '../lib/composer';
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -177,6 +178,20 @@ export function Chat() {
     const barRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const taRef = useRef<HTMLTextAreaElement>(null);
+    /**
+     * **네이티브 글칸을 쓰고 있는가.**
+     *
+     * 앱에 그 플러그인이 있을 때만 참이 된다(`lib/composer.ts`). 참이면
+     * 웹 글칸은 안 그리고 값도 네이티브가 들고 있다 — 그래서 글을 읽고
+     * 쓰는 곳이 전부 아래 `draftValue`·`setDraft`를 거친다.
+     *
+     * **state와 ref를 같이 둔다.** state는 화면을 다시 그리려고, ref는
+     * `useCallback`으로 붙박아 둔 함수들이 의존성 없이 읽으려고 있다.
+     */
+    const [nativeBar, setNativeBar] = useState(false);
+    const ncOn = useRef(false);
+    /** 네이티브 칸이 들고 있는 글의 사본. 칸이 값의 주인이라 읽기만 한다. */
+    const ncText = useRef({ text: '', sel: 0 });
     // 맨 아래를 보고 있을 때만 새 글에 따라 내려간다. 지난 대화를 읽는
     // 도중에 남이 글을 쓰면 화면이 튀어서는 안 된다.
     const atBottom = useRef(true);
@@ -1053,6 +1068,9 @@ export function Chat() {
         const el = barRef.current;
         if (!el) return;
         const write = () => {
+            // 네이티브 바를 쓰는 판에서는 **그쪽이 제 높이를 알려 준다** —
+            // 여기서 재면 감춰 둔 웹 글칸의 높이로 덮어쓴다.
+            if (ncOn.current) return;
             const h = Math.round(el.getBoundingClientRect().height);
             if (h) document.documentElement.style.setProperty('--composer', `${h}px`);
         };
@@ -1091,7 +1109,12 @@ export function Chat() {
             const dy = e.touches[0].clientY - y0;
             const dx = Math.abs(e.touches[0].clientX - x0);
             // 세로로 내려가는 손짓일 때만. 좌우로 그은 것은 아니다.
-            if (dy > 40 && dy > dx) taRef.current?.blur();
+            /* 네이티브 글칸을 쓰는 판에서는 그쪽에 내리라고 한다.
+               (`blurDraft`는 아래에 있어 여기서 못 쓴다.) */
+            if (dy > 40 && dy > dx) {
+                if (ncOn.current) void hush(NativeComposer.blur());
+                else taRef.current?.blur();
+            }
         };
         el.addEventListener('touchstart', start, { passive: true });
         el.addEventListener('touchmove', move, { passive: true });
@@ -1257,6 +1280,8 @@ export function Chat() {
     /** 실제로 재고 고치는 곳. **`growDraft`를 거쳐서만 부른다** — 글자를
         치는 그 순간에 이걸 직접 부르면 아래 꼭지의 그 깜빡임이 돌아온다. */
     const measureDraft = useCallback(() => {
+        // 네이티브 글칸은 제 높이를 스스로 잰다(`ComposerBar.swift`).
+        if (ncOn.current) return;
         const el = taRef.current;
         if (!el) return;
         /* `box-sizing: border-box`라 height에 테두리가 포함된다. `scrollHeight`는
@@ -1327,7 +1352,47 @@ export function Chat() {
         hasText.current = value.trim() !== '';
     }, []);
 
+    /* ── 글칸이 둘이다 — 웹과 네이티브 ──────────────────────────
+     *
+     * 앱에 네이티브 글칸이 있으면 값은 그쪽이 들고 있고, 없으면 예전처럼
+     * `<textarea>`가 들고 있다. **읽고 쓰는 곳을 전부 이 넷으로 모은 것이
+     * 이 갈래의 전부다** — 안 그러면 `taRef.current.value`를 직접 읽는 곳이
+     * 열 군데라 한쪽만 고치게 된다.
+     */
+
+    /** 지금 칸에 적힌 글. **칸이 값의 주인이라 늘 칸에서 직접 읽는다.** */
+    const draftValue = useCallback(
+        () => (ncOn.current ? ncText.current.text : (taRef.current?.value ?? '')), []);
+
+    /** 커서 자리. `@언급`을 가려내는 데 쓴다. */
+    const draftCaret = useCallback(
+        () => (ncOn.current ? ncText.current.sel : (taRef.current?.selectionStart ?? 0)), []);
+
+    /** 칸에 글을 써 넣는다(언급 넣기·비우기가 쓴다). */
+    const setDraft = useCallback((text: string, sel = text.length) => {
+        ncText.current = { text, sel };
+        if (ncOn.current) {
+            void hush(NativeComposer.setText({ text, sel }));
+        } else if (taRef.current) {
+            taRef.current.value = text;
+            taRef.current.setSelectionRange(sel, sel);
+        }
+        markText(text);
+    }, [markText]);
+
+    const focusDraft = useCallback(() => {
+        if (ncOn.current) void hush(NativeComposer.focus());
+        else taRef.current?.focus();
+    }, []);
+
+    const blurDraft = useCallback(() => {
+        if (ncOn.current) void hush(NativeComposer.blur());
+        else taRef.current?.blur();
+    }, []);
+
     const clearDraft = () => {
+        ncText.current = { text: '', sel: 0 };
+        if (ncOn.current) void hush(NativeComposer.setText({ text: '', sel: 0 }));
         if (taRef.current) {
             taRef.current.value = '';
             // 보내고 나면 한 줄로 돌아와야 한다.
@@ -1347,29 +1412,23 @@ export function Chat() {
      * 입력칸이 값의 주인이라(uncontrolled) 칸에서 직접 읽는다. 글자를 칠
      * 때뿐 아니라 **캐럿만 옮겨도** 다시 봐야 해서 `onSelect`에서도 부른다.
      */
-    const syncMention = () => {
-        const el = taRef.current;
-        if (!el) return;
-        const found = mentionQuery(el.value, el.selectionStart ?? 0);
+    const syncMention = useCallback(() => {
+        const found = mentionQuery(draftValue(), draftCaret());
         setMention(found ? found.q : null);
-    };
+    }, [draftValue, draftCaret]);
 
     /** 언급 목록에서 고른 사람을 `@이름 `으로 끼워 넣는다. */
     const insertMention = (name: string) => {
-        const el = taRef.current;
-        if (!el) return;
-        const caret = el.selectionStart ?? el.value.length;
-        const found = mentionQuery(el.value, caret);
+        const value = draftValue();
+        const caret = draftCaret();
+        const found = mentionQuery(value, caret);
         if (!found) return;
-        const inserted = `@${name} `;
-        const head = el.value.slice(0, found.at) + inserted;
-        el.value = head + el.value.slice(caret);
-        el.setSelectionRange(head.length, head.length);
-        markText(el.value);
+        const head = value.slice(0, found.at) + `@${name} `;
+        setDraft(head + value.slice(caret), head.length);
         setMention(null);
         growDraft();
         // 고르고 나서도 키보드가 그대로 있어야 이어 칠 수 있다.
-        el.focus();
+        focusDraft();
     };
 
     /* 목록. 운영진에게는 **맨 위에 `전체`**를 얹는다 — 서른 명에게 한
@@ -1505,8 +1564,8 @@ export function Chat() {
     /** 답장을 시작한다. 밀어서든 눌러서든 여기로 온다. */
     const startReply = useCallback((m: Message) => {
         setReplyTo(m);
-        taRef.current?.focus();
-    }, []);
+        focusDraft();
+    }, [focusDraft]);
 
     /**
      * 길게 누른 글. 여기 값이 있으면 **누른 자리에** 고르는 창이 뜬다.
@@ -1615,12 +1674,10 @@ export function Chat() {
     const mentionFromCard = (p: Person) => {
         setCard(null);
         setPeopleOn(false);
-        const ta = taRef.current;
-        if (!ta) return;
-        const head = ta.value && !ta.value.endsWith(' ') ? `${ta.value} ` : ta.value;
-        ta.value = `${head}@${p.name} `;
-        hasText.current = true;
-        ta.focus();
+        const was = draftValue();
+        const head = was && !was.endsWith(' ') ? `${was} ` : was;
+        setDraft(`${head}@${p.name} `);
+        focusDraft();
         growDraft();
     };
 
@@ -1808,7 +1865,7 @@ export function Chat() {
 
     /** 지금 칸에 적힌 글. **칸이 값의 주인이라 늘 칸에서 직접 읽는다** —
      *  곁에 두는 것은 `hasText`(참/거짓) 하나뿐이다. */
-    const currentDraft = () => (taRef.current?.value ?? '').trim();
+    const currentDraft = () => draftValue().trim();
 
     /**
      * 글 한 줄(또는 사진 한 장, 이모티콘 하나)을 보낸다.
@@ -1853,12 +1910,12 @@ export function Chat() {
         const body = currentDraft();
         // **이모티콘만 골라도 보낼 수 있다** — 글은 없어도 된다.
         if ((!body && !picked) || !roomId) return;
-        taRef.current?.focus();
+        focusDraft();
         setSending(true);
         const ok = await push(body, picked ? stickerRef(picked) : null);
         if (ok) setPicked(null);
         setSending(false);
-        taRef.current?.focus();
+        focusDraft();
     };
 
     /**
@@ -1873,8 +1930,8 @@ export function Chat() {
      */
     const toggleTray = () => {
         setTray(open => {
-            if (open) taRef.current?.focus();
-            else taRef.current?.blur();
+            if (open) focusDraft();
+            else blurDraft();
             return !open;
         });
     };
@@ -1932,6 +1989,129 @@ export function Chat() {
             send();
         }
     };
+
+    /* ── 네이티브 글칸 ──────────────────────────────────────────
+     *
+     * 앱에 그 플러그인이 있으면 **웹 글칸 대신 네이티브 바를 쓴다.**
+     * 두 가지가 웹으로는 안 고쳐지기 때문이다(`ComposerBar.swift` 머리말):
+     * **천지인 깜빡임**과 **키보드와 따로 노는 움직임**.
+     *
+     * 바가 맡는 것은 **한 줄뿐이다** — `+` · 글칸 · 이모티콘 · 보내기.
+     * 인용(답장) · 언급 목록 · 이모티콘 미리보기 · 서랍은 예전 그대로
+     * 웹이 그 위에 그린다. 바가 가리는 만큼은 `--composer`로 비운다
+     * (네이티브가 높이를 알려 준다).
+     *
+     * **플러그인이 없으면 아무 일도 안 한다** — 그때는 웹 글칸이 그대로
+     * 쓰인다. 앱은 새로 만들어 깔기까지 시간이 걸리는데 웹은 밀면 바로
+     * 올라가므로 그 사이가 늘 생긴다.
+     */
+
+    /** 바가 알려 올 때 부를 것들. **늘 최신 함수를 가리키게 해 둔다** —
+        붙이는 일은 화면이 열릴 때 한 번뿐이라, 그때의 함수를 그대로 들고
+        있으면 옛 값을 보고 돈다. */
+    const nc = useRef({
+        send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
+        photo: () => fileRef.current?.click(),
+    });
+    useEffect(() => {
+        nc.current = {
+            send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
+            photo: () => fileRef.current?.click(),
+        };
+    });
+
+    useEffect(() => {
+        let dead = false;
+        let drops: Array<() => void> = [];
+        /** 바가 제 높이를 알려 왔는가. **화면에 실제로 섰다는 증거다.** */
+        let stood = false;
+        let watchdog = 0;
+
+        /* 웹의 다른 칸(대화 검색)이 초점을 가져가면 **잠시 물러난다** —
+           그때는 웹뷰가 first responder라 바가 저절로 사라지는데, 물러나
+           두지 않으면 서로 first responder를 뺏느라 다툰다. */
+        const typing = (el: EventTarget | null) => {
+            const t = el as HTMLElement | null;
+            return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+        };
+        const onIn = (e: FocusEvent) => { if (typing(e.target)) void hush(NativeComposer.pause()); };
+        const onOut = () => {
+            setTimeout(() => {
+                if (!typing(document.activeElement)) void hush(NativeComposer.resume());
+            }, 60);
+        };
+
+        void (async () => {
+            if (!(await composerReady()) || dead) return;
+            const hs = await Promise.all([
+                NativeComposer.addListener('change', e => {
+                    ncText.current = { text: e.text, sel: e.sel };
+                    nc.current.markText(e.text);
+                    nc.current.syncMention();
+                }),
+                NativeComposer.addListener('send', () => { void nc.current.send(); }),
+                NativeComposer.addListener('action', e => {
+                    if (e.name === 'plus') nc.current.photo();
+                    else nc.current.toggleTray();
+                }),
+                NativeComposer.addListener('focus', e => {
+                    if (e.on) nc.current.onComposerFocus();
+                    else nc.current.onComposerBlur();
+                }),
+                /* 바가 가리는 만큼 목록 아래를 비운다. 줄이 늘면 함께 늘어난다. */
+                NativeComposer.addListener('height', e => {
+                    const h = Math.round(e.height);
+                    if (h <= 0) return;
+                    stood = true;
+                    document.documentElement.style.setProperty('--composer', `${h}px`);
+                }),
+            ]);
+            if (dead) { hs.forEach(h => { void h.remove(); }); return; }
+            drops = hs.map(h => () => { void h.remove(); });
+
+            await hush(NativeComposer.attach(composerSkin({
+                showIcon: STICKERS.length > 0,
+                hintText: '메시지',
+            })));
+            if (dead) return;
+            ncOn.current = true;
+            document.documentElement.classList.add('nc');
+            setNativeBar(true);
+            document.addEventListener('focusin', onIn);
+            document.addEventListener('focusout', onOut);
+
+            /* **안 서면 되돌린다.** 웹 글칸을 안 그려 두고 네이티브 바도
+               안 뜨면 대화에서 글을 아예 못 친다 — 여기서는 실기기로
+               확인할 길이 없으므로, 그 최악을 앱이 스스로 막게 해 둔다.
+               바가 제 높이를 알려 오는 것이 곧 '섰다'는 증거다. */
+            watchdog = window.setTimeout(() => {
+                if (dead || stood) return;
+                ncOn.current = false;
+                document.documentElement.classList.remove('nc');
+                setNativeBar(false);
+                void hush(NativeComposer.detach());
+            }, 1500);
+        })();
+
+        return () => {
+            dead = true;
+            clearTimeout(watchdog);
+            ncOn.current = false;
+            document.removeEventListener('focusin', onIn);
+            document.removeEventListener('focusout', onOut);
+            document.documentElement.classList.remove('nc');
+            document.documentElement.style.removeProperty('--composer');
+            drops.forEach(f => f());
+            drops = [];
+            void hush(NativeComposer.detach());
+        };
+    }, []);
+
+    /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
+    useEffect(() => {
+        if (!nativeBar) return;
+        void hush(NativeComposer.setState({ tray, forceSend: picked !== null }));
+    }, [nativeBar, tray, picked]);
 
     if (loading) return <div className="page center-fill"><div className="spinner" /></div>;
     if (error || !data?.room) {
@@ -2230,7 +2410,13 @@ export function Chat() {
 
 
                 {/* 사진 · 입력칸 · 보내기 한 줄. 위의 인용과 언급 목록이
-                    같은 상자 안에 쌓이므로 이 줄만 따로 묶는다. */}
+                    같은 상자 안에 쌓이므로 이 줄만 따로 묶는다.
+
+                    **앱에 네이티브 글칸이 있으면 이 줄을 안 그린다** — 그
+                    자리에 네이티브 바가 서기 때문이다(위 `네이티브 글칸`
+                    꼭지). 위의 인용·언급 목록·이모티콘 미리보기와 아래
+                    서랍은 그대로 웹이 그린다. */}
+                {!nativeBar && (
                 <div className={`chat-bar${STICKERS.length ? '' : ' no-sticker'}`}>
                 <button className="btn ghost chat-photo" onClick={() => fileRef.current?.click()}
                         disabled={uploading} aria-label="사진 보내기">
@@ -2332,6 +2518,7 @@ export function Chat() {
                     </svg>
                 </button>
                 </div>
+                )}
 
                 {/* 이모티콘 서랍은 **입력칸 아래**, 키보드가 서던 자리에 뜬다
                     (사용자가 보여 준 카톡 모양이다). 위에 두었더니 대화가

@@ -1666,3 +1666,27 @@ html:not(.native) body.kb-open .chat-list { padding-bottom: calc(var(--composer,
    대화가 길어지면 사람들이 자기 이름만 찾는다. */
 .mention { font-weight: 800; color: var(--info); }
 .mention.me { color: var(--brand); background: var(--brand-soft); border-radius: 5px; }
+
+/* ── 앱: 네이티브 글칸을 쓰는 판 ───────────────────────────────
+   `html.nc`는 대화 화면이 네이티브 바를 세워 두었다는 뜻이다
+   (`Chat.tsx`의 `네이티브 글칸` 꼭지 · `ios/App/App/ComposerBar.swift`).
+
+   웹 글칸 줄(`.chat-bar`)은 아예 안 그려지고, 그 자리에 키보드에 붙은
+   네이티브 바가 선다. 인용(답장)·언급 목록·이모티콘 미리보기·서랍은
+   그대로 웹이 그 **위에** 그리므로, 바가 가리는 만큼만 비워 주면 된다 —
+   그 높이는 네이티브가 알려 준다(`--composer`).
+
+   **테두리와 위 여백을 없애는 것이 한 쌍이다.** 안 없애면 아무것도 안
+   들어 있을 때 `.chat-input`이 빈 띠로 남아, 네이티브 바가 제 손으로
+   그린 윗선 위에 **줄이 하나 더** 보인다. 바탕색은 그대로 둔다 —
+   바와 같은 `--bg`라 이어 보이고, 서랍이 그 색을 물려받는다. */
+html.nc .chat-input {
+    border-top: 0;
+    padding-top: 0;
+    padding-bottom: var(--composer, 60px);
+}
+/* **키보드가 올라오면 그 자리를 비우지 않는다.** `resize: 'native'`가
+   웹뷰를 줄일 때 쓰는 키보드 높이에는 **바까지 들어 있어서**, 웹뷰가
+   이미 바 위에서 끝난다 — 여기서 또 비우면 목록 아래에 빈 띠가 바
+   높이만큼 남는다(키보드가 내려가 있을 때와 정반대다). */
+html.nc body.kb-open .chat-input { padding-bottom: 0; }

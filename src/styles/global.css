@@ -216,18 +216,29 @@ body::before {
  * 탭바는 `position: fixed; bottom: 0`이라 **줄어든 창의 바닥**, 곧 키보드
  * 바로 위에 그대로 얹힌다 — 글을 치는 동안 탭이 보일 이유가 없다.
  */
-body.kb-typing .tabbar { display: none; }
+/* **네이티브 글칸(`nc-typing`)도 같은 자리를 쓴다.** 댓글을 적는 동안
+   화면 아래에 네이티브 바가 서 있어서, 탭바가 그 밑에 깔리고 본문도
+   그만큼 가려진다 — 웹 키보드일 때와 하는 일이 같다. */
+body.kb-typing .tabbar,
+body.nc-typing .tabbar { display: none; }
 
 /* 탭바가 없어졌으니 그만큼 비워 두던 아래 여백은 뺀다. 대신 **키보드가
    가릴 만큼 빈자리를 붙인다**(`--kb-pad`, `lib/keyboard.ts`가 잰다) —
    그게 없으면 맨 아래에 있는 댓글 칸을 **끌어 올릴 자리 자체가 없다**
    (이미 끝까지 굴러가 있다). 다 치고 나면 그 값이 지워진다. */
 body.kb-typing .page { padding-bottom: calc(var(--kb-pad, 0px) + var(--gap)); }
+/* **바 높이만큼 비우지 않는다.** 바가 떠 있는 동안은 키보드도 올라와
+   있고, `resize: 'native'`가 웹뷰를 줄일 때 쓰는 키보드 높이에는 **바까지
+   들어 있어서** 웹뷰가 이미 바 위에서 끝난다. 여기서는 탭바를 감춘 만큼만
+   되돌리면 된다. */
+body.nc-typing .page { padding-bottom: var(--gap); }
 
 /* **저장·신청 단추는 키보드 바로 위에 붙는다.** 탭바 자리를 피하려고
    띄워 둔 값이라, 탭바가 없어지면 그만큼 내려와야 손에 닿는다. */
 body.kb-typing .form-actions,
-body.kb-typing .round-actions { bottom: 0; }
+body.kb-typing .round-actions,
+body.nc-typing .form-actions,
+body.nc-typing .round-actions { bottom: 0; }
 
 /* 얼마나 띄워 올릴지는 **`lib/keyboard.ts`의 `GAP`이 정한다** — 거기서
    자리를 직접 셈하므로 여기 `scroll-margin`을 두면 두 군데가 된다. */
