@@ -192,7 +192,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
         if let v = c("bg") { bar.cBg = v }
         if let v = c("field") { bar.cField = v }
-        if let v = c("text") { bar.cText = v }
+        /* **글자 색은 `fg`다. `text`가 아니다.** 예전에는 색도 `text`로
+           받았는데 그 이름은 **글 내용**이 이미 쓰고 있어서, 겉모습만
+           보내는 `attach`가 **글칸에 색 코드(`#1b1f19`)를 써 넣었다**
+           (실기기에서 그대로 보였다). 이름을 갈라 두 번 다시 안 겹치게
+           했다 — `src/lib/composer.ts`의 `composerSkin()`과 한 쌍이다. */
+        if let v = c("fg") { bar.cText = v }
         if let v = c("hint") { bar.cHint = v }
         if let v = c("dim") { bar.cDim = v }
         if let v = c("brand") { bar.cBrand = v }
@@ -206,6 +211,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         if let v = call.getBool("showPlus") { bar.showPlus = v }
         if let v = call.getBool("tray") { bar.setTray(v) }
         if let v = call.getBool("forceSend") { bar.forceSend = v }
+        /* 글 내용. 댓글 칸이 바를 세울 때 적어 둔 글을 실어 보낸다
+           (대화는 안 보내므로 그대로 남는다). 위 `fg` 주석 참고. */
         if let v = call.getString("text") { bar.text = v }
 
         bar.paint()

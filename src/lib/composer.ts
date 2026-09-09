@@ -129,6 +129,10 @@ function px(name: string, fallback: number): number {
  *
  * `tabH`는 **키보드가 내려가 있을 때 바 아래에 비워 둘 자리**다(웹 탭바).
  * 0을 주면 바가 탭바를 덮으므로, 그때는 웹에서 탭바를 함께 감춰야 한다.
+ *
+ * **글자 색은 `fg`다. `text`라고 부르지 말 것** — 그 이름은 **글 내용**이
+ * 쓰고 있어서(댓글 칸이 적어 둔 글을 그렇게 실어 보낸다), 예전에 색을
+ * `text`로 보냈다가 **글칸에 `#1b1f19`가 그대로 찍혀 나왔다**(실기기).
  */
 export function composerSkin(over: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -140,7 +144,7 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
         tabH: px('--tabbar-h', 56),
         bg: hex('--bg', '#f5f7f1'),
         field: hex('--surface-3', '#e4e9da'),
-        text: hex('--text', '#1b1f19'),
+        fg: hex('--text', '#1b1f19'),
         hint: hex('--text-faint', '#8b9486'),
         dim: hex('--text-dim', '#5b6455'),
         brand: hex('--brand', '#d92b8e'),

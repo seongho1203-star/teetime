@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { ncStatus } from '../lib/composer';
+import { composerReady, ncStatus } from '../lib/composer';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -111,6 +111,14 @@ export function Me() {
     /* 설치 신호는 lib/install이 앱 시작 때부터 붙잡아 둔다. */
     const [installable, setInstallable] = useState(canInstall());
     useEffect(() => onInstallChange(() => setInstallable(canInstall())), []);
+
+    /* **아래 진단 줄이 답을 하게 여기서 한 번 물어본다.**
+       `composerReady()`는 대화·댓글이 부르는데, 대화를 한 번도 안 열고
+       이 화면에 들어오면 아직 안 물어본 상태(`?`)로 나온다 — 실제로
+       그래서 `플러그인?`만 보고 판단이 한 번 막혔다. 한 번만 물어보고
+       기억하므로 여기서 불러도 값이 늘지 않는다. */
+    const [, ncSeen] = useState(0);
+    useEffect(() => { void composerReady().then(() => ncSeen(n => n + 1)); }, []);
 
     /* ── 알림 ────────────────────────────────────────────────
        기기마다 따로 켠다. 폰에서 켜도 PC는 안 켜진다 — 알림을 받을 곳이

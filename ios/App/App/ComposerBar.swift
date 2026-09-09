@@ -257,6 +257,9 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     /// 키보드가 오르내릴 때 스스로 알아챈다 — **웹이 알려 주기를
     /// 기다리면 한 번 건너오느라 늦어 그 사이 자리가 어긋난다.**
+    ///
+    /// **다만 올라올 때는 이걸로도 늦다** — 아래 `textViewShouldBeginEditing`
+    /// 주석을 볼 것.
     func watchKeyboard() {
         let c = NotificationCenter.default
         c.addObserver(self, selector: #selector(kbShow),
@@ -273,6 +276,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
         kbUp = on
         invalidateIntrinsicContentSize()
         setNeedsLayout()
+        superview?.setNeedsLayout()
     }
 
     /// 아래 빈자리는 우리 것이 아니다 — 손짓을 그대로 흘려보낸다.
@@ -372,6 +376,29 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     func textViewDidChange(_ tv: UITextView) {
         afterEdit(tell: true)
+    }
+
+    /**
+     * **키보드가 올라오기 전에 아래 빈자리(`tabH`)를 걷는다.**
+     *
+     * iOS는 **first responder가 바뀌는 그 순간** `inputAccessoryView`의
+     * 높이를 재어 '키보드 프레임'을 정하고, 그 값을 알림으로 뿌린다.
+     * 그런데 우리가 `keyboardWillShow`에서 `tabH`를 걷으면 **이미 잰
+     * 뒤**라, 키보드 프레임에는 탭바 몫까지 들어간 **높은 바**가 잡힌다.
+     *
+     * `resize: 'native'`는 그 값만큼 웹뷰를 줄이므로, 바가 줄어든 만큼
+     * (=탭바 높이 58px) **웹뷰 아래에 검은 띠가 남았다** — 대화 목록과
+     * 바 사이가 통째로 비어 보인 그 자리다(실기기 사진에서 57.3pt로 쟀고
+     * `--tabbar-h`가 정확히 58px이다).
+     *
+     * `shouldBeginEditing`은 **first responder가 되기 전에** 불리므로,
+     * 여기서 줄여 두면 iOS가 처음부터 짧은 바를 잰다.
+     * `keyboardWillShow`는 그대로 예비로 남겨 둔다(다른 길로 키보드가
+     * 올라오는 판을 위해).
+     */
+    func textViewShouldBeginEditing(_ tv: UITextView) -> Bool {
+        setKb(true)
+        return true
     }
 
     func textViewDidBeginEditing(_ tv: UITextView) {

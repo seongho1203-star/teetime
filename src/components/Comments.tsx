@@ -286,6 +286,12 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
             await hush(NativeComposer.attach(composerSkin({
                 showPlus: false, showIcon: false,
                 hintText: '댓글 남기기',
+                /* **여기서는 탭바 자리를 안 비운다.** 이 바는 적는 동안,
+                   곧 키보드가 올라와 있는 동안에만 뜨는데 그때는 탭바가
+                   이미 감춰져 있다(`nc-typing`). 비워 두면 iOS가 키보드
+                   프레임을 그만큼 크게 재어 웹뷰가 더 줄고, 목록 아래에
+                   검은 띠가 남는다(대화에서 실제로 그랬다). */
+                tabH: 0,
                 text: ref.current?.value ?? '',
             })));
             barRef.current = true;
