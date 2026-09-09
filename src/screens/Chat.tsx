@@ -2138,6 +2138,31 @@ export function Chat() {
            바를 다시 세우는 일은 없다. */
     }, [settleList]);
 
+    /* 임시 진단 줄(위 JSX 주석). 0.25초마다 값만 갈아 끼운다 — 리액트를
+       안 거치므로 말풍선이 다시 그려지지 않는다. */
+    const probeRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!IS_NATIVE) return;
+        const root = document.documentElement;
+        const tick = () => {
+            const el = probeRef.current;
+            const list = listRef.current;
+            if (!el) return;
+            const st = root.style;
+            const max = list ? list.scrollHeight - list.clientHeight : 0;
+            el.textContent =
+                `창${root.clientHeight} vv${Math.round(window.visualViewport?.height ?? 0)}`
+                + ` h${st.getPropertyValue('--chat-h') || '-'} 바${st.getPropertyValue('--composer') || '-'}`
+                + ` 목록${list?.clientHeight ?? 0} 자리${list ? Math.round(list.scrollTop) : 0}/${max}`
+                + ` kb${document.body.classList.contains('kb-open') ? 1 : 0}`
+                + ` nc${root.classList.contains('nc') ? 1 : 0}${root.classList.contains('nc2') ? '2' : ''}`
+                + ` 아래${atBottom.current ? 1 : 0}`;
+        };
+        tick();
+        const t = window.setInterval(tick, 250);
+        return () => clearInterval(t);
+    }, []);
+
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {
         if (!nativeBar) return;
@@ -2158,6 +2183,10 @@ export function Chat() {
 
     return (
         <div className="chat" ref={chatRef}>
+            {/* **임시 진단 줄(앱에서만).** 헤드리스에는 키보드가 없어 이 자리는
+                폰에서 값을 읽어 주는 것이 결국 빠르다(`kb-probe`를 걷어냈던
+                자리와 같은 방식). 2판 글칸을 확인하면 함께 지운다. */}
+            {IS_NATIVE && <div className="kb-probe" ref={probeRef} />}
             {/* **머리말은 카톡 오픈톡과 같은 배치다**(사용자 요청) —
                 왼쪽에 제목과 사람 수, 오른쪽에 🔍와 ☰.
 

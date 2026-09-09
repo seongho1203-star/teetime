@@ -336,19 +336,32 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                     ref={ref}
                     className="textarea"
                     onChange={e => { hasText.current = e.target.value.trim() !== ''; grow(); }}
-                    onFocus={() => setFocused(true)}
+                    /* 네이티브 바를 쓰는 판에서 이 칸에 초점이 오면 **곧바로
+                       뗀다.** 웹 칸이 초점을 쥐면 웹뷰가 first responder가 되어
+                       네이티브 바의 글칸에서 키보드를 빼앗는다 — 실기기에서
+                       키보드 위에 웹 글칸용 `∧ ∨ ✓` 줄이 뜬 것이 그 자국이다
+                       (`댓글창은 키보드가 안 올라오다가 여러 번 시도하면
+                       올라오긴 하는데 이상해`). */
+                    onFocus={e => { if (canNative) e.target.blur(); else setFocused(true); }}
                     onBlur={() => setFocused(false)}
                     /* 네이티브 바를 쓰는 판에서는 이 칸이 **누르는 자리**일
-                       뿐이다. `readOnly`라 아이폰이 키보드를 안 올리고,
-                       `onMouseDown`을 막아 초점도 안 넘어간다. */
+                       뿐이다. 손짓은 위에 얹은 `.comment-tap`이 받는다 —
+                       `readOnly`·`preventDefault`로는 아이폰이 초점 주는 것을
+                       못 막았다(위 `onFocus` 주석). */
                     readOnly={canNative}
-                    /* **`pointerdown`이다.** `mousedown`은 손을 뗄 때쯤에야
-                       와서 누른 뒤 한 박자 쉬고 바가 뜬다 — 이 칸은 누르는
-                       것이 곧 일의 시작이라 그 틈이 그대로 느껴진다. */
-                    onPointerDown={canNative ? (e => { e.preventDefault(); openBar(); }) : undefined}
+                    tabIndex={canNative ? -1 : undefined}
                     rows={1} maxLength={500}
                     aria-label="댓글 입력"
                 />
+                {/* **누르는 자리를 웹 칸 위에 따로 얹는다.** 웹 칸을 직접
+                    누르면 아이폰이 `readOnly`여도 초점을 주고 키보드를
+                    웹 쪽으로 가져간다. 이 덮개가 손짓을 먼저 받아 웹 칸에는
+                    아예 안 닿게 한다. **`pointerdown`이다** — `click`은 손을
+                    뗄 때쯤에야 와서 한 박자 쉬고 바가 뜬다. */}
+                {canNative && (
+                    <div className="comment-tap" role="button" aria-label="댓글 적기"
+                         onPointerDown={e => { e.preventDefault(); openBar(); }} />
+                )}
                 {!focused && !barUp && !hasText.current
                     && <span className="comment-hint">댓글 남기기</span>}
             </div>

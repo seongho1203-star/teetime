@@ -1698,3 +1698,21 @@ html.nc:not(.nc2) body.kb-open .chat-input { padding-bottom: 0; }
    옛 값을 주므로, `kb-open`에서는 아예 안 더한다. */
 html.nc2 .chat-input { padding-bottom: calc(var(--composer, 60px) + var(--safe-b)); }
 html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }
+
+/* 임시 진단 줄(앱에서만 · Chat.tsx의 `kb-probe`). 확인이 끝나면 함께 지운다. */
+.kb-probe {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    right: 4px;
+    z-index: 50;
+    font-size: 10px;
+    line-height: 1.2;
+    font-family: ui-monospace, monospace;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 6px;
+    padding: 2px 5px;
+    pointer-events: none;
+    word-break: break-all;
+}
