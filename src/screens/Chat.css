@@ -1685,8 +1685,16 @@ html.nc .chat-input {
     padding-top: 0;
     padding-bottom: var(--composer, 60px);
 }
-/* **키보드가 올라오면 그 자리를 비우지 않는다.** `resize: 'native'`가
-   웹뷰를 줄일 때 쓰는 키보드 높이에는 **바까지 들어 있어서**, 웹뷰가
-   이미 바 위에서 끝난다 — 여기서 또 비우면 목록 아래에 빈 띠가 바
-   높이만큼 남는다(키보드가 내려가 있을 때와 정반대다). */
-html.nc body.kb-open .chat-input { padding-bottom: 0; }
+/* **1판(옛 앱 — 바가 `inputAccessoryView`)에서는 키보드가 올라오면 그
+   자리를 비우지 않는다.** `resize: 'native'`가 웹뷰를 줄일 때 쓰는 키보드
+   높이에 **바까지 들어 있어서**, 웹뷰가 이미 바 위에서 끝난다 — 여기서
+   또 비우면 목록 아래에 빈 띠가 바 높이만큼 남는다. */
+html.nc:not(.nc2) body.kb-open .chat-input { padding-bottom: 0; }
+/* **2판(바가 보통 뷰)은 반대다.** 바가 화면 아래(안전 영역 바로 위)에
+   서서 웹뷰를 **덮으므로** 늘 그만큼 비워야 한다. 키보드가 내려가 있을
+   때는 바 아래에 홈 인디케이터 자리(`--safe-b`)가 더 있고, 올라오면
+   웹뷰가 키보드 위에서 끝나 그 값이 0이 된다 — 그런데 웹뷰가 줄어드는
+   것이 키보드보다 0.45초 늦어(플러그인의 그 타이밍) 그 사이 `env()`가
+   옛 값을 주므로, `kb-open`에서는 아예 안 더한다. */
+html.nc2 .chat-input { padding-bottom: calc(var(--composer, 60px) + var(--safe-b)); }
+html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }

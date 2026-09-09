@@ -2045,9 +2045,10 @@ export function Chat() {
         let stood = false;
         let watchdog = 0;
 
-        /* 웹의 다른 칸(대화 검색)이 초점을 가져가면 **잠시 물러난다** —
-           그때는 웹뷰가 first responder라 바가 저절로 사라지는데, 물러나
-           두지 않으면 서로 first responder를 뺏느라 다툰다. */
+        /* 웹의 다른 칸(대화 검색)이 초점을 가져가면 앱에 알린다.
+           1판 앱(`inputAccessoryView`)에서는 그때 바가 물러나야 서로
+           first responder를 뺏느라 다투지 않았다. 2판은 아무 일도 안 하지만
+           옛 앱을 위해 그대로 부른다. */
         const typing = (el: EventTarget | null) => {
             const t = el as HTMLElement | null;
             return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');

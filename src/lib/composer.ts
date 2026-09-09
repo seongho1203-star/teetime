@@ -22,7 +22,8 @@ export type ComposerAction = 'plus' | 'sticker';
 type Handle = { remove: () => Promise<void> };
 
 type Native = {
-    ready(): Promise<{ ok: boolean }>;
+    /** `v`는 앱 쪽 판 번호다. 없으면 1판(`inputAccessoryView`로 세우던 판). */
+    ready(): Promise<{ ok: boolean; v?: number }>;
     attach(o: Record<string, unknown>): Promise<void>;
     detach(): Promise<void>;
     setText(o: { text: string; sel?: number }): Promise<void>;
@@ -56,12 +57,16 @@ export const ncLog = {
     ready: null as boolean | null,
     /** 바가 제 높이를 알려 왔나 — 화면에 실제로 섰다는 증거다. */
     stood: false,
+    /** 앱 쪽 판 번호. 0이면 아직 모른다. */
+    v: 0,
 };
 
-/** `내 정보` 아래에 적을 한 줄. */
+/** `내 정보` 아래에 적을 한 줄. 판 번호를 함께 적는다 — 새 앱을 깔았는지가
+    폰에서는 이걸로만 갈린다. */
 export function ncStatus(): string {
     const yn = (v: boolean | null) => (v === null ? '?' : v ? 'O' : 'X');
-    return `글칸 앱${yn(ncLog.native)}·플러그인${yn(ncLog.ready)}·바${yn(ncLog.stood)}`;
+    const v = ncLog.v ? `(${ncLog.v}판)` : '';
+    return `글칸 앱${yn(ncLog.native)}·플러그인${yn(ncLog.ready)}${v}·바${yn(ncLog.stood)}`;
 }
 
 let asked: Promise<boolean> | null = null;
@@ -80,6 +85,12 @@ export function composerReady(): Promise<boolean> {
         try {
             const r = await NativeComposer.ready();
             ncLog.ready = r?.ok === true;
+            ncLog.v = ncLog.ready ? (typeof r?.v === 'number' ? r.v : 1) : 0;
+            /* **2판부터는 바가 `inputAccessoryView`가 아니라 보통 뷰다.**
+               키보드가 올라와도 웹뷰 아래를 바가 덮으므로 여백 셈이 다르다 —
+               CSS가 `html.nc2`로 가른다(`Chat.css`·`global.css`). 옛 앱에는
+               이 표시가 안 붙어 예전 셈이 그대로 돈다. */
+            if (ncLog.v >= 2) document.documentElement.classList.add('nc2');
         } catch {
             ncLog.ready = false;
         }

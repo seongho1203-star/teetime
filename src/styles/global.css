@@ -232,6 +232,12 @@ body.kb-typing .page { padding-bottom: calc(var(--kb-pad, 0px) + var(--gap)); }
    들어 있어서** 웹뷰가 이미 바 위에서 끝난다. 여기서는 탭바를 감춘 만큼만
    되돌리면 된다. */
 body.nc-typing .page { padding-bottom: var(--gap); }
+/* **2판(바가 보통 뷰, `html.nc2`)은 바가 웹뷰를 덮으므로 그만큼 비운다.**
+   `--composer`는 바가 알려 준 제 높이다. 댓글 칸을 끌어 올릴 때도
+   (`scrollIntoView`) 바 뒤로 들어가지 않게 같은 값을 `scroll-margin`으로
+   둔다 — 여기는 `lib/keyboard.ts`의 `GAP` 셈을 안 타는 자리다. */
+html.nc2 body.nc-typing .page { padding-bottom: calc(var(--composer, 60px) + var(--gap)); }
+html.nc2 body.nc-typing .comment-form { scroll-margin-bottom: calc(var(--composer, 60px) + var(--gap)); }
 
 /* **저장·신청 단추는 키보드 바로 위에 붙는다.** 탭바 자리를 피하려고
    띄워 둔 값이라, 탭바가 없어지면 그만큼 내려와야 손에 닿는다. */

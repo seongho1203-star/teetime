@@ -7,18 +7,23 @@ import Capacitor
  * **바를 세우고 · 글을 주고받고 · 초점을 여닫고 · 높이를 알린다.**
  * 무엇을 어떻게 그릴지는 전부 웹이 정한다(`src/lib/composer.ts`).
  *
- * **바는 `inputAccessoryView`다.** 그래야 iOS가 키보드와 **한 번의
- * 움직임으로 함께** 옮긴다 — 카톡이 부드러운 까닭이 이것이고, 웹뷰
- * 안에서는 아무리 맞춰도 안 되던 자리다.
+ * **바는 화면 아래에 늘 서 있는 보통 뷰이고, 아래를 `keyboardLayoutGuide`에
+ * 묶는다.** 키보드가 오르내리면 iOS가 그 안내선을 **키보드와 같은
+ * 움직임으로** 옮기므로 바가 키보드에 붙어 함께 간다 — 카톡이 부드러운
+ * 까닭이 이것이다.
  *
- * 키보드가 내려가 있을 때도 바가 화면 아래에 그대로 서 있어야 하므로,
- * **눈에 안 보이는 `ComposerHost`가 늘 first responder를 쥐고 있다가**
- * 글칸이 초점을 놓으면 도로 받는다. 이 되받기가 없으면 키보드를 내릴
- * 때마다 바가 함께 사라진다.
+ * **처음에는 `inputAccessoryView`였다. 되돌리지 말 것.** 그 방식은
+ * first responder가 곧 생명줄이라, 눈에 안 보이는 `ComposerHost`가 늘
+ * 그 자리를 쥐고 있어야 했다. 그런데 **대화 바탕을 한 번 누르기만 해도
+ * 웹뷰가 first responder를 가져가** 바가 통째로 사라졌고(실기기 제보 —
+ * `채팅 배경을 누르면 아예 사라져`), 되받으면 이번엔 **탭바 밑에서 다시
+ * 솟아오르는 것**이 그대로 보였다(`탭바를 덮으면서 올라와`). 게다가 세운
+ * 직후에는 바가 창에 아직 안 붙어 있어 `becomeFirstResponder()`가 조용히
+ * 실패했다(댓글 칸에서 키보드가 안 뜬 자리). 보통 뷰로 세우면 셋이 다
+ * 없다 — 누가 first responder든 바는 그 자리에 있고, 세우자마자 초점도 준다.
  *
- * **웹의 다른 칸(대화 검색 등)이 초점을 가져가면 잠시 물러난다**
- * (`pause`/`resume`) — 그때는 웹뷰가 first responder라 우리 바가 저절로
- * 사라지는데, 물러나 두지 않으면 서로 first responder를 뺏느라 다툰다.
+ * `pause`/`resume`은 그때의 자국이라 **이제 아무 일도 안 한다.** 옛 웹이
+ * 아직 부르므로 이름만 남겨 둔다.
  *
  * **손으로 등록해야 불린다 — `MainViewController.swift`가 그 자리다.**
  * Capacitor 7은 런타임을 훑지 않고 `capacitor.config.json`의
@@ -30,6 +35,8 @@ import Capacitor
  * **플러그인이 없는 판에서도 앱은 그대로 돈다.** 웹이 `ready()`를 한 번
  * 불러 보고 안 되면 예전 웹 글칸을 그대로 쓴다 — 앱은 새로 만들어 깔기까지
  * 시간이 걸리는데 웹은 밀면 바로 올라가므로, 그 사이가 늘 생긴다.
+ * `ready()`가 돌려주는 `v`가 이 판의 번호다 — 웹이 그걸 보고 옛 판
+ * (`inputAccessoryView`)과 새 판의 여백 셈을 가른다(`html.nc2`).
  */
 @objc(NativeComposerPlugin)
 public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, ComposerBarDelegate {
@@ -49,18 +56,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "resume", returnType: CAPPluginReturnPromise)
     ]
 
-    private var host: ComposerHost?
+    /// 이 판의 번호. 바를 세우는 방식이 바뀌면 올린다(웹이 `html.nc2`로 가른다).
+    private static let version = 2
+
     private var bar: ComposerBar?
     /// 붙어 있는가. 떼어 낸 뒤에 오는 신호를 흘려보내는 데 쓴다.
     private var live = false
-    /// 웹의 다른 칸에 자리를 내주고 물러나 있는가(`pause`/`resume`).
-    private var paused = false
 
     // ── 웹이 부르는 것들 ──────────────────────────────────
 
-    /// 플러그인이 있는지 물어보는 자리. 값은 아무 뜻이 없다.
+    /// 플러그인이 있는지 물어보는 자리. `v`는 판 번호다.
     @objc func ready(_ call: CAPPluginCall) {
-        call.resolve(["ok": true])
+        call.resolve(["ok": true, "v": NativeComposerPlugin.version])
     }
 
     @objc func attach(_ call: CAPPluginCall) {
@@ -73,31 +80,53 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             bar.barDelegate = self
             self.bar = bar
 
-            let host = self.host ?? ComposerHost(frame: .zero)
-            host.bar = bar
-            if host.superview == nil { root.addSubview(host) }
-            self.host = host
+            if bar.superview !== root {
+                bar.removeFromSuperview()
+                root.addSubview(bar)
+                self.pin(bar, to: root)
+            }
 
             self.apply(call, on: bar)
             self.live = true
-            _ = host.becomeFirstResponder()
+            /* 세우자마자 자리를 잡아 둔다 — 그래야 `height`가 곧바로 웹에
+               가고, 아래 초점 주기도 창에 붙은 바에서 돈다. */
+            root.layoutIfNeeded()
             /* `focus: true`면 세우면서 바로 글칸에 초점을 준다 — 댓글 칸이
-               그렇게 쓴다(누른 그 순간 키보드가 올라와야 한다).
-               **다리를 두 번 건너지 않는 것이 요점이다**: 세우고 나서
-               `focus()`를 따로 부르면 그 사이에 바가 아직 창에 안 붙어
-               있어 실패한다(아래 `grabFocus` 주석). */
+               그렇게 쓴다(누른 그 순간 키보드가 올라와야 한다). */
             if call.getBool("focus") == true { self.grabFocus(tries: 8) }
             call.resolve()
         }
+    }
+
+    /**
+     * 바를 화면에 묶는다 — 가로는 꽉 채우고, **아래는 키보드 위**다.
+     *
+     * iOS 15부터는 `keyboardLayoutGuide`가 그 자리를 안다. 키보드가 없으면
+     * 그 윗선이 안전 영역 아래와 같고, 올라오면 키보드 윗선이 되며,
+     * 오르내릴 때 iOS가 키보드와 **같은 움직임으로** 옮긴다.
+     * 그 아래 판에서는 안전 영역에 묶고 키보드 알림을 듣고 손으로 올린다
+     * (`ComposerBar.bottomC`).
+     */
+    private func pin(_ bar: ComposerBar, to root: UIView) {
+        var cs = [
+            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+        ]
+        if #available(iOS 15.0, *) {
+            cs.append(bar.bottomAnchor.constraint(equalTo: root.keyboardLayoutGuide.topAnchor))
+        } else {
+            let c = bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor)
+            bar.bottomC = c
+            cs.append(c)
+        }
+        NSLayoutConstraint.activate(cs)
     }
 
     @objc func detach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.live = false
             _ = self.bar?.textView.resignFirstResponder()
-            _ = self.host?.resignFirstResponder()
-            self.host?.removeFromSuperview()
-            self.host = nil
+            self.bar?.removeFromSuperview()
             self.bar?.barDelegate = nil
             self.bar = nil
             call.resolve()
@@ -138,16 +167,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     }
 
     /**
-     * **될 때까지 몇 번 다시 해 본다.**
-     *
-     * `UIView.becomeFirstResponder()`는 **그 뷰가 창에 붙어 있지 않으면
-     * 그냥 false를 돌려준다.** 우리 바는 `inputAccessoryView`라, `host`가
-     * first responder가 된 **뒤에** iOS가 창에 얹어 주는데 그게 몇 프레임
-     * 걸린다. 그래서 세우자마자 초점을 주면 조용히 실패한다 —
-     * **댓글 칸에서 바는 떴는데 키보드가 안 올라오던 것이 이것이다**
-     * (대화는 사람이 한참 뒤에 글칸을 눌러서 안 걸렸다).
-     *
-     * 실패는 값이 싸므로 0.05초 간격으로 여덟 번까지 두드린다.
+     * 초점을 준다. 바가 보통 뷰라 세우자마자 창에 붙어 있으므로 대개
+     * 한 번에 되는데, `becomeFirstResponder()`가 거절하는 판(다른 것이
+     * 놓아 주는 중)이 있어 값이 싼 되풀이를 남겨 둔다.
      */
     private func grabFocus(tries: Int) {
         guard self.live, let bar = self.bar else { return }
@@ -159,33 +181,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }
     }
 
-    /// 키보드만 내린다. **바는 그대로 서 있어야 하므로** 곧바로
-    /// host가 first responder를 되받는다.
+    /// 키보드만 내린다. 바는 보통 뷰라 그대로 서 있다.
     @objc func blur(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             _ = self.bar?.textView.resignFirstResponder()
-            if self.live { _ = self.host?.becomeFirstResponder() }
             call.resolve()
         }
     }
 
-    /// 웹의 다른 칸이 초점을 가져갈 때. 바가 사라지고 우리는 손을 뗀다.
-    @objc func pause(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            self.paused = true
-            _ = self.bar?.textView.resignFirstResponder()
-            _ = self.host?.resignFirstResponder()
-            call.resolve()
-        }
-    }
-
-    @objc func resume(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            self.paused = false
-            if self.live { _ = self.host?.becomeFirstResponder() }
-            call.resolve()
-        }
-    }
+    /// 옛 웹이 부르던 것. 이제 할 일이 없다(머리말 참고).
+    @objc func pause(_ call: CAPPluginCall) { call.resolve() }
+    @objc func resume(_ call: CAPPluginCall) { call.resolve() }
 
     // ── 값 옮겨 담기 ─────────────────────────────────────
 
@@ -267,18 +273,6 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     func composerFocus(_ on: Bool) {
         guard live else { return }
-        /* 글칸이 초점을 놓으면 **host가 도로 받아** 바를 화면에 남긴다.
-         *
-         * **조금 기다렸다 받는다.** 웹의 다른 칸(대화 검색)을 눌렀을 때도
-         * 이 신호가 먼저 오는데, 그때 곧바로 받아 버리면 **방금 초점이 간
-         * 웹 칸에서 도로 뺏는다.** 웹이 `pause()`를 부르는 것은 그다음이라,
-         * 그것이 닿을 만큼만 기다렸다가 물러나 있으면 그만둔다. */
-        if !on {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                guard self.live, !self.paused, let host = self.host else { return }
-                if !host.isFirstResponder { _ = host.becomeFirstResponder() }
-            }
-        }
         notifyListeners("focus", data: ["on": on])
     }
 
@@ -286,21 +280,6 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         guard live else { return }
         notifyListeners("height", data: ["height": height])
     }
-}
-
-/*
- * 눈에 안 보이는 자리 지킴이. **`inputAccessoryView`를 내놓는 것이
- * 이 뷰가 하는 일의 전부다** — 키보드가 내려가 있어도 바가 화면 아래에
- * 남아 있으려면 누군가는 first responder를 쥐고 있어야 한다.
- */
-final class ComposerHost: UIView {
-    var bar: ComposerBar?
-
-    override var canBecomeFirstResponder: Bool { return true }
-    override var inputAccessoryView: UIView? { return bar }
-
-    /// 자리만 차지하고 눌리지 않는다.
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { return nil }
 }
 
 extension UIColor {

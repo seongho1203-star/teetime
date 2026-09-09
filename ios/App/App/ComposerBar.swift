@@ -12,9 +12,17 @@ import UIKit
  *    같아서 웹에서 바꿀 수 있는 것이 없었다. `UITextView`는 조합을 쓰므로
  *    칸이 빌 일 자체가 없다.
  * 2. **키보드와 따로 노는 움직임.** 카톡의 입력칸은 키보드에 붙어 있는
- *    네이티브 뷰(`inputAccessoryView`)라 iOS가 **한 번의 움직임으로 함께**
- *    옮긴다. 웹뷰 안에서는 iOS 키보드 · 웹뷰 줄이기 · 웹 화면 셋이 따로
- *    놀아서 그 틈을 좁힐 수는 있어도 없앨 수는 없었다.
+ *    네이티브 뷰라 iOS가 **한 번의 움직임으로 함께** 옮긴다. 웹뷰 안에서는
+ *    iOS 키보드 · 웹뷰 줄이기 · 웹 화면 셋이 따로 놀아서 그 틈을 좁힐 수는
+ *    있어도 없앨 수는 없었다.
+ *
+ * **바는 `inputAccessoryView`가 아니라 화면 아래에 늘 서 있는 보통 뷰다**
+ * (`NativeComposerPlugin`이 `keyboardLayoutGuide`에 묶어 세운다).
+ * 처음에는 `inputAccessoryView`로 만들었는데 **first responder가 곧
+ * 생명줄이라** 대화 바탕을 한 번 누르기만 해도 웹뷰가 그 자리를 가져가
+ * **바가 통째로 사라졌다**(실기기 제보 — `채팅 배경을 누르면 아예 사라져`).
+ * 되받으면 이번엔 탭바 밑에서 다시 솟아오르는 것이 보였다. 아래
+ * `NativeComposerPlugin.swift` 머리말에 적어 두었다.
  *
  * **모양과 크기는 JS가 정한다.** 여기 적힌 값은 예비값일 뿐이고 실제로는
  * `attach()`가 받은 값으로 덮인다 — 앱은 새로 만들려면 30분이 걸리지만
@@ -56,9 +64,10 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /**
      * **키보드가 내려가 있을 때 아래에 비워 둘 자리**(웹 탭바 높이).
      *
-     * 바는 화면 맨 아래에 서는데 우리 앱은 거기에 탭바(홈·공지·…)가 있다.
-     * 그 높이만큼 바를 키우고 **그 자리는 칠하지도, 손짓을 받지도 않는다** —
-     * 그러면 밑에 있는 웹 탭바가 그대로 보이고 눌린다.
+     * 바는 화면 아래(안전 영역 바로 위)에 서는데 우리 앱은 거기에 탭바
+     * (홈·공지·…)가 있다. 그 높이만큼 바를 키우고 **그 자리는 칠하지도,
+     * 손짓을 받지도 않는다** — 그러면 밑에 있는 웹 탭바가 그대로 보이고
+     * 눌린다. 홈 인디케이터 자리는 바 밖이라(안전 영역) 거기도 웹이 보인다.
      * 키보드가 올라오면 탭바는 감춰지므로 이 몫도 0이 된다.
      *
      * **웹이 정하는 값이라 어긋나도 앱을 다시 안 만들어도 된다** — 0을
@@ -109,10 +118,9 @@ final class ComposerBar: UIView, UITextViewDelegate {
     }
 
     private func build() {
-        // `inputAccessoryView`가 제 높이(`intrinsicContentSize`)를 따르게
-        // 하는 한 쌍이다. 빼면 44px에 갇힌다.
-        autoresizingMask = .flexibleHeight
-        translatesAutoresizingMaskIntoConstraints = true
+        // 오토레이아웃으로 세운다(가로는 화면에, 아래는 키보드 위에 묶인다).
+        // 높이는 `intrinsicContentSize`가 정한다.
+        translatesAutoresizingMaskIntoConstraints = false
 
         backgroundColor = .clear
         fill.isUserInteractionEnabled = false
@@ -255,28 +263,59 @@ final class ComposerBar: UIView, UITextViewDelegate {
         return padV * 2 + fieldHeight() + safeAreaInsets.bottom + (kbUp ? 0 : tabH)
     }
 
+    /**
+     * iOS 15 아래에서만 쓰는 예비 길. `keyboardLayoutGuide`가 없는 판에서는
+     * 바 아래를 화면 안전 영역에 묶어 두고, 키보드가 오르내릴 때 이 값을
+     * 키보드 높이만큼 움직인다(플러그인이 넣어 준다).
+     */
+    var bottomC: NSLayoutConstraint?
+
     /// 키보드가 오르내릴 때 스스로 알아챈다 — **웹이 알려 주기를
     /// 기다리면 한 번 건너오느라 늦어 그 사이 자리가 어긋난다.**
-    ///
-    /// **다만 올라올 때는 이걸로도 늦다** — 아래 `textViewShouldBeginEditing`
-    /// 주석을 볼 것.
     func watchKeyboard() {
         let c = NotificationCenter.default
-        c.addObserver(self, selector: #selector(kbShow),
+        c.addObserver(self, selector: #selector(kbShow(_:)),
                       name: UIResponder.keyboardWillShowNotification, object: nil)
-        c.addObserver(self, selector: #selector(kbHide),
+        c.addObserver(self, selector: #selector(kbHide(_:)),
                       name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
-    @objc private func kbShow() { setKb(true) }
-    @objc private func kbHide() { setKb(false) }
+    @objc private func kbShow(_ n: Notification) { setKb(true, n) }
+    @objc private func kbHide(_ n: Notification) { setKb(false, n) }
 
-    private func setKb(_ on: Bool) {
+    /**
+     * 아래 빈자리(`tabH`)를 걷거나 되돌린다. **키보드와 같은 시간·곡선으로
+     * 편다** — 알림에 실려 오는 그 값이다. 그냥 바꾸면 키보드가 움직이기
+     * 시작하는 순간 바가 탭바 높이만큼 툭 내려앉았다가 올라간다.
+     * `keyboardLayoutGuide`가 바 아래를 옮기는 것도 같은 시간·곡선이라
+     * 둘이 한 움직임으로 보인다.
+     */
+    private func setKb(_ on: Bool, _ n: Notification? = nil) {
         guard kbUp != on else { return }
         kbUp = on
         invalidateIntrinsicContentSize()
         setNeedsLayout()
-        superview?.setNeedsLayout()
+        guard let sv = superview else { return }
+        sv.setNeedsLayout()
+
+        let info = n?.userInfo
+        let dur = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 7
+        let opts = UIView.AnimationOptions(rawValue: UInt(curve) << 16)
+
+        // iOS 15 아래의 예비 길 — 키보드 높이만큼 바 아래를 올린다.
+        if let c = bottomC {
+            var rise: CGFloat = 0
+            if on, let end = info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                let f = sv.convert(end, from: nil)
+                rise = max(0, sv.bounds.maxY - f.minY - sv.safeAreaInsets.bottom)
+            }
+            c.constant = -rise
+        }
+
+        UIView.animate(withDuration: dur, delay: 0, options: [opts, .beginFromCurrentState]) {
+            sv.layoutIfNeeded()
+        }
     }
 
     /// 아래 빈자리는 우리 것이 아니다 — 손짓을 그대로 흘려보낸다.
@@ -376,29 +415,6 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     func textViewDidChange(_ tv: UITextView) {
         afterEdit(tell: true)
-    }
-
-    /**
-     * **키보드가 올라오기 전에 아래 빈자리(`tabH`)를 걷는다.**
-     *
-     * iOS는 **first responder가 바뀌는 그 순간** `inputAccessoryView`의
-     * 높이를 재어 '키보드 프레임'을 정하고, 그 값을 알림으로 뿌린다.
-     * 그런데 우리가 `keyboardWillShow`에서 `tabH`를 걷으면 **이미 잰
-     * 뒤**라, 키보드 프레임에는 탭바 몫까지 들어간 **높은 바**가 잡힌다.
-     *
-     * `resize: 'native'`는 그 값만큼 웹뷰를 줄이므로, 바가 줄어든 만큼
-     * (=탭바 높이 58px) **웹뷰 아래에 검은 띠가 남았다** — 대화 목록과
-     * 바 사이가 통째로 비어 보인 그 자리다(실기기 사진에서 57.3pt로 쟀고
-     * `--tabbar-h`가 정확히 58px이다).
-     *
-     * `shouldBeginEditing`은 **first responder가 되기 전에** 불리므로,
-     * 여기서 줄여 두면 iOS가 처음부터 짧은 바를 잰다.
-     * `keyboardWillShow`는 그대로 예비로 남겨 둔다(다른 길로 키보드가
-     * 올라오는 판을 위해).
-     */
-    func textViewShouldBeginEditing(_ tv: UITextView) -> Bool {
-        setKb(true)
-        return true
     }
 
     func textViewDidBeginEditing(_ tv: UITextView) {
