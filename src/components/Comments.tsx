@@ -7,7 +7,7 @@ import { personLabel, type Person } from '../lib/types';
 import { Avatar } from './Avatar';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
-import { NativeComposer, composerReady, composerSkin, hush } from '../lib/composer';
+import { NativeComposer, composerReady, composerSkin, hush, ncLog } from '../lib/composer';
 
 /** 세 댓글 표가 공통으로 가진 칸. 무엇에 달렸는지만 표마다 다르다. */
 export type AnyComment = {
@@ -251,7 +251,9 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
         grabUntil.current = 0;
         setBarUp(false);
         document.body.classList.remove('nc-typing');
-        void hush(NativeComposer.detach());
+        /* 미리 세워 둔 것이면 **떼지 않고 도로 감춘다** — 다음에 또 빨리 뜬다. */
+        if (warm.current) void hush(NativeComposer.setState({ hidden: true }));
+        else void hush(NativeComposer.detach());
     };
 
     useEffect(() => {
@@ -331,6 +333,36 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
            위의 `live`를 거치므로 다시 걸 이유가 없다. */
     }, [canNative]);
 
+    /**
+     * **바를 미리 세워 두고 감춰 둔다**(6판부터).
+     *
+     * 누를 때 세우면 그때 `UITextView`를 만들고 자리를 잡느라 **바가 서기까지
+     * 50ms**가 걸린다(진단 — `누름 0` → `바 51`. 사용자 제보 — `뜨는게
+     * 텀이있는데`). 화면이 뜰 때 미리 세워 감춰 두면, 누를 때는 **감춘 것만
+     * 뒤집으면 되어** 다리를 한 번만 건넌다.
+     *
+     * **감춰 둔 바는 아무 일도 안 한다** — 그리지도, 손짓을 받지도 않는다.
+     * 옛 앱(5판까지)은 `hidden`을 모르므로 미리 세우면 바가 그대로 **보인다.**
+     * 그래서 6판부터만 한다.
+     */
+    const warm = useRef(false);
+    useEffect(() => {
+        if (!canNative || ncLog.v < 6) return;
+        let dead = false;
+        void (async () => {
+            await hush(NativeComposer.attach(composerSkin({
+                showPlus: false, showIcon: false,
+                hintText: '댓글 남기기', tabH: 0, hidden: true, focus: false,
+            })));
+            if (!dead) warm.current = true;
+        })();
+        return () => {
+            dead = true;
+            warm.current = false;
+            if (!barRef.current) void hush(NativeComposer.detach());
+        };
+    }, [canNative]);
+
     /** 웹 칸을 누르면 네이티브 바를 세우고 거기에 초점을 준다. */
     const openBar = () => {
         void (async () => {
@@ -343,6 +375,14 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                (위 `focus` 듣는 곳 참고). */
             grabUntil.current = Date.now() + 800;
             let attached = true;
+            /* **미리 세워 뒀으면 내보이기만 한다** — 다리를 한 번만 건넌다
+               (위 `warm` 주석). 글은 `text`로 함께 넘겨 웹 칸의 것을 옮긴다. */
+            if (warm.current) {
+                await NativeComposer.setState({
+                    hidden: false, focus: true, text: ref.current?.value ?? '',
+                }).catch(() => { attached = false; });
+                log(attached ? '내보임' : '내보이기 실패');
+            } else {
             await NativeComposer.attach(composerSkin({
                 showPlus: false, showIcon: false,
                 hintText: '댓글 남기기',
@@ -363,6 +403,7 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 log(`attach 실패 ${String((err as { message?: string })?.message ?? err).slice(0, 24)}`);
             });
             if (attached) log('attach 됨');
+            }
             barRef.current = true;
             setBarUp(true);
             document.body.classList.add('nc-typing');

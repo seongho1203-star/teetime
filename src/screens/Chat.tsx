@@ -28,6 +28,12 @@ import { NativeComposer, composerReady, composerSkin, hush, ncLog } from '../lib
  * 값을 먼저 적어 두면 그 뜀이 없다.
  */
 let lastBarH = 0;
+
+/** 앱 쪽 바가 **`--chat-h`·`--composer`의 주인인가**(6판부터).
+ *  판 번호는 앱에 물어봐야 알므로 **쓸 때마다 본다** — 값으로 잡아 두면
+ *  아직 답이 오기 전이라 늘 거짓이 된다(실기기에서 그래서 6판 코드가
+ *  통째로 안 돌았다). */
+const owns6 = () => ncLog.v >= 6;
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -848,8 +854,14 @@ export function Chat() {
         /* **6판부터는 바가 두 값의 주인이다**(`--chat-h`·`--composer`).
            5판까지는 움직이는 동안만 바가 적고 그 밖에는 여기서 셈했는데,
            **둘이 엇갈려 목록이 흔들렸다**(진단 — `--composer`가 116과 150을
-           오가며 `L618↔652`). 값을 적는 곳을 하나로 몰면 그럴 자리가 없다. */
-        const owns = ncLog.v >= 6;
+           오가며 `L618↔652`). 값을 적는 곳을 하나로 몰면 그럴 자리가 없다.
+
+           **부를 때마다 본다. 여기서 한 번 정해 두지 말 것** — 판 번호는
+           `composerReady()`가 앱에 물어봐야 알 수 있고 그 답은 이 효과가
+           도는 뒤에 온다. 값으로 잡아 두었더니 **늘 거짓이라 6판 코드가
+           통째로 안 돌았다**(실기기 진단 — `틱70`이 도는데도 `b116↔150`이
+           그대로였다). */
+        const owns = owns6;
         /* 지난번 바 높이를 먼저 적어 둔다(`lastBarH` 주석). */
         if (lastBarH) root.style.setProperty('--composer', `${lastBarH}px`);
         /** 키보드가 가릴 높이(플러그인이 알려 준 값). */
@@ -882,7 +894,7 @@ export function Chat() {
          */
         const flush = () => {
             flushAt = 0;
-            if (owns || kbFollow.current) return;   // 바가 적는다
+            if (owns() || kbFollow.current) return;   // 바가 적는다
             if (beat.at && !follows) {          // 4판부터는 전환 시간을 안 쓴다(늘 0)
                 const gone = Date.now() - beat.at;
                 /* 신호가 한참 지난 것이면(그 움직임은 이미 끝났다) 원래 시간으로
@@ -1035,16 +1047,15 @@ export function Chat() {
             /* **6판은 늘 바가 적는다** — 움직이는 동안인지 가리지 않는다.
                `end`는 '이번 움직임이 끝났다'는 뜻일 뿐이라, 거기서 웹 셈으로
                돌아가면 그때부터 둘이 엇갈린다(위 `owns` 주석). */
-            if (owns) {
-                if (!kbFollow.current) {
-                    kbFollow.current = true;
-                    root.classList.add('kb-follow');
-                }
+            if (owns()) {
                 kbLate.current.ticks += 1;
-                if (e.chatH !== undefined && e.pad !== undefined) {
-                    root.style.setProperty('--chat-h', `${Math.round(e.chatH)}px`);
-                    root.style.setProperty('--composer', `${Math.round(e.pad)}px`);
-                }
+                if (e.chatH === undefined || e.pad === undefined) return;
+                /* **값을 먼저 다 적고, 그 뒤에 다른 일을 한다.** 사이에
+                   `settleList()`처럼 배치를 읽는 것이 끼면 그 한 프레임만
+                   **반쯤 적힌 값으로 그려진다**(진단 — `b116`인데 `L652`).
+                   `kb-follow`는 바를 세울 때 이미 붙여 두었다. */
+                root.style.setProperty('--chat-h', `${Math.round(e.chatH)}px`);
+                root.style.setProperty('--composer', `${Math.round(e.pad)}px`);
                 if (e.end) settleList();
                 return;
             }
@@ -2311,11 +2322,14 @@ export function Chat() {
                     /* 따라가는 동안(4판 `kbFrame`)은 그쪽이 프레임마다 적는다 —
                        여기서 목표값을 먼저 적으면 여백이 툭 뛴다. 끝날 때
                        `ncH`에서 도로 적는다. */
-                    if (!kbFollow.current) document.documentElement.style.setProperty('--composer', `${h}px`);
+                    /* **6판에서는 이 값을 안 적는다** — `frame`이 여백까지
+                       셈해서 보낸다(`--composer`는 바 높이가 아니라 **바가
+                       가리는 자리**다). 여기서 덮어쓰면 둘이 엇갈려 목록이
+                       흔들린다. `stood`와 `lastBarH`만 챙긴다. */
+                    if (!owns6() && !kbFollow.current) {
+                        document.documentElement.style.setProperty('--composer', `${h}px`);
+                    }
                     if (wasBottom) settleList(true);
-                    /* 6판에서는 이 값을 안 쓴다 — `frame`이 여백까지 셈해서
-                       보낸다. `stood`(바가 섰다는 증거)와 `lastBarH`만 여기서
-                       챙긴다. `kbFollow`가 늘 참이라 위 줄은 안 돈다. */
                 }),
             ]);
             if (dead) { hs.forEach(h => { void h.remove(); }); return; }
@@ -2328,6 +2342,12 @@ export function Chat() {
             if (dead) return;
             ncOn.current = true;
             document.documentElement.classList.add('nc');
+            /* **6판부터는 바가 서는 순간부터 값의 주인이다.** 움직일 때만
+               붙였다 떼면 그 경계에서 웹 셈과 엇갈린다(`kbFrame` 주석). */
+            if (owns6()) {
+                kbFollow.current = true;
+                document.documentElement.classList.add('kb-follow');
+            }
             setNativeBar(true);
             document.addEventListener('focusin', onIn);
             document.addEventListener('focusout', onOut);
@@ -2339,7 +2359,9 @@ export function Chat() {
             watchdog = window.setTimeout(() => {
                 if (dead || stood) return;
                 ncOn.current = false;
+                kbFollow.current = false;
                 document.documentElement.classList.remove('nc');
+                document.documentElement.classList.remove('kb-follow');
                 setNativeBar(false);
                 void hush(NativeComposer.detach());
             }, 1500);

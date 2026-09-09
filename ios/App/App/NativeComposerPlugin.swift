@@ -173,6 +173,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         DispatchQueue.main.async {
             guard let bar = self.bar else { call.resolve(); return }
             self.apply(call, on: bar)
+            /* `focus: true`면 여기서도 초점을 준다 — 댓글 칸이 미리 세워 둔
+               바를 내보이면서 한 번에 쓴다(다리를 한 번만 건넌다). */
+            if call.getBool("focus") == true {
+                bar.announce()
+                self.grabFocus(tries: 10)
+            }
             call.resolve()
         }
     }
@@ -295,6 +301,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         if let v = c("offBg") { bar.cOffBg = v }
         if let v = c("offFg") { bar.cOffFg = v }
         if let v = c("line") { bar.cLine = v }
+
+        /* **감춰 둘 수 있다**(6판). 댓글 칸은 화면이 뜰 때 바를 미리 세워
+           감춰 두었다가, 누를 때 이 값만 뒤집는다 — 그때 만들면 바가 서기까지
+           50ms가 걸린다(진단 — `누름 0` → `바 51`). 감춘 뷰는 초점을 못 받으므로
+           **여기서 먼저 내보이고 그다음에 초점을 준다**(부르는 차례가 곧 그것이다). */
+        if let v = call.getBool("hidden") { bar.isHidden = v }
 
         if let v = call.getString("hintText") { bar.setHint(v) }
         if let v = call.getBool("showIcon") { bar.showIcon = v }
