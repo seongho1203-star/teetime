@@ -68,6 +68,33 @@ async function load(): Promise<Plugin | null> {
     }
 }
 
+/**
+ * **어디까지 갔는지 화면에 적어 주는 자리.**
+ *
+ * 알림을 켜는 일은 **폰에서만 도는 네 걸음**이다 — 플러그인 찾기 · 권한
+ * 묻기 · 애플(구글)에서 토큰 받기 · 서버에 남기기. 어느 걸음에서 막혔는지
+ * 밖에서는 알 길이 없어, 안 켜진다는 제보를 받으면 **짐작만 하게 된다**
+ * (`ncStatus()`와 같은 자리다 — 그때도 그래서 한 바퀴를 헛돌았다).
+ *
+ * 그래서 걸음마다 한 마디를 적어 화면(`Me.tsx`)이 그대로 보여 준다.
+ * **토스트로만 알리지 말 것** — 몇 초 뒤 사라져서 사진으로 찍어 보낼 수가
+ * 없다. 실패한 까닭은 그 줄에 그대로 남는다.
+ */
+export const pushDiag: { step: string; why: string } = { step: '', why: '' };
+
+let onStep: (s: string) => void = () => {};
+
+/** 화면이 걸음을 따라 적게 한다. 돌려주는 것을 부르면 그만 듣는다. */
+export function watchPushStep(fn: (s: string) => void): () => void {
+    onStep = fn;
+    return () => { onStep = () => {}; };
+}
+
+export function pushStep(s: string) {
+    pushDiag.step = s;
+    onStep(s);
+}
+
 function savedToken(): string | null {
     try { return localStorage.getItem(KEY); } catch { return null; }
 }
@@ -158,15 +185,18 @@ export async function nativePushState(): Promise<PushState> {
 }
 
 export async function enableNativePush(userId: string): Promise<PushState> {
+    pushStep('1 플러그인 찾는 중');
     const p = await load();
-    if (!p) return 'unsupported';
+    if (!p) { pushStep('1 플러그인 없음'); return 'unsupported'; }
 
     let receive: string;
     try {
+        pushStep('2 권한 보는 중');
         ({ receive } = await p.checkPermissions());
         /* 권한 창은 **누른 그 자리에서** 띄운다. 한 번 거절하면 그다음부터는
            창이 안 뜨므로(`denied`) 폰 설정에서 켜야 한다 — 화면이 그 말을 한다. */
         if (receive !== 'granted' && receive !== 'denied') {
+            pushStep('2 권한 묻는 중');
             receive = (await p.requestPermissions()).receive;
         }
     } catch (e) {
@@ -175,13 +205,17 @@ export async function enableNativePush(userId: string): Promise<PushState> {
         if (notThere(e)) throw new Error('앱을 최신 판으로 받아야 알림을 켤 수 있습니다.');
         throw e;
     }
+    pushStep(`2 권한 ${receive}`);
     if (receive !== 'granted') return 'denied';
 
+    pushStep('3 토큰 받는 중');
     const token = await askToken(p);
+    pushStep(`3 토큰 ok(${token.slice(0, 6)}…)`);
     try { localStorage.setItem(KEY, token); } catch { /* 막힌 판 */ }
 
     /* `chat`은 일부러 안 보낸다 — upsert는 **보낸 칸만** 고치므로 대화
        알림만 꺼 둔 것이 껐다 켜도 그대로 살아남는다(웹과 같은 규칙이다). */
+    pushStep('4 서버에 남기는 중');
     const { error } = await supabase.from('push_subscriptions').upsert({
         endpoint: `${MARK}${token}`,
         user_id: userId,
@@ -190,6 +224,7 @@ export async function enableNativePush(userId: string): Promise<PushState> {
         ua: navigator.userAgent.slice(0, 200),
     });
     if (error) throw new Error(error.message);
+    pushStep('4 켜짐');
     return 'on';
 }
 

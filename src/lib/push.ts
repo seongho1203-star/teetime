@@ -1,8 +1,13 @@
 import { supabase } from './supabase';
 import { IS_NATIVE } from './native';
 import {
-    disableNativePush, enableNativePush, nativeEndpoint, nativePushState, watchNativePush,
+    disableNativePush, enableNativePush, nativeEndpoint, nativePushState, pushStep,
+    watchNativePush,
 } from './native-push';
+
+/* 어디까지 갔는지 화면이 적을 수 있게 그대로 내보낸다 — 화면은 앱인지
+   웹인지 몰라도 되게 이 파일이 유일한 문이다(`pushState`와 같은 잣대다). */
+export { pushDiag, watchPushStep } from './native-push';
 
 /**
  * 앱을 안 보고 있을 때 폰으로 오는 알림.
@@ -230,12 +235,16 @@ export async function enablePush(userId: string): Promise<PushState> {
         return state;
     }
 
+    pushStep('2 권한 묻는 중');
     const permission = await Notification.requestPermission();
+    pushStep(`2 권한 ${permission}`);
     if (permission !== 'granted') return permission === 'denied' ? 'denied' : 'off';
 
+    pushStep('3 서비스워커 붙이는 중');
     const reg = await navigator.serviceWorker.register(SW_URL);
     await navigator.serviceWorker.ready;
 
+    pushStep('3 구독 만드는 중');
     const sub = await reg.pushManager.getSubscription()
         ?? await reg.pushManager.subscribe({
             // 이 앱은 알림을 사람에게 보여 주는 데만 쓴다. 조용한 푸시는 안 한다.
@@ -247,6 +256,7 @@ export async function enablePush(userId: string): Promise<PushState> {
     // `chat`은 일부러 안 보낸다. upsert는 **보낸 칸만** 고치므로, 이미 있는
     // 행이면 대화 알림을 꺼 둔 것이 그대로 살아남는다. 새 행이면 DB 기본값
     // (켜짐)이 된다.
+    pushStep('4 서버에 남기는 중');
     const { error } = await supabase.from('push_subscriptions').upsert({
         endpoint: sub.endpoint,
         user_id: userId,

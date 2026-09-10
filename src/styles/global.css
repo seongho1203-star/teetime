@@ -682,6 +682,9 @@ body.nc-typing .round-actions { bottom: 0; }
 .switch-row + .switch-row { border-top: 1px solid var(--line); }
 .switch-row .switch-label { font-weight: 700; }
 .switch-row .switch-desc { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.5; }
+/* 알림을 못 켠 까닭. **화면에 남겨 두는 자리다** — 토스트는 사라져서
+   무엇이 막혔는지 사진으로 찍어 보낼 수가 없다. */
+.switch-row .switch-desc.err { color: var(--danger); margin-top: 3px; }
 
 /* 체크박스를 스위치 모양으로. transform만 움직인다. */
 .switch {

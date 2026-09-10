@@ -19,7 +19,8 @@ import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
 import { shrinkImage } from '../lib/image';
 import {
-    chatPush, disablePush, enablePush, pushState, setChatPush, type PushState,
+    chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep,
+    type PushState,
 } from '../lib/push';
 import { Switch } from '../components/Switch';
 import './Home.css';
@@ -162,6 +163,14 @@ export function Me() {
     const [pushBusy, setPushBusy] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
 
+    /* **어느 걸음에서 막혔는지 화면에 적는다.** 알림을 켜는 일은 폰에서만
+       도는 네 걸음이라(플러그인 · 권한 · 토큰 · 서버) 밖에서는 알 길이
+       없다 — 안 켜진다는 제보를 받으면 짐작만 하게 되므로, 도는 동안에는
+       걸음을 적고 실패하면 **그 까닭을 줄에 남겨 둔다.**
+       **토스트로만 알리지 말 것** — 몇 초 뒤 사라져 사진으로 못 찍는다. */
+    const [step, setStep] = useState('');
+    const [why, setWhy] = useState('');
+
     useEffect(() => {
         pushState().then(async s => {
             setPush(s);
@@ -169,8 +178,11 @@ export function Me() {
         });
     }, []);
 
+    useEffect(() => watchPushStep(setStep), []);
+
     const togglePush = async () => {
         setPushBusy(true);
+        setWhy('');
         try {
             const next = push === 'on'
                 ? await disablePush()
@@ -184,6 +196,7 @@ export function Me() {
             else if (next === 'denied') toast('폰 설정에서 이 앱의 알림을 켜 주세요.', 'error');
             else if (next === 'off' && push !== 'on') toast('알림을 켜지 않았습니다.', 'info');
         } catch (e) {
+            setWhy(readableError(e));
             toast(readableError(e), 'error');
         } finally {
             setPushBusy(false);
@@ -427,7 +440,18 @@ export function Me() {
                     <div className="switch-row">
                         <div className="grow">
                             <div className="switch-label">이 기기로 받기</div>
-                            <div className="switch-desc">{pushLine().hint}</div>
+                            {/* 도는 동안에는 걸음을 적는다 — 아무 말이 없으면
+                                눌리지 않은 줄 알고 또 누르게 된다. */}
+                            <div className="switch-desc">
+                                {pushBusy ? `켜는 중… ${step}` : pushLine().hint}
+                            </div>
+                            {/* 실패한 까닭은 남겨 둔다. 토스트는 사라져서
+                                무엇이 막혔는지 물어볼 수가 없다. */}
+                            {!!why && !pushBusy && (
+                                <div className="switch-desc err">
+                                    {step && `${step} — `}{why}
+                                </div>
+                            )}
                         </div>
                         <Switch label="이 기기로 알림 받기"
                                 on={push === 'on'} onChange={togglePush}
