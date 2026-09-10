@@ -68,8 +68,13 @@ const config: CapacitorConfig = {
          *
          * **`sound`는 넣지 말 것.** 그것이 곧 위의 '두 번 나는 소리'다
          * (폰 기본음 + `까꿍`). `badge`는 아이콘 위 숫자 몫이다.
-         * 알림음을 `까꿍`으로 바꾸는 것은 `docs/출시-전-할일.md` 1번. */
-        PushNotifications: { presentationOptions: ['badge', 'alert'] },
+         * 알림음은 `까꿍`이다(`aps.sound` — 소리 파일이 앱 번들 맨 위에 있다).
+         *
+         * **`badge`도 넣지 말 것.** 아이콘 위 숫자는 **앱을 안 보고 있을
+         * 때만** 뜻이 있다 — 보고 있는데 붙여 두면, 지우는 자리가
+         * `applicationDidBecomeActive`(=앱을 열 때) 하나뿐이라 **앱을 쓰는
+         * 내내 `1`이 남는다.** 그래서 여기는 `alert` 하나다. */
+        PushNotifications: { presentationOptions: ['alert'] },
     },
 };
 

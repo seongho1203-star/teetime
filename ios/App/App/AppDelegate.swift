@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import UserNotifications
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -26,7 +27,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        // ── 아이콘 위 빨간 숫자를 지운다 ──────────────────────────
+        //
+        // **앱 안에는 서비스워커가 없다.** 웹에서 그 숫자를 세고 지우던
+        // `sw.js`의 `bumpBadge`·`lib/badge.ts`가 여기서는 아예 안 돈다 —
+        // 그래서 앱은 숫자가 **붙지도 지워지지도** 않았다.
+        //
+        // 붙이는 쪽은 발송기가 맡고(`aps.badge`), **지우는 쪽이 여기다.**
+        // 앱을 열었다는 것이 곧 봤다는 뜻이라 그 자리에서 0으로 되돌린다
+        // (웹에서 보고 있는 창이 있으면 0으로 맞추는 것과 같은 잣대다).
+        //
+        // **`setBadgeCount`는 iOS 16부터다** — 그 아래에서는 예전 길로
+        // 간다. 앱의 최소 판이 낮아도 안 깨지게 갈라 두었다.
+        if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(0)
+        } else {
+            application.applicationIconBadgeNumber = 0
+        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

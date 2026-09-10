@@ -74,6 +74,11 @@ const APNS_TOPIC = env('APNS_BUNDLE_ID') || 'com.kkakkung.app';
 /** 이 기기는 앱인가. 웹 구독 주소는 `https://…`이라 섞일 일이 없다. */
 const APNS_MARK = 'apns:';
 
+/* 아이폰 알림음. 앱 번들 맨 위의 그 파일 이름이다(`ios/App/App/kkakkung.wav`).
+   **비밀값으로 비워 두면 폰 기본음으로 돌아간다**(`APNS_SOUND=default`) —
+   소리가 거슬린다는 말이 나오면 앱을 다시 만들지 않고 여기서 되돌린다. */
+const APNS_SOUND = env('APNS_SOUND') || 'kkakkung.wav';
+
 function b64url(bytes: ArrayBuffer | Uint8Array): string {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     return btoa(String.fromCharCode(...b))
@@ -142,7 +147,23 @@ async function pushToApns(
         body: JSON.stringify({
             aps: {
                 alert: { title: note.title, body: note.body },
-                sound: 'default',
+                /* **알림음도 `까꿍`이다.** 소리 파일은 앱 번들 맨 위에
+                   들어 있다(`ios/App/App/kkakkung.wav` — 16비트 PCM ·
+                   0.59초. 아이폰은 30초 넘거나 PCM이 아니면 안 받는다).
+                   **파일 이름만 적는다** — `public/` 아래에 두면 iOS가
+                   못 찾는다(번들 맨 위나 `Library/Sounds`만 본다).
+                   **못 찾으면 폰 기본음으로 울릴 뿐 알림은 그대로 뜬다** —
+                   그래서 이 파일이 없는 옛 앱에서도 탈이 없다. */
+                sound: APNS_SOUND,
+                /* **아이콘 위 빨간 표시.** 앱 안에는 서비스워커가 없어서
+                   웹에서 숫자를 세던 `sw.js`의 `bumpBadge`가 아예 안 돈다 —
+                   이 값을 안 실으면 **앱에는 표시가 통째로 안 붙는다.**
+                   **`1`은 개수가 아니라 '새 소식이 있다'는 표다.** 정확한
+                   개수를 실으려면 받는 사람마다 안 읽은 수를 세어야 하는데
+                   (100명이면 조회 100번) 그 값은 여기서 낼 수 없다.
+                   지우는 쪽은 앱이 맡는다 — 열면 0이 된다(`AppDelegate`의
+                   `applicationDidBecomeActive`). */
+                badge: 1,
                 /* 같은 이야기끼리 묶어 준다(알림창에서 접힌다). */
                 'thread-id': note.tag,
             },
