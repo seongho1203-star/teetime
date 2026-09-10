@@ -1803,14 +1803,21 @@ ok(byRegion[0] === '신성호' && byRegion[1] === '박승수',
 ok(byRegion.at(-1) === '오세훈',
    '거주지역을 안 적은 사람도 맨 뒤다');
 
-const byAttend = await pick('참석');
-ok(byAttend.slice(0, 3).sort().join() === ['김지명', '신성호', '이관교'].sort().join(),
-   `참석은 많이 나온 사람이 앞이다 — r3에 나간 셋 (실제 ${JSON.stringify(byAttend)})`);
+/* **`참석`을 걷어내고 그 자리에 `성별`을 넣었다**(사용자 요청).
+   참석 횟수는 줄마다 `올해 N회`로 그대로 보이지만, 성별은 그 줄에 글자로
+   안 적혀 있어(얼굴 테두리 색으로만 갈린다) 모아 보려면 차례밖에 없다. */
+const byGender = await pick('성별');
+ok(byGender.slice(0, 5).join() === ['김지명', '박승수', '신성호', '이관교', '장동건'].join(),
+   `성별은 남자가 먼저, 그 안에서 이름순이다 (실제 ${JSON.stringify(byGender.slice(0, 5))})`);
+ok(byGender.slice(5, 7).join() === ['임채원', '정우성'].join(),
+   `그다음이 여자다 (실제 ${JSON.stringify(byGender.slice(5, 7))})`);
+ok(byGender.at(-1) === '오세훈',
+   '성별을 안 적은 사람은 맨 뒤다 — 모르는 값은 늘 뒤로 보낸다');
 
 /* 고른 차례가 **눌린 것으로 보이는가.** 안 보이면 지금 무슨 차례인지
    알 수 없어 같은 칩을 또 누르게 된다. */
 const on = await page.$$eval('.sort-chip[aria-pressed="true"]', e => e.map(x => x.textContent));
-ok(on.length === 1 && on[0] === '참석',
+ok(on.length === 1 && on[0] === '성별',
    `지금 고른 차례 하나만 켜져 보인다 (실제 ${JSON.stringify(on)})`);
 
 /* ── 7. 성별·태어난 해를 안 적은 회원 ───────────────────────────

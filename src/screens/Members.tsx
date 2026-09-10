@@ -14,8 +14,15 @@ import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import './Home.css';
 
-/** 명단을 어떤 차례로 볼 것인가. `참석`은 세는 함수가 있을 때만 나온다. */
-type SortKey = 'name' | 'age' | 'region' | 'attend';
+/**
+ * 명단을 어떤 차례로 볼 것인가.
+ *
+ * **`참석`을 걷어내고 `성별`을 넣었다**(사용자 요청 — `참석말고 성별로
+ * 변경해줘`). 참석 횟수는 **줄마다 `올해 N회`로 그대로 보이므로**
+ * 차례까지 그것으로 매길 자리는 아니었고, 성별은 그 줄에 글자로 안 적혀
+ * 있어(얼굴 테두리 색으로만 갈린다) 모아 보려면 차례 말고는 길이 없다.
+ */
+type SortKey = 'name' | 'age' | 'region' | 'gender';
 
 /** 이름 가나다. **다른 차례의 마지막 잣대이기도 하다** — 같은 값끼리
     차례가 흔들리면 다시 그릴 때마다 줄이 뒤바뀌어 보인다. */
@@ -32,9 +39,7 @@ const byName = (a: Profile, b: Profile) =>
  * 화면 밖으로 뺄 만큼 크지 않아 여기 두었지만, **내보내지는 말 것** —
  * 화면 파일에서 함수를 내보내면 fast refresh가 깨진다(`pollClosed`와 같은 이유).
  */
-function sortPeople(
-    list: Profile[], key: SortKey, attend: Record<string, number> | null,
-): Profile[] {
+function sortPeople(list: Profile[], key: SortKey): Profile[] {
     const rows = [...list];
     if (key === 'age') {
         // 태어난 해가 이를수록 손윗사람 — **연장자가 앞**이다.
@@ -47,10 +52,13 @@ function sortPeople(
             || (a.region || '').localeCompare(b.region || '', 'ko')
             || byName(a, b));
     }
-    if (key === 'attend') {
-        // 많이 나온 사람이 앞. 연말에 개근을 챙기는 자리다.
-        return rows.sort((a, b) =>
-            ((attend?.[b.id] ?? 0) - (attend?.[a.id] ?? 0)) || byName(a, b));
+    if (key === 'gender') {
+        /* 남 → 여 → 모름. **모르는 사람이 뒤로 가는 것은 위 규칙 그대로다** —
+           `null`은 '남자도 여자도 아님'이 아니라 **아직 안 적음**이다.
+           (지금은 가입할 때 반드시 받으므로 새로 비는 일은 없고, 로그인 전
+           옛 회원만 남아 있을 수 있다.) */
+        const rank = (g: Profile['gender']) => (g === 'm' ? 0 : g === 'f' ? 1 : 2);
+        return rows.sort((a, b) => rank(a.gender) - rank(b.gender) || byName(a, b));
     }
     return rows.sort(byName);
 }
@@ -143,15 +151,16 @@ export function Members() {
         : members;
     /* **거른 뒤에 줄 세운다.** 반대로 하면 찾기로 좁힐 때마다 차례가
        다시 잡히는 것처럼 보인다 — 순서는 그대로고 몇 줄만 빠져야 한다. */
-    const shown = sortPeople(found, sort, attend);
+    const shown = sortPeople(found, sort);
 
-    /* 고를 수 있는 차례. **`참석`은 세는 함수가 있을 때만 내놓는다** —
-       칸이 없는 저장소에서 누르면 모두가 0회라 아무 데도 안 움직인다. */
+    /* 고를 수 있는 차례. **넷 다 늘 나온다** — 예전의 `참석`만 세는 함수가
+       있을 때 나왔는데, 그 자리를 `성별`이 대신하면서 그 갈래가 없어졌다
+       (성별은 명단에 늘 실려 온다). */
     const sorts: { key: SortKey; label: string }[] = [
         { key: 'name', label: '이름' },
         { key: 'age', label: '나이' },
         { key: 'region', label: '지역' },
-        ...(attend ? [{ key: 'attend' as const, label: '참석' }] : []),
+        { key: 'gender', label: '성별' },
     ];
 
     const setRole = async (p: Profile, role: Role) => {
