@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { useAsync, useRealtime, unwrap } from '../lib/db';
+import { useAsync, useRealtime, useRefreshOnShow, unwrap } from '../lib/db';
 import { daysUntil, upcomingSince } from '../lib/format';
 import { SEEN_EVENT, lastSeen } from '../lib/unread';
 import type { Message, Poll, Round } from '../lib/types';
@@ -89,11 +89,8 @@ function useLiveCounts() {
     }, [reload]);
 
     // 홈 화면에 띄워 두고 한참 뒤에 돌아오면 그 사이 것을 놓친다.
-    useEffect(() => {
-        const onShow = () => { if (!document.hidden) reload(); };
-        document.addEventListener('visibilitychange', onShow);
-        return () => document.removeEventListener('visibilitychange', onShow);
-    }, [reload]);
+    // **홈의 🔔도 같은 것을 쓴다** — 한 곳에 모아 둔 까닭이 그것이다.
+    useRefreshOnShow(reload);
 
     return data;
 }

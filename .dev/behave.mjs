@@ -3073,11 +3073,28 @@ console.log('\n── 알림함 (🔔) ──');
     ok(await ap.evaluate(() => !document.body.innerText.includes('앱 가이드')),
        '가이드는 홈 머리말에서 빠졌다');
 
+    /* **접어 두었다 펴면 그 사이 온 것이 종에 붙는가**(사용자 제보 —
+       `알림 후 앱에 들어가서보면 앱 종에 뱃지알림이 안생겨`).
+       앱을 접으면 실시간 연결이 끊겨 그동안 들어온 것은 되받아 오지
+       않는데, **폰 알림을 눌러 들어오는 길이 대개 접은 것을 펴는 것**이라
+       화면이 새로 만들어지지도 않는다 — 조회가 한 번도 다시 안 돌았다.
+       여기서는 실시간이 아예 막혀 있어(`stubOutside`) 그 상태가 그대로다.
+       `useRefreshOnShow`를 빼면 `2`에 멈춰 빨갛게 뜬다. */
+    tables.notifications.unshift({
+        id: 'nNew', user_id: tables.notifications[0].user_id, kind: 'round_groups',
+        title: '🚩 조 편성', body: '무등산CC · 3조',
+        url: '#/rounds/r1', created_at: new Date().toISOString(), read_at: null,
+    });
+    await ap.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await ap.waitForTimeout(700);
+    ok(await ap.evaluate(() => document.querySelector('.bell-dot')?.textContent) === '3',
+       '접어 두었다 펴면 그 사이 온 알림이 종에 붙는다 (2 → 3)');
+
     await ap.evaluate(() => document.querySelector('.bell')?.click());
     await ap.waitForTimeout(700);
 
     ok(await ap.evaluate(() => location.hash) === '#/alerts', '종을 누르면 알림함으로 간다');
-    ok(await ap.evaluate(() => document.querySelectorAll('.alert-row').length) === 3,
+    ok(await ap.evaluate(() => document.querySelectorAll('.alert-row').length) === 4,
        '알림함에 왔던 알림이 쌓여 있다');
     /* **제목의 그림글자를 두 번 그리지 않는다** — 제목에 이미 붙어 있어
        아이콘을 따로 그리면 `💰 💰 정산`이 된다(찍어 보고 잡았다). */

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useAsync, useRealtime, unwrap, fetchPeople, announceClosedPolls } from '../lib/db';
+import { useAsync, useRealtime, useRefreshOnShow, unwrap, fetchPeople, announceClosedPolls } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, formatTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
 import { lastSeen } from '../lib/unread';
@@ -132,6 +132,15 @@ export function Home() {
         countUnreadAlerts, [me], 'home:alerts');
 
     useRealtime('notifications', reloadAlerts);
+
+    /* **접어 두었다 펴면 셋 다 다시 받는다.** 앱을 접으면 실시간 연결이
+       끊기고 그동안 들어온 것은 되받아 오지 않는데, **폰 알림을 눌러
+       들어오는 길이 대개 그 길이다** — 화면이 새로 만들어지지 않아 조회도
+       다시 안 돌았다(사용자 제보 — 알림은 왔는데 🔔이 0). 탭바는 이미
+       같은 것을 하고 있었다. */
+    useRefreshOnShow(reload);
+    useRefreshOnShow(reloadUnread);
+    useRefreshOnShow(reloadAlerts);
 
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;

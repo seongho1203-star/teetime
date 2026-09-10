@@ -168,6 +168,30 @@ export function useRealtime(
     }, [key, filter]);
 }
 
+/**
+ * 앱으로 돌아오면 다시 불러온다.
+ *
+ * **`useRealtime`만으로는 모자란다.** 앱을 접어 두면 실시간 연결이 끊기고,
+ * 그동안 들어온 것은 **다시 이어져도 되받아 오지 않는다.** 그런데 폰 알림을
+ * 눌러 들어오는 길은 대개 **껐다 켜는 게 아니라 접어 둔 것을 펴는 것**이라
+ * 화면이 새로 만들어지지도 않는다 — 그래서 조회가 한 번도 다시 안 돈다.
+ *
+ * **실제로 그 자리에서 걸렸다**(사용자 제보 — `알림 후 앱에 들어가서보면
+ * 앱 종에 뱃지알림이 안생겨`). 알림은 왔는데 홈 머리말의 🔔은 0이었다 —
+ * 알림함에 줄은 멀쩡히 들어와 있었고, 화면만 그걸 모르고 있었다.
+ * 탭바의 빨간 숫자는 같은 일을 이미 하고 있어 멀쩡했다.
+ *
+ * **실시간으로 받는 화면은 이것도 함께 걸 것.** 둘은 한 쌍이다 —
+ * 실시간은 보고 있는 동안을, 이것은 안 보던 동안을 맡는다.
+ */
+export function useRefreshOnShow(reload: () => void) {
+    useEffect(() => {
+        const onShow = () => { if (!document.hidden) reload(); };
+        document.addEventListener('visibilitychange', onShow);
+        return () => document.removeEventListener('visibilitychange', onShow);
+    }, [reload]);
+}
+
 /** 조회 결과에서 오류를 던져 useAsync가 잡게 한다. */
 export function unwrap<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
     if (error) throw new Error(error.message);

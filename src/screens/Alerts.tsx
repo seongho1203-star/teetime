@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAsync, useRealtime } from '../lib/db';
+import { useAsync, useRealtime, useRefreshOnShow } from '../lib/db';
 import { fetchAlerts, markAlertsRead, purgeOldAlerts } from '../lib/alerts';
 import { timeAgo } from '../lib/format';
 import { splitAlertTitle, type AppNotification } from '../lib/types';
@@ -43,6 +43,14 @@ export function Alerts() {
     /* 남이 무엇을 하면 알림이 새로 꽂힌다 — 보고 있는 동안 들어오면
        그 자리에서 나타나야 한다. */
     useRealtime(['notifications'], reload);
+
+    /* **접어 두었다 펴면 그 사이 온 것을 받는다.** 실시간 연결이 끊긴
+       동안 들어온 것은 되받아 오지 않는다(`useRefreshOnShow` 참고).
+       **읽음도 함께 찍는다** — 이 화면을 보고 있다는 것이 곧 '봤다'라,
+       안 찍으면 종의 숫자만 남는다. */
+    useRefreshOnShow(useCallback(() => {
+        void (async () => { await markAlertsRead(); reload(); })();
+    }, [reload]));
 
     const open = (a: AppNotification) => {
         if (!a.url) return;
