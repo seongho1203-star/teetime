@@ -2493,6 +2493,52 @@ console.log('\n── 프로필 사진 고르기 ──');
     await aCtx.close();
 }
 
+/* ── 카톡 프사는 `https`로 올려 받는다 ────────────────────────────
+ * **사용자 제보로 잡은 자리다** — 웹에서는 카톡 프사가 잘 뜨다가
+ * **앱으로 감싼 뒤로 글자(이니셜)로 바뀌었다.** 카카오가 주는 주소가
+ * `http://k.kakaocdn.net/…`이라서인데, 웹은 문서가 `https`라 브라우저가
+ * 알아서 `https`로 올려 받아 주지만 앱은 문서가 `capacitor://localhost`라
+ * 그 올림이 없고 iOS가 http를 통째로 막는다(App Transport Security).
+ * 그래서 `Avatar`가 그릴 때 `https`로 바꾼다.
+ *
+ * **헤드리스로도 그대로 잡힌다** — 여기서 보는 것은 '어느 주소로
+ * 받으러 갔는가'이고, 그 값이 곧 앱에서 막히느냐 마느냐를 가른다. */
+console.log('\n── 카톡 프사는 https로 올려 받는다 ──');
+{
+    const PNG = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        'base64');
+    const kakao = {
+        ...tables,
+        profiles: tables.profiles.map(p => (p.name === '이관교'
+            ? { ...p, avatar_url: 'http://k.kakaocdn.net/dn/test/img_640x640.jpg' }
+            : p)),
+    };
+    const kCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await kCtx.route('**/rest/v1/**', restRoute(kakao));
+    await stubOutside(kCtx);
+    const asked = [];
+    await kCtx.route('**kakaocdn.net/**', route => {
+        asked.push(route.request().url());
+        route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    });
+    await kCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const kp = await kCtx.newPage();
+    await kp.goto(`${BASE}/#/members`, { waitUntil: 'networkidle' });
+    await kp.waitForTimeout(700);
+
+    const src = await kp.$$eval('img.avatar',
+        e => e.map(x => x.getAttribute('src')).find(u => u?.includes('kakaocdn')) ?? '');
+    ok(src.startsWith('https://'),
+       `얼굴 그림을 https로 건다 (${src || '그림이 아예 안 걸렸다'})`);
+    ok(asked.length > 0 && asked.every(u => u.startsWith('https://')),
+       `받으러 간 주소도 https다 (${asked[0] ?? '요청 없음'})`);
+
+    await kCtx.close();
+}
+
 console.log('\n── 지난 목록은 접어 두고 `더 보기`로 편다 ──');
 {
     /* 고정 자료는 투표 셋·라운드 넷뿐이라 한도(10)에 안 닿아 **단추가 아예
