@@ -45,7 +45,31 @@ export function registerServiceWorker() {
     });
 
     takePendingNav();
+
+    /* **접혀 있다 돌아올 때도 다시 묻는다.** 이 한 줄이 없어서
+       `알림을 눌러도 화면이 안 바뀐다`는 자리가 남아 있었다.
+       아이폰 홈 화면 앱은 알림을 누르면 대개 **껐다 켜는 게 아니라
+       접어 둔 것을 도로 펴 준다** — 그때는 위의 `takePendingNav()`가
+       다시 돌 일이 없고, `client.navigate()`는 iOS가 지원하지 않기도 하고,
+       `postMessage`는 잠들어 있던 화면이 놓칠 수 있다. 돌아오는 그 순간에
+       한 번 더 물어보면 그 셋이 다 어긋나도 결국 찾아간다.
+       **적어 둔 시각을 보므로**(`NAV_FRESH`) 며칠 전 값에 끌려가지 않는다. */
+    const again = () => { if (!document.hidden) takePendingNav(); };
+    document.addEventListener('visibilitychange', again);
+    /* **`pageshow`는 되살아난 것(`persisted`)만 본다.** 그냥 걸면 처음 열
+       때도 한 번 더 불려 켜자마자 두 번 묻게 된다 — 값은 첫 번째가
+       가져가므로 탈은 없지만, 헛걸음을 남겨 둘 이유가 없다. */
+    window.addEventListener('pageshow', e => { if (e.persisted) again(); });
 }
+
+/**
+ * 적어 둔 '갈 곳'을 언제까지 따라가는가.
+ *
+ * 화면으로 돌아올 때마다 묻기 때문에 **한도가 없으면 안 된다** — 지난주에
+ * 누르고 안 지워진 값이 남아 있다가, 오늘 앱을 열었을 때 엉뚱한 라운드로
+ * 끌고 간다. 알림을 누르고 앱이 뜨는 데 2분이 걸릴 일은 없다.
+ */
+const NAV_FRESH = 2 * 60 * 1000;
 
 /**
  * 알림이 가리키는 화면으로 옮긴다. 해시 라우팅이라 해시만 갈면 된다.
@@ -80,8 +104,12 @@ function takePendingNav() {
         if (!sw) return;
         const ch = new MessageChannel();
         ch.port1.onmessage = e => {
-            const url = (e.data as { url?: string } | null)?.url;
-            if (url) goTo(url);
+            const nav = e.data as { url?: string; at?: number } | null;
+            if (!nav?.url) return;
+            // 시각이 없는 것은 예전 판이 적어 둔 값이다 — 그건 그대로 따라간다
+            // (켤 때 한 번만 묻던 때의 것이라 오래됐을 리가 없다).
+            if (nav.at && Date.now() - nav.at > NAV_FRESH) return;
+            goTo(nav.url);
         };
         sw.postMessage({ type: 'take-nav' }, [ch.port2]);
     }).catch(() => { /* 서비스워커가 없으면 그냥 둔다 */ });

@@ -2539,6 +2539,80 @@ console.log('\n── 카톡 프사는 https로 올려 받는다 ──');
     await kCtx.close();
 }
 
+/* ── 알림을 누르면 그 화면으로 간다 ──────────────────────────────
+ * **사용자 요청** — `알림이 왔을때 알림을 누르면 해당화면으로 이동할수있게`.
+ *
+ * 갈 곳은 발송기가 알림마다 실어 보내고 서비스워커가 적어 두는데
+ * (`sw.js`의 `putNav`), 앱은 그걸 **켤 때 한 번만** 물어보고 있었다.
+ * 아이폰 홈 화면 앱은 알림을 눌러도 대개 **껐다 켜는 게 아니라 접어 둔
+ * 것을 도로 펴 주므로**, 그 한 번이 이미 지나간 뒤라 아무 데도 안 갔다.
+ * 지금은 **화면으로 돌아올 때마다** 다시 묻는다.
+ *
+ * 헤드리스에는 서비스워커도 알림도 없지만 **주고받는 말은 그대로 흉내
+ * 낼 수 있다** — `navigator.serviceWorker`를 가짜로 갈아 끼우고
+ * `take-nav`에 답해 준다. 보는 것은 셋이다:
+ *   ① 켤 때 한 번 묻는다  ② 돌아올 때 또 묻는다
+ *   ③ 오래된 값에는 안 끌려간다(`NAV_FRESH`) — 돌아올 때마다 묻게 되면서
+ *      지난주에 적히고 안 지워진 값이 오늘 화면을 끌고 갈 자리가 생겼다
+ */
+console.log('\n── 알림을 누르면 그 화면으로 간다 ──');
+{
+    const nCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await nCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(nCtx);
+    await nCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    await nCtx.addInitScript(() => {
+        window.__asked = 0;
+        window.__reply = null;
+        const active = {
+            postMessage(msg, ports) {
+                if (!msg || msg.type !== 'take-nav') return;
+                window.__asked += 1;
+                if (window.__reply && ports && ports[0]) ports[0].postMessage(window.__reply);
+            },
+        };
+        Object.defineProperty(navigator, 'serviceWorker', {
+            configurable: true,
+            value: {
+                controller: null,
+                register: () => Promise.resolve({}),
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                ready: Promise.resolve({ active }),
+            },
+        });
+    });
+    const np = await nCtx.newPage();
+    await np.goto(`${BASE}/#/`, { waitUntil: 'networkidle' });
+    await np.waitForTimeout(500);
+
+    const asked = () => np.evaluate(() => window.__asked);
+    ok(await asked() === 1, `켤 때 한 번 물어본다 (${await asked()}번)`);
+
+    /* 방금 누른 알림. 돌아오는 그 순간에 물어보고 따라가야 한다. */
+    await np.evaluate(u => {
+        window.__reply = { url: u, at: Date.now() };
+        document.dispatchEvent(new Event('visibilitychange'));
+    }, `${BASE}/#/rounds/r1`);
+    await np.waitForTimeout(400);
+    ok(await asked() === 2, `돌아올 때 또 물어본다 (${await asked()}번)`);
+    const gone = await np.evaluate(() => location.hash);
+    ok(gone === '#/rounds/r1', `적어 둔 화면으로 옮겨 간다 (${gone})`);
+
+    /* 지난주에 적히고 안 지워진 값. 끌려가면 안 된다. */
+    await np.evaluate(u => {
+        window.__reply = { url: u, at: Date.now() - 30 * 60 * 1000 };
+        document.dispatchEvent(new Event('visibilitychange'));
+    }, `${BASE}/#/polls`);
+    await np.waitForTimeout(400);
+    const stay = await np.evaluate(() => location.hash);
+    ok(stay === '#/rounds/r1', `오래된 값에는 안 끌려간다 (${stay})`);
+
+    await nCtx.close();
+}
+
 console.log('\n── 지난 목록은 접어 두고 `더 보기`로 편다 ──');
 {
     /* 고정 자료는 투표 셋·라운드 넷뿐이라 한도(10)에 안 닿아 **단추가 아예

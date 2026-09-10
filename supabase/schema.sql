@@ -517,6 +517,42 @@ end;
 $$;
 
 
+-- ── 대기 신청이 들어오면 모집을 연 사람에게 알린다 ─────────────
+--
+-- 사용자 요청 — `대기신청했을때 라운드를 만든사람한테 대기신청이 있습니다
+-- 라고 알림이 가도록`. 자리가 없어 대기를 건 사람이 있다는 것은 **정원을
+-- 늘릴지 정할 사람**에게 필요한 소식인데, 지금까지는 라운드에 직접 들어가
+-- 봐야 알 수 있어 대기자가 며칠씩 그냥 기다렸다.
+--
+-- **알림 트리거 가운데 이것 하나만 이 파일에 있다.** 나머지는
+-- `docs/설치.md` 7번에 있는데, 그것들은 **함수 주소와 비밀값이 든
+-- `notify_push()`를 함께 만드는** 자리라 공개 저장소에 둘 수 없다.
+-- 이 트리거는 이미 만들어져 있는 그 함수를 부르기만 하므로 비밀값이 없다 —
+-- 그래서 밀면 저절로 걸리게 여기 두었다(손으로 붙여넣지 않아도 된다).
+--
+-- **`notify_push()`가 없으면 조용히 건너뛴다.** 알림을 아직 안 켠
+-- 저장소에서 이 줄 하나 때문에 배포가 통째로 멈추면 안 된다.
+--
+-- **`when`이 대기만 고른다.** 자리가 남아 확정으로 들어오는 신청은 늘
+-- 있는 일이라, 그것까지 울리면 모집 하나에 폰이 열 번 운다.
+-- (발송기도 같은 것을 한 번 더 본다 — 한쪽만 고쳐도 조용하도록.)
+do $$
+begin
+    if exists (
+        select 1 from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'notify_push')
+    then
+        execute 'drop trigger if exists notify_signups_wait on signups';
+        execute $t$
+            create trigger notify_signups_wait after insert on signups
+                for each row when (new.state = 'waitlist')
+                execute function notify_push()
+        $t$;
+    end if;
+end $$;
+
+
 -- **정원을 늘리면 대기자가 저절로 올라간다.**
 -- 줄일 때는 아무도 안 뺀다 — 이미 확정된 사람을 앱이 말없이 내리면
 -- 그 사람은 영문을 모른 채 자리를 잃는다. 그건 사람이 `✕`로 할 일이다.

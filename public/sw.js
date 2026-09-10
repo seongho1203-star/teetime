@@ -132,12 +132,17 @@ async function isWatching() {
  *
  * **가져가면 지운다.** 안 지우면 다음에 앱을 그냥 켤 때도 옛 알림 화면으로
  * 끌려간다.
+ *
+ * **누른 시각도 함께 적는다.** 앱은 이걸 켤 때만 묻는 게 아니라
+ * **화면으로 돌아올 때마다** 묻는데(`lib/push.ts`), 시각이 없으면 며칠 전에
+ * 적히고 안 지워진 값이 남아 있다가 엉뚱한 때 화면을 끌고 간다.
+ * 앱 쪽이 방금 누른 것만 따라간다.
  */
 async function putNav(url) {
     try {
         const db = await openDb();
         const st = db.transaction('n', 'readwrite').objectStore('n');
-        st.put(url, 'nav');
+        st.put({ url, at: Date.now() }, 'nav');
     } catch { /* 저장이 안 돼도 알림 자체는 떠야 한다 */ }
 }
 
@@ -147,7 +152,12 @@ async function takeNav() {
         return await new Promise((ok, no) => {
             const st = db.transaction('n', 'readwrite').objectStore('n');
             const get = st.get('nav');
-            get.onsuccess = () => { st.delete('nav'); ok(get.result || null); };
+            get.onsuccess = () => {
+                st.delete('nav');
+                const v = get.result;
+                // 예전 판은 주소 하나만 적어 두었다 — 그것도 그대로 받는다.
+                ok(typeof v === 'string' ? { url: v, at: 0 } : (v || null));
+            };
             get.onerror = () => no(get.error);
         });
     } catch { return null; }
@@ -163,10 +173,12 @@ self.addEventListener('message', event => {
     if (kind === 'badge-support' && event.ports[0]) {
         event.ports[0].postMessage({ badge: 'setAppBadge' in navigator });
     }
-    // 앱이 켜지면서 "눌린 알림이 있었나" 물어 온다.
+    // 앱이 켜지거나 **화면으로 돌아올 때마다** "눌린 알림이 있었나" 물어 온다.
     if (kind === 'take-nav' && event.ports[0]) {
         const port = event.ports[0];
-        event.waitUntil(takeNav().then(url => port.postMessage({ url })));
+        event.waitUntil(takeNav().then(nav => port.postMessage({
+            url: nav && nav.url, at: nav && nav.at,
+        })));
     }
 });
 

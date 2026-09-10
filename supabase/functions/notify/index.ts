@@ -11,6 +11,7 @@
  *   rounds             새 모집 → 연 사람 빼고 회원 모두
  *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
  *   rounds · polls (UPDATE)  다시 열림 → 회원 모두
+ *   signups (INSERT)   대기 신청 → **그 모집을 연 사람에게만**
  *   signups (UPDATE)   대기 → 확정 → **올라간 그 사람에게만**
  *   round_groups       조 편성 → **그 라운드의 확정 참가자에게만**
  *   round_reminders    필드는 전날 저녁 · 스크린은 시작 2시간 전
@@ -324,6 +325,53 @@ async function planFor(hook: Hook): Promise<Note | null> {
             body: `${course} 모집이 다시 열렸습니다`,
             tag: `round-${r.id}`,
             url: `#/rounds/${r.id}`,
+        };
+    }
+
+    /* ── 대기 신청이 들어왔다 ────────────────────────────────────
+     *
+     * **모집을 연 사람에게만** 간다(사용자 요청). 자리가 없어 대기를 건
+     * 사람이 있다는 것은 **정원을 늘릴지 말지 정할 사람**에게 필요한
+     * 소식이고, 그 사람이 곧 라운드를 연 사람이다. 지금까지는 라운드에
+     * 직접 들어가 봐야 알 수 있어서, 대기자가 며칠씩 그냥 기다렸다.
+     *
+     * **확정으로 들어온 신청에는 안 보낸다.** 자리가 남아 있을 때 누가
+     * 신청하는 것은 그냥 늘 있는 일이라, 그것까지 울리면 모집 하나에
+     * 폰이 열 번 운다. 트리거의 `when`이 이미 대기만 고르지만 여기서도
+     * 한 번 더 본다 — 트리거가 없는 저장소에 걸어도 조용하도록.
+     *
+     * **제가 열고 제가 대기를 건 경우는 뺀다.** 방금 자기 손으로 누른
+     * 일을 도로 알려 줄 것 없다.
+     *
+     * `tag`는 **신청 한 건마다** 다르다(`wait-<신청 id>`). 라운드로 묶으면
+     * 둘째 사람이 첫째를 알림창에서 밀어내는데, 대기자 둘은 **서로 다른
+     * 사실**이라 하나로 덮으면 안 된다.
+     */
+    if (hook.table === 'signups' && hook.type === 'INSERT') {
+        if (r.state !== 'waitlist' || typeof r.round_id !== 'string') return null;
+        const { data: rd } = await db.from('rounds')
+            .select('course, title, kind, created_by').eq('id', r.round_id).maybeSingle();
+        if (!rd || typeof rd.created_by !== 'string') return null;
+        if (rd.created_by === r.user_id) return null;
+
+        const screen = rd.kind === 'screen';
+        const where = (rd.course as string) || (rd.title as string)
+            || (screen ? '스크린' : '라운드');
+        const who = await nameOf(r.user_id);
+        /* 지금 몇 명이 기다리는지까지 적는다 — **정원을 늘릴지 정하는 데
+           쓰는 숫자**라, 이게 없으면 결국 앱을 열어 세어 봐야 한다.
+           `head: true`라 몸통은 안 실려 온다. */
+        const { count } = await db.from('signups')
+            .select('id', { count: 'exact', head: true })
+            .eq('round_id', r.round_id).eq('state', 'waitlist');
+        const n = count ?? 0;
+        return {
+            title: '🙋 대기 신청',
+            body: `${who}님이 ${where} 대기를 신청했습니다`
+                + (n > 1 ? `\n지금 대기 ${n}명` : ''),
+            tag: `wait-${r.id}`,
+            url: `#/rounds/${r.round_id}`,
+            only: [rd.created_by],
         };
     }
 
