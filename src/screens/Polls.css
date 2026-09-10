@@ -184,17 +184,5 @@
 .poll-date { margin-top: var(--gap-sm); }
 .poll-date-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
 
-/* **달력을 직접 그린다.** 브라우저의 날짜 칸은 아이폰에서 여는 순간
-   오늘 날짜를 한 번 던져서, 고르기도 전에 오늘이 항목으로 들어갔다.
-   여러 날을 눌러 담는 일에도 이쪽이 낫다 — 고른 날이 그대로 칠해져 보인다. */
-/* **날짜 칸은 모집 열기의 티오프 칸과 같은 것이다**(사용자 요청) —
-   아이폰이 칸 옆에 띄우는 제 달력 창이다. 직접 그린 작은
-   달력은 그 옆에 놓으면 자잘해 보였다(사용자 제보 — `날짜선택하는게
-   라운드와 비교했을때 왜케 작아`).
-   `넣기`는 흐름 안에 있고 칸이 남는 자리를 다 쓴다. */
-.poll-date-row {
-    display: flex;
-    align-items: center;
-    gap: var(--gap-xs);
-}
-.poll-date-row .input { flex: 1; min-width: 0; }
+/* 달력 자체(`.cal*`)는 **라운드 모집 열기와 같이 쓰므로** global.css에 있다
+   (`components/DayCal.tsx`). */

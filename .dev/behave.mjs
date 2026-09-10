@@ -537,8 +537,10 @@ ok(await page.inputValue('#f-course') === '골프존파크 상무점',
    `매장을 베껴 온다 (실제 ${JSON.stringify(await page.inputValue('#f-course'))})`);
 ok(await page.inputValue('#f-cap') === '6' && await page.inputValue('#f-fee') === '25000',
    '정원·게임비도 함께 온다');
-ok(await page.inputValue('#f-tee') === '',
-   `시각만 비어 있다 (실제 ${JSON.stringify(await page.inputValue('#f-tee'))})`);
+/* 티오프 칸은 이제 **누르면 달력이 펴지는 단추**다(`components/DateTimeField`).
+   진짜 입력칸이 아니라 값은 `data-value`에 실려 있다. */
+ok(await page.getAttribute('#f-tee', 'data-value') === '',
+   `시각만 비어 있다 (실제 ${JSON.stringify(await page.getAttribute('#f-tee', 'data-value'))})`);
 ok((await page.textContent('.form-actions') ?? '').includes('모집 열기'),
    '단추가 `수정 저장`이 아니라 `모집 열기`다 — 원본을 안 건드린다');
 
@@ -1659,15 +1661,15 @@ tables.round_groups = tables.round_groups.filter(g => g.round_id !== 'r1');
 /* ── 6-2. 투표에 날짜로 항목 넣기 ───────────────────────────────
  *
  * 모임 투표의 거의 전부가 날짜 정하기다. 손으로 치면 요일을 세어 봐야 하고
- * 오타도 난다. **칸은 모집 열기의 티오프 칸과 같은 것**(`type="date"`)이고
- * `넣기`를 눌러야 들어간다. 보는 것이 넷이다:
- *   ① **날짜만 골라 두면 아무 항목도 안 생긴다** — 아이폰은 그 칸을 누르는
- *      순간 오늘을 던지므로(실제 제보), 넣는 일이 그 신호에 매달려 있으면
- *      **고르기도 전에 오늘이 항목이 된다.** `넣기`가 그걸 막는 자리다.
+ * 오타도 난다. **달력은 우리가 직접 그린다**(`components/DayCal`) — 날을
+ * 누르면 그 자리에서 항목이 되고, 다시 누르면 빠진다. 보는 것이 넷이다:
+ *   ① **열어만 두면 아무 항목도 안 생긴다** — 브라우저 날짜 칸을 쓰면
+ *      아이폰이 누르는 순간 오늘을 던져 **고르기도 전에 오늘이 항목이
+ *      된다**(실제 제보). 직접 그린 달력에는 그 신호 자체가 없다.
  *   ② 누르면 요일까지 붙어 항목이 된다.
  *   ③ **빈 줄부터 채운다** — 새 투표는 빈 칸 두 개로 시작하는데 아래에 새
  *      줄을 붙이면 화면에 빈 칸이 남아 안 적은 것처럼 보인다.
- *   ④ 같은 날짜를 두 번 넣지 않는다.
+ *   ④ 같은 날짜를 다시 누르면 빠진다(두 번 안 들어간다).
  */
 console.log('\n── 투표에 날짜 넣기 ──');
 const dayCells = () => page.$$eval('.option-row .input', e => e.map(x => x.value));
@@ -1676,34 +1678,29 @@ ok((await dayCells()).every(v => !v),
    `칸을 열어만 두면 아무 항목도 안 생긴다 (실제 ${JSON.stringify(await dayCells())})`);
 
 const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-const ymd = d => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-              + `-${String(d).padStart(2, '0')}`;
 const lab = d => {
     const x = new Date(now.getFullYear(), now.getMonth(), d);
     return `${x.getMonth() + 1}월 ${d}일 (${'일월화수목금토'[x.getDay()]})`;
 };
-const putDay = async d => {
-    await page.fill('.poll-date-row input[type="date"]', ymd(d));
-    await page.click('.poll-date-row button');
+const tapDay = async d => {
+    await page.evaluate(n => [...document.querySelectorAll('.poll-date .cal-day')]
+        .find(b => b.textContent.trim() === String(n))?.click(), d);
     await page.waitForTimeout(150);
 };
 
-/* 칸에 값만 넣고 `넣기`는 안 누른 상태 — 아이폰이 오늘을 던진 그 상태와 같다. */
-await page.fill('.poll-date-row input[type="date"]', ymd(5));
-await page.waitForTimeout(150);
-ok((await dayCells()).every(v => !v),
-   `날짜만 골라 두면 아직 항목이 아니다 (실제 ${JSON.stringify(await dayCells())})`);
-
-await page.click('.poll-date-row button');
-await page.waitForTimeout(150);
-await putDay(12);
+await tapDay(5);
+await tapDay(12);
 const opts = await dayCells();
 ok(opts[0] === lab(5) && opts[1] === lab(12),
    `고른 날이 요일까지 붙어 항목이 된다 (실제 ${JSON.stringify(opts)})`);
 ok(opts.length === 2, `빈 줄부터 채운다 — 줄이 늘지 않는다 (실제 ${opts.length}줄)`);
+ok(await page.$$eval('.poll-date .cal-day.on', e => e.length) === 2,
+   '고른 날이 달력에도 칠해진다');
 
-await putDay(12);
-ok((await dayCells()).length === 2, '같은 날짜는 두 번 안 들어간다');
+await tapDay(12);
+const off = await dayCells();
+ok(off.filter(v => v).length === 1 && off.includes(lab(5)),
+   `같은 날을 다시 누르면 빠진다 (실제 ${JSON.stringify(off)})`);
 
 /* ── 6-3. 정산 송금 링크 ────────────────────────────────────────
  *
@@ -2549,7 +2546,9 @@ console.log('\n── 투표 마감 시각은 필수다 ──');
         const opts = [...document.querySelectorAll('.option-row input')];
         set(opts[0], '토요일'); set(opts[1], '일요일');
     });
-    ok(await ep.$eval('#v-close', el => el.value === ''), '마감 시각은 비어 있는 채로 시작한다');
+    /* 마감 시각도 라운드 티오프와 **같은 칸**이라 값이 `data-value`에 있다. */
+    ok(await ep.$eval('#v-close', el => el.dataset.value === ''),
+       '마감 시각은 비어 있는 채로 시작한다');
     ok(await ep.$eval('label[for="v-close"]', el => !el.textContent.includes('선택')),
        '`(선택)` 딱지가 없어졌다');
 
@@ -2563,7 +2562,7 @@ console.log('\n── 투표 마감 시각은 필수다 ──');
 
     await ep.evaluate(() => [...document.querySelectorAll('button')]
         .find(b => b.textContent.trim() === '7일 후')?.click());
-    const filled = await ep.$eval('#v-close', el => el.value);
+    const filled = await ep.$eval('#v-close', el => el.dataset.value);
     ok(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(filled), `바로누름이 칸을 채운다 (${filled})`);
 
     await ep.evaluate(() => [...document.querySelectorAll('button')]

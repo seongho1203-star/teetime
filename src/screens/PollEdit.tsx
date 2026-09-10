@@ -7,6 +7,8 @@ import { toKstInput, fromKstInput, dateLabel } from '../lib/format';
 import type { Poll, PollOption } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Hinted } from '../components/Hinted';
+import { DateTimeField } from '../components/DateTimeField';
+import { DayCal } from '../components/DayCal';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -116,8 +118,6 @@ function Form({
     const [multi, setMulti] = useState(poll?.multi ?? false);
     const [anonymous, setAnonymous] = useState(poll?.anonymous ?? false);
     const [closesAt, setClosesAt] = useState(toKstInput(poll?.closes_at ?? null));
-    /** `날짜로 항목 넣기` 칸에 골라 둔 날(`YYYY-MM-DD`). `넣기`를 눌러야 들어간다. */
-    const [day, setDay] = useState('');
     const [saving, setSaving] = useState(false);
     /** 지울 항목들. 저장할 때 한꺼번에 없앤다. */
     const [dropped, setDropped] = useState<string[]>([]);
@@ -191,21 +191,11 @@ function Form({
         await dropRow(i);
     };
 
-    /**
-     * `넣기`를 눌렀을 때. **누르는 그 순간에만 항목이 된다.**
-     *
-     * **이 단추가 아이폰의 그 버릇을 막아 주는 자리다** — 아이폰은 날짜 칸을
-     * 누르는 순간 값을 오늘로 정하고 `change`를 던지는데, 넣는 일이 그 신호에
-     * 매달려 있으면 **고르기도 전에 오늘이 항목으로 들어간다**(예전에 실제로
-     * 그랬다). 지금은 칸에 오늘이 미리 들어와 보일 뿐이고, 그 위에 고쳐 고른
-     * 뒤 눌러야 들어간다 — 모집 열기의 티오프 칸과 같은 짜임이다.
-     */
-    const putDay = () => {
-        if (!day) return;
-        if (rows.some(r => r.label.trim() === dateLabel(day))) {
-            toast('이미 넣은 날짜입니다.', 'info'); return;
-        }
-        addDate(day);
+    /** 달력에서 날짜를 눌렀을 때. 없으면 넣고, 있으면 뺀다. */
+    const toggleDate = async (ymd: string) => {
+        const at = rows.findIndex(r => r.label.trim() === dateLabel(ymd));
+        if (at < 0) addDate(ymd);
+        else await dropRow(at);
     };
 
     const save = async () => {
@@ -343,26 +333,19 @@ function Form({
                 ))}
                 <button className="btn ghost block sm" onClick={addRow}>+ 항목 추가</button>
 
-                {/* **모집 열기의 티오프 칸과 같은 날짜 칸이다**(사용자 요청 —
-                    `라운드에 있는 티오프 시간 정할 때 뜨는 그 날짜 칸을 그대로
-                    투표에다가`). 아이폰이 칸 옆에 띄우는 제 달력 창이다.
-                    **`넣기`를 따로 두는 것이 한 쌍이다** — 아이폰은 칸을 누르는
-                    순간 오늘을 던지므로, 넣는 일을 그 신호에 매달면 고르기도
-                    전에 오늘이 항목이 된다(`putDay` 주석 참고). */}
+                {/* **날짜는 이 달력에서 고른다**(`components/DayCal.tsx` —
+                    라운드 모집 열기와 같은 달력이다). 누른 날이 그 자리에서
+                    `10월 4일 (토)` 항목이 되고, 다시 누르면 빠진다.
+                    `추가`를 따로 두지 않은 것은 한 번 더 누르게 하지 않으려는
+                    것이다 — 조 편성 조건을 누르면 바로 나뉘는 것과 같다. */}
                 <div className="field poll-date">
                     <span className="poll-date-title">📅 날짜로 항목 넣기</span>
-                    <div className="poll-date-row">
-                        <input className="input" type="date" value={day}
-                               onChange={e => setDay(e.target.value)}
-                               aria-label="넣을 날짜" />
-                        <button className="btn ghost" onClick={putDay} disabled={!day}>
-                            넣기
-                        </button>
-                    </div>
+                    <DayCal
+                        marked={ymd => rows.some(r => r.label.trim() === dateLabel(ymd))}
+                        onPick={toggleDate}
+                    />
                     <span className="xs faint">
-                        {day
-                            ? <>넣기를 누르면 <b>{dateLabel(day)}</b> 항목이 됩니다.</>
-                            : <>날짜를 고르고 <b>넣기</b>를 누르면 요일까지 붙어 항목이 됩니다.</>}
+                        누르면 바로 항목이 됩니다. 다시 누르면 빠집니다.
                     </span>
                 </div>
                 {locked && (
@@ -398,8 +381,10 @@ function Form({
                     모임 투표는 대개 이 안에서 끝난다. */}
                 <div className="field" style={{ marginTop: 'var(--gap-xs)' }}>
                     <label htmlFor="v-close">마감 시각</label>
-                    <input id="v-close" className="input" type="datetime-local"
-                           value={closesAt} onChange={e => setClosesAt(e.target.value)} />
+                    {/* 라운드 `티오프`와 **같은 칸이다** — 아이폰 창은 화면마다
+                        크기가 달라 보여 걷어냈다(`DateTimeField` 참고). */}
+                    <DateTimeField id="v-close" value={closesAt} onChange={setClosesAt}
+                                   defaultTime="21:00" />
                     <div className="row" style={{ gap: 'var(--gap-xs)', marginTop: 'var(--gap-xs)' }}>
                         {QUICK_CLOSE.map(([label, days]) => (
                             <button key={label} type="button" className="btn ghost sm"

@@ -8,6 +8,7 @@ import { courseGeo, searchCourses } from '../lib/courses';
 import { FEE_LABEL, KIND_ICON, PLACE_LABEL, TEE_LABEL, roundKind, type Round, type RoundKind } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Hinted } from '../components/Hinted';
+import { DateTimeField } from '../components/DateTimeField';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 
@@ -236,10 +237,13 @@ function Form({
                     </div>
                 )}
 
+                {/* **날짜 창을 우리가 그린다**(사용자 요청 — 아이폰 창이
+                    화면마다 크기가 달라 `이런게 아예 다른데?`).
+                    투표의 마감 시각도 같은 칸을 쓴다 — `DateTimeField` 참고. */}
                 <div className="field">
                     <label htmlFor="f-tee">{TEE_LABEL[kind]} (한국 시각)</label>
-                    <input id="f-tee" className="input" type="datetime-local"
-                           value={teeAt} onChange={e => setTeeAt(e.target.value)} />
+                    <DateTimeField id="f-tee" value={teeAt} onChange={setTeeAt}
+                                   defaultTime="07:00" />
                 </div>
 
                 <div className="row" style={{ gap: 'var(--gap-sm)', alignItems: 'flex-end' }}>

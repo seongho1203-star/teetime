@@ -417,6 +417,76 @@ body.nc-typing .round-actions { bottom: 0; }
     line-height: normal;
 }
 
+/* ── 날짜 고르기 (`components/DayCal.tsx` · `DateTimeField.tsx`) ──────
+ *
+ * **브라우저의 날짜 칸을 안 쓰고 직접 그린다**(사용자 요청 — 두 화면의
+ * 아이폰 창이 `아예 다른데?`). 까닭은 `DayCal.tsx` 머리말에 적어 두었다.
+ * 라운드 모집 열기와 투표가 같이 쓰므로 화면 CSS가 아니라 여기에 둔다.
+ *
+ * **날짜 칸은 44px이다** — 손가락으로 고르는 자리라 작으면 옆 날이 눌린다
+ * (`node .dev/audit.mjs`가 30px 아래를 잡는다). 폭은 `1fr`이 나누므로
+ * 320px에서도 일곱 칸이 들어간다(한 칸 32px). */
+.cal {
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    padding: 10px;
+}
+.cal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+.cal-month { font-weight: 800; font-size: var(--fs-md); }
+.cal-move {
+    width: 40px; height: 36px;
+    border: 0; background: none; cursor: pointer;
+    font-size: 24px; line-height: 1; color: var(--text-dim);
+}
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    text-align: center;
+}
+.cal-dow { font-size: var(--fs-sm); color: var(--text-dim); padding-bottom: 4px; }
+.cal-day {
+    height: 44px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: none;
+    font-size: var(--fs-md);
+    color: var(--text);
+    cursor: pointer;
+}
+/* 오늘은 테두리로만 알린다 — 고른 것과 헷갈리면 안 된다. */
+.cal-day.today { border-color: var(--line); font-weight: 800; }
+/* 고른 날은 분홍이다. 이 화면에서 지금 누르고 있는 것이 곧 이것이다. */
+.cal-day.on {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--on-brand);
+    font-weight: 800;
+}
+
+/* 고른 날짜·시각을 보여 주는 **누르는 칸**(`DateTimeField`).
+   `.input`을 그대로 입고 글자만 왼쪽으로 돌린다 — 단추는 기본이 가운데라
+   그냥 두면 옆의 글자 칸들과 어긋나 보인다.
+   **아직 안 골랐을 때의 이름은 `blank`다. `empty`를 쓰지 말 것** —
+   그건 빈 목록 안내에 쓰는 클래스라 가운데 정렬·작은 글씨·큰 여백이
+   함께 딸려 와, 칸이 50px로 부풀고 글자가 가운데로 갔다(실제로 그랬다). */
+.picked { text-align: left; }
+.picked.blank { color: var(--text-dim); }
+.picker { margin-top: var(--gap-xs); }
+.picker-time {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    margin-top: var(--gap-xs);
+}
+.picker-time .input { flex: 1; min-width: 0; }
+
 /* 숫자 칸의 증감 화살표는 폭을 잡아먹기만 한다. 값은 키패드로 넣는다. */
 .input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 .input[type="number"]::-webkit-outer-spin-button,
