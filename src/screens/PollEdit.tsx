@@ -29,6 +29,18 @@ interface Loaded {
 }
 
 /**
+ * 마감 시각 바로누름. **필수로 바꾸면서 함께 둔 것이다** — 안 그러면
+ * 투표를 올릴 때마다 달력을 열어 시·분까지 골라야 한다.
+ * 모임 투표는 대개 이 안에서 끝난다(날짜 정하기가 거의 전부다).
+ */
+const QUICK_CLOSE: [string, number][] = [['3일 후', 3], ['7일 후', 7], ['2주 후', 14]];
+
+/** 지금부터 `days`일 뒤, 같은 시각. `datetime-local`이 읽는 모양으로. */
+function afterDays(days: number): string {
+    return toKstInput(new Date(Date.now() + days * 86400000).toISOString());
+}
+
+/**
  * 투표 만들기 / 수정. 회원 누구나 올리고, 고치는 것은 **올린 사람과 운영진**이다
  * (DB의 `polls_upd`·`poll_options_own`·`*_admin`이 같은 규칙을 다시 본다).
  *
@@ -258,6 +270,15 @@ function Form({
         if (new Set(names).size !== names.length) {
             toast('같은 항목이 두 번 있습니다.', 'error'); return;
         }
+        /* **마감 시각을 안 적으면 저장하지 않는다.** 비워 두면 손으로 닫기
+           전까지 영영 진행중이라, 목록에 안 끝난 투표가 쌓인다. */
+        const closes = fromKstInput(closesAt);
+        if (!closes) { toast('마감 시각을 정해 주세요.', 'error'); return; }
+        /* **새로 올릴 때만 지난 시각을 막는다.** 고칠 때는 지난 시각을 넣는
+           것이 곧 '지금 닫는다'라, 막으면 그 길이 없어진다. */
+        if (!poll && new Date(closes) <= new Date()) {
+            toast('마감 시각이 이미 지났습니다. 다시 골라 주세요.', 'error'); return;
+        }
 
         setSaving(true);
         const fields = {
@@ -265,7 +286,7 @@ function Form({
             body: body.trim(),
             multi,
             anonymous,
-            closes_at: fromKstInput(closesAt),
+            closes_at: closes,
         };
 
         /* ── 고치기 ──
@@ -414,10 +435,23 @@ function Form({
                     </div>
                     <Switch label="익명" on={anonymous} onChange={setAnonymous} disabled={locked} />
                 </div>
+                {/* **마감 시각은 필수다**(사용자 요청 — `그러면 안될거같은데`).
+                    비워 두면 누가 손으로 `마감`을 누를 때까지 **영영 진행중**이라,
+                    안 닫힌 투표가 목록에 그대로 쌓인다.
+                    대신 손으로 날짜를 치는 수고는 바로누름 셋이 덜어 준다 —
+                    모임 투표는 대개 이 안에서 끝난다. */}
                 <div className="field" style={{ marginTop: 'var(--gap-xs)' }}>
-                    <label htmlFor="v-close">마감 시각 <span className="faint">(선택)</span></label>
+                    <label htmlFor="v-close">마감 시각</label>
                     <input id="v-close" className="input" type="datetime-local"
                            value={closesAt} onChange={e => setClosesAt(e.target.value)} />
+                    <div className="row" style={{ gap: 'var(--gap-xs)', marginTop: 'var(--gap-xs)' }}>
+                        {QUICK_CLOSE.map(([label, days]) => (
+                            <button key={label} type="button" className="btn ghost sm"
+                                    onClick={() => setClosesAt(afterDays(days))}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 

@@ -22,6 +22,8 @@ interface Loaded {
     options: Record<string, PollOptionLite[]>;
     votes: Record<string, PollVoteLite[]>;
     people: Person[];
+    /** 끝난 투표를 몇 줄 받아 왔나. 한도에 닿았으면 더 있을 수 있다. */
+    doneGot: number;
 }
 
 /**
@@ -36,13 +38,31 @@ interface Loaded {
  * 끝난 투표를 목록에서 훑는 일은 거의 없다(결과는 눌러서 상세에서 본다).
  * 아직 안 끝난 것은 놓치면 안 되므로 넉넉히 둔다.
  */
-const LIVE_POLLS = 20;
-const DONE_POLLS = 5;
+/**
+ * **진행중은 전부 받는다**(사용자 요청). 마감 시각이 필수가 되면서 진행중인
+ * 투표는 저절로 몇 개로 묶이기 때문이다 — 예전처럼 스무 개로 자르면 정작
+ * 안 끝난 투표가 목록에서 밀려난다.
+ *
+ * **그래서 '진행중'을 `closed=false`로만 고르면 안 된다.** 마감 시각이
+ * 지났는데 아무도 손으로 안 닫은 투표는 그 칸이 그대로 `false`라, 한도를
+ * 풀어 두면 그런 것이 해마다 쌓여 목록이 통째로 길어진다.
+ * **시각으로 갈라 네 번 부른다** — 아직 안 끝난 것 둘(시각이 남았거나,
+ * 마감 시각이 아예 없는 옛 투표거나)과 끝난 것 둘(손으로 닫았거나,
+ * 시각이 지났거나). 넷을 합치는 잣대가 곧 `pollClosed()`다.
+ *
+ * **`or`로 한 번에 묶지 않는다** — `.dev/rest.mjs`의 흉내가 그것을 못 풀어서,
+ * 쓰면 **검사는 통과하는데 화면만 빈다.** 넷 다 이미 쓰던 조건들이다.
+ */
+const DONE_POLLS = 10;
+/** `지난 투표 더 보기`를 한 번 누를 때마다 이만큼 더 받는다. */
+const MORE_POLLS = 20;
 
 /** 투표 하나에 딸려 오는 항목과 표. */
 type PollRow = Poll & { poll_options?: PollOptionLite[]; poll_votes?: PollVoteLite[] };
 
 export function Polls() {
+    /** 끝난 투표를 몇까지 받을지. `지난 투표 더 보기`가 이걸 올린다. */
+    const [doneMax, setDoneMax] = useState(DONE_POLLS);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         /* **항목과 표를 딸려 받는다**(`poll_options(...)` · `poll_votes(...)`).
@@ -56,23 +76,42 @@ export function Polls() {
            이유가 없다 — 표 천 줄이면 그것만으로 수십 KB다. 그래서 아래에서도
            **펴지 않고 투표별로 묶어 둔다.**
 
-           **진행중과 마감을 따로 부른다.** 한 번에 최근 것부터 받으면, 끝난
+           **진행중과 끝난 것을 따로 부른다.** 한 번에 최근 것부터 받으면, 끝난
            투표가 여러 개 쌓인 주에 **아직 안 끝난 투표가 목록에서 밀려난다.**
-           `closed=false`인데 마감 시각이 지난 것은 아래에서 `pollClosed()`가
-           다시 갈라 `마감된 투표` 칸으로 보낸다 — 그래서 두 조회의 잣대가
-           화면의 잣대와 달라도 괜찮다. */
+           위 머리말대로 **넷으로 나눈다** — 진행중 둘은 한도가 없고, 끝난
+           것 둘만 `doneMax`로 자른다. */
         const cols = '*, poll_options(id, label, sort), poll_votes(option_id, user_id)';
-        const [live, done, people] = await Promise.all([
-            supabase.from('polls').select(cols).eq('closed', false)
-                    .order('created_at', { ascending: false }).limit(LIVE_POLLS),
+        const now = new Date().toISOString();
+        const [liveTimed, liveOpen, shut, expired, people] = await Promise.all([
+            // 아직 마감 시각이 안 지난 것 — 진행중의 대부분이다.
+            supabase.from('polls').select(cols).eq('closed', false).gte('closes_at', now)
+                    .order('created_at', { ascending: false }),
+            /* 마감 시각이 **아예 없는** 옛 투표. 지금은 필수라 새로 생기지
+               않지만, 이미 올라간 것을 목록에서 잃어버리면 안 된다 —
+               `pollClosed()`도 이것을 진행중으로 본다. */
+            supabase.from('polls').select(cols).eq('closed', false).is('closes_at', null)
+                    .order('created_at', { ascending: false }),
+            // 손으로 닫은 것.
             supabase.from('polls').select(cols).eq('closed', true)
-                    .order('created_at', { ascending: false }).limit(DONE_POLLS),
+                    .order('created_at', { ascending: false }).limit(doneMax),
+            // 마감 시각이 지나 저절로 끝난 것.
+            supabase.from('polls').select(cols).eq('closed', false).lt('closes_at', now)
+                    .order('created_at', { ascending: false }).limit(doneMax),
             fetchPeople(),
         ]);
 
         /* `types.ts`의 `Database`에 표 사이의 관계가 안 적혀 있어 타입은
            `unknown`을 거쳐 바꾼다 — 실행에는 문제가 없다(홈도 같은 방식이다). */
-        const rows = [...(unwrap(live) ?? []), ...(unwrap(done) ?? [])] as unknown as PollRow[];
+        const doneRows = [...(unwrap(shut) ?? []), ...(unwrap(expired) ?? [])] as unknown as PollRow[];
+        doneRows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+        /* **자르기 전에 세어 둔다.** 둘을 합친 것이 한도에 닿았으면 그 뒤로
+           더 있을 수 있다 — `더 보기`를 내놓을지가 이 숫자로 갈린다. */
+        const doneGot = doneRows.length;
+
+        const rows = [
+            ...(unwrap(liveTimed) ?? []), ...(unwrap(liveOpen) ?? []),
+        ] as unknown as PollRow[];
+        rows.push(...doneRows.slice(0, doneMax));
         rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
         const options: Record<string, PollOptionLite[]> = {};
@@ -88,8 +127,9 @@ export function Polls() {
             options,
             votes,
             people,
+            doneGot,
         };
-    }, [], 'polls');
+    }, [doneMax], 'polls');
 
     useRealtime(['poll_votes', 'polls', 'poll_options'], reload);
 
@@ -139,6 +179,19 @@ export function Polls() {
                         <PollCard key={p.id} poll={p} data={data!} onChange={reload} />
                     ))}
                 </>
+            )}
+
+            {/* **누를 때만 더 받는다.** 목록에 페이지 넘기기가 없어 받는 대로
+                다 그리므로, 한도 없이 두면 해가 갈수록 목록도 통신량도 함께
+                분다. 끝난 투표를 되짚어 볼 일은 드물지만 **길이 아예 없으면
+                안 된다** — 한도 밖은 앱에서 다시 볼 데가 없기 때문이다. */}
+            {(data?.doneGot ?? 0) >= doneMax && (
+                <button type="button" className="btn ghost block"
+                        style={{ marginTop: 'var(--gap-sm)' }}
+                        onClick={() => setDoneMax(n => n + MORE_POLLS)}
+                        disabled={loading}>
+                    {loading ? '불러오는 중…' : '지난 투표 더 보기'}
+                </button>
             )}
         </div>
     );

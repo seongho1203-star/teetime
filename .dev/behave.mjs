@@ -2385,6 +2385,142 @@ console.log('\n── 사진을 줄여서 올린다 ──');
     await uCtx.close();
 }
 
+console.log('\n── 지난 목록은 접어 두고 `더 보기`로 편다 ──');
+{
+    /* 고정 자료는 투표 셋·라운드 넷뿐이라 한도(10)에 안 닿아 **단추가 아예
+       안 뜬다.** 지난 것을 스물다섯씩 지어 넣어야 이 자리가 보인다. */
+    const day = n => new Date(Date.now() - n * 86400000).toISOString();
+    const many = {
+        ...tables,
+        polls: [
+            ...tables.polls,
+            /* **마감 시각이 아예 없는 옛 투표.** 지금은 필수라 새로 안 생기지만
+               이미 올라간 것이 목록에서 사라지면 안 된다 — 네 갈래로 나눠
+               부르는 지금 방식에서 **제일 빠뜨리기 쉬운 자리**다. */
+            { id: 'pold', title: '마감 시각 없는 옛 투표', body: '', multi: false,
+              anonymous: false, closes_at: null, closed: false,
+              created_by: uid(1), created_at: day(40) },
+            ...Array.from({ length: 25 }, (_, i) => ({
+                id: `pd${i}`, title: `지난 투표 ${i + 1}`, body: '', multi: false,
+                anonymous: false, closes_at: day(i + 10), closed: true,
+                result_at: day(i + 10), created_by: uid(1), created_at: day(i + 10),
+            })),
+        ],
+        rounds: [
+            ...tables.rounds,
+            ...Array.from({ length: 25 }, (_, i) => ({
+                id: `rd${i}`, title: `지난 라운드 ${i + 1}`, course: '무등산CC',
+                lat: null, lon: null, tee_at: day(i + 10), capacity: 4, fee: 100000,
+                status: 'open', opens_at: null, kind: 'field', caddie: null, cart: null,
+                note: '', created_by: uid(1), created_at: day(i + 20),
+            })),
+        ],
+    };
+
+    const lCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await lCtx.route('**/rest/v1/**', restRoute(many));
+    await stubOutside(lCtx);
+    await lCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const lp = await lCtx.newPage();
+
+    /** 글자로 단추를 찾아 누른다(클래스가 아니라 사람이 읽는 말로 잡는다). */
+    const press = async label => lp.evaluate(t => [...document.querySelectorAll('button')]
+        .find(b => b.textContent.includes(t))?.click(), label);
+    const seen = async label => lp.evaluate(t => [...document.querySelectorAll('button')]
+        .some(b => b.textContent.includes(t)), label);
+
+    await lp.goto(`${BASE}/#/polls`);
+    await lp.waitForSelector('.poll-card', { timeout: 20000 });
+    await lp.waitForTimeout(700);
+    const v1 = await lp.evaluate(() => ({
+        마감: document.querySelectorAll('.poll-card.closed').length,
+        옛것: [...document.querySelectorAll('.poll-card:not(.closed)')]
+            .some(c => c.textContent.includes('마감 시각 없는 옛 투표')),
+    }));
+    ok(v1.마감 === 10, `마감된 투표는 열까지만 보인다 (${v1.마감}개)`);
+    ok(v1.옛것, '마감 시각이 없는 옛 투표도 진행중에 그대로 있다');
+    ok(await seen('지난 투표 더 보기'), '`지난 투표 더 보기`가 아래에 뜬다');
+
+    await press('지난 투표 더 보기');
+    await lp.waitForTimeout(900);
+    const v2 = await lp.evaluate(() => document.querySelectorAll('.poll-card.closed').length);
+    ok(v2 > 10, `누르면 지난 것이 더 나온다 (${v2}개)`);
+    ok(!(await seen('지난 투표 더 보기')), '다 나오면 단추가 사라진다');
+
+    await lp.goto(`${BASE}/#/rounds`);
+    await lp.waitForSelector('.round-card', { timeout: 20000 });
+    await lp.waitForTimeout(700);
+    const r1 = await lp.evaluate(() =>
+        document.querySelectorAll('.round-card.past').length);
+    ok(r1 === 10, `지난 라운드도 열까지만 보인다 (${r1}개)`);
+    ok(await seen('지난 라운드 더 보기'), '`지난 라운드 더 보기`가 아래에 뜬다');
+
+    await press('지난 라운드 더 보기');
+    await lp.waitForTimeout(900);
+    const r2 = await lp.evaluate(() =>
+        document.querySelectorAll('.round-card.past').length);
+    ok(r2 > 10, `누르면 지난 것이 더 나온다 (${r2}개)`);
+
+    await lCtx.close();
+}
+
+console.log('\n── 투표 마감 시각은 필수다 ──');
+{
+    const eCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await eCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(eCtx);
+    let made = 0;
+    await eCtx.route('**/rest/v1/polls*', route => {
+        if (route.request().method() === 'POST') made++;
+        return route.fallback();
+    });
+    await eCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const ep = await eCtx.newPage();
+    await ep.goto(`${BASE}/#/polls/new`);
+    await ep.waitForSelector('#v-close', { timeout: 20000 });
+
+    /* 제목과 항목 둘을 채운다 — 그것 말고는 막을 것이 없어야, 안 나가는
+       까닭이 **마감 시각 하나**로 좁혀진다. */
+    await ep.evaluate(() => {
+        const set = (el, v) => {
+            const p = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value');
+            p.set.call(el, v);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const boxes = [...document.querySelectorAll('input.input, textarea.input')];
+        set(boxes[0], '연습 투표');
+        const opts = [...document.querySelectorAll('.option-row input')];
+        set(opts[0], '토요일'); set(opts[1], '일요일');
+    });
+    ok(await ep.$eval('#v-close', el => el.value === ''), '마감 시각은 비어 있는 채로 시작한다');
+    ok(await ep.$eval('label[for="v-close"]', el => !el.textContent.includes('선택')),
+       '`(선택)` 딱지가 없어졌다');
+
+    await ep.evaluate(() => [...document.querySelectorAll('button')]
+        .find(b => b.textContent.trim() === '투표 올리기')?.click());
+    await ep.waitForTimeout(600);
+    ok(made === 0, `마감 시각을 안 적으면 안 올라간다 (보낸 횟수 ${made})`);
+    ok(await ep.evaluate(() =>
+        [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('마감 시각'))),
+       '왜 안 되는지 문구로 알려 준다');
+
+    await ep.evaluate(() => [...document.querySelectorAll('button')]
+        .find(b => b.textContent.trim() === '7일 후')?.click());
+    const filled = await ep.$eval('#v-close', el => el.value);
+    ok(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(filled), `바로누름이 칸을 채운다 (${filled})`);
+
+    await ep.evaluate(() => [...document.querySelectorAll('button')]
+        .find(b => b.textContent.trim() === '투표 올리기')?.click());
+    await ep.waitForTimeout(800);
+    ok(made === 1, `채우고 나면 올라간다 (보낸 횟수 ${made})`);
+
+    await eCtx.close();
+}
+
 await browser.close();
 
 if (errors.length) {

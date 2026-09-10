@@ -13,22 +13,30 @@ import './Rounds.css';
 interface Loaded {
     rounds: RoundLite[];
     signups: SignupLite[];
+    /** 지난 것을 몇 줄 받아 왔나. 한도에 닿았으면 더 있을 수 있다. */
+    pastGot: number;
 }
 
 /**
  * `지난 라운드`를 몇 개까지 받아 올까.
  *
  * 목록에 페이지 넘기기가 없으므로 **받는 대로 다 그린다** — 한도가 없으면
- * 해가 갈수록 목록도 통신량도 함께 불어난다. 서른이면 100명 모임에서
- * 두 달치다. 그보다 옛것을 여기서 훑는 일은 없다(찾을 길이 필요해지면
- * 그때 `더 보기`를 붙인다).
+ * 해가 갈수록 목록도 통신량도 함께 불어난다.
+ *
+ * **열이면 목록을 여는 값이 싸고, 더 볼 길은 아래 단추가 연다**(사용자 요청).
+ * 예정된 라운드는 그대로 **전부** 받는다 — 그건 놓치면 안 되는 것이고,
+ * 앞으로의 일이라 애초에 몇 개 안 된다.
  */
-const PAST_ROUNDS = 30;
+const PAST_ROUNDS = 10;
+/** `지난 라운드 더 보기`를 한 번 누를 때마다 이만큼 더 받는다. */
+const MORE_ROUNDS = 20;
 
 export function Rounds() {
     const { session } = useAuth();
     const me = session!.user.id;
     const [only, setOnly] = useState<RoundKind | null>(null);
+    /** 지난 라운드를 몇까지 받을지. `지난 라운드 더 보기`가 이걸 올린다. */
+    const [pastMax, setPastMax] = useState(PAST_ROUNDS);
 
     const { data, loading, error, reload } = useAsync<Loaded>(async () => {
         /* **지난 것을 전부 받지 않는다.** 예전에는 라운드도 신청 기록도
@@ -48,16 +56,18 @@ export function Rounds() {
                     .gte('tee_at', cut).order('tee_at', { ascending: true }),
             supabase.from('rounds').select(cols)
                     .lt('tee_at', cut).order('tee_at', { ascending: false })
-                    .limit(PAST_ROUNDS),
+                    .limit(pastMax),
         ]);
 
-        const rows = [...(unwrap(next) ?? []), ...(unwrap(past) ?? [])] as unknown as
+        const pastRows = unwrap(past) ?? [];
+        const rows = [...(unwrap(next) ?? []), ...pastRows] as unknown as
             (RoundLite & { signups?: SignupLite[] })[];
         return {
             rounds: rows.map(({ signups: _drop, ...r }) => r as RoundLite),
             signups: rows.flatMap(r => r.signups ?? []),
+            pastGot: pastRows.length,
         };
-    }, [], 'rounds');
+    }, [pastMax], 'rounds');
 
     // 남이 신청하면 자리 수가 바뀐다. 보고 있는 동안 따라 움직여야 한다.
     useRealtime(['rounds', 'signups'], reload);
@@ -129,6 +139,19 @@ export function Rounds() {
                         <RoundCard key={r.id} round={r} signups={signups} me={me} past />
                     ))}
                 </>
+            )}
+
+            {/* **누를 때만 더 받는다.** 목록에 페이지 넘기기가 없어 받는 대로
+                다 그리므로, 한도 없이 두면 해가 갈수록 목록도 통신량도 함께
+                분다. 그래도 **한도 밖을 볼 길이 아예 없으면 안 되어서** 둔
+                단추다(투표 목록도 같은 짜임이다). */}
+            {(data?.pastGot ?? 0) >= pastMax && (
+                <button type="button" className="btn ghost block"
+                        style={{ marginTop: 'var(--gap-sm)' }}
+                        onClick={() => setPastMax(n => n + MORE_ROUNDS)}
+                        disabled={loading}>
+                    {loading ? '불러오는 중…' : '지난 라운드 더 보기'}
+                </button>
             )}
         </div>
     );

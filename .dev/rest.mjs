@@ -98,10 +98,16 @@ export function handleRest(tables, url, req) {
                    늘 있고 값이 null인데, 여기 고정 자료에는 키 자체가 없다 —
                    안 맞춰 주면 `not.is.null`이 **모든 글을 공지로** 만든다. */
                 case 'is':  return value === 'null' ? v == null : String(v) === value;
-                case 'lt':  return String(v) < value;
-                case 'gt':  return String(v) > value;
-                case 'gte': return String(v) >= value;
-                case 'lte': return String(v) <= value;
+                /* **빈 값은 견주는 것에 하나도 안 걸린다** — SQL이 그렇다
+                   (`null < x`도 `null >= x`도 참이 아니다). 안 막으면
+                   `String(null)`이 `'null'`이 되어 **`gte`에 걸려 버린다**
+                   (`'n'`이 숫자보다 크다) — 마감 시각이 없는 옛 투표가
+                   `진행중`과 `마감`에 두 번 들어앉는 자리가 그것이다.
+                   흉내가 진짜와 다르게 풀면 **검사만 초록이 된다.** */
+                case 'lt':  return v != null && String(v) < value;
+                case 'gt':  return v != null && String(v) > value;
+                case 'gte': return v != null && String(v) >= value;
+                case 'lte': return v != null && String(v) <= value;
                 case 'in':  return value.replace(/[()]/g, '').split(',').includes(String(v));
                 /* 대화 검색이 쓴다. `%`는 아무거나, `_`는 한 글자이고
                    `\`로 막아 둔 것은 그 글자 그대로다 — 진짜 PostgREST와
