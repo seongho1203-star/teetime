@@ -187,24 +187,30 @@
 /* **달력을 직접 그린다.** 브라우저의 날짜 칸은 아이폰에서 여는 순간
    오늘 날짜를 한 번 던져서, 고르기도 전에 오늘이 항목으로 들어갔다.
    여러 날을 눌러 담는 일에도 이쪽이 낫다 — 고른 날이 그대로 칠해져 보인다. */
+/* **아이폰이 그려 주는 날짜 창(모집 열기의 티오프 칸)과 나란히 놓고
+   견줄 것** — 거기는 화면 아래를 가로지르는 큰 창인데 이쪽이 자잘하면
+   같은 앱의 같은 일로 안 읽힌다(사용자 제보 — `날짜선택하는게 라운드와
+   비교했을때 왜케 작아`). 그래서 날짜 칸을 44px·본문 글자로 키웠다.
+   **320px에서도 일곱 칸이 들어가야 한다** — 폭은 `1fr`이 알아서 나누고
+   높이만 못박으므로, 값을 만질 땐 `node .dev/audit.mjs`로 확인할 것. */
 .cal {
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
     background: var(--surface);
-    padding: 8px;
+    padding: 10px;
 }
 .cal-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
-.cal-month { font-weight: 800; font-size: var(--fs-sm); }
+.cal-month { font-weight: 800; font-size: var(--fs-md); }
 /* 누름 자리는 30px 아래로 내리지 않는다(`.dev/audit.mjs`가 본다). */
 .cal-move {
-    width: 34px; height: 30px;
+    width: 40px; height: 36px;
     border: 0; background: none; cursor: pointer;
-    font-size: 20px; line-height: 1; color: var(--text-dim);
+    font-size: 24px; line-height: 1; color: var(--text-dim);
 }
 .cal-grid {
     display: grid;
@@ -212,13 +218,13 @@
     gap: 2px;
     text-align: center;
 }
-.cal-dow { font-size: var(--fs-xs); color: var(--text-dim); padding-bottom: 2px; }
+.cal-dow { font-size: var(--fs-sm); color: var(--text-dim); padding-bottom: 4px; }
 .cal-day {
-    height: 34px;
+    height: 44px;
     border: 1px solid transparent;
     border-radius: var(--r-sm);
     background: none;
-    font-size: var(--fs-sm);
+    font-size: var(--fs-md);
     color: var(--text);
     cursor: pointer;
 }

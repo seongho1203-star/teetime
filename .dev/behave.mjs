@@ -2318,6 +2318,53 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     await bp.waitForTimeout(500);
     ok((await at()) === '#/rounds', '탭 화면에서는 미는 손짓을 안 받는다');
 
+    /* ── 남아 버린 그림을 걷는가 ──────────────────────────────
+       **깔아 둔 앞 화면이 그대로 남는 일이 실제로 있었다**(사용자 제보 —
+       `뒤로가기하면서 오류가나더니 저렇게됐어`). 걷는 일이 rAF에만 매달려
+       있으면 앱을 덮어 뒀을 때·무엇이 던져졌을 때 영영 안 걷힌다. */
+    await dive();
+    await draw(120, 0, true);
+    /* **`touchend`가 안 온 채로 새 손짓이 시작된 상태다** — iOS는 시스템
+       손짓에 가로채이면 그것을 아예 안 준다. 그때 앞 그림을 놓아 버리면
+       화면에 영영 남는다. */
+    await draw(120, 0, true);
+    const two = await bp.evaluate(() => document.querySelectorAll('.back-ghost').length);
+    ok(two === 1, `손짓이 끊겨도 그림이 겹쳐 쌓이지 않는다 (${two}장)`);
+    await touchAt('touchend', 128, 420);
+    await bp.waitForTimeout(600);
+
+    /* 무슨 까닭으로든 남았다면 — 앱으로 돌아올 때 훑어 걷는다. */
+    await bp.evaluate(() => {
+        const g = document.createElement('div');
+        g.className = 'back-ghost';
+        document.body.insertBefore(g, document.body.firstChild);
+        document.documentElement.classList.add('back-drag', 'back-ease');
+        const el = document.querySelector('.app > :first-child');
+        if (el) el.style.transform = 'translate3d(390px,0,0)';
+    });
+    await bp.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    await bp.waitForTimeout(200);
+    const swept = await bp.evaluate(() => ({
+        남음: document.querySelectorAll('.back-ghost').length,
+        끌기: document.documentElement.className,
+        page: document.querySelector('.app > :first-child')?.style.transform || '',
+    }));
+    ok(swept.남음 === 0, `남아 버린 앞 화면 그림을 걷는다 (${swept.남음}장)`);
+    ok(!swept.끌기.includes('back-drag') && !swept.끌기.includes('back-ease')
+       && swept.page === '', '밀려 나간 화면도 제자리로 돌아온다');
+
+    /* 화면을 옮길 때도 훑는다 — 그림이 남아 있어도 눌러서 빠져나올 수 있다
+       (그림은 `pointer-events: none`이라 탭바가 그대로 눌린다). */
+    await bp.evaluate(() => {
+        const g = document.createElement('div');
+        g.className = 'back-ghost';
+        document.body.insertBefore(g, document.body.firstChild);
+    });
+    await bp.evaluate(() => { location.hash = '#/polls'; });
+    await bp.waitForTimeout(500);
+    const moved = await bp.evaluate(() => document.querySelectorAll('.back-ghost').length);
+    ok(moved === 0, `화면을 옮기면 남은 그림이 걷힌다 (${moved}장)`);
+
     await bCtx2.close();
 }
 

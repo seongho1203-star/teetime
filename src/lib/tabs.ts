@@ -106,6 +106,59 @@ function snap(toPath: string) {
     while (shots.length > MAX_SHOTS) shots.shift();
 }
 
+/* ── 남아 버린 앞 화면 그림을 걷는다 ──────────────────────────
+ *
+ * **깔아 둔 그림이 화면에 그대로 남는 일이 실제로 있었다**(사용자 제보 —
+ * `뒤로가기하면서 오류가나더니 저렇게됐어` · 사진). 그러면 앱이 통째로
+ * 죽은 것처럼 보인다 — 그림은 죽은 복사본이라 아무것도 안 눌린다.
+ *
+ * **걷는 일이 `requestAnimationFrame`에만 매달려 있으면 안 된다.** 아래
+ * `end()`는 `setTimeout` → rAF 두 번으로 걷는데, **rAF는 앱을 덮어 두면
+ * 아예 안 돈다** — 뒤로 가는 도중에 홈으로 나가면 그림이 영영 남는다.
+ * 손짓 도중에 무엇이 던져져도 마찬가지다.
+ *
+ * 그래서 **누가 걷었는지와 무관하게 훑어 걷는 자리를 따로 둔다** —
+ * 화면이 바뀔 때 · 앱으로 돌아올 때. 다만 **지금 돌고 있는 손짓까지
+ * 걷어 버리면 안 되므로**(뒤로 가는 그 0.23초가 곧 화면 바뀌는 때다)
+ * 깐 지 `GHOST_MAX`가 지난 것만 본다.
+ */
+const GHOST_MAX = 1500;
+/** 마지막으로 그림을 깐 시각. 0이면 깔린 것이 없다. */
+let ghostAt = 0;
+
+/** 끄는 동안에만 세로 굴리기를 막는다(아래 `block` 주석). */
+function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
+
+/**
+ * 남은 그림·클래스·`transform`을 걷는다.
+ * @param force 지금 막 깐 것까지 걷는다(손짓이 끝난 것이 확실할 때만).
+ */
+function sweepGhosts(force = false): void {
+    if (!force && ghostAt && Date.now() - ghostAt < GHOST_MAX) return;
+    const root = document.documentElement;
+    const left = document.querySelectorAll('.back-ghost');
+    if (!left.length && !root.classList.contains('back-drag')
+                     && !root.classList.contains('back-ease')) return;
+    for (const g of left) g.remove();
+    root.classList.remove('back-drag', 'back-ease');
+    document.removeEventListener('touchmove', blockScroll);
+    const el = pageEl();
+    if (el) { el.style.transform = ''; el.style.transition = ''; }
+    ghostAt = 0;
+}
+
+let watched = false;
+function watchGhosts() {
+    if (watched || typeof window === 'undefined') return;
+    watched = true;
+    /* 앱으로 돌아왔을 때 — rAF가 안 돌아 못 걷은 것이 여기서 걸린다. */
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) sweepGhosts();
+    });
+    window.addEventListener('pageshow', () => sweepGhosts());
+}
+watchGhosts();
+
 let patched = false;
 function watchHistory() {
     if (patched || typeof history === 'undefined') return;
@@ -185,6 +238,7 @@ export function useBackSwipe(): void {
             document.body.insertBefore(g, document.body.firstChild);
             ghost = g;
             dim = d;
+            ghostAt = Date.now();
         };
 
         /**
@@ -195,13 +249,14 @@ export function useBackSwipe(): void {
          * 상세 화면마다 그 값을 무는 셈이라, 손짓이 우리 것으로 정해진
          * 뒤에 붙였다 끝나면 뗀다(늘 켜져 있는 값을 안 만든다는 규칙 그대로다).
          */
-        const block = (e: TouchEvent) => { if (e.cancelable) e.preventDefault(); };
+        const block = blockScroll;
 
         const clean = () => {
             document.removeEventListener('touchmove', block);
             document.documentElement.classList.remove('back-drag', 'back-ease');
             ghost?.remove();
             ghost = dim = null;
+            ghostAt = 0;
             /* **지금 화면과 우리가 잡아 둔 것을 둘 다 지운다.** 리액트가
                같은 자리의 DOM을 다시 쓰는 일이 있어, 잡아 둔 것만 지우면
                새 화면에 옛 `transform`이 남는다. */
@@ -213,6 +268,11 @@ export function useBackSwipe(): void {
         };
 
         const start = (e: TouchEvent) => {
+            /* **앞 손짓이 안 끝난 채로 남아 있으면 먼저 걷는다.** iOS는
+               시스템 손짓에 가로채이면 `touchend`를 아예 안 주기도 하는데,
+               그때 여기서 `live`만 내려 버리면 **깔아 둔 그림을 놓아 버려**
+               영영 화면에 남는다(그 다음 `build()`가 새 그림을 덮어쓴다). */
+            if (live || ghost) clean();
             cand = live = false;
             if (e.touches.length !== 1 || taken(e.target)) return;
             x0 = lastX = e.touches[0].clientX;
@@ -257,30 +317,52 @@ export function useBackSwipe(): void {
             document.documentElement.classList.add('back-ease');
             dx = go ? W : 0;
             paint();
+            const mine = ghost;
             window.setTimeout(() => {
                 if (go) { skipSlide = true; nav(-1); }
                 /* 새 화면이 한 번 그려진 **뒤에** 걷는다 — 바로 걷으면
                    그 한 프레임에 옛 화면이 비친다. */
                 requestAnimationFrame(() => requestAnimationFrame(clean));
             }, 230);
+            /* **rAF에만 매달지 않는다.** 앱을 덮어 두면 위의 rAF가 아예
+               안 돌아 그림이 화면에 남는다(`setTimeout`은 그래도 돈다).
+               같은 그림이 아직 붙어 있고 새 손짓도 없을 때만 걷는다. */
+            window.setTimeout(() => {
+                if (!live && mine && mine.isConnected) clean();
+            }, 600);
         };
 
         /* 흔들림 없이 되돌아오게, 손짓이 끊기면 그대로 접는다. */
         const cancel = () => { if (live) { dx = 0; paint(); } clean(); cand = false; };
 
-        document.addEventListener('touchstart', start, { passive: true });
+        /* **무엇이 던져져도 그림은 걷는다.** 손짓 도중에 오류가 나면
+           깔아 둔 앞 화면이 그대로 남아 앱이 죽은 것처럼 보인다
+           (사용자 제보 — `뒤로가기하면서 오류가나더니 저렇게됐어`). */
+        const guard = (fn: (e: TouchEvent) => void) => (e: TouchEvent) => {
+            try { fn(e); } catch { cand = false; clean(); }
+        };
+        const onStart = guard(start), onMove = guard(move);
+        const onEnd = guard(end), onCancel = guard(cancel);
+
+        document.addEventListener('touchstart', onStart, { passive: true });
         /* 알아채는 듣기는 **passive다** — 막는 일은 위 `block`이 맡는다. */
-        document.addEventListener('touchmove', move, { passive: true });
-        document.addEventListener('touchend', end, { passive: true });
-        document.addEventListener('touchcancel', cancel, { passive: true });
+        document.addEventListener('touchmove', onMove, { passive: true });
+        document.addEventListener('touchend', onEnd, { passive: true });
+        document.addEventListener('touchcancel', onCancel, { passive: true });
         return () => {
-            document.removeEventListener('touchstart', start);
-            document.removeEventListener('touchmove', move);
-            document.removeEventListener('touchend', end);
-            document.removeEventListener('touchcancel', cancel);
+            document.removeEventListener('touchstart', onStart);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onEnd);
+            document.removeEventListener('touchcancel', onCancel);
             clean();
         };
     }, [onTab, nav]);
+
+    /* **화면이 바뀌면 남은 그림이 있는지 훑는다.** 위 효과의 뒷정리는
+       `onTab`이 뒤집힐 때만 도므로, 상세에서 상세로 옮길 때는 안 돈다.
+       `GHOST_MAX`가 지난 것만 걷으므로 **지금 돌고 있는 뒤로 가기는
+       건드리지 않는다.** */
+    useEffect(() => { sweepGhosts(); }, [pathname]);
 
     useEffect(() => {
         if (onTab) return;
