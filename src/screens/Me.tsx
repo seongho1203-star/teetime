@@ -16,6 +16,7 @@ import { GenderAge } from '../components/GenderAge';
 import { Hinted } from '../components/Hinted';
 import { saveMyProfile } from '../lib/db';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
+import { IS_NATIVE } from '../lib/native';
 import { shrinkImage } from '../lib/image';
 import {
     chatPush, disablePush, enablePush, pushState, setChatPush, type PushState,
@@ -213,7 +214,14 @@ export function Me() {
                 hint: '폰 설정 → 알림에서 까꿍을 켜 주세요', can: false };
             case 'standalone-required': return {
                 hint: '공유 → 홈 화면에 추가 → 그 아이콘으로 열면 켤 수 있습니다', can: false };
-            case 'unsupported': return { hint: '이 브라우저는 알림을 못 받습니다', can: false };
+            /* **앱에서는 뜻이 다르다** — 브라우저가 못 받는 것이 아니라
+               **알림이 붙기 전 판을 쓰고 있는 것**이다. 거기서 `이 브라우저는`
+               이라고 적으면 고칠 길이 없는 말이 된다. */
+            case 'unsupported': return {
+                hint: IS_NATIVE
+                    ? '앱을 최신 판으로 받으면 켤 수 있습니다'
+                    : '이 브라우저는 알림을 못 받습니다',
+                can: false };
             default: return { hint: '확인 중…', can: false };
         }
     };

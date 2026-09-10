@@ -1,4 +1,8 @@
 import { supabase } from './supabase';
+import { IS_NATIVE } from './native';
+import {
+    disableNativePush, enableNativePush, nativeEndpoint, nativePushState, watchNativePush,
+} from './native-push';
 
 /**
  * 앱을 안 보고 있을 때 폰으로 오는 알림.
@@ -11,6 +15,11 @@ import { supabase } from './supabase';
  *
  * **iOS는 홈 화면에 추가한 앱에서만 알림이 온다.** 사파리 탭에서는
  * 권한 요청 자체가 뜨지 않는다 — 그래서 `canPush()`가 그것부터 본다.
+ *
+ * **앱(Capacitor)에서는 위 흐름이 통째로 안 돈다** — 아이폰 앱 안에는
+ * 웹푸시도 서비스워커도 없다. 그때는 `lib/native-push.ts`가 애플에 직접
+ * 등록해 받는다. **이 파일이 그 갈래의 유일한 문이다** — 화면(`Me.tsx`)은
+ * 어느 쪽인지 몰라도 되게 여기서 갈라 준다.
  */
 
 /** 발송기(Edge Function)의 비밀키와 짝이다. 공개키라 코드에 있어도 된다. */
@@ -29,6 +38,10 @@ export type PushState = 'unsupported' | 'standalone-required' | 'denied' | 'off'
  * 알림을 안 켜는 사람도 설치는 할 수 있어야 한다.
  */
 export function registerServiceWorker() {
+    /* **앱에서는 서비스워커가 아예 없다.** 대신 알림을 눌렀을 때 갈 곳만
+       플러그인에서 받아 같은 `goTo()`로 넘긴다 — 갈 곳을 실어 보내는 쪽
+       (발송기)은 웹이든 앱이든 한 줄도 안 갈린다. */
+    if (IS_NATIVE) { watchNativePush(goTo); return; }
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.register(SW_URL).catch(() => {
         // 등록이 안 돼도 앱은 그대로 돌아간다. 설치 배너만 안 뜬다.
@@ -126,6 +139,7 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 export async function pushState(): Promise<PushState> {
+    if (IS_NATIVE) return nativePushState();
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         return isIOS && !isStandalone() ? 'standalone-required' : 'unsupported';
     }
@@ -137,6 +151,7 @@ export async function pushState(): Promise<PushState> {
 
 /** 이 기기의 구독 주소. 알림이 꺼져 있으면 null. */
 async function currentEndpoint(): Promise<string | null> {
+    if (IS_NATIVE) return nativeEndpoint();
     if (!('serviceWorker' in navigator)) return null;
     const reg = await navigator.serviceWorker.getRegistration(SW_URL);
     const sub = await reg?.pushManager.getSubscription();
@@ -176,6 +191,7 @@ export async function setChatPush(on: boolean): Promise<void> {
  * "사용자가 부른 게 아니다"라며 무시한다.
  */
 export async function enablePush(userId: string): Promise<PushState> {
+    if (IS_NATIVE) return enableNativePush(userId);
     const state = await pushState();
     if (state === 'unsupported' || state === 'standalone-required' || state === 'denied') {
         return state;
@@ -217,6 +233,7 @@ export async function enablePush(userId: string): Promise<PushState> {
  * 발송 목록에는 없는 상태가 된다. 구독을 먼저 끊고 행을 지운다.
  */
 export async function disablePush(): Promise<PushState> {
+    if (IS_NATIVE) return disableNativePush();
     const reg = await navigator.serviceWorker.getRegistration(SW_URL);
     const sub = await reg?.pushManager.getSubscription();
     if (sub) {

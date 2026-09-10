@@ -23,6 +23,11 @@
  * DB 트리거의 `when` 절에 있다 — 여기서 다시 가리지 않는다. 라운드·투표는
  * '다시 열림', 신청은 '대기에서 확정으로 올라감'이다.
  *
+ * **받는 곳이 둘이다** — 홈 화면 웹앱은 웹푸시로, **아이폰 앱은 애플에
+ * 바로**(APNs) 민다. 아이폰 앱 안에는 웹푸시가 아예 없기 때문이다.
+ * 가르는 것은 구독 주소의 `apns:` 표시 하나뿐이고, **누구에게 보낼지를
+ * 정하는 규칙은 한 벌 그대로다**(`planFor`).
+ *
  * 웹훅은 Supabase 화면(Database → Webhooks)에서 건다. 보낼 때
  * `x-notify-secret` 헤더에 NOTIFY_SECRET을 넣게 해 두었다 — 이 함수는
  * 인증 없이 열려 있으므로 그 값이 맞을 때만 일한다.
@@ -44,6 +49,113 @@ webpush.setVapidDetails(
 );
 
 const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
+
+/* ══ 앱(아이폰)으로 보내기 — 애플에 바로 민다 ═══════════════════════
+ *
+ * **아이폰 앱 안에는 웹푸시가 없다.** 서비스워커도 안 돌아서, 앱으로
+ * 옮겨 간 회원은 소식을 **한 건도 못 받고 있었다.**
+ *
+ * **FCM이 아니라 애플에 바로 보낸다.** 지금 내는 것이 아이폰뿐이라
+ * 파이어베이스를 끼우면 손만 더 간다(프로젝트 만들기 · 앱 등록 ·
+ * `GoogleService-Info.plist` · APNs 키 올리기 · 서비스 계정 JSON).
+ * 애플에 직접 보내면 그 다섯이 **`.p8` 열쇠 하나**로 줄어든다.
+ * 안드로이드를 낼 때 FCM을 더하면 되고, 그때도 아래 짜임은 그대로 쓴다.
+ *
+ * **비밀값이 없으면 조용히 지나간다** — 앱 알림을 아직 안 켠 저장소에서
+ * 웹 알림까지 막히면 안 된다.
+ *
+ * 필요한 Secret (Edge Functions → Secrets):
+ *   APNS_KEY_P8 · APNS_KEY_ID · APNS_TEAM_ID
+ *   (APNS_BUNDLE_ID · APNS_HOST 는 안 넣으면 아래 기본값을 쓴다)
+ */
+const APNS_HOST = env('APNS_HOST') || 'https://api.push.apple.com';
+const APNS_TOPIC = env('APNS_BUNDLE_ID') || 'com.kkakkung.app';
+/** 이 기기는 앱인가. 웹 구독 주소는 `https://…`이라 섞일 일이 없다. */
+const APNS_MARK = 'apns:';
+
+function b64url(bytes: ArrayBuffer | Uint8Array): string {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    return btoa(String.fromCharCode(...b))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** `.p8`(PEM)에서 열쇠를 꺼낸다. 줄바꿈이 `\n` 글자로 들어와도 받아 준다. */
+async function apnsKey(): Promise<CryptoKey> {
+    const pem = env('APNS_KEY_P8').replace(/\\n/g, '\n');
+    const body = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+    const der = Uint8Array.from(atob(body), c => c.charCodeAt(0));
+    return await crypto.subtle.importKey(
+        'pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+}
+
+/**
+ * 애플에 낼 표(JWT).
+ *
+ * **한 번 만들어 두고 다시 쓴다.** 애플은 같은 열쇠로 **20분에 한 번보다
+ * 자주 새로 만들면** `TooManyProviderTokenUpdates`로 막는다 — 알림 한 건마다
+ * 새로 만들면 바쁜 날 그대로 걸린다. Edge Function은 한 번 깨어나면 잠시
+ * 살아 있으므로 이 모듈 값이 그동안 그대로 쓰인다(식으면 다시 만든다).
+ */
+let token: { jwt: string; at: number } | null = null;
+async function apnsJwt(): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    if (token && now - token.at < 45 * 60) return token.jwt;
+    const head = b64url(new TextEncoder().encode(
+        JSON.stringify({ alg: 'ES256', kid: env('APNS_KEY_ID') })));
+    const body = b64url(new TextEncoder().encode(
+        JSON.stringify({ iss: env('APNS_TEAM_ID'), iat: now })));
+    const sig = await crypto.subtle.sign(
+        { name: 'ECDSA', hash: 'SHA-256' }, await apnsKey(),
+        new TextEncoder().encode(`${head}.${body}`));
+    const jwt = `${head}.${body}.${b64url(sig)}`;
+    token = { jwt, at: now };
+    return jwt;
+}
+
+/** 앱으로 보낼 수 있는 저장소인가. 열쇠 셋이 다 있어야 한다. */
+const canApns = () =>
+    !!(env('APNS_KEY_P8') && env('APNS_KEY_ID') && env('APNS_TEAM_ID'));
+
+/**
+ * 한 대에 민다. 보냈으면 true, **못 쓰게 된 토큰이면 'dead'**.
+ *
+ * 앱을 지웠거나 다시 깐 폰은 `410 Unregistered` · `400 BadDeviceToken`으로
+ * 온다 — 그때 지워 두지 않으면 발송할 때마다 같은 실패가 쌓인다
+ * (웹 구독의 404·410과 같은 자리다).
+ */
+async function pushToApns(
+    deviceToken: string, note: { title: string; body: string; tag: string; url: string },
+): Promise<'ok' | 'dead' | 'fail'> {
+    const res = await fetch(`${APNS_HOST}/3/device/${deviceToken}`, {
+        method: 'POST',
+        headers: {
+            authorization: `bearer ${await apnsJwt()}`,
+            'apns-topic': APNS_TOPIC,
+            'apns-push-type': 'alert',
+            'apns-priority': '10',
+            /* **웹의 `tag`와 같은 뜻**을 애플에서는 `collapse-id`가 한다 —
+               같은 값이면 알림창에서 뒤엣것이 앞엣것을 대신한다.
+               64바이트를 넘으면 애플이 통째로 거절하므로 잘라 쓴다. */
+            'apns-collapse-id': note.tag.slice(0, 64),
+        },
+        body: JSON.stringify({
+            aps: {
+                alert: { title: note.title, body: note.body },
+                sound: 'default',
+                /* 같은 이야기끼리 묶어 준다(알림창에서 접힌다). */
+                'thread-id': note.tag,
+            },
+            /* **갈 곳은 웹과 같은 값이다** — `lib/native-push.ts`가
+               `data.url`로 받아 그 화면으로 옮긴다. */
+            url: note.url,
+        }),
+    });
+    if (res.ok) return 'ok';
+    const why = await res.text().catch(() => '');
+    if (res.status === 410 || (res.status === 400 && why.includes('BadDeviceToken'))) return 'dead';
+    console.error('apns', res.status, why);
+    return 'fail';
+}
 
 interface Hook {
     type: 'INSERT' | 'UPDATE' | 'DELETE';
@@ -638,16 +750,41 @@ Deno.serve(async req => {
     const dead: string[] = [];
     let sent = 0;
 
+    /* **한 목록에서 웹과 앱을 갈라 보낸다.** 받는 사람을 고르는 규칙
+       (`only`·`except`·대화 스위치)은 위에서 이미 끝났으므로, 여기서는
+       **어디로 미느냐만** 다르다 — 그래서 표를 나누지 않고 `apns:` 표시
+       하나로 가른다(`lib/native-push.ts` 참고). */
     await Promise.all((subs ?? []).map(async s => {
+        const endpoint = s.endpoint as string;
+
+        if (endpoint.startsWith(APNS_MARK)) {
+            /* 열쇠를 아직 안 넣어 둔 저장소에서는 앱 기기를 그냥 건너뛴다 —
+               **행을 지우지는 않는다.** 열쇠를 넣으면 그대로 살아나야 한다. */
+            if (!canApns()) return;
+            try {
+                const r = await pushToApns(endpoint.slice(APNS_MARK.length), {
+                    title: note.title,
+                    body: (typeof s.user_id === 'string' && note.bodyBy?.[s.user_id]) || note.body,
+                    tag: note.tag,
+                    url: note.url,
+                });
+                if (r === 'ok') sent++;
+                else if (r === 'dead') dead.push(endpoint);
+            } catch (e) {
+                console.error('apns', (e as Error).message);
+            }
+            return;
+        }
+
         try {
             await webpush.sendNotification(
-                { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+                { endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
                 payloadFor(s.user_id),
             );
             sent++;
         } catch (e) {
             const code = (e as { statusCode?: number }).statusCode;
-            if (code === 404 || code === 410) dead.push(s.endpoint);
+            if (code === 404 || code === 410) dead.push(endpoint);
         }
     }));
 

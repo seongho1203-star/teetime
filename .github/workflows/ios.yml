@@ -108,8 +108,11 @@ jobs:
       #
       # **앱스토어 배포용 프로비저닝은 기기가 필요 없다.** 그래서 아카이브는
       # 서명 없이 만들고, `-exportArchive`가 그때 인증서와 배포용 프로비저닝을
-      # 스스로 만들어 받아 서명해 올린다. 앱에 entitlements 파일이 없어
-      # (푸시·특수 권한을 안 쓴다) 서명을 미뤄도 잃는 것이 없다.
+      # 스스로 만들어 받아 서명해 올린다.
+      #
+      # **알림을 붙이면서 그 전제가 하나 깨졌다** — 이제 앱에 entitlements
+      # 파일이 있는데(`App/App.entitlements`), 서명을 끄면 그 처리 단계도
+      # 함께 건너뛴다. 아래 `알림 권한 실어 주기`가 그 자리를 메운다.
       - name: 아카이브 (서명 없이)
         if: steps.keys.outputs.ready == 'yes'
         env:
@@ -126,6 +129,30 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }}
+
+      # ── 알림 권한을 아카이브에 실어 준다 ──────────────────────
+      #
+      # **아카이브를 서명 없이 만드는 것의 대가다**(위 참고). 서명을 끄면
+      # Xcode가 `entitlements`를 처리하는 단계도 함께 건너뛰어, 앱 안에
+      # `archived-expanded-entitlements.xcent`가 안 생긴다. 그러면 아래
+      # `-exportArchive`가 다시 서명할 때 **넣을 권한이 없어** 알림 권한
+      # (`aps-environment`)이 빠진 앱이 만들어진다 — 빌드는 초록이고
+      # TestFlight에도 올라가는데 **폰에서 알림 등록만 조용히 거절당한다.**
+      #
+      # 그래서 그 파일을 우리가 직접 넣어 준다. `-exportArchive`는 이 파일이
+      # 있으면 그걸 권한으로 삼아 서명한다.
+      #
+      # **`aps-environment`가 들어갔는지 여기서 확인하고 넘어간다** — 빠진
+      # 채로 30분을 기다렸다 폰에서 알아채는 일이 없게.
+      - name: 알림 권한 실어 주기
+        if: steps.keys.outputs.ready == 'yes'
+        run: |
+          set -o pipefail
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          cp ios/App/App/App.entitlements "$APP/archived-expanded-entitlements.xcent"
+          plutil -p "$APP/archived-expanded-entitlements.xcent"
+          plutil -p "$APP/archived-expanded-entitlements.xcent" | grep -q 'aps-environment' \
+            || { echo "::error::알림 권한(aps-environment)이 안 들어갔습니다."; exit 1; }
 
       # **여기가 서명하는 자리다.** `-allowProvisioningUpdates`가 배포용
       # 인증서와 앱스토어 프로비저닝을 스스로 만들어 받아 앱에 서명하고,
