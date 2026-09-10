@@ -142,8 +142,11 @@ jobs:
       # 그래서 그 파일을 우리가 직접 넣어 준다. `-exportArchive`는 이 파일이
       # 있으면 그걸 권한으로 삼아 서명한다.
       #
-      # **`aps-environment`가 들어갔는지 여기서 확인하고 넘어간다** — 빠진
-      # 채로 30분을 기다렸다 폰에서 알아채는 일이 없게.
+      # **여기서 확인하지 말 것 — 방금 우리가 넣은 파일을 우리가 보는 꼴이라
+      # 늘 통과한다.** 실제로 그렇게 두었다가 빌드가 내내 초록인데 폰에서만
+      # `유효한 aps-environment 인타이틀먼트 문자열을 찾을 수 없습니다`가
+      # 떴다(사용자 제보 · 1.34판). **진짜 확인은 서명이 끝난 뒤**에 있다
+      # (아래 `알림 권한이 진짜 실렸는지`).
       - name: 알림 권한 실어 주기
         if: steps.keys.outputs.ready == 'yes'
         run: |
@@ -151,8 +154,6 @@ jobs:
           APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
           cp ios/App/App/App.entitlements "$APP/archived-expanded-entitlements.xcent"
           plutil -p "$APP/archived-expanded-entitlements.xcent"
-          plutil -p "$APP/archived-expanded-entitlements.xcent" | grep -q 'aps-environment' \
-            || { echo "::error::알림 권한(aps-environment)이 안 들어갔습니다."; exit 1; }
 
       # **여기가 서명하는 자리다.** `-allowProvisioningUpdates`가 배포용
       # 인증서와 앱스토어 프로비저닝을 스스로 만들어 받아 앱에 서명하고,
@@ -188,6 +189,39 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_$KEY_ID.p8 \
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID"
+
+      # ── 알림 권한이 진짜 실렸는지 ─────────────────────────────
+      #
+      # **서명이 끝난 앱을 본다.** 앞 단계에서 `.xcent`를 넣어 두어도,
+      # 실제로 권한을 주는 것은 **애플이 내주는 프로비저닝 프로파일**이다 —
+      # `com.kkakkung.app`의 App ID에 **Push Notifications가 꺼져 있으면**
+      # 그 프로파일에 `aps-environment`가 없고, 그러면 서명할 때 그 권한이
+      # 통째로 빠진다. 빌드는 초록이고 TestFlight에도 올라가는데
+      # **폰에서 알림 등록만 거절당한다**(사용자 제보 · 1.34판).
+      #
+      # 그래서 여기서 `codesign`으로 **서명된 결과**를 읽어 본다.
+      # 올린 뒤에 도는 자리라 빨개져도 앱은 이미 올라가 있지만, **조용히
+      # 안 되는 것보다 빨간 줄 하나가 낫다** — 무엇을 켜야 하는지 적어 준다.
+      - name: 알림 권한이 진짜 실렸는지
+        if: steps.keys.outputs.ready == 'yes'
+        run: |
+          set -o pipefail
+          IPA=$(ls "$RUNNER_TEMP/out"/*.ipa 2>/dev/null | head -1 || true)
+          if [ -z "$IPA" ]; then
+            echo "::notice::서명된 파일이 없어 권한 확인을 건너뜁니다."
+            exit 0
+          fi
+          rm -rf "$RUNNER_TEMP/peek" && mkdir -p "$RUNNER_TEMP/peek"
+          unzip -q "$IPA" -d "$RUNNER_TEMP/peek"
+          SIGNED=$(ls -d "$RUNNER_TEMP/peek/Payload"/*.app | head -1)
+          codesign -d --entitlements :- "$SIGNED" 2>/dev/null > "$RUNNER_TEMP/ent.txt" || true
+          cat "$RUNNER_TEMP/ent.txt"
+          grep -q 'aps-environment' "$RUNNER_TEMP/ent.txt" || {
+            echo "::error::서명된 앱에 알림 권한(aps-environment)이 없습니다. \
+          developer.apple.com → Certificates, IDs & Profiles → Identifiers → \
+          com.kkakkung.app 에서 Push Notifications를 켜고 Save한 뒤 다시 돌려 주세요."
+            exit 1
+          }
 
       - name: 열쇠 지우기
         if: always()

@@ -120,6 +120,22 @@ export function nativeEndpoint(): string | null {
  * `google-services.json`), 통신이 막힌 자리에서는 **둘 다 안 오고 그대로
  * 멈춘다** — 그러면 `알림 켜기`를 누른 사람이 영영 기다린다.
  */
+/**
+ * 애플·구글이 등록을 거절한 까닭을 **사람 말로** 바꾼다.
+ *
+ * 그대로 두면 `응용 프로그램을 위한 유효한 'aps-environment' 인타이틀먼트
+ * 문자열을 찾을 수 없습니다` 같은 줄이 화면에 그대로 뜬다(사용자 제보 ·
+ * 1.34판). 뜻은 **앱 파일에 알림 권한이 안 실렸다**는 것이고, 고칠 자리는
+ * 폰이 아니라 **애플 개발자 사이트와 앱 빌드**다 — 그 말을 적어 준다.
+ */
+function whyToken(raw: unknown): string {
+    const s = String(raw ?? '알 수 없는 까닭');
+    if (s.includes('aps-environment')) {
+        return '이 앱에 알림 권한이 안 실려 있습니다. 앱을 다시 만들어 받아야 켜집니다.';
+    }
+    return s;
+}
+
 function askToken(p: Plugin): Promise<string> {
     return new Promise((resolve, reject) => {
         let done = false;
@@ -138,8 +154,8 @@ function askToken(p: Plugin): Promise<string> {
         void (async () => {
             const hs = await Promise.all([
                 p.addListener('registration', ({ value }) => end(() => resolve(value))),
-                p.addListener('registrationError', e => end(() => reject(new Error(
-                    String((e as { error?: unknown }).error ?? '알 수 없는 까닭'))))),
+                p.addListener('registrationError', e => end(() => reject(
+                    new Error(whyToken((e as { error?: unknown }).error))))),
             ]);
             if (done) { hs.forEach(h => { void h.remove(); }); return; }
             hs.forEach(h => drops.push(() => { void h.remove(); }));

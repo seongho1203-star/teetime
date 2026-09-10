@@ -3451,8 +3451,22 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
   보인다. `lib/native-push.ts`와 한 벌이니 한쪽만 지우지 말 것.
 - **아이폰은 `aps-environment` 권한이 앱에 실려야 한다.** 아카이브를 서명
   없이 만드는 탓에 Xcode가 그 처리를 건너뛰므로, `ios.yml`이
-  `archived-expanded-entitlements.xcent`를 직접 넣고 **들어갔는지 확인하고
-  넘어간다** — 빠지면 빌드는 초록인데 폰에서 등록만 조용히 거절당한다.
+  `archived-expanded-entitlements.xcent`를 직접 넣는다 — 빠지면 빌드는
+  초록인데 폰에서 등록만 조용히 거절당한다.
+  - **그 파일을 넣는 것만으로는 안 된다 — 권한을 실제로 주는 것은 애플이
+    내주는 프로비저닝 프로파일이다.** `com.kkakkung.app`의 App ID에서
+    **Push Notifications를 켜 두지 않으면** 그 프로파일에 `aps-environment`가
+    없어 서명할 때 통째로 빠진다. `-allowProvisioningUpdates`는 프로파일을
+    만들어 줄 뿐 **App ID의 기능을 켜 주지는 않는다.** 사람이 한 번 켜야
+    하는 자리라 `docs/설치.md` 7-1번 맨 앞에 적어 두었다.
+  - **넣은 파일을 우리가 다시 보는 검사는 아무 뜻이 없다** — 늘 통과한다.
+    실제로 그렇게 두었다가 빌드가 내내 초록인데 폰에서만
+    `유효한 aps-environment 인타이틀먼트 문자열을 찾을 수 없습니다`가
+    떴다(1.34판). 지금은 `-exportArchive`가 끝난 뒤 `codesign -d
+    --entitlements`로 **서명된 결과**를 읽어 보고, 없으면 무엇을 켜야
+    하는지 적어 빨갛게 세운다.
+  - 폰 화면에도 사람 말로 적는다(`whyToken()` in native-push.ts) —
+    애플이 주는 영문·직역 문구가 그대로 뜨면 어디를 고쳐야 하는지 알 수 없다.
 - **안드로이드는 `POST_NOTIFICATIONS` 권한과 `google-services.json`이
   있어야 한다.** 앞엣것이 없으면 권한 창이 아예 안 뜨고, 뒤엣것이 없으면
   앱은 멀쩡히 만들어지는데 알림만 안 온다.
