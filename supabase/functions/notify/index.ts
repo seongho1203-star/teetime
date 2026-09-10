@@ -130,7 +130,8 @@ const canApns = () =>
  * (웹 구독의 404·410과 같은 자리다).
  */
 async function pushToApns(
-    deviceToken: string, note: { title: string; body: string; tag: string; url: string },
+    deviceToken: string,
+    note: { title: string; body: string; tag: string; url: string; badge: number },
 ): Promise<'ok' | 'dead' | 'fail'> {
     const res = await fetch(`${APNS_HOST}/3/device/${deviceToken}`, {
         method: 'POST',
@@ -155,15 +156,13 @@ async function pushToApns(
                    **못 찾으면 폰 기본음으로 울릴 뿐 알림은 그대로 뜬다** —
                    그래서 이 파일이 없는 옛 앱에서도 탈이 없다. */
                 sound: APNS_SOUND,
-                /* **아이콘 위 빨간 표시.** 앱 안에는 서비스워커가 없어서
+                /* **아이콘 위 빨간 숫자.** 앱 안에는 서비스워커가 없어서
                    웹에서 숫자를 세던 `sw.js`의 `bumpBadge`가 아예 안 돈다 —
                    이 값을 안 실으면 **앱에는 표시가 통째로 안 붙는다.**
-                   **`1`은 개수가 아니라 '새 소식이 있다'는 표다.** 정확한
-                   개수를 실으려면 받는 사람마다 안 읽은 수를 세어야 하는데
-                   (100명이면 조회 100번) 그 값은 여기서 낼 수 없다.
-                   지우는 쪽은 앱이 맡는다 — 열면 0이 된다(`AppDelegate`의
-                   `applicationDidBecomeActive`). */
-                badge: 1,
+                   **카톡처럼 안 읽은 대화 개수다**(`unread_chat_counts`).
+                   0이면 iOS가 표시를 지우므로, 다 읽은 사람에게 알림이
+                   갈 때 저절로 깨끗해진다. */
+                badge: note.badge,
                 /* 같은 이야기끼리 묶어 준다(알림창에서 접힌다). */
                 'thread-id': note.tag,
             },
@@ -449,7 +448,7 @@ async function fcmToken(a: Account): Promise<string> {
  */
 async function pushToFcm(
     a: Account, deviceToken: string,
-    note: { title: string; body: string; tag: string; url: string },
+    note: { title: string; body: string; tag: string; url: string; badge: number },
 ): Promise<'ok' | 'dead' | 'fail'> {
     const res = await fetch(
         `https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`,
@@ -471,7 +470,10 @@ async function pushToFcm(
                         priority: 'HIGH',
                         /* `tag`가 애플의 `collapse-id`와 같은 일을 한다 —
                            같은 값이면 알림창에서 뒤엣것이 앞엣것을 대신한다. */
-                        notification: { tag: note.tag },
+                        /* 아이콘 위 숫자. **런처마다 다르게 그린다** —
+                           삼성은 숫자로, 순정은 점만 찍거나 아예 안 그린다.
+                           안 되는 기기에서도 알림은 그대로 뜬다. */
+                        notification: { tag: note.tag, notification_count: note.badge },
                     },
                 },
             }),
@@ -888,6 +890,30 @@ Deno.serve(async req => {
     const { data: subs, error } = await q;
     if (error) return new Response(error.message, { status: 500 });
 
+    /* ── 아이콘 위 빨간 숫자 ─────────────────────────────────────
+     *
+     * **앱은 이 값을 알림에 실어 보내야만 뜬다.** 앱 안에는 서비스워커가
+     * 없어 웹에서 세던 `sw.js`의 `bumpBadge`가 한 줄도 안 돈다.
+     *
+     * **한 번의 조회로 받는 사람 전부를 센다**(`unread_chat_counts`).
+     * 사람마다 물어보면 100명 방의 한 마디에 조회가 100번 나간다 — 그
+     * 값이 무서워 한동안 `1`(개수가 아니라 '새 소식 있음' 표)로 두었다.
+     *
+     * **못 세도 알림은 그대로 보낸다.** 그 함수가 아직 없는 저장소도 있고
+     * (스키마를 안 돌린 곳), 숫자 하나 때문에 소식이 끊기면 안 된다 —
+     * 그때는 표시만 안 붙는다(`0`이면 iOS가 지운다). */
+    const badges = new Map<string, number>();
+    const uids = [...new Set((subs ?? [])
+        .map(s => s.user_id).filter((u): u is string => typeof u === 'string'))];
+    if (uids.length) {
+        const { data: counts, error: countErr } = await db
+            .rpc('unread_chat_counts', { p_users: uids });
+        if (countErr) console.error('badge', countErr.message);
+        for (const c of (counts ?? []) as { user_id: string; n: number }[]) {
+            badges.set(c.user_id, c.n);
+        }
+    }
+
     /* **본문은 기기마다 다를 수 있다.** 라운드 알림이 사람마다 자기 조를
        실어 보내기 때문이다(`bodyBy`). 없으면 지금까지처럼 다 같은 문구다. */
     const payloadFor = (uid: unknown) => JSON.stringify({
@@ -915,6 +941,7 @@ Deno.serve(async req => {
             body: (typeof s.user_id === 'string' && note.bodyBy?.[s.user_id]) || note.body,
             tag: note.tag,
             url: note.url,
+            badge: (typeof s.user_id === 'string' && badges.get(s.user_id)) || 0,
         };
 
         if (endpoint.startsWith(FCM_MARK)) {

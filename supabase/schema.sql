@@ -1949,6 +1949,53 @@ returns void language sql set search_path = public as $$
     on conflict (room_id, user_id) do update set last_read_at = now();
 $$;
 
+/**
+ * 사람마다 **안 읽은 대화가 몇 마디인지** 한 번에 세어 준다.
+ *
+ * 아이콘 위 빨간 숫자(뱃지) 몫이다 — 카톡처럼 개수가 찍히게 하려면
+ * **알림을 밀 때 그 사람의 개수를 함께 실어 보내야** 한다(APNs의 `aps.badge`).
+ * 앱 안에는 서비스워커가 없어 웹에서 세던 `sw.js`의 `bumpBadge`가 아예
+ * 안 돌기 때문이다.
+ *
+ * **한 번의 조회로 받는 사람 전부를 센다.** 사람마다 따로 물어보면 100명이
+ * 있는 대화방 한 마디에 조회가 100번 나간다 — 그 값이 무서워 한동안
+ * `badge: 1`(개수가 아니라 '새 소식 있음' 표)로 두었던 자리다.
+ *
+ * 세는 잣대는 **탭바의 빨간 숫자와 같게** 맞췄다(`components/TabBar.tsx`) —
+ * 내가 쓴 글은 빼고 그 밖은 안내 줄(`system`)까지 다 센다. 다만 **보는
+ * 시계가 다르다**: 탭바는 이 기기의 `teetime:seen:`을, 여기서는 서버의
+ * `room_reads.last_read_at`을 본다. 앞엣것은 기기마다 따로 가고 뒤엣것은
+ * 대화 화면이 열릴 때 서버에 찍히므로 **둘이 몇 마디쯤 어긋날 수 있다.**
+ * 뱃지는 폰 아이콘 하나에 붙는 값이라 **서버 쪽이 맞는 잣대다.**
+ *
+ * **줄이 없는 사람은 아예 안 돌려준다.** 발송기가 못 받은 사람은 0으로
+ * 보므로(`badge`가 0이면 표시가 지워진다) 없는 값을 지어내지 않는다.
+ *
+ * `security definer`인 것은 남의 읽음·남의 글을 세는 일이라 RLS에 걸리기
+ * 때문이다. **부르는 것은 발송기(service_role)뿐이다** — 회원에게 열어 두면
+ * 남이 안 읽은 개수를 들여다볼 수 있어 아래에서 권한을 걷는다.
+ */
+create or replace function unread_chat_counts(p_users uuid[])
+returns table (user_id uuid, n integer)
+language sql security definer stable set search_path = public as $$
+    select rr.user_id, count(m.id)::integer
+      from room_reads rr
+      join messages m
+        on m.room_id = rr.room_id
+       and m.created_at > rr.last_read_at
+       and m.user_id is distinct from rr.user_id
+     where rr.user_id = any(p_users)
+     group by rr.user_id;
+$$;
+
+revoke all on function unread_chat_counts(uuid[]) from public;
+revoke all on function unread_chat_counts(uuid[]) from anon;
+revoke all on function unread_chat_counts(uuid[]) from authenticated;
+grant execute on function unread_chat_counts(uuid[]) to service_role;
+
+-- 세는 조회가 **대화 한 마디마다** 돈다. 방·시각으로 바로 찾아가게 둔다.
+create index if not exists messages_room_created_idx on messages (room_id, created_at);
+
 
 -- ═══ 7-1. 알림 받을 기기 ═══════════════════════════════════════
 --
