@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">까꿍</string>
+    <string name="title_activity_main">까꿍</string>
+    <string name="package_name">com.kkakkung.app</string>
+    <string name="custom_url_scheme">com.kkakkung.app</string>
+</resources>

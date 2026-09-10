@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { IS_NATIVE } from './native';
 import { supabase } from './supabase';
 import type { PushState } from './push';
@@ -9,27 +10,22 @@ import type { PushState } from './push';
  * 웹푸시가 아예 없다** — 서비스워커도 안 돈다. 그래서 앱에서는 회원들이
  * 라운드·모집·대화 소식을 **한 건도 못 받고 있었다.**
  *
- * ## FCM이 아니라 애플에 바로 보낸다
+ * ## 아이폰은 애플에 바로, 안드로이드는 구글을 거친다
  *
- * `docs/출시-전-할일.md`에는 `FCM으로 옮긴다`고 적어 두었는데, 지금
- * 내는 것이 **아이폰뿐이라 그 길이 오히려 멀다.** FCM을 쓰려면
- * 파이어베이스 프로젝트를 만들고 · 앱을 등록하고 · `GoogleService-Info.plist`를
- * 넣고 · APNs 키를 파이어베이스에 올리고 · 발송기에 서비스 계정 JSON
- * (수십 줄짜리 비밀값)을 넣어야 한다. **애플에 바로 보내면 그 다섯이
- * `.p8` 열쇠 하나로 줄어든다** — 사용자가 폰으로 하는 일이라 손이 적은
- * 쪽이 맞다.
+ * **받는 코드는 한 벌이다.** `@capacitor/push-notifications`가 아이폰에서는
+ * APNs 토큰을, 안드로이드에서는 FCM 토큰을 그대로 주므로, 여기서는
+ * **어느 쪽 토큰인지 표시만 붙여**(`MARK`) 발송기가 갈라 보낸다.
  *
- * `@capacitor/push-notifications`는 **아이폰에서 APNs 토큰을 그대로**
- * 준다(파이어베이스를 깔았을 때만 FCM 토큰이 된다). 그래서 플러그인은
- * 이것 하나면 되고, 발송기가 그 토큰으로 애플에 직접 민다.
- *
- * **안드로이드를 낼 때 FCM을 더한다.** 그때는 받는 쪽 토큰만 갈리고
- * (`registration`이 FCM 토큰을 준다) 아래 짜임은 그대로 쓴다.
+ * **아이폰에 FCM을 안 쓴 까닭**: 그러려면 파이어베이스 프로젝트 ·
+ * 앱 등록 · `GoogleService-Info.plist` · APNs 키 올리기까지 딸려 오는데,
+ * 애플에 바로 보내면 **`.p8` 열쇠 하나**로 끝난다. 안드로이드는 구글 말고
+ * 길이 없어 그쪽만 파이어베이스를 쓴다.
  *
  * ## 표를 새로 안 만들었다
  *
- * 웹 구독이 쓰던 `push_subscriptions`에 **`endpoint`를 `apns:<토큰>`으로**
- * 넣는다. 이모티콘이 사진 칸을 `sticker:<id>`로 같이 쓰는 것과 같은
+ * 웹 구독이 쓰던 `push_subscriptions`에 **`endpoint`를
+ * `apns:<토큰>`·`fcm:<토큰>`으로** 넣는다.
+ * 이모티콘이 사진 칸을 `sticker:<id>`로 같이 쓰는 것과 같은
  * 방식이다 — 칸이나 표를 늘리면 **사용자가 손으로 붙여넣어야 하는 SQL이
  * 늘고**, 스키마를 아직 안 돌린 저장소에서 또 갈라진다.
  * 덕분에 받는 사람을 고르는 규칙(`only`·`except`·대화 스위치)과 죽은
@@ -38,8 +34,19 @@ import type { PushState } from './push';
  * (그 칸이 `not null`이라 null을 못 넣는다).
  */
 
-/** 이 기기의 APNs 토큰. 앱을 껐다 켜도 남아야 해서 적어 둔다. */
+/** 이 기기의 토큰. 앱을 껐다 켜도 남아야 해서 적어 둔다. */
 const KEY = 'teetime:apns';
+
+/**
+ * 이 기기로 보내는 길. 구독 주소 앞에 붙어 발송기가 이것으로 갈라 본다.
+ *
+ * **아이폰은 애플에 바로, 안드로이드는 구글을 거친다.**
+ * `@capacitor/push-notifications`가 아이폰에서는 APNs 토큰을,
+ * 안드로이드에서는 FCM 토큰을 주므로 **받는 코드는 한 벌이고 표시만
+ * 갈린다.** (아이폰에도 FCM을 쓰면 파이어베이스가 딸려 오는데, 지금은
+ * 그럴 값이 없다 — 위 머리말 참고.)
+ */
+const MARK = Capacitor.getPlatform() === 'android' ? 'fcm:' : 'apns:';
 
 type Plugin = (typeof import('@capacitor/push-notifications'))['PushNotifications'];
 
@@ -68,18 +75,20 @@ function savedToken(): string | null {
 /** 이 기기를 가리키는 값. 웹의 구독 주소 자리에 들어간다. */
 export function nativeEndpoint(): string | null {
     const t = savedToken();
-    return t ? `apns:${t}` : null;
+    return t ? `${MARK}${t}` : null;
 }
 
 /**
- * 애플에 등록하고 이 기기의 토큰을 받아 온다.
+ * 등록하고 이 기기의 토큰을 받아 온다.
  *
- * **`register()`는 답을 바로 안 준다** — 애플에 다녀와서 `registration`
- * 이벤트로 온다. 그래서 이벤트를 걸어 두고 기다린다.
+ * **`register()`는 답을 바로 안 준다** — 아이폰은 애플, 안드로이드는
+ * 구글에 다녀와서 `registration` 이벤트로 온다. 그래서 이벤트를 걸어
+ * 두고 기다린다.
  *
- * **반드시 시간 제한을 둔다.** `aps-environment` 권한이 앱에 없으면
- * `registrationError`가 오지만, 통신이 막힌 자리에서는 **둘 다 안 오고
- * 그대로 멈춘다** — 그러면 `알림 켜기`를 누른 사람이 영영 기다린다.
+ * **반드시 시간 제한을 둔다.** 뭔가 빠졌으면 대개 `registrationError`가
+ * 오지만(아이폰은 `aps-environment` 권한, 안드로이드는
+ * `google-services.json`), 통신이 막힌 자리에서는 **둘 다 안 오고 그대로
+ * 멈춘다** — 그러면 `알림 켜기`를 누른 사람이 영영 기다린다.
  */
 function askToken(p: Plugin): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -93,7 +102,7 @@ function askToken(p: Plugin): Promise<string> {
             fn();
         };
         const timer = setTimeout(
-            () => end(() => reject(new Error('애플에서 답이 없습니다. 잠시 뒤 다시 눌러 주세요.'))),
+            () => end(() => reject(new Error('알림 서버에서 답이 없습니다. 잠시 뒤 다시 눌러 주세요.'))),
             15000,
         );
         void (async () => {
@@ -138,7 +147,7 @@ export async function enableNativePush(userId: string): Promise<PushState> {
     /* `chat`은 일부러 안 보낸다 — upsert는 **보낸 칸만** 고치므로 대화
        알림만 꺼 둔 것이 껐다 켜도 그대로 살아남는다(웹과 같은 규칙이다). */
     const { error } = await supabase.from('push_subscriptions').upsert({
-        endpoint: `apns:${token}`,
+        endpoint: `${MARK}${token}`,
         user_id: userId,
         p256dh: '',
         auth: '',
@@ -153,7 +162,7 @@ export async function disableNativePush(): Promise<PushState> {
     if (endpoint) await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
     try { localStorage.removeItem(KEY); } catch { /* 막힌 판 */ }
     const p = await load();
-    /* **애플 쪽 등록도 끊는다.** 행만 지우면 폰은 계속 등록돼 있어,
+    /* **폰 쪽 등록도 끊는다.** 행만 지우면 폰은 계속 등록돼 있어,
        발송기가 미처 안 지운 옛 토큰으로 한 번 더 울릴 수 있다
        (웹에서 `unsubscribe()`를 먼저 부르는 것과 같은 자리다). */
     if (p) await p.unregister().catch(() => { /* 안 돼도 행은 이미 지웠다 */ });
@@ -189,9 +198,9 @@ export function watchNativePush(onNav: (url: string) => void): void {
 /**
  * **토큰이 바뀌었으면 갈아 끼운다.**
  *
- * 애플이 주는 토큰은 영원하지 않다 — 앱을 지웠다 다시 깔거나, 폰을 새로
- * 사서 백업을 되살리면 **다른 값이 온다.** 그때 갈아 끼우지 않으면 옛
- * 토큰으로 계속 밀다가 애플이 `410`을 주고, 발송기가 그 행을 지운다 →
+ * 받은 토큰은 영원하지 않다 — 앱을 지웠다 다시 깔거나, 폰을 새로 사서
+ * 백업을 되살리면 **다른 값이 온다.** 그때 갈아 끼우지 않으면 옛 토큰으로
+ * 계속 밀다가 `410`(애플)·`404 UNREGISTERED`(구글)가 오고, 발송기가 그 행을 지운다 →
  * **알림이 조용히 끊긴다.** 켜 둔 사람은 켠 줄 알고 있으므로 알아챌 길이
  * 없는 자국이다.
  *
@@ -218,13 +227,13 @@ async function refresh(p: Plugin): Promise<void> {
 
     try { localStorage.setItem(KEY, fresh); } catch { /* 막힌 판 */ }
     const { data } = await supabase.from('push_subscriptions')
-        .update({ endpoint: `apns:${fresh}` })
-        .eq('endpoint', `apns:${old}`)
+        .update({ endpoint: `${MARK}${fresh}` })
+        .eq('endpoint', `${MARK}${old}`)
         .select('endpoint');
     // 옛 행이 이미 지워졌으면(발송기가 죽은 것으로 보고 걷었다) 새로 넣는다.
     if (!data?.length) {
         await supabase.from('push_subscriptions').upsert({
-            endpoint: `apns:${fresh}`,
+            endpoint: `${MARK}${fresh}`,
             user_id: uid,
             p256dh: '',
             auth: '',

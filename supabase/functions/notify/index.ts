@@ -23,10 +23,11 @@
  * DB 트리거의 `when` 절에 있다 — 여기서 다시 가리지 않는다. 라운드·투표는
  * '다시 열림', 신청은 '대기에서 확정으로 올라감'이다.
  *
- * **받는 곳이 둘이다** — 홈 화면 웹앱은 웹푸시로, **아이폰 앱은 애플에
- * 바로**(APNs) 민다. 아이폰 앱 안에는 웹푸시가 아예 없기 때문이다.
- * 가르는 것은 구독 주소의 `apns:` 표시 하나뿐이고, **누구에게 보낼지를
- * 정하는 규칙은 한 벌 그대로다**(`planFor`).
+ * **받는 곳이 셋이다** — 홈 화면 웹앱은 웹푸시로, **아이폰 앱은 애플에
+ * 바로**(APNs), **안드로이드 앱은 구글을 거쳐**(FCM) 민다. 앱 안에는
+ * 웹푸시가 아예 없고, 안드로이드는 구글 말고 길이 없기 때문이다.
+ * 가르는 것은 구독 주소의 `apns:` · `fcm:` 표시뿐이고, **누구에게
+ * 보낼지를 정하는 규칙은 한 벌 그대로다**(`planFor`).
  *
  * 웹훅은 Supabase 화면(Database → Webhooks)에서 건다. 보낼 때
  * `x-notify-secret` 헤더에 NOTIFY_SECRET을 넣게 해 두었다 — 이 함수는
@@ -331,6 +332,121 @@ async function shareNote(r: Record<string, unknown>): Promise<Note | null> {
         url: `#/rounds/${r.round_id}`,
         except: typeof r.user_id === 'string' ? r.user_id : null,
     };
+}
+
+/* ══ 안드로이드로 보내기 — FCM ═══════════════════════════════════
+ *
+ * **안드로이드는 FCM 말고 길이 없다.** 아이폰은 애플에 바로 보내면
+ * 되지만(위 참고) 안드로이드 알림은 구글을 반드시 거친다.
+ *
+ * 열쇠는 **서비스 계정 JSON** 하나다(`FCM_SERVICE_ACCOUNT`). 파이어베이스
+ * 콘솔에서 받아 그대로 붙여넣으면 되고, 그 안의 `project_id`까지 우리가
+ * 꺼내 쓰므로 **넣을 비밀값이 하나뿐**이다.
+ *
+ * **없으면 조용히 지나간다** — 웹·아이폰 알림까지 막히면 안 된다.
+ */
+const FCM_MARK = 'fcm:';
+
+interface Account { client_email: string; private_key: string; project_id: string }
+
+function account(): Account | null {
+    const raw = env('FCM_SERVICE_ACCOUNT');
+    if (!raw) return null;
+    try {
+        const a = JSON.parse(raw) as Account;
+        return a.client_email && a.private_key && a.project_id ? a : null;
+    } catch {
+        console.error('fcm: 서비스 계정 JSON을 못 읽었습니다');
+        return null;
+    }
+}
+
+/**
+ * 구글에 낼 표(access token).
+ *
+ * 서비스 계정으로 **서명한 JWT를 구글에 주고 바꿔 받는다**(RS256).
+ * 한 시간짜리라 **받아 두고 다시 쓴다** — 알림 한 건마다 받아 오면
+ * 구글에 다녀오는 왕복이 그만큼 는다.
+ */
+let gtoken: { at: number; token: string } | null = null;
+async function fcmToken(a: Account): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    if (gtoken && now - gtoken.at < 45 * 60) return gtoken.token;
+
+    const body = a.private_key.replace(/\\n/g, '\n')
+        .replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+    const key = await crypto.subtle.importKey(
+        'pkcs8', Uint8Array.from(atob(body), c => c.charCodeAt(0)),
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+
+    const head = b64url(new TextEncoder().encode(
+        JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+    const claim = b64url(new TextEncoder().encode(JSON.stringify({
+        iss: a.client_email,
+        scope: 'https://www.googleapis.com/auth/firebase.messaging',
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+    })));
+    const sig = await crypto.subtle.sign(
+        'RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(`${head}.${claim}`));
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion: `${head}.${claim}.${b64url(sig)}`,
+        }),
+    });
+    const got = await res.json() as { access_token?: string; error_description?: string };
+    if (!got.access_token) throw new Error(got.error_description ?? '구글이 표를 안 줬습니다');
+    gtoken = { at: now, token: got.access_token };
+    return got.access_token;
+}
+
+/**
+ * 한 대에 민다. 애플 쪽(`pushToApns`)과 답이 같은 모양이다.
+ *
+ * **앱을 지웠거나 토큰이 바뀐 폰은 `404 UNREGISTERED`로 온다** — 그때
+ * 지워 두지 않으면 발송할 때마다 같은 실패가 쌓인다.
+ */
+async function pushToFcm(
+    a: Account, deviceToken: string,
+    note: { title: string; body: string; tag: string; url: string },
+): Promise<'ok' | 'dead' | 'fail'> {
+    const res = await fetch(
+        `https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`,
+        {
+            method: 'POST',
+            headers: {
+                authorization: `Bearer ${await fcmToken(a)}`,
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: {
+                    token: deviceToken,
+                    notification: { title: note.title, body: note.body },
+                    /* **갈 곳은 웹·아이폰과 같은 값이다** —
+                       `lib/native-push.ts`가 `data.url`로 받는다.
+                       FCM의 `data`는 글자만 담을 수 있다. */
+                    data: { url: note.url },
+                    android: {
+                        priority: 'HIGH',
+                        /* `tag`가 애플의 `collapse-id`와 같은 일을 한다 —
+                           같은 값이면 알림창에서 뒤엣것이 앞엣것을 대신한다. */
+                        notification: { tag: note.tag },
+                    },
+                },
+            }),
+        });
+    if (res.ok) return 'ok';
+    const why = await res.text().catch(() => '');
+    if (res.status === 404 || why.includes('UNREGISTERED') || why.includes('INVALID_ARGUMENT')) {
+        return 'dead';
+    }
+    console.error('fcm', res.status, why);
+    return 'fail';
 }
 
 async function planFor(hook: Hook): Promise<Note | null> {
@@ -754,20 +870,36 @@ Deno.serve(async req => {
        (`only`·`except`·대화 스위치)은 위에서 이미 끝났으므로, 여기서는
        **어디로 미느냐만** 다르다 — 그래서 표를 나누지 않고 `apns:` 표시
        하나로 가른다(`lib/native-push.ts` 참고). */
+    const google = account();
+
     await Promise.all((subs ?? []).map(async s => {
         const endpoint = s.endpoint as string;
+        const one = {
+            title: note.title,
+            body: (typeof s.user_id === 'string' && note.bodyBy?.[s.user_id]) || note.body,
+            tag: note.tag,
+            url: note.url,
+        };
+
+        if (endpoint.startsWith(FCM_MARK)) {
+            // 열쇠가 없는 저장소에서는 건너뛴다 — **행은 안 지운다.**
+            if (!google) return;
+            try {
+                const r = await pushToFcm(google, endpoint.slice(FCM_MARK.length), one);
+                if (r === 'ok') sent++;
+                else if (r === 'dead') dead.push(endpoint);
+            } catch (e) {
+                console.error('fcm', (e as Error).message);
+            }
+            return;
+        }
 
         if (endpoint.startsWith(APNS_MARK)) {
             /* 열쇠를 아직 안 넣어 둔 저장소에서는 앱 기기를 그냥 건너뛴다 —
                **행을 지우지는 않는다.** 열쇠를 넣으면 그대로 살아나야 한다. */
             if (!canApns()) return;
             try {
-                const r = await pushToApns(endpoint.slice(APNS_MARK.length), {
-                    title: note.title,
-                    body: (typeof s.user_id === 'string' && note.bodyBy?.[s.user_id]) || note.body,
-                    tag: note.tag,
-                    url: note.url,
-                });
+                const r = await pushToApns(endpoint.slice(APNS_MARK.length), one);
                 if (r === 'ok') sent++;
                 else if (r === 'dead') dead.push(endpoint);
             } catch (e) {

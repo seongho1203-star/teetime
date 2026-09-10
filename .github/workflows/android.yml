@@ -1,0 +1,150 @@
+name: 안드로이드 앱 (AAB)
+
+# 안드로이드 앱을 만든다. 절차와 사용자가 손으로 할 일은
+# `docs/출시-전-할일.md` 0-6번에 있다.
+#
+# **아이폰 워크플로(`ios.yml`)와 다른 점이 셋이다:**
+#   1. **맥이 필요 없다** — 우분투에서 그대로 돈다.
+#   2. **비밀값이 없어도 만든다.** 아이폰은 애플 열쇠가 없으면 아카이브
+#      자체를 못 만들지만, 안드로이드는 **서명 없이도 결과물이 나온다** —
+#      그래서 등록비를 내기 전에도 **앱이 제대로 만들어지는지 확인할 수
+#      있다.** 서명은 열쇠가 있을 때만 붙는다.
+#   3. **Play에 저절로 안 올린다.** 첫 판은 어차피 손으로 올려야 앱이
+#      만들어진다(아래 `결과물 남기기` 참고).
+#
+# **알림에는 `google-services.json`이 있어야 한다.** 안드로이드 알림은
+# 구글(FCM)을 반드시 거치고, 그 파일이 없으면 앱은 멀쩡히 만들어지는데
+# **알림만 조용히 안 온다.**
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+# 두 판이 겹치면 Play에 같은 번호가 두 번 올라가 뒤엣것이 거절된다.
+concurrency:
+  group: android
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # **서명할 수 있는가**만 가린다. 못 해도 만들기는 한다.
+      - id: sign
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ] && [ -n "$STORE_PW" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PW" ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+            echo "store=$RUNNER_TEMP/upload.jks" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::서명 열쇠가 아직 없어 **서명 없이** 만듭니다. Play에 올리려면 docs/출시-전-할일.md 0-6번을 보세요."
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "store=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - run: npm ci
+
+      # **이 결과가 그대로 앱에 담긴다.** `VITE_APP_BUILD`는 `내 정보`에
+      # `버전 1.7`로 나오는 그 뒷자리이고, 아래 `appVersionCode`와 **같은
+      # 값을 준다** — 화면의 숫자와 Play에 올라간 번호가 같아야 폰에서
+      # 새 앱을 받았는지 그것 하나로 가릴 수 있다.
+      # **아이폰과 번호가 다른 것이 정상이다** — 워크플로가 저마다 센다.
+      - name: 웹 빌드
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_BUILD: ${{ github.run_number }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 시크릿이 없습니다. docs/설치.md 6번 참고."
+            exit 1
+          fi
+          npm run build
+
+      # **알림에 필요한 파일이다**(FCM). 없으면 앱은 만들어지지만 알림만
+      # 안 온다 — 그래서 없으면 또렷이 알리고 넘어간다.
+      # 앱에 박히는 값이라 비밀이라기보다 설정에 가깝지만, 저장소가 공개라
+      # 비밀값에 둔다.
+      - name: 구글 설정 파일 놓기
+        env:
+          GS: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GS" ]; then
+            echo "::warning::GOOGLE_SERVICES_JSON 이 없어 **알림 없이** 만듭니다 (docs/설치.md 7-2번)."
+            exit 0
+          fi
+          printf '%s' "$GS" > android/app/google-services.json
+          python3 -c "import json;json.load(open('android/app/google-services.json'))" \
+            || { echo "::error::GOOGLE_SERVICES_JSON 이 JSON 모양이 아닙니다."; exit 1; }
+
+      - name: 앱 껍데기 맞추기
+        run: npx cap sync android
+
+      # **서명 열쇠를 파일로 놓는다.** 저장소에는 안 두고 비밀값에서 꺼낸다
+      # (아이폰이 `.p8`을 그렇게 다루는 것과 같다).
+      - name: 서명 열쇠 놓기
+        if: steps.sign.outputs.ready == 'yes'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          test -s "$RUNNER_TEMP/upload.jks" \
+            || { echo "::error::ANDROID_KEYSTORE_B64 를 못 풀었습니다. base64로 만든 값이 맞는지 보세요."; exit 1; }
+
+      # `bundleRelease`가 **AAB**를 만든다 — Play는 APK가 아니라 이걸 받는다.
+      # **열쇠가 없으면 `ANDROID_KEYSTORE_PATH`가 빈 값이고**, 그때
+      # `android/app/build.gradle`이 서명을 안 붙인다.
+      - name: 앱 만들기 (AAB)
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.sign.outputs.store }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew bundleRelease --no-daemon \
+            -PappVersionCode=${{ github.run_number }} \
+            -PappVersionName=1.${{ github.run_number }}
+
+      # **Play에 저절로 올리는 것은 아직 안 붙였다.**
+      #
+      # 올리려면 Play Console에 **앱이 이미 만들어져 있고** 그 계정에 딸린
+      # 서비스 계정 열쇠가 있어야 하는데, 그건 등록비($25)를 내고 앱을 만든
+      # **뒤에야** 생긴다. 있지도 않은 것을 부르는 단계를 미리 넣어 두면
+      # **돌릴 때마다 빨갛게 실패한다.**
+      #
+      # 그래서 지금은 **결과물을 남겨 둔다** — 이 실행 화면 아래
+      # `kkakkung-aab`를 받아 Play Console에 올리면 된다. 어차피 **첫 판은
+      # 손으로 올려야** 앱이 만들어진다. 그다음부터 저절로 올리는 단계를
+      # 붙이면 되고, 그때 필요한 것은 `docs/출시-전-할일.md` 0-6번에 있다.
+      - name: 결과물 남기기
+        uses: actions/upload-artifact@v4
+        with:
+          name: kkakkung-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error

@@ -1,0 +1,84 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace "com.kkakkung.app"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.kkakkung.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        /* **판 번호는 워크플로가 준다**(`.github/workflows/android.yml`) —
+           아이폰의 `CURRENT_PROJECT_VERSION`과 같은 자리다.
+           `versionCode`는 **올릴 때마다 커져야 한다**(같거나 작으면 구글이
+           거절한다). 손으로 적지 말 것 — `github.run_number`가 저절로 오른다.
+           안 주면 1.0으로, 폰에 직접 꽂아 볼 때 쓴다. */
+        versionCode project.hasProperty('appVersionCode') ? appVersionCode.toInteger() : 1
+        versionName project.hasProperty('appVersionName') ? appVersionName : "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    /* ── 서명 ───────────────────────────────────────────────────
+     *
+     * **열쇠는 저장소에 안 둔다.** 워크플로가 비밀값에서 꺼내 파일로 놓고
+     * 그 자리를 환경변수로 알려 준다 — 아이폰이 `.p8`을 그렇게 다루는 것과
+     * 같은 방식이다.
+     *
+     * **없으면 서명을 안 한다.** 그때는 서명 안 된 결과물이 나오는데,
+     * 폰에 직접 넣어 보는 데는 그걸로 충분하고 **비밀값이 아직 없다고
+     * 빌드가 빨갛게 되면 안 된다**(아이폰 워크플로와 같은 규칙).
+     */
+    signingConfigs {
+        release {
+            def path = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (path) {
+                storeFile file(path)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (System.getenv('ANDROID_KEYSTORE_PATH')) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

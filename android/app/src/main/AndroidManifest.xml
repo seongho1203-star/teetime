@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              **카카오 로그인이 끝나고 앱으로 돌아오는 문이다.**
+
+              앱에서는 웹뷰를 안 옮기고 바깥 브라우저로 내보내므로
+              (`lib/supabase.ts`의 `signInWithKakao`), 끝난 뒤 `kkakkung://auth`
+              로 돌아온다 — 그 주소를 이 앱이 받겠다고 적어 두는 자리다.
+              **없으면 로그인하고 돌아올 데가 없어** 브라우저에 그대로 멈춘다.
+              아이폰 쪽은 `ios/App/App/Info.plist`의 `CFBundleURLSchemes`다 —
+              **한쪽만 고치지 말 것**(둘 다 `src/lib/supabase.ts`의
+              `NATIVE_REDIRECT`와 같은 글자여야 한다).
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kkakkung" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      **안드로이드 13부터는 알림도 권한을 물어야 한다.** 이 줄이 없으면
+      `PushNotifications.requestPermissions()`가 창을 못 띄우고 그대로
+      거절로 떨어진다 — 알림만 조용히 안 온다.
+      (`@capacitor/push-notifications`가 넣어 주지 않으므로 우리가 적는다.)
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+</manifest>
