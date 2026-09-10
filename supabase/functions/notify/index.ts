@@ -154,6 +154,21 @@ async function pushToApns(
     if (res.ok) return 'ok';
     const why = await res.text().catch(() => '');
     if (res.status === 410 || (res.status === 400 && why.includes('BadDeviceToken'))) return 'dead';
+    /* **`BadEnvironmentKeyInToken`은 열쇠를 잘못 만든 것이다.** 애플의
+       Keys 화면에서 APNs에 체크할 때 `Sandbox` 하나만 고르면 그 열쇠는
+       **개발용에만** 통하는데, TestFlight·앱스토어로 깐 앱은 늘
+       `Production`으로 온다 — 그 어긋남이 이 403이다.
+       코드로는 못 고치는 자리라(열쇠를 새로 만들어야 한다) **무엇을
+       해야 하는지 로그에 그대로 적는다.** 안 적으면 애플의 영문 한 줄만
+       남아 어디를 고쳐야 하는지 알 길이 없다(`docs/설치.md` 7-1번). */
+    if (why.includes('BadEnvironmentKeyInToken')) {
+        console.error(
+            'apns 403 BadEnvironmentKeyInToken — 열쇠(.p8)가 Sandbox 전용입니다. '
+            + '애플 개발자 사이트 → Keys 에서 APNs 환경을 `Sandbox & Production`으로 '
+            + '만든 새 열쇠로 APNS_KEY_P8 · APNS_KEY_ID 를 바꿔 주세요.',
+        );
+        return 'fail';
+    }
     console.error('apns', res.status, why);
     return 'fail';
 }
