@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, unwrap } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { toKstInput, fromKstInput, dateLabel, kstDate } from '../lib/format';
+import { toKstInput, fromKstInput, dateLabel } from '../lib/format';
 import type { Poll, PollOption } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Hinted } from '../components/Hinted';
@@ -98,70 +98,6 @@ export function PollEdit() {
     );
 }
 
-/**
- * 날짜를 고르는 작은 달력.
- *
- * **브라우저의 `<input type="date">`를 안 쓴다.** 아이폰은 그 칸을 누르는
- * 순간 값을 **오늘로 정하고 `change`를 한 번 던진다** — 사용자가 고르기도
- * 전에 오늘 날짜가 항목으로 들어갔다(실제 제보). `placeholder`를 안 쓰는
- * 것과 같은 종류의 iOS 버릇이고, 짐작으로는 못 거르는 자리다.
- *
- * 직접 그리면 그 틈이 아예 없고, 덤으로 **여러 날을 눌러 담는 일**이
- * 훨씬 낫다 — 고른 날이 그대로 칠해져 보여서 몇 개를 넣었는지 세지 않아도 된다.
- *
- * 고른 날인지는 **항목 글자로 견준다**(`10월 4일 (토)`). 항목이 곧 진실이라
- * 따로 목록을 들고 있지 않아 서로 어긋날 자리가 없다.
- */
-function MonthPicker({ chosen, onPick }: {
-    chosen: string[];
-    onPick: (ymd: string) => void;
-}) {
-    const today = kstDate();
-    const [y0, m0] = today.split('-').map(Number);
-    const [at, setAt] = useState({ y: y0, m: m0 });
-
-    const first = new Date(at.y, at.m - 1, 1);
-    const days = new Date(at.y, at.m, 0).getDate();
-    const lead = first.getDay();                    // 1일이 무슨 요일인가
-    const picked = new Set(chosen);
-
-    const move = (step: number) => setAt(p => {
-        const n = p.m + step;
-        return { y: p.y + Math.floor((n - 1) / 12), m: ((n - 1 + 12) % 12) + 1 };
-    });
-
-    return (
-        <div className="cal">
-            <div className="cal-head">
-                <button type="button" className="cal-move" onClick={() => move(-1)}
-                        aria-label="지난 달">‹</button>
-                <span className="cal-month">{at.y}년 {at.m}월</span>
-                <button type="button" className="cal-move" onClick={() => move(1)}
-                        aria-label="다음 달">›</button>
-            </div>
-            <div className="cal-grid">
-                {['일', '월', '화', '수', '목', '금', '토'].map(d => (
-                    <span key={d} className="cal-dow">{d}</span>
-                ))}
-                {Array.from({ length: lead }, (_, i) => <span key={`b${i}`} />)}
-                {Array.from({ length: days }, (_, i) => {
-                    const d = i + 1;
-                    const ymd = `${at.y}-${String(at.m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    const on = picked.has(dateLabel(ymd));
-                    return (
-                        <button
-                            key={d} type="button"
-                            className={`cal-day${on ? ' on' : ''}${ymd === today ? ' today' : ''}`}
-                            aria-pressed={on}
-                            onClick={() => onPick(ymd)}
-                        >{d}</button>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
-
 function Form({
     poll, rows: initial, onDone, authorId, toast, confirm,
 }: {
@@ -180,6 +116,8 @@ function Form({
     const [multi, setMulti] = useState(poll?.multi ?? false);
     const [anonymous, setAnonymous] = useState(poll?.anonymous ?? false);
     const [closesAt, setClosesAt] = useState(toKstInput(poll?.closes_at ?? null));
+    /** `날짜로 항목 넣기` 칸에 골라 둔 날(`YYYY-MM-DD`). `넣기`를 눌러야 들어간다. */
+    const [day, setDay] = useState('');
     const [saving, setSaving] = useState(false);
     /** 지울 항목들. 저장할 때 한꺼번에 없앤다. */
     const [dropped, setDropped] = useState<string[]>([]);
@@ -200,11 +138,11 @@ function Form({
     const addRow = () => setRows(prev => [...prev, { label: '', votes: 0 }]);
 
     /**
-     * 달력에서 고른 날짜를 항목으로 넣는다.
+     * 고른 날짜를 항목으로 넣는다.
      *
      * **모임 투표의 거의 전부가 날짜 정하기다.** `10월 4일 (토)`를 손으로
-     * 치면 요일을 세어 봐야 하고 오타도 난다 — 달력에서 고르면 요일이 저절로
-     * 붙는다.
+     * 치면 요일을 세어 봐야 하고 오타도 난다 — 날짜 칸에서 고르면 요일이
+     * 저절로 붙는다.
      *
      * **빈 줄부터 채운다.** 새 투표는 빈 칸 두 개로 시작하는데, 그걸 두고
      * 아래에 새 줄을 붙이면 저장할 때 빈 줄이 걸러지긴 해도 **화면에는 빈
@@ -225,8 +163,8 @@ function Form({
      * 항목 한 줄을 걷어낸다.
      *
      * **두 줄까지 줄면 지우는 대신 글자만 비운다.** 항목이 둘보다 적은 투표는
-     * 뜻이 없어서 `✕`는 그때 아예 잠기는데, 달력에서 껐을 때도 잠기면
-     * **껐는데 날짜가 그대로 남아** 고장 난 것처럼 보인다.
+     * 뜻이 없어서 `✕`는 그때 아예 잠기는데, 그 자리에서 아무 일도 안 일어나면
+     * 고장 난 것처럼 보인다.
      */
     const dropRow = async (i: number) => {
         const row = rows[i];
@@ -253,11 +191,21 @@ function Form({
         await dropRow(i);
     };
 
-    /** 달력에서 날짜를 눌렀을 때. 없으면 넣고, 있으면 뺀다. */
-    const toggleDate = async (ymd: string) => {
-        const at = rows.findIndex(r => r.label.trim() === dateLabel(ymd));
-        if (at < 0) addDate(ymd);
-        else await dropRow(at);
+    /**
+     * `넣기`를 눌렀을 때. **누르는 그 순간에만 항목이 된다.**
+     *
+     * **이 단추가 아이폰의 그 버릇을 막아 주는 자리다** — 아이폰은 날짜 칸을
+     * 누르는 순간 값을 오늘로 정하고 `change`를 던지는데, 넣는 일이 그 신호에
+     * 매달려 있으면 **고르기도 전에 오늘이 항목으로 들어간다**(예전에 실제로
+     * 그랬다). 지금은 칸에 오늘이 미리 들어와 보일 뿐이고, 그 위에 고쳐 고른
+     * 뒤 눌러야 들어간다 — 모집 열기의 티오프 칸과 같은 짜임이다.
+     */
+    const putDay = () => {
+        if (!day) return;
+        if (rows.some(r => r.label.trim() === dateLabel(day))) {
+            toast('이미 넣은 날짜입니다.', 'info'); return;
+        }
+        addDate(day);
     };
 
     const save = async () => {
@@ -395,18 +343,26 @@ function Form({
                 ))}
                 <button className="btn ghost block sm" onClick={addRow}>+ 항목 추가</button>
 
-                {/* **날짜는 이 달력에서 고른다.** 누른 날이 그 자리에서
-                    `10월 4일 (토)` 항목이 되고, 다시 누르면 빠진다.
-                    `추가` 단추를 따로 두지 않은 것은 한 번 더 누르게 하지
-                    않으려는 것이다 — 조 편성 조건을 누르면 바로 나뉘는 것과 같다. */}
+                {/* **모집 열기의 티오프 칸과 같은 날짜 칸이다**(사용자 요청 —
+                    `라운드에 있는 티오프 시간 정할 때 뜨는 그 날짜 칸을 그대로
+                    투표에다가`). 아이폰이 화면 아래에 큼직하게 그려 주는 그것이다.
+                    **`넣기`를 따로 두는 것이 한 쌍이다** — 아이폰은 칸을 누르는
+                    순간 오늘을 던지므로, 넣는 일을 그 신호에 매달면 고르기도
+                    전에 오늘이 항목이 된다(`putDay` 주석 참고). */}
                 <div className="field poll-date">
                     <span className="poll-date-title">📅 날짜로 항목 넣기</span>
-                    <MonthPicker
-                        chosen={rows.map(r => r.label.trim()).filter(Boolean)}
-                        onPick={toggleDate}
-                    />
+                    <div className="poll-date-row">
+                        <input className="input" type="date" value={day}
+                               onChange={e => setDay(e.target.value)}
+                               aria-label="넣을 날짜" />
+                        <button className="btn ghost" onClick={putDay} disabled={!day}>
+                            넣기
+                        </button>
+                    </div>
                     <span className="xs faint">
-                        누르면 바로 항목이 됩니다. 다시 누르면 빠집니다.
+                        {day
+                            ? <>넣기를 누르면 <b>{dateLabel(day)}</b> 항목이 됩니다.</>
+                            : <>날짜를 고르고 <b>넣기</b>를 누르면 요일까지 붙어 항목이 됩니다.</>}
                     </span>
                 </div>
                 {locked && (

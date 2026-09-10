@@ -1659,45 +1659,51 @@ tables.round_groups = tables.round_groups.filter(g => g.round_id !== 'r1');
 /* ── 6-2. 투표에 날짜로 항목 넣기 ───────────────────────────────
  *
  * 모임 투표의 거의 전부가 날짜 정하기다. 손으로 치면 요일을 세어 봐야 하고
- * 오타도 난다. 보는 것이 넷이다:
- *   ① **아무것도 안 눌렀으면 아무 항목도 없다** — 브라우저의 날짜 칸을 쓰던
- *      때는 아이폰이 여는 순간 오늘을 던져 **고르기도 전에 오늘이 들어갔다**
- *      (실제 제보). 그래서 달력을 직접 그린다.
- *   ② **빈 줄부터 채운다** — 새 투표는 빈 칸 두 개로 시작하는데 아래에 새
+ * 오타도 난다. **칸은 모집 열기의 티오프 칸과 같은 것**(`type="date"`)이고
+ * `넣기`를 눌러야 들어간다. 보는 것이 넷이다:
+ *   ① **날짜만 골라 두면 아무 항목도 안 생긴다** — 아이폰은 그 칸을 누르는
+ *      순간 오늘을 던지므로(실제 제보), 넣는 일이 그 신호에 매달려 있으면
+ *      **고르기도 전에 오늘이 항목이 된다.** `넣기`가 그걸 막는 자리다.
+ *   ② 누르면 요일까지 붙어 항목이 된다.
+ *   ③ **빈 줄부터 채운다** — 새 투표는 빈 칸 두 개로 시작하는데 아래에 새
  *      줄을 붙이면 화면에 빈 칸이 남아 안 적은 것처럼 보인다.
- *   ③ 다시 누르면 빠진다.
- *   ④ 달을 넘겨도 고른 것이 그대로 있다.
+ *   ④ 같은 날짜를 두 번 넣지 않는다.
  */
 console.log('\n── 투표에 날짜 넣기 ──');
 const dayCells = () => page.$$eval('.option-row .input', e => e.map(x => x.value));
 await go('/#/polls/new', 600);
 ok((await dayCells()).every(v => !v),
-   `달력을 열어만 두면 아무 항목도 안 생긴다 (실제 ${JSON.stringify(await dayCells())})`);
+   `칸을 열어만 두면 아무 항목도 안 생긴다 (실제 ${JSON.stringify(await dayCells())})`);
 
-/* 이 달의 5일·12일을 누른다. 달력은 늘 이번 달로 열린다. */
 const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+const ymd = d => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+              + `-${String(d).padStart(2, '0')}`;
 const lab = d => {
     const x = new Date(now.getFullYear(), now.getMonth(), d);
     return `${x.getMonth() + 1}월 ${d}일 (${'일월화수목금토'[x.getDay()]})`;
 };
-await page.getByRole('button', { name: '5', exact: true }).click();
-await page.getByRole('button', { name: '12', exact: true }).click();
-await page.waitForTimeout(200);
+const putDay = async d => {
+    await page.fill('.poll-date-row input[type="date"]', ymd(d));
+    await page.click('.poll-date-row button');
+    await page.waitForTimeout(150);
+};
+
+/* 칸에 값만 넣고 `넣기`는 안 누른 상태 — 아이폰이 오늘을 던진 그 상태와 같다. */
+await page.fill('.poll-date-row input[type="date"]', ymd(5));
+await page.waitForTimeout(150);
+ok((await dayCells()).every(v => !v),
+   `날짜만 골라 두면 아직 항목이 아니다 (실제 ${JSON.stringify(await dayCells())})`);
+
+await page.click('.poll-date-row button');
+await page.waitForTimeout(150);
+await putDay(12);
 const opts = await dayCells();
 ok(opts[0] === lab(5) && opts[1] === lab(12),
-   `누른 날이 요일까지 붙어 항목이 된다 (실제 ${JSON.stringify(opts)})`);
+   `고른 날이 요일까지 붙어 항목이 된다 (실제 ${JSON.stringify(opts)})`);
 ok(opts.length === 2, `빈 줄부터 채운다 — 줄이 늘지 않는다 (실제 ${opts.length}줄)`);
-ok((await page.$$eval('.cal-day.on', e => e.map(x => x.textContent))).join() === '5,12',
-   '고른 날은 달력에서도 칠해진다');
 
-await page.getByRole('button', { name: '5', exact: true }).click();
-await page.waitForTimeout(200);
-ok(!(await dayCells()).includes(lab(5)),
-   `다시 누르면 빠진다 (실제 ${JSON.stringify(await dayCells())})`);
-
-await page.getByRole('button', { name: '다음 달' }).click();
-await page.waitForTimeout(200);
-ok((await dayCells()).includes(lab(12)), '달을 넘겨도 고른 항목은 그대로다');
+await putDay(12);
+ok((await dayCells()).length === 2, '같은 날짜는 두 번 안 들어간다');
 
 /* ── 6-3. 정산 송금 링크 ────────────────────────────────────────
  *
