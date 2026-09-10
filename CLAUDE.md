@@ -3449,24 +3449,35 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
   Capacitor 기본 틀에는 있는데 **우리 파일에는 없었다** — 없으면
   `registration` 이벤트가 영영 안 와서 `알림 서버에서 답이 없습니다`로만
   보인다. `lib/native-push.ts`와 한 벌이니 한쪽만 지우지 말 것.
-- **아이폰은 `aps-environment` 권한이 앱에 실려야 한다.** 아카이브를 서명
-  없이 만드는 탓에 Xcode가 그 처리를 건너뛰므로, `ios.yml`이
-  `archived-expanded-entitlements.xcent`를 직접 넣는다 — 빠지면 빌드는
-  초록인데 폰에서 등록만 조용히 거절당한다.
-  - **`archived-expanded-entitlements.xcent`를 넣는 길은 걷어냈다 — 지금
-    Xcode는 그 파일을 아예 안 본다.** 한 줄짜리로도, 프로파일 몫 넷
-    (`application-identifier`·`com.apple.developer.team-identifier`·
-    `get-task-allow`·`beta-reports-active`)을 다 갖춘 것으로도 넣어
-    봤지만(37·38판) 서명된 앱의 권한은 매번 프로파일에서 뽑은 넷
-    그대로였다. **다시 넣지 말 것** — 두 판을 헛돌았다.
-  - **그래서 서명이 끝난 앱에 우리가 직접 붙여 다시 서명한다**
-    (`알림 권한을 붙여 다시 서명`). `export`로 뽑은 `.ipa`를 풀어
-    `codesign -f -s "Apple Distribution" --entitlements …`로 겉만 다시
-    서명하고 `ditto`로 도로 묶는다. **속에 든 Frameworks는 안 건드린다** —
-    제 서명으로 봉해져 있고 겉을 다시 서명하면 `CodeResources`만 새로 셈된다.
-  - **권한 목록은 `embedded.mobileprovision`에서 통째로 꺼내 쓴다.**
-    애플이 그 파일에 네 값과 `aps-environment`까지 이미 담아 준다 —
-    손으로 적으면 그게 곧 두 번째 원본이 되어 언젠가 어긋난다.
+- **아이폰은 `aps-environment` 권한이 앱에 실려야 한다.** 빠지면 빌드는
+  초록이고 TestFlight에도 올라가는데 **폰에서 알림 등록만 거절당한다**
+  (`유효한 aps-environment 인타이틀먼트 문자열을 찾을 수 없습니다`).
+  실기기에서 잡기까지 **여덟 판(34~41)** 을 돌았으니 아래를 꼭 읽을 것.
+  - **먹은 방법은 하나다 — 아카이브 안의 앱에 임시 서명(ad-hoc)으로 권한을
+    실어 둔다**(`아카이브에 권한을 실어 임시 서명`). `-exportArchive`가
+    권한을 **앱에서** 읽기 때문이고, **임시 서명은 인증서가 없어도 된다**
+    (`codesign -f -s -`)는 것이 이 자리의 열쇠다. 그 뒤 진짜 서명이 그
+    권한을 그대로 물고 간다.
+  - **바탕 넷도 함께 적는다** — `application-identifier` ·
+    `com.apple.developer.team-identifier` · `get-task-allow` ·
+    `beta-reports-active`. Xcode가 이 목록을 **그대로** 쓰는 판을 대비한
+    것이다(`aps-environment` 한 줄만 두면 `application-identifier`가 없는
+    앱이 되어 설치가 통째로 막힌다). 앱 쪽 값의 원본은 그대로
+    `ios/App/App/App.entitlements`이고 거기서 꺼내 쓴다.
+  - **`archived-expanded-entitlements.xcent`를 넣는 길은 안 먹는다 — 지금
+    Xcode는 그 파일을 아예 안 본다.** 한 줄짜리로도, 바탕 넷을 다 갖춘
+    것으로도 넣어 봤지만(37·38판) 서명된 앱의 권한은 매번 프로파일에서
+    뽑은 넷 그대로였다. **다시 넣지 말 것** — 두 판을 헛돌았다.
+  - **`export`로 뽑은 앱에 권한이 이미 있으면 아무것도 안 한다.**
+    없을 때만 예비 길로 간다 — `.ipa`를 풀어 `codesign -f -s "…
+    Distribution"`으로 겉만 다시 서명하고 `ditto`로 도로 묶는다.
+    **속에 든 Frameworks는 안 건드린다**(제 서명으로 봉해져 있고, 겉을
+    다시 서명하면 `CodeResources`만 새로 셈된다).
+    그 길의 권한 목록은 `embedded.mobileprovision`에서 통째로 꺼내 쓴다.
+  - **그 예비 길은 인증서를 못 찾아 막힐 수 있다.** 40판에서
+    `security find-identity`가 `0 valid identities found`인데도 앱은 멀쩡히
+    서명돼 있었다 — Xcode가 제 키체인에 넣고 쓴다. 그래서 키체인 파일을
+    하나씩 다 뒤진다. **이것이 예비 길이고 본길이 아닌 까닭이다.**
   - **인증서 이름을 `grep`으로 찾지 말 것 — 못 찾으면 그 자리에서 죽는다.**
     `ID=$(… | grep …)`은 grep이 빈손일 때 1을 돌려주고, `set -e`가 그걸 보고
     **다음 줄의 `[ -n "$ID" ]`에 닿기도 전에** 끝낸다 — 39판에서 우리가 적어
@@ -3477,23 +3488,23 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
     `-exportArchive`로 올리면 **아카이브에서 다시 서명해** 방금 붙인 권한이
     도로 날아간다. 열쇠는 `~/private_keys/AuthKey_<KEY_ID>.p8`에 두면
     `altool`이 스스로 찾는다.
-  - **그 파일을 넣는 것만으로는 안 된다 — 권한을 실제로 주는 것은 애플이
+  - **앱에 실어 두는 것만으로는 안 된다 — 권한을 실제로 주는 것은 애플이
     내주는 프로비저닝 프로파일이다.** `com.kkakkung.app`의 App ID에서
     **Push Notifications를 켜 두지 않으면** 그 프로파일에 `aps-environment`가
     없어 서명할 때 통째로 빠진다. `-allowProvisioningUpdates`는 프로파일을
     만들어 줄 뿐 **App ID의 기능을 켜 주지는 않는다.** 사람이 한 번 켜야
     하는 자리라 `docs/설치.md` 7-1번 맨 앞에 적어 두었다.
-  - **넣은 파일을 우리가 다시 보는 검사는 아무 뜻이 없다** — 늘 통과한다.
+  - **우리가 넣은 것을 우리가 다시 보는 검사는 아무 뜻이 없다** — 늘 통과한다.
     실제로 그렇게 두었다가 빌드가 내내 초록인데 폰에서만
     `유효한 aps-environment 인타이틀먼트 문자열을 찾을 수 없습니다`가
     떴다(1.34판). 지금은 `codesign -d --entitlements`로 **서명된 결과**를
     읽어 보고, 없으면 무엇을 켜야 하는지 적어 빨갛게 세운다.
-  - **그래서 서명을 두 번 한다 — `export`로 뽑아 보고, 그다음 `upload`.**
-    `destination: upload`는 **`exportPath`에 아무것도 안 남긴다**(올리고
-    지운다). 검사를 그 뒤에 붙였더니 `서명된 파일이 없어 건너뜁니다`로
-    조용히 지나갔다(35판) — **검사를 넣었는데 안 도는 것이 안 넣은 것보다
-    나쁘다**(초록이 거짓말을 한다). 서명이 한 번 더 도는 2분을 치르는
-    대신 **올리기 전에** 붙잡아 빌드 번호를 헛되이 안 태운다.
+  - **그래서 `destination: upload`를 안 쓴다.** 그건 `exportPath`에
+    아무것도 안 남기고(올리고 지운다) 곧바로 올려 버려서, 검사를 그 뒤에
+    붙였더니 `서명된 파일이 없어 건너뜁니다`로 조용히 지나갔다(35판) —
+    **검사를 넣었는데 안 도는 것이 안 넣은 것보다 나쁘다**(초록이 거짓말을
+    한다). 지금은 `export`로 파일만 뽑아 확인하고, **올리기 전에** 붙잡아
+    빌드 번호를 헛되이 안 태운다.
   - **`embedded.mobileprovision`도 함께 찍는다 — 갈래가 둘이라서다.**
     앱에 권한이 없을 때 그것만으로는 `App ID를 안 켰다`인지 `프로파일엔
     있는데 우리가 안 붙였다`인지 못 가른다. 실제로 앞엣것으로 짐작하고
