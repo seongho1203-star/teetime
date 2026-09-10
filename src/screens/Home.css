@@ -327,3 +327,56 @@
     color: var(--brand-deep);
 }
 .sort-chip:active { transform: scale(0.985); }
+
+/**
+ * 🔔 알림 — 홈 머리말의 그 자리.
+ *
+ * **가이드 단추가 있던 자리다**(사용자 요청). 폰 아이콘의 숫자에는 대화까지
+ * 들어 있어, 그중 무엇이 정산이고 무엇이 자리가 난 것인지 앱 안에서 알
+ * 길이 없었다 — 그 답이 이 종이다.
+ *
+ * **분홍을 안 쓴다** — 홈에서 '지금 눌러야 할 것'은 다음 라운드 카드다.
+ * 종 자체는 흐린 획이고, **숫자에만** 빨강을 쓴다(탭바의 `alert`와 같은
+ * 뜻이다 — '내가 안 본 것').
+ *
+ * 누르는 자리는 36px이다. `node .dev/audit.mjs`가 30px보다 작은 것을 잡는다.
+ */
+.bell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    color: var(--text-dim);
+}
+
+.bell svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor;
+}
+
+/**
+ * 숫자는 종 오른쪽 위에 얹는다.
+ *
+ * **`min-width`와 둥근 모서리가 한 쌍이다** — 한 자리는 동그라미, 두
+ * 자리부터는 알약이 되어 `99+`까지 안 깨진다.
+ */
+.bell-dot {
+    position: absolute;
+    top: -1px;
+    right: -3px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 9px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 17px;
+    text-align: center;
+    /* 종 획과 겹쳐도 숫자가 살게 바탕색으로 한 겹 두른다. */
+    box-shadow: 0 0 0 2px var(--bg);
+}

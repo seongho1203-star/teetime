@@ -399,9 +399,20 @@ export function Me() {
                         <span className="grow">프로필 수정</span>
                         <span className="chev">›</span>
                     </button>
-                    {/* **가이드는 여기 없다** — 홈 머리말의 `📖 앱 가이드`로
-                        옮겼다(사용자 요청). 메뉴 안에 있으면 열어야 보여서
-                        처음 들어온 분이 정작 못 찾았다. 되돌리지 말 것. */}
+                    {/* **가이드는 여기로 돌아왔다**(사용자 요청 — 홈 머리말의
+                        그 자리를 🔔 알림에 내주었다). 한동안 홈 머리말에
+                        있었는데, 거기 단추를 둘 세우면 얼굴까지 셋이라
+                        이름이 긴 분의 화면에서 줄이 접힌다.
+                        **양쪽에 두지 말 것** — 어디로 들어갔는지가 헷갈린다. */}
+                    <Link className="menu-item" to="/help">
+                        <span className="grow">
+                            <span className="b">앱 사용자 가이드</span>
+                            <br /><span className="xs faint">
+                                처음이시면 여기부터 보세요
+                            </span>
+                        </span>
+                        <span className="chev">›</span>
+                    </Link>
                     <Link className="menu-item" to="/members">
                         <span className="grow">회원 명단</span>
                         <span className="chev">›</span>

@@ -1,0 +1,69 @@
+/* 알림함. 목록 한 줄이 곧 폰에 왔던 알림 하나다. */
+
+.alert-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+}
+
+.alert-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    padding: 13px;
+    border: 0;
+    border-radius: var(--r);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+/* 갈 곳이 없는 알림(지워진 라운드 등)은 눌리지 않는다 — 눌러도 아무 일이
+   없으면 고장으로 보이므로 손 모양도 안 준다. */
+.alert-row:disabled { cursor: default; }
+
+/**
+ * **아직 안 읽은 줄만 도드라진다.**
+ *
+ * 목록을 여는 순간 다 읽음으로 바뀌지만, **그 한 번은 보여야 한다** —
+ * 무엇이 새로 온 것인지 모르면 종을 누른 뜻이 없다. 왼쪽에 분홍 띠 하나만
+ * 두른다: 분홍은 '지금 눌러야 할 것' 자리이고 이 줄이 바로 그것이다.
+ */
+.alert-row.fresh {
+    border-left: 3px solid var(--brand);
+    padding-left: 10px;
+}
+
+.alert-icon {
+    font-size: 20px;
+    line-height: 1.2;
+    flex: 0 0 auto;
+}
+
+/* `min-width: 0`이 한 쌍이다 — 없으면 긴 본문이 칸을 밀어내 `›`가 잘린다. */
+.alert-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.alert-title { font-weight: 700; }
+
+/* 본문은 두 줄까지. 정산 알림은 계좌까지 들어 있어 길다. */
+.alert-text {
+    color: var(--text-dim);
+    font-size: 14px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-line;
+}
+
+.alert-when { margin-top: 2px; }

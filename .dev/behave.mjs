@@ -1630,20 +1630,23 @@ ok(await page.$('.chat-list') !== null, '대화가 다시 보인다');
 
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
- * **홈 머리말의 얼굴 옆에 있다**(사용자 요청). `내 정보` 메뉴 안에 있을
- * 때는 메뉴를 열어야 보여서 처음 들어온 분이 정작 못 찾았다 — 홈은
- * 모두가 처음 닿는 화면이다. 두 자리를 함께 본다: 홈에 있는가,
- * 그리고 `내 정보`에서 **빠졌는가**(양쪽에 두면 다시 헷갈린다).
+ * **`내 정보` 메뉴에 있다**(사용자 요청 — 홈 머리말의 그 자리를 🔔 알림에
+ * 내주었다). 한동안 홈 머리말에 있었는데, 거기 단추를 둘 세우면 얼굴까지
+ * 셋이라 이름이 긴 분의 화면에서 줄이 접힌다.
+ *
+ * **두 자리를 함께 본다** — 메뉴에 있는가, 그리고 홈 머리말에서
+ * **빠졌는가**(양쪽에 두면 어디로 들어갔는지가 헷갈린다).
  */
 console.log('\n── 앱 가이드로 들어가는 문 ──');
 await go('/#/', 900);
 const guide = await page.$$eval('.head-side a', e => e.map(x => x.getAttribute('href')));
-ok(guide.some(h => h?.includes('/help')),
-   `홈 머리말에 가이드 단추가 있다 (실제 ${JSON.stringify(guide)})`);
+ok(!guide.some(h => h?.includes('/help')),
+   `홈 머리말에는 없다 — 그 자리는 🔔이다 (실제 ${JSON.stringify(guide)})`);
+ok(guide.some(h => h?.includes('/alerts')), '그 자리에 알림함으로 가는 종이 있다');
 ok(guide.some(h => h?.includes('/me')), '얼굴은 그대로 내 정보로 간다');
 await go('/#/me', 900);
-ok(!(await page.textContent('.page') ?? '').includes('가이드'),
-   '내 정보 메뉴에서는 빠졌다 — 두 자리에 두면 다시 헷갈린다');
+ok((await page.textContent('.page') ?? '').includes('앱 사용자 가이드'),
+   '내 정보 메뉴에 가이드가 있다');
 await go('/#/help', 900);
 ok((await page.textContent('.page') ?? '').includes('앱 사용자 가이드'),
    '눌러 들어가면 가이드가 열린다');
@@ -3028,6 +3031,75 @@ console.log('\n── 이름이 없으면 닉네임부터 받는다 ──');
        '적기 전에는 앱으로 못 들어간다');
 
     await nCtx.close();
+}
+
+/* ── 알림함 (🔔) ────────────────────────────────────────────────
+ *
+ * 사용자 요청 — `앱가이드 위치를 다른데로 옮기고 그 자리에 종모양 알림을
+ * 만들어서 숫자2 표시를 해주고 그걸 누르면 정산,참가확정 내용을 알수있도록`.
+ *
+ * 폰 아이콘의 숫자에는 **대화까지** 들어 있어, 그중 무엇이 정산이고 무엇이
+ * 자리가 난 것인지 앱 안에서 알 길이 없었다. 보는 것은 넷이다:
+ *   ① 홈 머리말에 종과 **안 읽은 개수**가 뜨는가 (대화는 안 든다)
+ *   ② 가이드가 **홈에서 빠지고** `내 정보`로 갔는가 (양쪽에 두지 않는다)
+ *   ③ 종을 누르면 목록이 뜨고, **여는 순간 다 읽음**으로 나가는가
+ *   ④ 줄을 누르면 그 화면으로 가는가
+ */
+console.log('\n── 알림함 (🔔) ──');
+{
+    const aCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await aCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(aCtx);
+
+    // 읽음 도장이 몇 번 나가는지 센다.
+    const marks = [];
+    await aCtx.route('**/rest/v1/notifications**', route => {
+        if (route.request().method() === 'PATCH') marks.push(1);
+        return route.fallback();
+    });
+
+    await aCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const ap = await aCtx.newPage();
+    await ap.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await ap.waitForTimeout(900);
+
+    /* 고정 자료의 안 읽은 알림은 둘이다(정산 · 자리 났음) — 사용자가 든
+       예시 그대로다. **대화는 안 든다**(그건 탭바 몫이다). */
+    ok(await ap.evaluate(() => document.querySelector('.bell-dot')?.textContent) === '2',
+       '홈 머리말의 종에 안 읽은 알림 수가 뜬다 (2)');
+
+    ok(await ap.evaluate(() => !document.body.innerText.includes('앱 가이드')),
+       '가이드는 홈 머리말에서 빠졌다');
+
+    await ap.evaluate(() => document.querySelector('.bell')?.click());
+    await ap.waitForTimeout(700);
+
+    ok(await ap.evaluate(() => location.hash) === '#/alerts', '종을 누르면 알림함으로 간다');
+    ok(await ap.evaluate(() => document.querySelectorAll('.alert-row').length) === 3,
+       '알림함에 왔던 알림이 쌓여 있다');
+    /* **제목의 그림글자를 두 번 그리지 않는다** — 제목에 이미 붙어 있어
+       아이콘을 따로 그리면 `💰 💰 정산`이 된다(찍어 보고 잡았다). */
+    ok(await ap.evaluate(() =>
+        !/(\p{Extended_Pictographic}).*\1/u.test(
+            document.querySelector('.alert-row')?.innerText ?? '')),
+       '같은 그림글자가 두 번 안 나온다');
+    ok(marks.length === 1, `여는 순간 읽음이 한 번만 나간다 (${marks.length}번)`);
+
+    // 줄을 누르면 그 건으로 간다 — 목록이 아니라.
+    await ap.evaluate(() => document.querySelector('.alert-row')?.click());
+    await ap.waitForTimeout(500);
+    ok(/^#\/rounds\/r\d/.test(await ap.evaluate(() => location.hash)),
+       '줄을 누르면 그 라운드로 간다');
+
+    // 가이드는 `내 정보`에 있다.
+    await ap.goto(`${BASE}/#/me`, { waitUntil: 'networkidle' });
+    await ap.waitForTimeout(600);
+    ok(await ap.evaluate(() => document.body.innerText.includes('앱 사용자 가이드')),
+       '가이드는 `내 정보` 메뉴에 있다');
+
+    await aCtx.close();
 }
 
 await browser.close();

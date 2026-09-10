@@ -529,6 +529,66 @@ export type MessageReaction = {
     created_at: string;
 };
 
+/**
+ * 알림함 한 줄 — **폰으로 밀어 준 그 알림을 서버에도 남긴 것**이다.
+ *
+ * 미는 것으로 끝내면 **배너를 놓쳤을 때 되짚을 데가 없다.** 아이콘에
+ * `12`가 떠 있어도 그중 둘이 정산인지 자리가 난 것인지 앱 안에서 알
+ * 길이 없었다(사용자 제보). 홈 머리말의 🔔이 이 줄들을 보여 준다.
+ *
+ * **대화는 여기 없다** — 하루 100마디가 그대로 쌓이는 데다 대화방이
+ * 곧 목록이다. 그래서 종의 숫자와 대화 안 읽은 수는 갈린다.
+ *
+ * `kind`는 발송기가 넣은 **표 이름 그대로**다(`rounds`·`settlement_shares`…).
+ * 갈래를 새로 만들 때 여기 적을 것이 없게 하려는 것이고, 화면은 모르는
+ * 값이 와도 기본 그림글자로 그린다(`ALERT_ICON`).
+ */
+export type AppNotification = {
+    id: string;
+    user_id: string;
+    kind: string;
+    title: string;
+    body: string;
+    url: string;
+    created_at: string;
+    read_at: string | null;
+};
+
+/**
+ * 알림 제목을 **그림글자와 글자로 가른다** — `💰 정산` → `['💰', '정산']`.
+ *
+ * **알림 제목에는 이미 그림글자가 붙어 있다**(`💰 정산` · `🎉 자리가
+ * 났습니다`). 알림창에는 제목 한 줄만 보이는 때가 많아 거기서 갈리라고
+ * 붙여 둔 것인데, 알림함에서 아이콘을 따로 그리면 **같은 그림이 두 번
+ * 나온다**(헤드리스로 찍어 보고 잡았다).
+ *
+ * 그래서 **제목이 들고 있는 그것을 아이콘 자리로 옮긴다.** 그림글자가
+ * 없는 제목이면 갈래로 고르고(`ALERT_ICON`), 그것도 모르면 `🔔`이다.
+ */
+export function splitAlertTitle(n: { title: string; kind: string }): [string, string] {
+    const m = /^(\p{Extended_Pictographic}\uFE0F?)\s*(.*)$/u.exec(n.title.trim());
+    if (m) return [m[1], m[2]];
+    return [ALERT_ICON[n.kind] ?? '🔔', n.title];
+}
+
+/**
+ * 제목에 그림글자가 없을 때 쓸 갈래별 그림.
+ *
+ * **모르는 값은 `🔔`로 그린다** — 발송기가 표 이름을 그대로 넣으므로,
+ * 새 알림 갈래가 생겨도 화면이 깨지지 않는다.
+ */
+export const ALERT_ICON: Record<string, string> = {
+    rounds: '⛳',
+    polls: '🗳',
+    posts: '📢',
+    profiles: '🙋',
+    signups: '🎉',
+    round_groups: '🚩',
+    round_reminders: '⏰',
+    settlement_shares: '💰',
+    settle_reminders: '💰',
+};
+
 /** 말풍선에 달 수 있는 그림글자. **카톡과 같은 다섯이다.**
  *  늘리면 창이 두 줄로 접혀 무엇을 누르는 중인지가 흐려진다. */
 export const REACTIONS = ['👍', '❤️', '😂', '😮', '😢'] as const;
@@ -661,6 +721,7 @@ export interface Database {
             message_reactions: Table<MessageReaction>;
             push_subscriptions: Table<PushSubscriptionRow>;
             round_reminders: Table<RoundReminder>;
+            notifications: Table<AppNotification>;
         };
         Views: Record<string, never>;
         Functions: {
@@ -709,6 +770,12 @@ export interface Database {
                 Args: { p_since: string };
                 Returns: { user_id: string; n: number }[];
             };
+            /**
+             * **90일이 지난 내 알림을 걷는다.** 대화 사진 청소와 같은 결이다 —
+             * 정해진 시각에 도는 것(pg_cron)을 새로 켜지 않고 알림함을 연
+             * 사람의 화면이 치운다. 정책이 제 것만 지우게 막는다.
+             */
+            purge_my_notifications: { Args: Record<string, never>; Returns: void };
         };
         Enums: Record<string, never>;
         CompositeTypes: Record<string, never>;

@@ -60,6 +60,14 @@ export function handleRest(tables, url, req) {
             }
             return Object.entries(n).map(([user_id, count]) => ({ user_id, n: count }));
         }
+        /* 알림함 청소. 진짜와 같이 **90일이 지난 내 것만** 걷는다 —
+           흉내가 전부 지워 버리면 목록이 빈 채로 찍힌다. */
+        if (name === 'purge_my_notifications') {
+            const cut = Date.now() - 90 * 864e5;
+            tables.notifications = (tables.notifications ?? [])
+                .filter(n => new Date(n.created_at).getTime() >= cut);
+            return null;
+        }
         return null;
     }
 

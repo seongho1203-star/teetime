@@ -159,7 +159,7 @@ async function pushToApns(
                 /* **아이콘 위 빨간 숫자.** 앱 안에는 서비스워커가 없어서
                    웹에서 숫자를 세던 `sw.js`의 `bumpBadge`가 아예 안 돈다 —
                    이 값을 안 실으면 **앱에는 표시가 통째로 안 붙는다.**
-                   **카톡처럼 안 읽은 대화 개수다**(`unread_chat_counts`).
+                   **카톡처럼 안 읽은 대화 + 안 읽은 알림 개수다**(`badge_counts`).
                    0이면 iOS가 표시를 지우므로, 다 읽은 사람에게 알림이
                    갈 때 저절로 깨끗해진다. */
                 badge: note.badge,
@@ -902,19 +902,66 @@ Deno.serve(async req => {
      * **못 세도 알림은 그대로 보낸다.** 그 함수가 아직 없는 저장소도 있고
      * (스키마를 안 돌린 곳), 숫자 하나 때문에 소식이 끊기면 안 된다 —
      * 그때는 표시만 안 붙는다(`0`이면 iOS가 지운다). */
+    /* ── 알림함에도 남긴다 ───────────────────────────────────────
+     *
+     * **미는 것으로 끝내면 배너를 놓쳤을 때 되짚을 데가 없다.** 아이콘에
+     * `12`가 떠 있어도 그중 둘이 정산인지 자리가 난 것인지 앱 안에서
+     * 알 길이 없었다(사용자 제보 — `앱에서는 알수있는 방법이 없어`).
+     * 홈 머리말의 🔔이 이 표를 본다.
+     *
+     * **대화는 안 넣는다.** 하루 100마디가 그대로 쌓이는 데다, 대화는
+     * 대화방이 곧 목록이라 여기 또 적을 것이 없다.
+     *
+     * **기기가 아니라 사람에게 남긴다.** 위 `subs`는 알림을 켜 둔 기기
+     * 목록이라, 그걸로 넣으면 **알림을 안 켠 사람은 앱을 열어도 못 본다** —
+     * 알림함은 켜고 끄고와 상관없이 있어야 하는 자리다.
+     *
+     * **넣는 것이 먼저다** — 아래 뱃지 셈이 이 표를 세기 때문이다. */
+    if (note.channel !== 'chat') {
+        const people = note.only ?? (await db.from('profiles')
+            .select('id').in('role', MEMBERS)).data?.map(p => p.id as string) ?? [];
+        const rows = people
+            .filter(id => id && id !== note.except)
+            .map(id => ({
+                user_id: id,
+                kind: hook.table,
+                title: note.title,
+                body: note.bodyBy?.[id] || note.body,
+                url: note.url,
+            }));
+        if (rows.length) {
+            const { error: noteErr } = await db.from('notifications').insert(rows);
+            // **못 남겨도 알림은 그대로 민다.** 표가 아직 없는 저장소도 있고,
+            // 목록 하나 때문에 소식이 끊기면 안 된다.
+            if (noteErr) console.error('알림함', noteErr.message);
+        }
+    }
+
+    /* ── 아이콘 위 빨간 숫자 ─────────────────────────────────────
+     *
+     * **안 읽은 대화 + 안 읽은 알림**이다(사용자가 정한 셈 —
+     * `채팅10 + 정산1 + 참가확정1 이면 12`). 한 번의 조회로 둘을 함께
+     * 받는다(`badge_counts`) — 사람마다 물어보면 100명 방의 한 마디에
+     * 조회가 100번 나간다.
+     *
+     * **못 세도 알림은 그대로 보낸다.** 그 함수가 아직 없는 저장소에서는
+     * 표시만 안 붙는다(`0`이면 iOS가 지운다). */
     const badges = new Map<string, number>();
     const uids = [...new Set((subs ?? [])
         .map(s => s.user_id).filter((u): u is string => typeof u === 'string'))];
     if (uids.length) {
         const { data: counts, error: countErr } = await db
-            .rpc('unread_chat_counts', { p_users: uids });
+            .rpc('badge_counts', { p_users: uids });
         if (countErr) console.error('badge', countErr.message);
-        for (const c of (counts ?? []) as { user_id: string; n: number }[]) {
-            badges.set(c.user_id, c.n);
+        for (const c of (counts ?? []) as { user_id: string; chat: number; notes: number }[]) {
+            badges.set(c.user_id, (c.chat ?? 0) + (c.notes ?? 0));
         }
     }
     const badgeFor = (uid: unknown): number => {
         const n = typeof uid === 'string' ? badges.get(uid) ?? 0 : 0;
+        /* **대화가 아닌 알림은 못해도 하나는 붙인다.** 표가 없는 저장소나
+           셈이 실패한 판에서 `0`이 실리면 **알림은 왔는데 아이콘은 깨끗한**
+           꼴이 된다. 제대로 세어졌으면 이미 1 이상이라 아무 일도 안 한다. */
         return note.channel === 'chat' ? n : Math.max(n, 1);
     };
 

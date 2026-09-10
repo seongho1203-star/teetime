@@ -28,6 +28,7 @@ import { Chat } from './screens/Chat';
 import { Me } from './screens/Me';
 import { Members } from './screens/Members';
 import { Settle } from './screens/Settle';
+import { Alerts } from './screens/Alerts';
 import { Help } from './screens/Help';
 
 /**
@@ -95,6 +96,7 @@ function Gate() {
                 <Route path="/me" element={<Me />} />
                 <Route path="/members" element={<Members />} />
                 <Route path="/settle" element={<Settle />} />
+                <Route path="/alerts" element={<Alerts />} />
                 <Route path="/help" element={<Help />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

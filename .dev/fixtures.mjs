@@ -331,10 +331,32 @@ export const room_reads = [
     { room_id: 'room1', user_id: uid(11), last_read_at: iso(1, 0, 0) },
 ];
 
+/* 알림함(🔔). **대화는 여기 없다** — 그건 대화방이 곧 목록이라 안 넣는다.
+   안 읽은 둘(정산·자리 났음)과 이미 읽은 하나를 섞어 두어, 종의 숫자와
+   `안 읽음` 표시가 함께 보이게 했다. 사용자가 든 예시 그대로다 —
+   `정산1 + 참가확정1`이면 종에 2. */
+export const notifications = [
+    {
+        id: 'n1', user_id: ME, kind: 'settlement_shares',
+        title: '💰 정산', body: '무등산CC 그린피 · 85,000원\n국민 123456-78-90123 (박승수)',
+        url: '#/rounds/r1', created_at: iso(0, 20, 10), read_at: null,
+    },
+    {
+        id: 'n2', user_id: ME, kind: 'signups',
+        title: '🎉 자리가 났습니다', body: '무등산CC 라운드에 확정되었습니다',
+        url: '#/rounds/r1', created_at: iso(0, 19, 40), read_at: null,
+    },
+    {
+        id: 'n3', user_id: ME, kind: 'rounds',
+        title: '⛳ 새 모집', body: '해피니스CC · 4자리',
+        url: '#/rounds/r2', created_at: iso(-1, 9, 0), read_at: iso(-1, 9, 5),
+    },
+];
+
 export const tables = {
     profiles, profile_private, rounds, signups, round_groups, round_comments,
     settlements, settlement_shares, settle_reminders,
     polls, poll_options, poll_votes,
     poll_comments, posts, post_comments, rooms, messages, room_reads,
-    message_reactions, push_subscriptions,
+    message_reactions, push_subscriptions, notifications,
 };

@@ -5,6 +5,7 @@ import { useAsync, useRealtime, unwrap, fetchPeople, announceClosedPolls } from 
 import { useAuth } from '../lib/auth';
 import { formatDateTime, formatTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
 import { lastSeen } from '../lib/unread';
+import { countUnreadAlerts } from '../lib/alerts';
 import { fetchWeather, type Weather } from '../lib/weather';
 import { KIND_ICON, TEE_LABEL, roundKind, type Poll, type PollVote, type Person, type Round, type RoundGroup, type SignupHome, type SignupLite } from '../lib/types';
 import { Avatar } from '../components/Avatar';
@@ -123,6 +124,15 @@ export function Home() {
 
     useRealtime('messages', reloadUnread);
 
+    /* **종에 붙는 숫자.** 대화는 여기 안 든다 — 그건 탭바의 빨간 숫자
+       몫이고, 종은 '대화 말고 나머지'(정산·조 편성·자리 났음…)를 맡는다.
+       폰 아이콘의 숫자만 둘을 더한 값이다(`badge_counts`).
+       개수만 세므로 몸통이 안 실려 온다. */
+    const { data: alertCount, reload: reloadAlerts } = useAsync(
+        countUnreadAlerts, [me], 'home:alerts');
+
+    useRealtime('notifications', reloadAlerts);
+
     if (loading && !data) {
         return <div className="page center-fill"><div className="spinner" /></div>;
     }
@@ -132,6 +142,7 @@ export function Home() {
     const polls = data?.openPolls ?? [];
     const pendingCount = data?.pendingCount ?? 0;
     const unreadChat = unread ?? 0;
+    const alerts = alertCount ?? 0;
 
     // 오늘(한국 날짜) 이후만. 가장 가까운 것이 주인공, 나머지는 아래 목록.
     const upcoming = rounds.filter(r => daysUntil(r.tee_at) >= 0);
@@ -146,12 +157,26 @@ export function Home() {
                     <div className="sm faint">안녕하세요</div>
                     <h1 className="page-title">{profile?.name || '회원'}님</h1>
                 </div>
-                {/* **가이드는 얼굴 옆에 둔다**(사용자 요청). `내 정보` 안에
-                    있을 때는 메뉴를 열어야 보여서, 처음 들어온 분이 정작
-                    못 찾았다 — 홈은 모두가 처음 닿는 화면이다.
+                {/* **여기는 🔔 알림 자리다**(사용자 요청 — `앱가이드 위치를
+                    다른데로 옮기고 그 자리에 종모양 알림을 만들어서`).
+                    폰 아이콘의 숫자에는 대화까지 들어 있어, 그중 무엇이
+                    정산이고 무엇이 자리가 난 것인지 앱 안에서 알 길이
+                    없었다 — 그 답이 이 종이다.
+                    가이드는 `내 정보` 메뉴로 옮겼다. **양쪽에 두지 말 것.**
                     분홍을 안 쓴다: '지금 눌러야 할 것'은 다음 라운드 카드다. */}
                 <div className="head-side">
-                    <Link to="/help" className="btn ghost sm">📖 앱 가이드</Link>
+                    <Link to="/alerts" className="bell" aria-label={
+                        alerts ? `알림 ${alerts}건` : '알림'
+                    }>
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8"
+                             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6" />
+                            <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+                        </svg>
+                        {alerts > 0 && (
+                            <span className="bell-dot">{alerts > 99 ? '99+' : alerts}</span>
+                        )}
+                    </Link>
                     <Link to="/me" aria-label="내 정보">
                         <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
                     </Link>

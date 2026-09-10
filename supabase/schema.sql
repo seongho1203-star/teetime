@@ -1997,6 +1997,99 @@ grant execute on function unread_chat_counts(uuid[]) to service_role;
 create index if not exists messages_room_created_idx on messages (room_id, created_at);
 
 
+-- ═══ 7-0. 알림함 ══════════════════════════════════════════════
+--
+-- **폰으로 밀어 준 알림을 여기에도 남긴다.** 지금까지는 밀고 끝이라
+-- **배너를 놓치면 되짚을 데가 없었다** — 아이콘에 `12`가 떠 있어도 그중
+-- 둘이 정산인지 자리가 난 것인지 앱 안에서 알 길이 아예 없었다
+-- (사용자 제보 — `앱에서는 알수있는 방법이 없어`).
+-- 홈 머리말의 🔔이 이 표를 본다.
+--
+-- **대화는 안 넣는다.** 하루 100마디가 그대로 쌓이는 데다, 대화는
+-- **대화방이 곧 목록**이라 여기 또 적을 것이 없다. 🔔은 '대화 말고
+-- 나머지' 몫이고, 그래서 종의 숫자와 대화 안 읽은 수가 갈린다.
+
+create table if not exists notifications (
+    id         uuid primary key default gen_random_uuid(),
+    user_id    uuid not null references profiles on delete cascade,
+    -- 알림 갈래. 화면이 앞에 붙일 그림글자를 이걸로 고른다.
+    kind       text not null default 'etc',
+    title      text not null,
+    body       text not null default '',
+    -- 누르면 갈 곳. 폰 알림이 쓰는 `note.url`과 **같은 값**이다.
+    url        text not null default '',
+    created_at timestamptz not null default now(),
+    read_at    timestamptz
+);
+
+-- 목록은 늘 '내 것을 최근 순으로'다.
+create index if not exists notifications_user_idx
+    on notifications (user_id, created_at desc);
+
+alter table notifications enable row level security;
+
+drop policy if exists notifications_own on notifications;
+-- **본인 것만 보고 지운다. 넣는 정책은 아예 없다** — 발송기(service_role)만
+-- 넣는다. 회원에게 열면 남에게 가짜 알림을 꽂을 수 있다(`signups`에 직접
+-- insert를 안 여는 것과 같은 잣대다).
+create policy notifications_own on notifications for select
+    using (user_id = auth.uid());
+drop policy if exists notifications_read on notifications;
+-- 읽음 도장은 제 것만 찍는다.
+create policy notifications_read on notifications for update
+    using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists notifications_del on notifications;
+create policy notifications_del on notifications for delete
+    using (user_id = auth.uid());
+
+/**
+ * 아이콘 위 빨간 숫자에 실을 값 — **안 읽은 대화 + 안 읽은 알림**.
+ *
+ * 사용자가 정한 셈이다 — `채팅10 + 정산1 + 참가확정1 이면 12`.
+ * 그래서 한 번의 조회로 **둘을 함께** 돌려준다(따로 부르면 알림 한 건에
+ * 조회가 두 번씩 나간다).
+ *
+ * **`unread_chat_counts`는 그대로 둔다** — 대화만 세는 값은 종의 숫자와
+ * 갈라 쓸 자리가 있고, 이 함수가 그것을 그대로 쓴다.
+ *
+ * `security definer`인 것은 남의 읽음을 세는 일이라 RLS에 걸리기 때문이다.
+ * **부르는 것은 발송기(service_role)뿐이라** 나머지 권한은 걷는다.
+ */
+create or replace function badge_counts(p_users uuid[])
+returns table (user_id uuid, chat integer, notes integer)
+language sql security definer stable set search_path = public as $$
+    select u.id,
+           coalesce(c.n, 0),
+           coalesce((select count(*)::integer from notifications x
+                      where x.user_id = u.id and x.read_at is null), 0)
+      from unnest(p_users) as u(id)
+      left join unread_chat_counts(p_users) c on c.user_id = u.id;
+$$;
+
+revoke all on function badge_counts(uuid[]) from public;
+revoke all on function badge_counts(uuid[]) from anon;
+revoke all on function badge_counts(uuid[]) from authenticated;
+grant execute on function badge_counts(uuid[]) to service_role;
+
+/**
+ * 90일이 지난 내 알림을 걷는다.
+ *
+ * 대화 사진 청소(`lib/photos.ts`)와 같은 결이다 — **정해진 시각에 도는
+ * 것(pg_cron)을 새로 켜지 않고** 알림함을 연 사람의 화면이 치운다.
+ * 100명이 1년이면 몇만 줄인데 글자뿐이라 무겁지는 않지만, 아무도 안
+ * 지우면 목록 조회가 해마다 느려진다.
+ *
+ * **제 것만 지운다**(위 정책이 그렇게 막는다). 남의 알림을 치울 이유도,
+ * 권한도 없다.
+ */
+create or replace function purge_my_notifications()
+returns void language sql set search_path = public as $$
+    delete from notifications
+     where user_id = auth.uid()
+       and created_at < now() - interval '90 days';
+$$;
+
+
 -- ═══ 7-1. 알림 받을 기기 ═══════════════════════════════════════
 --
 -- 앱을 안 보고 있을 때 폰으로 밀어 줄 곳. **사람이 아니라 기기 단위다** —
@@ -2118,7 +2211,7 @@ begin
         'messages', 'signups', 'rounds', 'polls', 'poll_options', 'poll_votes',
         'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles',
         'settlements', 'settlement_shares', 'room_reads', 'round_groups',
-        'message_reactions'
+        'message_reactions', 'notifications'
     ] loop
         if not exists (
             select 1 from pg_publication_tables
