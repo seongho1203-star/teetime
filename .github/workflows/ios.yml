@@ -217,6 +217,21 @@ jobs:
           rm -rf "$RUNNER_TEMP/peek" && mkdir -p "$RUNNER_TEMP/peek"
           unzip -q "$IPA" -d "$RUNNER_TEMP/peek"
           SIGNED=$(ls -d "$RUNNER_TEMP/peek/Payload"/*.app | head -1)
+
+          # **애플이 내준 서명 파일부터 본다 — 두 갈래를 가르는 자리다.**
+          # 여기에 `aps-environment`가 있는데 앱에 없으면 우리 쪽 셈이
+          # 틀린 것이고, 여기에도 없으면 **App ID에 Push Notifications가
+          # 안 켜진 것**이다. 둘을 안 가르면 엉뚱한 데를 고치게 된다.
+          echo "── 애플이 내준 서명 파일(embedded.mobileprovision) ──"
+          security cms -D -i "$SIGNED/embedded.mobileprovision" 2>/dev/null \
+            > "$RUNNER_TEMP/prof.plist" || true
+          plutil -p "$RUNNER_TEMP/prof.plist" \
+            | grep -Ei 'Name|aps-environment|application-identifier' || true
+          grep -q 'aps-environment' "$RUNNER_TEMP/prof.plist" \
+            && echo "→ 서명 파일에는 알림 권한이 있다" \
+            || echo "→ 서명 파일에 알림 권한이 없다 (App ID 쪽이다)"
+
+          echo "── 서명된 앱의 권한 ──"
           codesign -d --entitlements :- "$SIGNED" 2>/dev/null > "$RUNNER_TEMP/ent.txt" || true
           cat "$RUNNER_TEMP/ent.txt"
           grep -q 'aps-environment' "$RUNNER_TEMP/ent.txt" || {
