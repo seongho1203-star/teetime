@@ -2657,6 +2657,58 @@ console.log('\n── 알림을 누르면 그 화면으로 간다 ──');
     await nCtx.close();
 }
 
+/* ── 알림 칸이 `확인 중…`에 안 멈춘다 ────────────────────────────
+ * **사용자 제보** — `내정보에 이 기기로 받기 확인중..... 이렇게 떠있어`.
+ *
+ * 화면은 `pushState()`의 답이 오기 전까지 `확인 중…`을 적어 두는데,
+ * 그 약속이 **던져지거나 답을 안 주면 그 자리에 영영 멈춘다** — 알림을
+ * 켤 길이 통째로 사라지고 무엇이 막힌 것인지도 알 수 없다.
+ * 실제로 던지는 자리가 있었다: **플러그인이 안 실린 앱**에서
+ * `checkPermissions()`가 `not implemented`로 거절한다.
+ *
+ * 헤드리스에는 그 플러그인이 없지만 **같은 모양은 만들 수 있다** —
+ * `navigator.serviceWorker`를 던지는 것과 답 없는 것으로 갈아 끼운다.
+ * 던지는 쪽은 곧바로, 답 없는 쪽은 시간 제한(6초)에 걸려 풀려야 한다.
+ */
+console.log('\n── 알림 칸이 `확인 중…`에 안 멈춘다 ──');
+for (const [what, how, wait] of [
+    ['던지면', 'throw new Error("boom")', 1500],
+    ['답이 없으면', 'return new Promise(() => {})', 8000],
+]) {
+    const sCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await sCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(sCtx);
+    await sCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    await sCtx.addInitScript(body => {
+        // eslint-disable-next-line no-new-func
+        const broken = new Function(body);
+        Object.defineProperty(navigator, 'serviceWorker', {
+            configurable: true,
+            value: {
+                controller: null,
+                register: () => Promise.resolve({}),
+                getRegistration: broken,
+                addEventListener: () => {}, removeEventListener: () => {},
+                ready: new Promise(() => {}),
+            },
+        });
+    }, how);
+    const sp = await sCtx.newPage();
+    await sp.goto(`${BASE}/#/me`, { waitUntil: 'networkidle' });
+    await sp.waitForTimeout(wait);
+
+    const desc = await sp.evaluate(() => {
+        const row = [...document.querySelectorAll('.switch-label')]
+            .find(el => el.textContent.includes('이 기기로 받기'));
+        return row?.parentElement?.querySelector('.switch-desc')?.textContent ?? '(없음)';
+    });
+    ok(!desc.includes('확인 중'), `${what} 확인 중에 안 멈춘다 (${desc})`);
+
+    await sCtx.close();
+}
+
 console.log('\n── 지난 목록은 접어 두고 `더 보기`로 편다 ──');
 {
     /* 고정 자료는 투표 셋·라운드 넷뿐이라 한도(10)에 안 닿아 **단추가 아예

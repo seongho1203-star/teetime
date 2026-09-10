@@ -138,9 +138,42 @@ function isStandalone(): boolean {
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+/**
+ * **이 함수는 절대 실패하지도, 멈춰 서지도 않는다.**
+ *
+ * 화면(`Me.tsx`)은 답이 오기 전까지 `확인 중…`을 적어 두는데, 던져지거나
+ * 답이 안 오면 **그 자리에 영영 멈춘다** — 알림을 켤 길이 통째로 사라지고,
+ * 무엇이 막힌 것인지도 알 수 없다(사용자 제보 — `이 기기로 받기
+ * 확인중.....`).
+ *
+ * 실제로 던지는 자리가 있다: **플러그인이 안 실린 앱**에서
+ * `checkPermissions()`를 부르면 Capacitor가 `not implemented`로 거절한다.
+ * 웹에서도 `Notification`이 없는 판에서 같은 일이 난다.
+ *
+ * **그때는 `꺼짐`으로 답한다** — `못 함`이 아니라. 켜기 단추가 살아 있어야
+ * 눌러 볼 수 있고, 그러면 `enablePush()`가 **진짜 까닭을 토스트로** 보여
+ * 준다. 알 수 없다고 길을 막아 버리면 고칠 실마리까지 함께 없어진다.
+ */
 export async function pushState(): Promise<PushState> {
+    try {
+        return await withTimeout(readPushState(), 6000);
+    } catch {
+        return 'off';
+    }
+}
+
+/** 답이 안 오는 것을 실패로 바꾼다 — 멈춰 서 있는 것보다 낫다. */
+function withTimeout<T>(job: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+        job,
+        new Promise<T>((_, no) => setTimeout(() => no(new Error('시간 초과')), ms)),
+    ]);
+}
+
+async function readPushState(): Promise<PushState> {
     if (IS_NATIVE) return nativePushState();
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)
+        || !('Notification' in window)) {
         return isIOS && !isStandalone() ? 'standalone-required' : 'unsupported';
     }
     if (isIOS && !isStandalone()) return 'standalone-required';

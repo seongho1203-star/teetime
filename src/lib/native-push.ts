@@ -114,14 +114,42 @@ function askToken(p: Plugin): Promise<string> {
             if (done) { hs.forEach(h => { void h.remove(); }); return; }
             hs.forEach(h => drops.push(() => { void h.remove(); }));
             await p.register();
-        })();
+        })().catch(e => end(() => reject(e as Error)));
+        /* **여기서 안 받으면 15초를 꼬박 기다린다.** 플러그인이 안 실린
+           앱에서는 `register()`가 곧바로 거절하는데, 그 거절이 갈 데가
+           없으면 시간 제한이 끝날 때까지 화면이 멈춰 선 것처럼 보인다. */
     });
+}
+
+/**
+ * **플러그인이 앱에 안 실린 판을 가려낸다.**
+ *
+ * `import()`는 웹 묶음에서 오므로 **늘 성공한다** — 그래서 `load()`가 값을
+ * 돌려줘도 앱 쪽에 진짜 플러그인이 없을 수 있다(그 판으로 만든 앱을 아직
+ * 쓰고 있는 경우다). 그때 첫 호출이 `not implemented`로 거절하는데,
+ * 그 오류를 그냥 던지면 화면이 **`확인 중…`에 멈춘 채로 굳는다**
+ * (사용자 제보 — `이 기기로 받기 확인중.....`).
+ *
+ * 걸러 내면 `unsupported`가 되고, 화면은 앱일 때 그것을
+ * **`앱을 최신 판으로 받으면 켤 수 있습니다`**로 적는다 — 실제로 그것이
+ * 맞는 안내다.
+ */
+function notThere(e: unknown): boolean {
+    const m = String((e as { message?: unknown })?.message ?? e).toLowerCase();
+    return m.includes('not implemented') || m.includes('not available')
+        || m.includes('unimplemented');
 }
 
 export async function nativePushState(): Promise<PushState> {
     const p = await load();
     if (!p) return 'unsupported';
-    const { receive } = await p.checkPermissions();
+    let receive: string;
+    try {
+        ({ receive } = await p.checkPermissions());
+    } catch (e) {
+        if (notThere(e)) return 'unsupported';
+        throw e;
+    }
     if (receive === 'denied') return 'denied';
     /* **권한이 있어도 토큰이 없으면 꺼진 것으로 본다.** 앱을 지웠다 다시
        깐 경우가 그렇다 — 권한은 기억돼 있는데 우리 쪽 기록은 비어 있다.
@@ -133,11 +161,19 @@ export async function enableNativePush(userId: string): Promise<PushState> {
     const p = await load();
     if (!p) return 'unsupported';
 
-    let { receive } = await p.checkPermissions();
-    /* 권한 창은 **누른 그 자리에서** 띄운다. 한 번 거절하면 그다음부터는
-       창이 안 뜨므로(`denied`) 폰 설정에서 켜야 한다 — 화면이 그 말을 한다. */
-    if (receive !== 'granted' && receive !== 'denied') {
-        receive = (await p.requestPermissions()).receive;
+    let receive: string;
+    try {
+        ({ receive } = await p.checkPermissions());
+        /* 권한 창은 **누른 그 자리에서** 띄운다. 한 번 거절하면 그다음부터는
+           창이 안 뜨므로(`denied`) 폰 설정에서 켜야 한다 — 화면이 그 말을 한다. */
+        if (receive !== 'granted' && receive !== 'denied') {
+            receive = (await p.requestPermissions()).receive;
+        }
+    } catch (e) {
+        /* 플러그인이 안 실린 앱이다. 그대로 던지면 영문 오류가 그대로 뜨므로
+           무엇을 하면 되는지로 바꿔 준다(`nativePushState`와 같은 잣대다). */
+        if (notThere(e)) throw new Error('앱을 최신 판으로 받아야 알림을 켤 수 있습니다.');
+        throw e;
     }
     if (receive !== 'granted') return 'denied';
 
