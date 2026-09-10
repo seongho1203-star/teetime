@@ -2435,6 +2435,64 @@ console.log('\n── 사진을 줄여서 올린다 ──');
     await uCtx.close();
 }
 
+/* ── 15-1. 프로필 사진 고르기 ────────────────────────────────────
+ *
+ * **사용자 제보로 잡은 자리다** — 앱에서 프로필 사진을 바꾸려는데 아무
+ * 일도 안 일어났다(`앱으로 올렸는데 프로필사진이 없어`). 웹 칸이
+ * `hidden`이었던 것이 까닭이다: iOS는 고르는 창을 **그 칸이 있는 자리**에
+ * 붙이는데, 자리가 없으면 화면 아무 데나 띄우거나 아예 안 띄운다.
+ * 대화의 `+`에서 이미 겪고 `.file-anchor`로 고쳐 둔 자리인데
+ * **여기만 남아 있었다.**
+ *
+ * 앱 쪽 길(`pickNativePhoto`)은 헤드리스로 못 본다 — 여기서 보는 것은
+ * **웹으로 열었을 때와 옛 앱이 쓰는 되물러남**이고, 넷이다:
+ *   ① 숨은 칸이 얼굴에 겹쳐 있다(자리가 있어야 창이 거기 붙는다)
+ *   ② 44px보다 크다 — 그보다 작으면 iOS가 무시하고 제 맘대로 띄운다
+ *   ③ 안 보이고 손짓도 안 가로챈다(얼굴을 눌러야 얼굴이 잡힌다)
+ *   ④ 얼굴을 누르면 고르는 창이 실제로 열린다
+ */
+console.log('\n── 프로필 사진 고르기 ──');
+{
+    const aCtx = await browser.newContext({
+        viewport: { width: 320, height: 693 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await aCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(aCtx);
+    await aCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const ap = await aCtx.newPage();
+    await ap.goto(`${BASE}/#/me`);
+    await ap.waitForSelector('.avatar-slot .file-anchor', { timeout: 20000 });
+
+    const box = await ap.evaluate(() => {
+        const av = document.querySelector('.avatar-pick .avatar').getBoundingClientRect();
+        const inp = document.querySelector('.avatar-slot .file-anchor');
+        const r = inp.getBoundingClientRect();
+        const s = getComputedStyle(inp);
+        const hit = document.elementFromPoint(av.left + av.width / 2, av.top + av.height / 2);
+        return {
+            w: Math.round(r.width), h: Math.round(r.height),
+            dx: Math.abs(r.left - av.left), dy: Math.abs(r.top - av.top),
+            shown: s.display !== 'none' && s.visibility !== 'hidden',
+            opacity: s.opacity, pe: s.pointerEvents,
+            hit: hit?.className ?? '',
+        };
+    });
+    ok(box.shown && box.dx < 2 && box.dy < 2,
+       `숨은 칸이 얼굴에 겹쳐 있다 (어긋남 ${box.dx}·${box.dy}px)`);
+    ok(box.w >= 44 && box.h >= 44,
+       `44px보다 크다 — 작으면 iOS가 창을 제 맘대로 띄운다 (${box.w}×${box.h})`);
+    ok(box.opacity === '0' && box.pe === 'none' && box.hit.includes('avatar'),
+       `안 보이고 손짓도 안 가로챈다 (누르면 ${JSON.stringify(box.hit)})`);
+
+    let opened = false;
+    ap.on('filechooser', () => { opened = true; });
+    await ap.click('.avatar-pick');
+    await ap.waitForTimeout(400);
+    ok(opened, '얼굴을 누르면 고르는 창이 열린다');
+
+    await aCtx.close();
+}
+
 console.log('\n── 지난 목록은 접어 두고 `더 보기`로 편다 ──');
 {
     /* 고정 자료는 투표 셋·라운드 넷뿐이라 한도(10)에 안 닿아 **단추가 아예

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { canPickNative, composerReady, pickNativePhoto } from '../lib/composer';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -78,17 +79,10 @@ export function Me() {
      * 덮어쓰면 브라우저가 예전 사진을 캐시에서 꺼내 와 안 바뀐 것처럼 보인다.
      * 아바타로만 쓰이므로 400px로 줄여 올린다.
      */
-    const pickPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        e.target.value = '';          // 같은 파일을 다시 고를 수 있게
-        if (!file) return;
-        if (!file.type.startsWith('image/')) {
-            toast('사진만 올릴 수 있습니다.', 'error');
-            return;
-        }
+    const upload = async (raw: Blob) => {
         setPhotoBusy(true);
         try {
-            const blob = await shrinkImage(file, 400);
+            const blob = await shrinkImage(raw, 400);
             const path = `${session!.user.id}/${Date.now()}.jpg`;
             const { error: upErr } = await supabase.storage.from('avatars')
                 .upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
@@ -108,9 +102,52 @@ export function Me() {
         }
     };
 
+    const gotFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';          // 같은 파일을 다시 고를 수 있게
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            toast('사진만 올릴 수 있습니다.', 'error');
+            return;
+        }
+        await upload(file);
+    };
+
+    /**
+     * **앱에서는 앱이 고르게 한다** — 대화의 `+`와 같은 길이다
+     * (`pickNativePhoto` in lib/composer).
+     *
+     * **사용자 제보로 잡은 자리다** — 앱에서 프로필 사진을 바꾸려는데
+     * 아무 일도 안 일어났다. 웹 `<input type="file">`을 코드로 누르면
+     * iOS가 고르는 창을 붙일 손짓이 없어 제 맘대로 띄우거나 아예 안 띄운다.
+     * 대화에서 이미 겪고 앱 쪽으로 옮겨 둔 그 자리인데, 여기만 남아 있었다.
+     *
+     * **`await`보다 먼저 웹 칸을 눌러야 한다** — 기다린 뒤에 부르면 iOS가
+     * 사용자 손짓으로 안 쳐서 창이 아예 안 열린다. 그래서 앱인지 아닌지는
+     * `canPickNative()`로 **그 자리에서** 가른다(`composerReady()`는 이
+     * 화면이 뜰 때 미리 물어봐 둔다).
+     */
+    const changePhoto = async () => {
+        if (!canPickNative()) { photoRef.current?.click(); return; }
+        const got = await pickNativePhoto();
+        if (got.kind === 'fail') {
+            toast(`사진을 못 불러왔습니다 — ${got.why}`, 'error');
+            photoRef.current?.click();
+            return;
+        }
+        if (got.kind === 'cancel') return;
+        await upload(got.blob);
+    };
+
     /* 설치 신호는 lib/install이 앱 시작 때부터 붙잡아 둔다. */
     const [installable, setInstallable] = useState(canInstall());
     useEffect(() => onInstallChange(() => setInstallable(canInstall())), []);
+
+    /* **사진을 누를 때가 아니라 지금 물어본다.** 누른 뒤에 물어보면
+       `await` 뒤에 웹 칸을 눌러야 하는데, 기다린 뒤의 `click()`은 iOS가
+       사용자 손짓으로 안 쳐서 **고르는 창이 아예 안 열린다.**
+       한 번만 물어보고 기억하므로 여기서 불러도 값이 늘지 않는다. */
+    useEffect(() => { void composerReady(); }, []);
 
     /* ── 알림 ────────────────────────────────────────────────
        기기마다 따로 켠다. 폰에서 켜도 PC는 안 켜진다 — 알림을 받을 곳이
@@ -193,15 +230,22 @@ export function Me() {
             <div className="me-head">
                 {/* 사진을 누르면 바로 바꾼다. 프로필 수정 안으로 넣으면
                     거기까지 들어가야 해서, 제일 자주 바꿀 것을 밖에 둔다. */}
-                <button className="avatar-pick" onClick={() => photoRef.current?.click()}
-                        disabled={photoBusy} aria-label="프로필 사진 바꾸기">
-                    <Avatar name={profile?.name} url={profile?.avatar_url}
-                              gender={profile?.gender} size="lg" />
-                    <span className="avatar-pick-mark" aria-hidden="true">
-                        {photoBusy ? '…' : '＋'}
-                    </span>
-                </button>
-                <input ref={photoRef} type="file" accept="image/*" onChange={pickPhoto} hidden />
+                <span className="avatar-slot">
+                    <button className="avatar-pick" onClick={changePhoto}
+                            disabled={photoBusy} aria-label="프로필 사진 바꾸기">
+                        <Avatar name={profile?.name} url={profile?.avatar_url}
+                                  gender={profile?.gender} size="lg" />
+                        <span className="avatar-pick-mark" aria-hidden="true">
+                            {photoBusy ? '…' : '＋'}
+                        </span>
+                    </button>
+                    {/* **`hidden`으로 두지 말 것**(대화의 `.file-anchor`와 같은
+                        자리다). iOS는 고르는 창을 **이 칸이 있는 자리**에
+                        붙이는데, 자리가 없으면 화면 아무 데나 띄운다.
+                        얼굴에 겹쳐 안 보이게만 둔다 — 배치에는 몫이 없다. */}
+                    <input ref={photoRef} type="file" accept="image/*" onChange={gotFile}
+                           className="file-anchor" tabIndex={-1} aria-hidden="true" />
+                </span>
                 <div className="grow" style={{ minWidth: 0 }}>
                     <div className="b truncate" style={{ fontSize: 'var(--fs-lg)' }}>
                         {personLabel(profile) || '닉네임 없음'}

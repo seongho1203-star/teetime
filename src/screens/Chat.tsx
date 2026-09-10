@@ -18,7 +18,9 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
-import { NativeComposer, composerReady, composerSkin, hush, ncLog } from '../lib/composer';
+import {
+    NativeComposer, canPickNative, composerReady, composerSkin, hush, ncLog, pickNativePhoto,
+} from '../lib/composer';
 
 /**
  * 네이티브 바가 마지막으로 알려 온 높이 — **화면을 나갔다 와도 남는다.**
@@ -2355,33 +2357,21 @@ export function Chat() {
      * 그날로 고쳐진다.** 12판을 깔면 저절로 앱 창으로 돌아간다.
      */
     const photo = async () => {
-        if (!ncOn.current || ncLog.v < 12) { fileRef.current?.click(); return; }
-        /* **고르는 일이 실패하면 조용히 돌아서지 말 것.** 예전에는
-           `catch(() => null)` 하나로 '취소'와 '고장'을 같이 삼켰다 —
-           사진이 안 올라가는데 **아무 말도 안 뜨니** 어디가 막힌 것인지
-           알 길이 없었다(`사진 크기를 키운 후로 안돼`가 그 자리였다).
-           이제 고장이면 알리고 **웹 칸으로 물러나** 어떻게든 보낼 수 있게 한다. */
-        let r: { ok?: boolean; data?: string; why?: string } | null = null;
-        try {
-            r = await NativeComposer.pickPhoto();
-        } catch (err) {
-            toast(`사진을 못 불러왔습니다 — ${readableError(err)}`, 'error');
+        /* **고르는 셈은 `lib/composer.ts`에 있다** — `내 정보`의 프로필
+           사진이 같은 길을 쓴다(`pickNativePhoto`). 여기서 하는 것은
+           **못 골랐을 때 무엇으로 물러나느냐**뿐이다. */
+        if (!ncOn.current || !canPickNative()) { fileRef.current?.click(); return; }
+        const got = await pickNativePhoto();
+        /* 취소는 조용히 돌아선다. **고장이면 알리고 웹 칸으로 물러나**
+           어떻게든 보낼 수 있게 한다 — 아무 말도 안 뜨면 어디가 막힌 것인지
+           알 길이 없다(`사진 크기를 키운 후로 안돼`가 그 자리였다). */
+        if (got.kind === 'fail') {
+            toast(`사진을 못 불러왔습니다 — ${got.why}`, 'error');
             fileRef.current?.click();
             return;
         }
-        /* 취소는 `why` 없이 온다 — 조용히 돌아선다. 까닭이 실려 왔으면
-           **앱이 스스로 막힌 것을 안 것**이라, 알리고 웹 칸으로 물러난다. */
-        if (!r?.ok || !r.data) {
-            if (r?.why) {
-                toast(`사진을 못 불러왔습니다 — ${r.why}`, 'error');
-                fileRef.current?.click();
-            }
-            return;
-        }
-        const bin = atob(r.data);
-        const buf = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-        await sendPhoto(new Blob([buf], { type: 'image/jpeg' }));
+        if (got.kind === 'cancel') return;
+        await sendPhoto(got.blob);
     };
 
     /**

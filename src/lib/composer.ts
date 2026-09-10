@@ -39,7 +39,7 @@ type Native = {
      * 화면 아무 데나 띄웠다. 앱이 직접 띄우면 그 자리가 아예 없다.
      * `data`는 **이미 줄인 JPEG**의 base64다(`lib/image.ts`와 같은 값).
      */
-    pickPhoto(): Promise<{ ok: boolean; data?: string }>;
+    pickPhoto(): Promise<{ ok: boolean; data?: string; why?: string }>;
     /** 사진첩에 저장(8판부터). 웹에서는 `<a download>`가 앱 안에서 안 먹는다. */
     savePhoto(o: { url: string }): Promise<{ ok: boolean }>;
     /** 폰이 띄워 주는 공유창에 넘긴다(8판부터). */
@@ -131,6 +131,56 @@ export function composerReady(): Promise<boolean> {
         return ncLog.ready;
     })();
     return asked;
+}
+
+/* ── 사진 고르기 — 대화의 `+`와 `내 정보`의 프로필 사진이 같이 쓴다 ──
+ *
+ * **웹 `<input type="file">`을 앱에서 쓰면 고르는 창이 엉뚱한 데 뜬다.**
+ * iOS는 그 창을 **칸이 있는 자리**에 붙이는데, 코드로 `click()`을 부르면
+ * 붙일 손짓이 없어 제 맘대로 띄운다(사용자 제보 — `팝업뜨는 위치가 지
+ * 맘데로야`). 앱이 직접 띄우면 그 자리가 아예 없다.
+ *
+ * **12판부터만 앱 창을 쓴다.** 9~11판은 창이 닫히기 전에 다음 창을 띄워
+ * 보관함·카메라가 아예 안 열렸다 — 그 판을 든 폰은 웹 칸으로 물러난다.
+ * 자리가 어긋난 것과 아예 못 고르는 것 중에서는 앞엣것이 낫다.
+ */
+
+/** 앱에게 고르게 할 수 있는가. false면 부르는 쪽이 웹 칸으로 물러난다. */
+export function canPickNative(): boolean {
+    return ncLog.ready === true && ncLog.v >= 12;
+}
+
+/**
+ * 고른 결과 셋. **`취소`와 `고장`을 반드시 가른다** — 예전에는
+ * `catch(() => null)` 하나로 둘을 같이 삼켜서, 사진이 안 올라가는데
+ * **아무 말도 안 떴다**(`사진 크기를 키운 후로 안돼`가 그 자리였다).
+ * 취소에 문구를 띄우면 안 보내기로 한 사람에게 오류창이 뜬다.
+ */
+export type Picked =
+    | { kind: 'photo'; blob: Blob }
+    | { kind: 'cancel' }
+    | { kind: 'fail'; why: string };
+
+/**
+ * 앱이 사진을 고르고 **이미 줄여서** 넘겨준다(`lib/image.ts`와 같은 값).
+ * `canPickNative()`가 참일 때만 부를 것.
+ */
+export async function pickNativePhoto(): Promise<Picked> {
+    let r: { ok?: boolean; data?: string; why?: string } | null = null;
+    try {
+        r = await NativeComposer.pickPhoto();
+    } catch (err) {
+        return { kind: 'fail', why: err instanceof Error ? err.message : String(err) };
+    }
+    if (r?.ok && r.data) {
+        const bin = atob(r.data);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        return { kind: 'photo', blob: new Blob([buf], { type: 'image/jpeg' }) };
+    }
+    /* 취소는 까닭 없이 온다. 까닭이 실려 왔으면 **앱이 스스로 막힌 것을
+       안 것**이라, 부르는 쪽이 알리고 웹 칸으로 물러난다. */
+    return r?.why ? { kind: 'fail', why: r.why } : { kind: 'cancel' };
 }
 
 /** 끄고 켜기. `내 정보`에서 쓴다 — 어긋났을 때 앱을 다시 안 만들고 되돌리는 길이다. */
