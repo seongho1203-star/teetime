@@ -217,8 +217,27 @@ jobs:
             exit 1
           }
 
+          # **인증서 이름은 `grep`으로 찾지 말 것 — 못 찾으면 그 자리에서
+          # 스크립트가 죽는다.** `ID=$(… | grep …)`은 grep이 빈손일 때 1을
+          # 돌려주고, `set -e`가 그걸 보고 **다음 줄의 `[ -n "$ID" ]`에
+          # 닿기도 전에** 끝내 버린다 — 39판에서 `배포용 인증서를 못
+          # 찾았습니다`라는 우리 문구도 못 보고 조용히 멈췄다.
+          # `sed`는 빈손이어도 0을 돌려주므로 갈래가 살아 있다.
+          echo "── 키체인 ──"
+          security list-keychains || true
+          echo "── 서명 가능한 인증서 ──"
+          security find-identity -v -p codesigning || true
+          echo "── 지금 앱에 서명된 인증서 ──"
+          codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=/  /p' || true
+
           ID=$(security find-identity -v -p codesigning \
-               | grep -o '"Apple Distribution:[^"]*"' | head -1 | tr -d '"')
+               | sed -n 's/.*"\(Apple Distribution:[^"]*\)".*/\1/p' | head -1)
+          # 옛 이름(`iPhone Distribution`)을 쓰는 판도 있다.
+          [ -n "$ID" ] || ID=$(security find-identity -v -p codesigning \
+               | sed -n 's/.*"\(iPhone Distribution:[^"]*\)".*/\1/p' | head -1)
+          # 그래도 없으면 **방금 서명한 그 이름**을 앱에서 그대로 꺼내 쓴다.
+          [ -n "$ID" ] || ID=$(codesign -dvv "$APP" 2>&1 \
+               | sed -n 's/^Authority=\(.*Distribution.*\)/\1/p' | head -1)
           [ -n "$ID" ] || { echo "::error::배포용 인증서를 못 찾았습니다."; exit 1; }
           echo "서명 인증서: $ID"
           codesign -f -s "$ID" --entitlements "$W/ent.plist" \
