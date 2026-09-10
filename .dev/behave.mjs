@@ -292,6 +292,36 @@ console.log('\n── 키보드가 댓글 칸을 안 가린다 ──');
     ok(twin.during.h === twin.before.h,
        `그래도 자리는 그대로 차지한다 (${twin.before.h}px → ${twin.during.h}px)`);
     ok(twin.after === 'visible', '바를 닫으면 도로 보인다');
+
+    /* **화면을 옮기면 탭바를 감추던 표시가 걷혀야 한다**(사용자 제보 —
+       `뒤로가기하면 가끔 탭바가 사라지는 경우가있어`).
+       글칸에 초점을 둔 채 뒤로 가면 탭바가 사라진 채로 굳었다 — 웹킷은
+       초점이 있던 요소가 화면에서 사라질 때 `focusout`을 안 보내 주고,
+       걷는 효과는 `[onChat]`으로 걸려 있어 폼 화면끼리 오갈 때는 아예
+       다시 돌지 않았다. 감추는 표시가 넷이라 한 곳씩 챙기지 않고
+       **화면이 바뀌면 넷을 통째로 걷는다.**
+       헤드리스에는 키보드가 없으므로 그 표시들을 손으로 붙여 규칙을 잰다.
+
+       **`kb-typing`은 고치기 전 코드로도 초록으로 뜬다** — 크로미움은
+       사라진 요소에 `focusout`을 보내 주므로 옛 길(`mark(false)`)이 그때
+       돌아 준다. **폰에서 나던 그 자국이 여기서는 안 보인다**는 뜻이니,
+       이 줄이 초록이라고 그 자리가 멀쩡한 것으로 읽지 말 것(깜빡임에서
+       얻은 교훈 그대로다). 나머지 셋은 빼면 그대로 빨개진다. */
+    const stuck = ['kb-typing', 'nc-typing', 'kb-open', 'kb-bar'];
+    for (const cls of stuck) {
+        await go('/#/rounds/r1', 500);
+        await page.evaluate(c => document.body.classList.add(c), cls);
+        const gone = await page.evaluate(() =>
+            getComputedStyle(document.querySelector('.tabbar')).display === 'none');
+        await go('/#/', 600);
+        const back = await page.evaluate(c => ({
+            표: document.body.classList.contains(c),
+            탭바: document.querySelector('.tabbar')
+                ? getComputedStyle(document.querySelector('.tabbar')).display : '없음',
+        }), cls);
+        ok(gone && !back.표 && back.탭바 !== 'none',
+           `\`${cls}\`가 남아 있어도 뒤로 가면 탭바가 돌아온다 (${JSON.stringify(back)})`);
+    }
 }
 
 console.log('\n── 투표 목록이 길어지지 않는다 ──');

@@ -335,6 +335,15 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
 
     /** 웹 칸을 누르면 네이티브 바를 세우고 거기에 초점을 준다. */
     const openBar = () => {
+        /* **여는 표시는 기다리기 전에 세운다.** 아래 `await` 사이에 화면을
+           떠나면 뒷정리가 `barRef.current`를 보고 닫는데, 그때 아직 false면
+           **아무도 안 닫은 채로 지나가고** 그 뒤에 `nc-typing`이 붙어
+           **탭바가 사라진 채로 굳는다**(사용자 제보 — `뒤로가기하면 가끔
+           탭바가 사라지는 경우가있어`). 세워 두면 그 사이에 떠나도
+           `closeBar()`가 반드시 불린다. */
+        barRef.current = true;
+        setBarUp(true);
+        document.body.classList.add('nc-typing');
         void (async () => {
             clearTimeout(closeAt.current);
             barFocused.current = false;
@@ -365,9 +374,8 @@ function CommentForm({ onSubmit }: { onSubmit: (body: string) => Promise<boolean
                 focus: true,
             })).catch(() => { /* 글칸 하나 때문에 화면이 죽으면 안 된다 */ });
             }
-            barRef.current = true;
-            setBarUp(true);
-            document.body.classList.add('nc-typing');
+            // 기다리는 사이에 닫혔으면(화면을 떠났으면) 여기서 그만둔다.
+            if (!barRef.current) return;
             /* **초점이 올 때까지 몇 번 더 조른다.** 초점 주기는 `attach`가
                그 자리에서 맡지만(위 `focus: true`), 그 되풀이는 **앱 안에**
                있어서 아직 새 앱을 안 깐 폰에는 없다 — 웹은 밀면 바로

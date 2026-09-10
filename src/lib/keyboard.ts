@@ -49,9 +49,49 @@ function keepsFocus(t: EventTarget | null): boolean {
     return false;
 }
 
+/**
+ * 탭바를 감추는 표시들. **화면을 옮기면 이 넷을 통째로 걷는다**(아래
+ * `useKeyboardChrome`의 첫 효과).
+ *
+ * - `kb-typing` — 여기서 세운다(웹 글칸에 초점이 있는 동안)
+ * - `nc-typing` — `components/Comments.tsx`(네이티브 댓글 바가 떠 있는 동안)
+ * - `kb-open` · `kb-bar` — `screens/Chat.tsx`(대화 화면의 키보드 셈)
+ *
+ * **새로 탭바를 감추는 표시를 만들면 여기 더할 것.**
+ */
+const HIDES_TABBAR = ['kb-typing', 'nc-typing', 'kb-open', 'kb-bar'];
+
 export function useKeyboardChrome(): void {
     const { pathname } = useLocation();
     const onChat = pathname === '/chat';
+
+    /**
+     * **화면이 바뀌면 감추던 표시를 걷는다.**
+     *
+     * 사용자 제보 — `뒤로가기하면 가끔 탭바가 사라지는 경우가있어`.
+     * 글칸에 초점을 둔 채 뒤로 가면 **탭바가 사라진 채로 굳었다.**
+     *
+     * 세 가지가 겹쳐서 났다:
+     *  1. 아래 효과는 `[onChat]`으로 걸려 있어 **폼 화면끼리 오갈 때는 다시
+     *     돌지 않는다** — 그 뒷정리(`mark(false)`)가 안 불린다.
+     *  2. 그래서 기댈 곳은 `focusout`인데, **웹킷은 초점이 있던 요소가
+     *     화면에서 사라질 때 그걸 안 보내 준다**(크로미움은 보낸다).
+     *     화면을 옮기면 그 칸은 통째로 없어지므로 딱 그 자리다.
+     *  3. `nc-typing`·`kb-open`·`kb-bar`도 각자 제 화면에서 걷는데,
+     *     그 코드가 도는 것 자체가 어긋나면 같은 자국이 남는다.
+     *
+     * **한 군데씩 고치지 않고 여기서 한 번에 걷는다** — 감추는 곳이 넷이라
+     * 한 곳씩 챙기면 반드시 하나를 빠뜨리고, 빠뜨리면 **화면이 잠긴 것처럼
+     * 보여** 원래보다 나쁘다(JTFAG의 `watchOverlays`와 같은 결이다).
+     * 화면을 옮겼다는 것은 **적던 칸이 이미 사라졌다는 뜻**이라 넷 다
+     * 남아 있을 이유가 없다. 새 화면이 키보드를 다시 올리면 그때 저마다
+     * 다시 세운다.
+     */
+    useEffect(() => {
+        document.body.classList.remove(...HIDES_TABBAR);
+        document.documentElement.classList.remove('kb-open');
+        document.body.style.removeProperty('--kb-pad');
+    }, [pathname]);
 
     useEffect(() => {
         const body = document.body;

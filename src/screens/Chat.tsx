@@ -1278,6 +1278,13 @@ export function Chat() {
             document.documentElement.style.removeProperty('--vvh');
             document.body.classList.remove('kb-open');
             document.documentElement.classList.remove('kb-open');
+            /* **`kb-bar`도 함께 걷는다.** 이것만 남으면 대화를 떠난 뒤에도
+               탭바가 사라진 채로 굳는다 — `kb-open`과 하는 일이 같은데
+               여기서 빠져 있었다(사용자 제보 — `뒤로가기하면 가끔 탭바가
+               사라지는 경우가있어`). 그 표는 키보드가 **다 내려간 뒤에**
+               내놓으려고 따로 둔 것이라, 내려가는 도중에 화면을 옮기면
+               내놓을 사람이 없어진다. */
+            document.body.classList.remove('kb-bar');
         };
     }, [applyKeyboard, syncKeyboard, watchViewport]);
 
