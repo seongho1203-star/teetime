@@ -913,6 +913,10 @@ Deno.serve(async req => {
             badges.set(c.user_id, c.n);
         }
     }
+    const badgeFor = (uid: unknown): number => {
+        const n = typeof uid === 'string' ? badges.get(uid) ?? 0 : 0;
+        return note.channel === 'chat' ? n : Math.max(n, 1);
+    };
 
     /* **본문은 기기마다 다를 수 있다.** 라운드 알림이 사람마다 자기 조를
        실어 보내기 때문이다(`bodyBy`). 없으면 지금까지처럼 다 같은 문구다. */
@@ -941,7 +945,14 @@ Deno.serve(async req => {
             body: (typeof s.user_id === 'string' && note.bodyBy?.[s.user_id]) || note.body,
             tag: note.tag,
             url: note.url,
-            badge: (typeof s.user_id === 'string' && badges.get(s.user_id)) || 0,
+            /* **대화가 아닌 알림은 못해도 하나는 붙인다.** 세는 값이
+               '안 읽은 대화 개수'라, 대화를 다 읽어 둔 사람에게 정산·조
+               편성 알림이 가면 `0`이 실려 **뱃지가 아예 안 붙는다** —
+               알림은 왔는데 아이콘은 깨끗해 보인다.
+               정산·조 편성에는 '안 읽음'이라는 것이 애초에 없으므로
+               (읽었는지 알 길이 없다) **앱을 열면 지워지는 것**으로 끝낸다
+               (`AppDelegate`의 `applicationDidBecomeActive`). */
+            badge: badgeFor(s.user_id),
         };
 
         if (endpoint.startsWith(FCM_MARK)) {
