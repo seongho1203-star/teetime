@@ -2490,6 +2490,13 @@ console.log('\n── 프로필 사진 고르기 ──');
     await ap.waitForTimeout(400);
     ok(opened, '얼굴을 누르면 고르는 창이 열린다');
 
+    /* 맨 아래 판 표시. **뒷자리가 앱 빌드 번호다**(`1.28`) — 워크플로가
+       `VITE_APP_BUILD`로 넣는다. 여기(웹·개발 서버)에는 그 값이 없으므로
+       `1.0`이어야 한다. `버전 1.`에서 끊기거나 `1.undefined`가 되는 것을
+       잡는 자리다. */
+    const ver = (await ap.textContent('.me-foot') ?? '').replace(/\s+/g, ' ').trim();
+    ok(/버전 1\.0$/.test(ver), `웹에서는 판이 1.0으로 적힌다 (${ver})`);
+
     await aCtx.close();
 }
 

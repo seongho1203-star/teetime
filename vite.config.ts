@@ -20,5 +20,12 @@ export default defineConfig({
                 hour: '2-digit', minute: '2-digit', hour12: false,
             }).format(new Date()).replace('-', '/').replace(',', ''),
         ),
+        /* 앱 빌드 번호. `내 정보`의 `버전 1.28`에서 **뒷자리가 이 값이다**.
+           **아이폰 앱을 만드는 워크플로만 넣어 준다**(`ios.yml`이
+           `github.run_number`를 준다) — 그 값이 곧 `CURRENT_PROJECT_VERSION`
+           이라, 화면의 `1.28`과 TestFlight의 `1.0 (28)`이 같은 숫자가 된다.
+           **웹(GitHub Pages)에는 그런 번호가 없어 빈 값이고**, 그때
+           `types.ts`가 `1.0`으로 적는다. */
+        __APP_BUILD__: JSON.stringify(process.env.VITE_APP_BUILD ?? ''),
     },
 });

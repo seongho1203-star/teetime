@@ -4,10 +4,12 @@ name: 아이폰 앱 (TestFlight)
 # **저장소가 공개라 GitHub의 macOS 러너가 공짜다** — 그게 맥을 안 사도 되는
 # 까닭이다. 절차와 넣을 비밀값은 `docs/출시-전-할일.md` 0-3번에 있다.
 #
-# **웹 화면만 고칠 때는 이걸 돌릴 필요가 없다.** 지금은 확인용 껍데기라
-# 앱이 웹 주소를 그대로 띄우므로(`capacitor.config.ts`의 `server.url`),
-# 화면 고침은 밀기만 하면 폰에서 바로 보인다. 이 워크플로가 필요한 때는
-# **앱 쪽(껍데기)이 바뀌었을 때**뿐이다.
+# **이제는 화면 고침도 이걸 돌려야 앱에 닿는다.** 출시용으로 바꾸면서
+# `npm run build`가 만든 `dist`가 앱 안에 담기게 됐다(`capacitor.config.ts`의
+# `server` 덩어리를 지웠다) — 밀기만 하면 폰에 바로 보이던 때와 다르다.
+# 그래서 `paths`에 없는 파일만 고쳤을 때는 **손으로 돌려야 한다**
+# (Actions 탭 → 이 워크플로 → Run workflow). 웹(GitHub Pages)은 예전처럼
+# 밀면 저절로 올라간다.
 
 on:
   workflow_dispatch:
@@ -61,13 +63,19 @@ jobs:
       - if: steps.keys.outputs.ready == 'yes'
         run: npm ci
 
-      # 지금은 껍데기라 이 결과가 앱에 안 담기지만, `cap sync`가 `dist`를
-      # 찾으므로 만들어 둔다. 출시용으로 바꾸면 이게 그대로 앱에 들어간다.
+      # **이 결과가 그대로 앱에 담긴다**(출시용으로 바꾼 뒤로 그렇다).
+      #
+      # `VITE_APP_BUILD`는 `내 정보`에 `버전 1.28`로 나오는 그 뒷자리다.
+      # **아래 아카이브의 `CURRENT_PROJECT_VERSION`과 같은 값을 준다** —
+      # 그래야 화면의 `1.28`과 TestFlight의 `1.0 (28)`이 같은 숫자가 되어,
+      # 폰에서 새 앱을 받았는지 그것 하나로 가릴 수 있다.
+      # **한쪽만 고치지 말 것.**
       - name: 웹 빌드
         if: steps.keys.outputs.ready == 'yes'
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_BUILD: ${{ github.run_number }}
         run: npm run build
 
       # 플러그인을 iOS 쪽에 물리고 CocoaPods를 받는다.
