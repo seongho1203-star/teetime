@@ -25,7 +25,7 @@ import { Switch } from '../components/Switch';
 import './Home.css';
 
 export function Me() {
-    const { profile, contact, session, refresh } = useAuth();
+    const { profile, contact, session, refresh, isSuper } = useAuth();
     const toast = useToast();
     const confirm = useConfirm();
 
@@ -40,6 +40,7 @@ export function Me() {
         profile?.birth_year ? String(profile.birth_year) : '');
     const [region, setRegion] = useState(profile?.region ?? '');
     const [saving, setSaving] = useState(false);
+    const [leaving, setLeaving] = useState(false);
     const [photoBusy, setPhotoBusy] = useState(false);
     const photoRef = useRef<HTMLInputElement>(null);
 
@@ -231,6 +232,78 @@ export function Me() {
         if (ok) await signOut();
     };
 
+    /**
+     * 회원 탈퇴.
+     *
+     * **스토어가 요구하는 자리다** — 계정을 만드는 앱은 그 계정을 **앱 안에서
+     * 지울 수 있어야 한다**(애플 심사 규정 5.1.1(v)). 없으면 그것만으로
+     * 반려된다(`docs/출시-전-할일.md` 0-7번).
+     *
+     * **지우는 일은 DB가 한다**(`delete_me`) — 화면이 표를 하나씩 지우면
+     * 중간에 끊겼을 때 반쯤 지워진 사람이 남고, 대기자를 올리는 규칙도
+     * 두 벌이 된다. 여기서 하는 것은 **DB가 못 하는 둘**뿐이다:
+     * 이 기기의 알림 등록을 끊는 것과 저장소의 사진 파일을 지우는 것.
+     *
+     * **순서가 있다.** 알림 → 사진 → 계정이다. 계정을 먼저 지우면 그다음
+     * 두 줄이 권한을 잃어 **사진이 저장소에 영영 남는다.**
+     * 앞의 둘은 실패해도 그냥 넘어간다 — 알림 한 줄 때문에 나갈 길이
+     * 막히면 안 된다(행 자체는 계정과 함께 딸려 지워진다).
+     */
+    const leaveClub = async () => {
+        const ok = await confirm({
+            title: '정말 탈퇴하시겠습니까?',
+            danger: true,
+            confirmLabel: '탈퇴하기',
+            detail: (
+                <>
+                    <b>{profile?.name || '회원'}</b>님의 계정이 지워집니다.
+                    {' '}<b>되돌릴 수 없습니다.</b>
+                    <br /><br />
+                    · 프로필과 전화번호·차량번호<br />
+                    · 신청해 둔 라운드와 던진 표<br />
+                    · 프로필 사진과 알림 설정
+                    <br /><br />
+                    대화방에 남긴 글은 지워지지 않습니다.
+                    다시 들어오시려면 처음처럼 가입 신청을 하셔야 합니다.
+                </>
+            ),
+        });
+        if (!ok) return;
+
+        setLeaving(true);
+        try {
+            const uid = session!.user.id;
+
+            /* 이 기기의 알림 등록을 먼저 끊는다. 행만 사라지면 폰은 계속
+               등록돼 있어, 발송기가 미처 못 지운 옛 토큰으로 한 번 더
+               울릴 수 있다(`disablePush`가 있는 까닭이다). */
+            await disablePush().catch(() => { /* 안 돼도 나가는 것을 막지 않는다 */ });
+
+            /* 저장소 파일은 행을 지운다고 같이 사라지지 않는다 — 손으로
+               치운다. 자기 폴더만 지울 수 있게 정책이 막고 있어 남의 것은
+               건드릴 수 없다(`avatars_del`). */
+            try {
+                const { data: files } = await supabase.storage.from('avatars').list(uid);
+                if (files?.length) {
+                    await supabase.storage.from('avatars')
+                        .remove(files.map(f => `${uid}/${f.name}`));
+                }
+            } catch { /* 사진이 남는 것뿐이다 */ }
+
+            const { error } = await supabase.rpc('delete_me');
+            if (error) throw error;
+
+            /* 계정이 이미 없어 로그아웃이 거절될 수 있다 — 그래도 화면은
+               로그인으로 돌아가야 하므로 실패를 삼킨다. */
+            await signOut().catch(() => { /* 세션은 어차피 죽었다 */ });
+            toast('탈퇴했습니다. 그동안 함께해 주셔서 고맙습니다.', 'ok');
+        } catch (err) {
+            toast(readableError(err), 'error');
+        } finally {
+            setLeaving(false);
+        }
+    };
+
     return (
         <div className="page">
             <TopBar title="내 정보" />
@@ -389,6 +462,21 @@ export function Me() {
             )}
 
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
+
+            {/* **찾기 쉬운 자리에 둔다.** 애플은 계정을 지우는 길이 앱 안에
+                있어야 한다고만 하지 않고 **쉽게 찾을 수 있어야** 한다고 적어
+                두었다 — 메뉴 속에 숨기면 그것으로 반려될 수 있다.
+                대신 분홍(지금 눌러야 할 것)이 아니라 빨강 테두리라, 로그아웃
+                옆에서 잘못 누를 만한 단추로는 안 읽힌다.
+
+                **앱관리자에게는 안 보인다.** `delete_me()`가 그 사람만은
+                막는데(나가 버리면 운영자를 임명할 사람이 없다), 단추를 그냥
+                두면 **눌러도 오류만 나는 자리**가 된다. */}
+            {!isSuper && (
+                <button className="btn danger block" onClick={leaveClub} disabled={leaving}>
+                    {leaving ? '탈퇴 중…' : '회원 탈퇴'}
+                </button>
+            )}
 
             {/* **진단 줄 둘은 걷어냈다**(출시용으로 넘어가면서 · 사용자 요청).
                 `화면 판 {__BUILD__}`는 앱이 웹 주소를 띄우던 때 **옛 화면이

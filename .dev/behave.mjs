@@ -2795,6 +2795,189 @@ console.log('\n── 투표 마감 시각은 필수다 ──');
     await eCtx.close();
 }
 
+/* ── 회원 탈퇴 ──────────────────────────────────────────────────
+ * **스토어가 요구하는 자리다** — 계정을 만드는 앱은 그 계정을 **앱 안에서**
+ * 지울 수 있어야 한다(애플 심사 5.1.1(v)). 없으면 그것만으로 반려된다.
+ *
+ * 보는 것은 셋이다:
+ *   ① 단추가 **찾기 쉬운 자리**에 있는가 (메뉴 속에 숨기면 그것도 반려다)
+ *   ② 확인창에서 **취소하면 아무것도 안 나가는가**
+ *   ③ **순서** — 사진을 지우고 나서 계정을 지우는가.
+ *      계정을 먼저 지우면 그다음 줄이 권한을 잃어 **사진이 저장소에
+ *      영영 남는다.** 화면만 봐서는 안 보이는 자리라 여기서 붙든다.
+ */
+console.log('\n── 회원 탈퇴 ──');
+{
+    /* **일반회원으로 본다.** 고정 자료의 나는 앱관리자인데 그 사람에게는
+       단추가 아예 안 보인다 — `delete_me()`가 앱관리자만은 막으므로
+       (나가면 운영자를 임명할 사람이 없다) 단추를 두면 눌러도 오류만
+       나는 자리가 된다. */
+    const asMember = {
+        ...tables,
+        profiles: tables.profiles.map(p => (p.id === ME ? { ...p, role: 'member' } : p)),
+    };
+    const dCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await dCtx.route('**/rest/v1/**', restRoute(asMember));
+    await stubOutside(dCtx);
+
+    const order = [];
+    await dCtx.route('**/storage/v1/object/list/avatars**', route => {
+        order.push('사진 목록');
+        route.fulfill({ status: 200, contentType: 'application/json',
+                        body: JSON.stringify([{ name: '1.jpg' }]) });
+    });
+    await dCtx.route('**/storage/v1/object/avatars**', route => {
+        if (route.request().method() !== 'DELETE') return route.fallback();
+        order.push('사진 지우기');
+        route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await dCtx.route('**/rest/v1/rpc/delete_me**', route => {
+        order.push('계정 지우기');
+        route.fulfill({ status: 200, contentType: 'application/json', body: 'null' });
+    });
+    await dCtx.route('**/auth/v1/logout**', route => {
+        order.push('로그아웃');
+        route.fulfill({ status: 204, body: '' });
+    });
+
+    await dCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const dp = await dCtx.newPage();
+    await dp.goto(`${BASE}/#/me`, { waitUntil: 'networkidle' });
+    await dp.waitForTimeout(700);
+
+    const press = label => dp.evaluate(t => [...document.querySelectorAll('button')]
+        .find(b => b.textContent.trim() === t)?.click(), label);
+    const seen = label => dp.evaluate(t => [...document.querySelectorAll('button')]
+        .some(b => b.textContent.trim() === t), label);
+
+    ok(await seen('회원 탈퇴'), '내 정보에 `회원 탈퇴`가 있다');
+    /* 로그아웃 **바로 아래**에 있어야 한다 — 화면 맨 아래 어딘가가 아니라
+       나가는 일끼리 모여 있어야 찾는다. */
+    const gap = await dp.evaluate(() => {
+        const all = [...document.querySelectorAll('button')];
+        const i = all.findIndex(b => b.textContent.trim() === '로그아웃');
+        const j = all.findIndex(b => b.textContent.trim() === '회원 탈퇴');
+        return j - i;
+    });
+    ok(gap === 1, `로그아웃 바로 다음 단추다 (사이 ${gap - 1}개)`);
+
+    /* **앱관리자에게는 안 보인다** — 위 `asMember`가 있는 까닭이다. */
+    const sCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await sCtx.route('**/rest/v1/**', restRoute(tables));   // 고정 자료 = 앱관리자
+    await stubOutside(sCtx);
+    await sCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const sp = await sCtx.newPage();
+    await sp.goto(`${BASE}/#/me`, { waitUntil: 'networkidle' });
+    await sp.waitForTimeout(700);
+    ok(await sp.evaluate(() => ![...document.querySelectorAll('button')]
+        .some(b => b.textContent.trim() === '회원 탈퇴')),
+       '앱관리자에게는 안 보인다 (눌러도 막히는 자리라)');
+    await sCtx.close();
+
+    await press('회원 탈퇴');
+    await dp.waitForTimeout(300);
+    ok(await dp.evaluate(() => !!document.querySelector('.confirm-box')),
+       '누르면 확인창이 뜬다');
+    ok(await dp.evaluate(() => document.querySelector('.confirm-detail')
+        ?.textContent.includes('되돌릴 수 없습니다')),
+       '무엇이 지워지는지·되돌릴 수 없다는 것을 적어 준다');
+
+    await press('취소');
+    await dp.waitForTimeout(400);
+    ok(order.length === 0, `취소하면 아무것도 안 나간다 (${order.length}건)`);
+
+    await press('회원 탈퇴');
+    await dp.waitForTimeout(300);
+    await press('탈퇴하기');
+    await dp.waitForTimeout(1200);
+
+    ok(order.filter(o => o === '계정 지우기').length === 1,
+       `계정을 지우는 것은 한 번이다 (${order.filter(o => o === '계정 지우기').length}번)`);
+    ok(order.indexOf('사진 지우기') !== -1
+       && order.indexOf('사진 지우기') < order.indexOf('계정 지우기'),
+       `사진을 먼저 지우고 계정을 지운다 (${order.join(' → ')})`);
+    ok(order.indexOf('로그아웃') > order.indexOf('계정 지우기'),
+       '지운 뒤에 로그아웃한다');
+
+    await dCtx.close();
+}
+
+/* ── Apple로 로그인 ─────────────────────────────────────────────
+ * **애플 심사 4.8이 요구하는 단추다** — 카카오 같은 남의 로그인만 쓰는
+ * 앱에는 맞먹는 로그인을 하나 더 두라고 하고, **눈에 띄게** 두라고 한다.
+ * 그래서 있는지만 보지 않고 **카카오 단추와 크기가 같은지**까지 잰다.
+ */
+console.log('\n── Apple로 로그인 ──');
+{
+    const lCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await lCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(lCtx);
+
+    /* supabase-js는 주소를 만들어 **그리로 넘어간다**(fetch가 아니다).
+       그 이동을 가로채면 어느 공급자로 가려 했는지가 그대로 보인다. */
+    let went = '';
+    await lCtx.route('**/auth/v1/authorize**', route => {
+        went = route.request().url();
+        route.abort();
+    });
+
+    const lp = await lCtx.newPage();          // 로그인 전이라 세션을 안 넣는다
+    await lp.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await lp.waitForTimeout(600);
+
+    const box = await lp.evaluate(() => {
+        const one = s => document.querySelector(s)?.getBoundingClientRect();
+        const k = one('.kakao-btn'), a = one('.apple-btn');
+        return k && a ? { kw: Math.round(k.width), kh: Math.round(k.height),
+                          aw: Math.round(a.width), ah: Math.round(a.height) } : null;
+    });
+    ok(!!box, '로그인 화면에 Apple 단추가 있다');
+    ok(!!box && box.kw === box.aw && box.kh === box.ah,
+       `카카오 단추와 크기가 같다 (${box ? `${box.kw}×${box.kh} / ${box.aw}×${box.ah}` : '없음'})`);
+
+    await lp.click('.apple-btn');
+    await lp.waitForTimeout(800);
+    ok(went.includes('provider=apple'),
+       `누르면 애플로 보낸다 (${went ? new URL(went).searchParams.get('provider') : '아무 데도 안 갔다'})`);
+
+    await lCtx.close();
+}
+
+/* ── 이름이 없으면 닉네임부터 받는다 ────────────────────────────
+ * **애플은 이름을 맨 처음 허락할 때 딱 한 번만 준다.** 우리는 그것을 아예
+ * 안 받으므로(`signInWithApple`), 애플로 들어온 사람은 이름이 빈 채로
+ * 앱에 닿는다. 그대로 두면 회원 명단에 이름 없는 줄이 서고 운영진이
+ * 누구인지 몰라 승인할 수도 없다 — `needsProfile`이 그것도 본다.
+ */
+console.log('\n── 이름이 없으면 닉네임부터 받는다 ──');
+{
+    const noName = {
+        ...tables,
+        profiles: tables.profiles.map(p => (p.id === ME ? { ...p, name: '' } : p)),
+    };
+    const nCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await nCtx.route('**/rest/v1/**', restRoute(noName));
+    await stubOutside(nCtx);
+    await nCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+
+    const np = await nCtx.newPage();
+    await np.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await np.waitForTimeout(800);
+
+    ok(await np.evaluate(() => !!document.querySelector('#fp-name')),
+       '이름이 비어 있으면 닉네임 칸이 뜬다');
+    ok(await np.evaluate(() => !!document.querySelector('.tabbar')) === false,
+       '적기 전에는 앱으로 못 들어간다');
+
+    await nCtx.close();
+}
+
 await browser.close();
 
 if (errors.length) {

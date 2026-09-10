@@ -37,8 +37,11 @@
     padding-bottom: var(--gap-lg);
 }
 
-/* 카카오 로그인 버튼은 카카오가 정한 색을 쓴다. */
-.kakao-btn {
+/* 로그인 단추 둘은 **크기가 같아야 한다.** 애플은 `Apple로 로그인`을
+   다른 로그인만큼 눈에 띄게 두라고 못박아 두었다(심사 4.8) — 작게 밀어
+   두면 그것으로 반려될 수 있다. 색만 각자 정한 것을 쓴다. */
+.kakao-btn,
+.apple-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -46,13 +49,22 @@
     width: 100%;
     min-height: 52px;
     border-radius: var(--r-sm);
-    background: #fee500;
-    color: #191600;
     font-size: var(--fs-md);
     font-weight: 800;
     transition: transform 0.12s ease;
 }
-.kakao-btn:active { transform: scale(0.98); }
-.kakao-btn:disabled { opacity: 0.6; }
-.kakao-btn svg { width: 21px; height: 21px; }
+.kakao-btn:active,
+.apple-btn:active { transform: scale(0.98); }
+.kakao-btn:disabled,
+.apple-btn:disabled { opacity: 0.6; }
+.kakao-btn svg,
+.apple-btn svg { width: 21px; height: 21px; }
+
+/* 카카오가 정한 색이다. */
+.kakao-btn { background: #fee500; color: #191600; }
 .kakao-btn .spinner { border-top-color: #191600; border-color: rgba(0,0,0,0.2); }
+
+/* **애플이 정한 색이다** — 검은 바탕에 흰 글자·흰 사과. 밝은 화면이라
+   검정 판을 쓴다(흰 판은 이 바탕에서 테두리 없이는 안 보인다). */
+.apple-btn { background: #000; color: #fff; }
+.apple-btn .spinner { border-top-color: #fff; border-color: rgba(255,255,255,0.3); }

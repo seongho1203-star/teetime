@@ -633,6 +633,68 @@ end;
 $$;
 
 
+-- ── 스스로 나가기 (회원 탈퇴) ─────────────────────────────────
+--
+-- **스토어가 요구하는 자리다.** 계정을 만드는 앱은 그 계정을 **앱 안에서
+-- 지울 수 있어야 한다**(애플 심사 규정 5.1.1(v)). 없으면 그것만으로 반려된다.
+--
+-- **`banned`(추방)와 하는 일이 다르다.** 그건 남이 막는 것이라 **행을 남겨
+-- 두는 것이 곧 막는 방법**인데(지우면 다음 로그인에 앱이 되살린다), 탈퇴는
+-- 본인이 지우는 것이라 **계정까지 없앤다.** 다시 로그인하면 처음 온 사람과
+-- 똑같이 가입 신청부터 시작한다.
+--
+-- **`auth.users` 한 줄을 지우면 나머지가 딸려 간다** — `profiles`가 그 행을
+-- `on delete cascade`로 물고 있고, 신청·표·반응·읽음·정산 몫·알림 구독이
+-- 또 `profiles`를 그렇게 물고 있다. 반면 **대화 글과 그가 연 라운드·공지는
+-- 남는다**(`on delete set null`) — 남의 대화에 구멍이 나면 안 되고, 라운드는
+-- 다른 사람들이 이미 신청해 둔 자리다(카톡에서 나간 사람 말이 남는 것과 같다).
+--
+-- **확정 자리는 비는 즉시 메운다.** 그냥 지우면 자리는 비었는데 대기자가
+-- 그대로 남는다 — `leave_round`가 푸는 그 문제이고, 여기서도 똑같이 푼다.
+-- 지우고 나면 어느 라운드였는지 알 길이 없으므로 **미리 적어 둔다.**
+create or replace function delete_me()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    me      uuid := auth.uid();
+    v_seats uuid[];
+    v_round uuid;
+begin
+    if me is null then
+        raise exception '로그인이 필요합니다.';
+    end if;
+
+    -- **앱관리자는 못 나간다.** 한 사람뿐이라 나가 버리면 운영자를 임명할
+    -- 사람이 없어진다. 정말 지워야 하면 SQL 편집기에서 한다.
+    if (select role from profiles where id = me) = 'superadmin' then
+        raise exception '앱관리자는 탈퇴할 수 없습니다.';
+    end if;
+
+    select array_agg(round_id) into v_seats
+      from signups where user_id = me and state = 'confirmed';
+
+    begin
+        delete from auth.users where id = me;
+    exception when insufficient_privilege then
+        -- **예비 길이다.** 저장소 설정에 따라 이 함수의 주인이 `auth`를
+        -- 못 건드릴 수 있는데, 그때 통째로 실패해 버리면 나갈 길이 아예
+        -- 없어진다. 프로필만 지워도 회원 자격과 기록은 같이 사라지고,
+        -- 다시 로그인하면 가입 신청부터 하게 된다(계정 껍데기만 남는다).
+        delete from profiles where id = me;
+    end;
+
+    if v_seats is not null then
+        foreach v_round in array v_seats loop
+            perform promote_waitlist(v_round);
+        end loop;
+    end if;
+end;
+$$;
+
+
 -- ── 조 편성 ───────────────────────────────────────────────────
 --
 -- **한 번에 다 쓴다.** 열여섯 명을 한 줄씩 고치면 쓰기가 열여섯 번이고,

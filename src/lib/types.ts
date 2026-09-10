@@ -241,7 +241,12 @@ export function needsProfile(p?: Profile | null): boolean {
     if (!p) return false;
     // 칸이 아직 없는 저장소에서는 아무도 막지 않는다.
     if (!('gender' in p) || !('birth_year' in p) || !('region' in p)) return false;
-    return p.gender == null || p.birth_year == null || !p.region;
+    /* **닉네임도 본다** — 애플로 로그인하면 이름이 없을 수 있다. 애플은
+       이름을 맨 처음 허락할 때 딱 한 번만 주고, 우리는 그것을 아예 안 받는다
+       (`signInWithApple` 참고). 이름이 빈 사람은 명단에서 누군지 알 수 없어
+       운영진이 승인할 수도 없으므로 여기서 한 번 받는다.
+       `not null default ''`인 칸이라 옛 저장소에서도 늘 있다. */
+    return !p.name?.trim() || p.gender == null || p.birth_year == null || !p.region;
 }
 
 export type Profile = {
@@ -662,6 +667,13 @@ export interface Database {
             join_round: { Args: { p_round: string; p_note?: string }; Returns: Signup };
             leave_round: { Args: { p_round: string }; Returns: void };
             kick_signup: { Args: { p_round: string; p_user: string }; Returns: void };
+            /**
+             * 회원 탈퇴 — 내 계정과 내가 남긴 기록을 지운다.
+             * **추방(`banned`)과 다른 일이다** — 그건 행을 남겨 두는 것이 곧
+             * 막는 방법이고, 이건 계정까지 없애 다시 로그인하면 가입 신청부터다.
+             * 대화 글과 내가 연 라운드는 남는다(남의 대화에 구멍이 나면 안 된다).
+             */
+            delete_me: { Args: Record<string, never>; Returns: void };
             /**
              * 조 편성을 통째로 저장한다. `p_grps`는 `{"<사람 id>": 2, ...}`,
              * `p_tees`는 `{"1": "2026-09-01T07:00:00+09:00", ...}`.

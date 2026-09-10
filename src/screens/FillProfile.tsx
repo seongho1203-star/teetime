@@ -29,9 +29,19 @@ export function FillProfile() {
     const [birth, setBirth] = useState(
         profile?.birth_year ? String(profile.birth_year) : '');
     const [region, setRegion] = useState(profile?.region ?? '');
+    const [name, setName] = useState(profile?.name ?? '');
     const [saving, setSaving] = useState(false);
 
+    /**
+     * **애플로 들어오면 이름이 없다.** 애플은 이름을 맨 처음 허락할 때 딱
+     * 한 번만 주는데 우리는 그것을 아예 안 받으므로(`signInWithApple`),
+     * 그 사람에게는 여기서 닉네임까지 받는다. 카카오로 들어온 사람은
+     * 이름이 이미 있어 이 칸이 통째로 안 보인다.
+     */
+    const askName = !profile?.name?.trim();
+
     const save = async () => {
+        if (askName && !name.trim()) { toast('닉네임을 적어 주세요.', 'error'); return; }
         if (!gender) { toast('성별을 골라 주세요.', 'error'); return; }
         const year = birthValue(birth);
         if (year === null) { toast('태어난 해를 적어 주세요.', 'error'); return; }
@@ -43,8 +53,12 @@ export function FillProfile() {
         if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
         setSaving(true);
-        const error = await saveMyProfile(
-            session!.user.id, { gender, birth_year: year, region: region.trim() });
+        const error = await saveMyProfile(session!.user.id, {
+            gender, birth_year: year, region: region.trim(),
+            /* 이름이 있던 사람의 것을 덮어쓰지 않는다 — 물어보지도 않은
+               칸을 저장에 끼워 넣으면 빈 값으로 지울 수 있다. */
+            ...(askName ? { name: name.trim() } : {}),
+        });
         setSaving(false);
         if (error) { toast(readableError(error), 'error'); return; }
         /* 새로 받아 와야 `needsProfile`이 false가 되어 앱으로 들어간다. */
@@ -60,19 +74,32 @@ export function FillProfile() {
                     <div className="b" style={{ fontSize: 'var(--fs-md)' }}>
                         {profile?.name || '회원'}님
                     </div>
-                    <div className="sm faint">세 가지만 더 알려 주세요</div>
+                    <div className="sm faint">
+                        {askName ? '네' : '세'} 가지만 더 알려 주세요
+                    </div>
                 </div>
             </div>
 
             {/* **왜 받는지 적는다.** 잘 쓰던 앱이 갑자기 뭘 물어보면
                 무슨 일인가 싶다 — 한 줄이면 납득한다. */}
             <div className="notice warn">
-                <b>세 가지</b>가 빠져 있습니다.<br />
+                <b>{askName ? '네' : '세'} 가지</b>가 빠져 있습니다.<br />
                 남녀와 나이가 고르게 섞이도록 조를 짜는 데 쓰고,
                 이름은 <b>83/신성호/광산구</b>처럼 보이게 됩니다.
             </div>
 
             <div className="card">
+                {askName && (
+                    <div className="field">
+                        <label htmlFor="fp-name">닉네임</label>
+                        <Hinted hint="신성호" empty={!name}>
+                            <input
+                                id="fp-name" className="input" value={name}
+                                onChange={e => setName(e.target.value)}
+                            />
+                        </Hinted>
+                    </div>
+                )}
                 <GenderAge
                     id="fp" gender={gender} birth={birth}
                     onGender={setGender} onBirth={setBirth}

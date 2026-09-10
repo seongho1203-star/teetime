@@ -1,0 +1,76 @@
+/*
+ * 개인정보 처리방침(`privacy.html`)과 지원(`support.html`)이 같이 쓰는 모양.
+ *
+ * **앱 화면과 따로 논다 — 일부러다.** 이 두 장은 앱 밖에서 열리는 웹페이지라
+ * (애플·구글이 스토어 화면에서 링크로 건다) 리액트도, 로그인도, 글꼴 CDN도
+ * 거치지 않아야 한다. 심사자가 열었을 때 **한 번에 떠야** 하기 때문이다.
+ * 그래서 색만 앱에서 가져오고 글꼴은 폰에 있는 것을 쓴다.
+ */
+
+:root {
+    --ink: #1b1f19;
+    --dim: #5b6455;
+    --line: #e4e7e0;
+    --brand: #ff5c8d;
+    --bg: #f7f8f5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 24px 20px 64px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+                 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-text-size-adjust: 100%;
+}
+
+main { max-width: 720px; margin: 0 auto; }
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+}
+header img { width: 48px; height: 48px; border-radius: 13px; }
+header .name { font-size: 20px; font-weight: 800; }
+header .what { font-size: 13px; color: var(--dim); }
+
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 {
+    font-size: 17px;
+    margin: 32px 0 8px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+}
+h2:first-of-type { border-top: 0; padding-top: 0; margin-top: 24px; }
+h3 { font-size: 16px; margin: 22px 0 4px; }
+
+p, li { margin: 8px 0; }
+ul { padding-left: 20px; }
+.dim { color: var(--dim); }
+.sm { font-size: 14px; }
+
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 15px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: #fff; font-weight: 700; width: 34%; }
+
+/* 좁은 화면에서 표가 삐져나가지 않게 — 다른 화면과 같은 규칙이다. */
+.scroll { overflow-x: auto; }
+
+a { color: var(--brand); }
+
+footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+    color: var(--dim);
+}

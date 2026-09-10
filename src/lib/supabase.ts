@@ -68,16 +68,23 @@ export const supabase = createClient<Database>(
  */
 export const NATIVE_REDIRECT = 'kkakkung://auth';
 
-export async function signInWithKakao() {
+/**
+ * 로그인 갈래 둘이 **한 코드를 쓴다.**
+ *
+ * 돌아올 곳·앱에서 바깥 브라우저로 여는 것·오류를 던지는 것이 카카오와
+ * 애플에 똑같이 걸리므로, 갈리는 것은 **공급자 이름과 scopes뿐**이다.
+ * 두 벌로 두면 한쪽만 고치게 된다(앱에서 웹뷰를 안 옮기는 그 줄이 특히 그렇다).
+ */
+async function startOAuth(provider: 'kakao' | 'apple', scopes?: string) {
     const native = Capacitor.isNativePlatform();
 
     const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'kakao',
+        provider,
         options: {
             redirectTo: native
                 ? NATIVE_REDIRECT
                 : window.location.origin + window.location.pathname,
-            scopes: 'profile_nickname profile_image',
+            scopes,
             // 앱에서는 웹뷰를 옮기지 않는다 — 주소만 받아서 바깥 브라우저로
             // 연다. 이게 없으면 웹뷰 안에서 열려 카카오가 막는다.
             skipBrowserRedirect: native,
@@ -92,6 +99,27 @@ export async function signInWithKakao() {
         const { Browser } = await import('@capacitor/browser');
         await Browser.open({ url: data.url });
     }
+}
+
+export function signInWithKakao() {
+    return startOAuth('kakao', 'profile_nickname profile_image');
+}
+
+/**
+ * **애플 심사 4.8 때문에 있는 길이다.** 카카오 같은 **남의 로그인만** 쓰는
+ * 앱에는 그것과 맞먹는 로그인을 하나 더 내놓으라고 요구한다 — 한국 앱이
+ * 이걸로 반려된 사례가 많다(`docs/출시-전-할일.md` 0-7번).
+ *
+ * **`scopes`를 안 준다.** 애플은 이름을 **맨 처음 허락할 때 딱 한 번**만
+ * 주고 그다음부터는 안 준다 — 그 한 번을 놓치면 되받을 길이 아예 없으므로
+ * **애초에 안 받는 쪽으로 두고**, 닉네임은 앱이 직접 묻는다
+ * (`needsProfile` → `FillProfile`). 그래야 어느 판에서 들어오든 규칙이 같다.
+ *
+ * 이메일은 `abc@privaterelay.appleid.com` 같은 가림 주소로 올 수 있다.
+ * **우리는 이메일을 안 쓰므로** 그래도 아무 상관이 없다.
+ */
+export function signInWithApple() {
+    return startOAuth('apple');
 }
 
 export async function signOut() {
