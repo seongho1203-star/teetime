@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { IS_NATIVE } from './native';
 import { supabase } from './supabase';
 import type { PushState } from './push';
@@ -48,24 +49,26 @@ const KEY = 'teetime:apns';
  */
 const MARK = Capacitor.getPlatform() === 'android' ? 'fcm:' : 'apns:';
 
-type Plugin = (typeof import('@capacitor/push-notifications'))['PushNotifications'];
-
-let plugin: Plugin | null = null;
+type Plugin = typeof PushNotifications;
 
 /**
- * 플러그인을 불러온다. **앱일 때만 불러온다** — 웹 묶음에 안 실리게
- * 하려는 것이고(`import()`), 플러그인이 없는 옛 앱에서는 조용히 null이다.
+ * 플러그인을 집는다. **앱일 때만 준다.**
+ *
+ * **`import()`(동적)로 불러오지 말 것 — 실기기에서 그 약속이 안 끝났다.**
+ * 사용자 제보(`플러그인 찾는중에서 안넘어가`)로 잡은 자리다. 걸음이 1에서
+ * 멈춰 있고 `1 플러그인 없음`도 안 뜬다는 것은, 거절도 아니고 **답이 아예
+ * 안 온다**는 뜻이다 — 앱 안에서는 문서가 `capacitor://localhost`라
+ * 조각(chunk)을 받아 오는 길이 웹과 다르고, 거기서 막히면 그대로 굳는다.
+ *
+ * 그래서 **static import로 바꿨다.** 이 꾸러미의 알맹이는
+ * `registerPlugin(...)` 한 줄뿐이고(웹용 구현은 그 안에서 따로 늦게 불러온다)
+ * `registerPlugin` 자체는 `lib/composer.ts` 때문에 어차피 묶음에 들어 있다 —
+ * 늘어나는 것이 0.3KB이고, 대신 **1번 걸음이 멈추거나 거절할 자리가 통째로
+ * 사라진다.** 플러그인이 안 실린 옛 앱은 예나 지금이나 **2번에서**
+ * `not implemented`로 갈린다(`notThere()`).
  */
-async function load(): Promise<Plugin | null> {
-    if (!IS_NATIVE) return null;
-    if (plugin) return plugin;
-    try {
-        const m = await import('@capacitor/push-notifications');
-        plugin = m.PushNotifications;
-        return plugin;
-    } catch {
-        return null;
-    }
+function load(): Plugin | null {
+    return IS_NATIVE ? PushNotifications : null;
 }
 
 /**
@@ -167,12 +170,25 @@ function notThere(e: unknown): boolean {
         || m.includes('unimplemented');
 }
 
+/**
+ * **답이 안 오는 것을 실패로 바꾼다.** 플러그인을 부르는 일은 앱 쪽으로
+ * 한 번 건너갔다 오는 것이라, 저쪽이 답을 안 주면 **그 자리에서 굳는다** —
+ * 그러면 화면은 `켜는 중… 2 권한 보는 중`에 멈춘 채로 남는다.
+ * (`pushState()`의 6초 제한과 같은 결이다. 멈춰 서 있는 것보다 낫다.)
+ */
+function soon<T>(job: Promise<T>, ms = 5000): Promise<T> {
+    return Promise.race([
+        job,
+        new Promise<T>((_, no) => setTimeout(() => no(new Error('앱이 답하지 않습니다')), ms)),
+    ]);
+}
+
 export async function nativePushState(): Promise<PushState> {
-    const p = await load();
+    const p = load();
     if (!p) return 'unsupported';
     let receive: string;
     try {
-        ({ receive } = await p.checkPermissions());
+        ({ receive } = await soon(p.checkPermissions()));
     } catch (e) {
         if (notThere(e)) return 'unsupported';
         throw e;
@@ -186,18 +202,20 @@ export async function nativePushState(): Promise<PushState> {
 
 export async function enableNativePush(userId: string): Promise<PushState> {
     pushStep('1 플러그인 찾는 중');
-    const p = await load();
+    const p = load();
     if (!p) { pushStep('1 플러그인 없음'); return 'unsupported'; }
+    pushStep('1 플러그인 ok');
 
     let receive: string;
     try {
         pushStep('2 권한 보는 중');
-        ({ receive } = await p.checkPermissions());
+        ({ receive } = await soon(p.checkPermissions()));
         /* 권한 창은 **누른 그 자리에서** 띄운다. 한 번 거절하면 그다음부터는
-           창이 안 뜨므로(`denied`) 폰 설정에서 켜야 한다 — 화면이 그 말을 한다. */
+           창이 안 뜨므로(`denied`) 폰 설정에서 켜야 한다 — 화면이 그 말을 한다.
+           **여기는 사람이 창을 보고 누르는 시간이라 넉넉히 준다.** */
         if (receive !== 'granted' && receive !== 'denied') {
             pushStep('2 권한 묻는 중');
-            receive = (await p.requestPermissions()).receive;
+            receive = (await soon(p.requestPermissions(), 60000)).receive;
         }
     } catch (e) {
         /* 플러그인이 안 실린 앱이다. 그대로 던지면 영문 오류가 그대로 뜨므로
@@ -232,7 +250,7 @@ export async function disableNativePush(): Promise<PushState> {
     const endpoint = nativeEndpoint();
     if (endpoint) await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
     try { localStorage.removeItem(KEY); } catch { /* 막힌 판 */ }
-    const p = await load();
+    const p = load();
     /* **폰 쪽 등록도 끊는다.** 행만 지우면 폰은 계속 등록돼 있어,
        발송기가 미처 안 지운 옛 토큰으로 한 번 더 울릴 수 있다
        (웹에서 `unsubscribe()`를 먼저 부르는 것과 같은 자리다). */
@@ -253,7 +271,7 @@ export async function disableNativePush(): Promise<PushState> {
  */
 export function watchNativePush(onNav: (url: string) => void): void {
     void (async () => {
-        const p = await load();
+        const p = load();
         if (!p) return;
         await p.addListener('pushNotificationActionPerformed', e => {
             const url = (e.notification.data as { url?: unknown } | null)?.url;
