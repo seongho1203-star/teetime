@@ -3453,6 +3453,15 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
   없이 만드는 탓에 Xcode가 그 처리를 건너뛰므로, `ios.yml`이
   `archived-expanded-entitlements.xcent`를 직접 넣는다 — 빠지면 빌드는
   초록인데 폰에서 등록만 조용히 거절당한다.
+  - **`expanded`가 이름값을 한다 — 통째로 다 적어야 먹는다.**
+    `App.entitlements`를 그대로 복사해 두었더니(= `aps-environment` 한
+    줄뿐) `-exportArchive`가 그 파일을 **통째로 버리고** 프로파일에서 뽑은
+    넷(`application-identifier`·`com.apple.developer.team-identifier`·
+    `get-task-allow`·`beta-reports-active`)으로만 서명했다. Xcode가 거기
+    적는 것은 **변수까지 다 풀어 놓은 최종 목록**이라 그 넷이 없으면 쓸 수
+    없는 파일로 본다. 지금은 워크플로가 넷을 함께 적고,
+    **앱 쪽 권한의 원본은 그대로 `ios/App/App/App.entitlements`다**(거기서
+    값을 꺼내 쓴다 — 두 군데에 적으면 한쪽만 고치게 된다).
   - **그 파일을 넣는 것만으로는 안 된다 — 권한을 실제로 주는 것은 애플이
     내주는 프로비저닝 프로파일이다.** `com.kkakkung.app`의 App ID에서
     **Push Notifications를 켜 두지 않으면** 그 프로파일에 `aps-environment`가
@@ -3470,6 +3479,11 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
     조용히 지나갔다(35판) — **검사를 넣었는데 안 도는 것이 안 넣은 것보다
     나쁘다**(초록이 거짓말을 한다). 서명이 한 번 더 도는 2분을 치르는
     대신 **올리기 전에** 붙잡아 빌드 번호를 헛되이 안 태운다.
+  - **`embedded.mobileprovision`도 함께 찍는다 — 갈래가 둘이라서다.**
+    앱에 권한이 없을 때 그것만으로는 `App ID를 안 켰다`인지 `프로파일엔
+    있는데 우리가 안 붙였다`인지 못 가른다. 실제로 앞엣것으로 짐작하고
+    사용자에게 시켰는데 **뒤엣것이었다**(37판). 지금은 그 줄을 보고
+    오류 문구도 갈라 적는다 — 사람이 할 일인지 아닌지가 거기서 갈린다.
   - 폰 화면에도 사람 말로 적는다(`whyToken()` in native-push.ts) —
     애플이 주는 영문·직역 문구가 그대로 뜨면 어디를 고쳐야 하는지 알 수 없다.
 - **안드로이드는 `POST_NOTIFICATIONS` 권한과 `google-services.json`이
