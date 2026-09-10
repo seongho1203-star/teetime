@@ -110,6 +110,19 @@ export type SignupState = 'confirmed' | 'waitlist';
 export const FIND_AT = 12;
 
 /**
+ * `내 정보` 맨 아래에 적는 앱 판(사용자 요청 — `버전 1.0`).
+ *
+ * **`ios/App/App.xcodeproj/project.pbxproj`의 `MARKETING_VERSION`과 같아야
+ * 한다.** 앱스토어에 적히는 판은 그쪽이고 이 줄은 화면에 보이는 값이라,
+ * 어긋나면 **회원이 보는 판과 스토어의 판이 달라진다.** 판을 올릴 때는
+ * 두 곳을 함께 고칠 것 — Xcode 쪽은 웹에서 읽을 길이 없어 한 군데로
+ * 모으지 못했다.
+ *
+ * 빌드 번호(`CURRENT_PROJECT_VERSION`)는 여기 안 적는다. 그건 올릴 때마다
+ * 하나씩 오르는 값이라 워크플로가 `github.run_number`로 넣는다. */
+export const APP_VERSION = '1.0';
+
+/**
  * 이름표를 붙이는 곳에서 쓰는 명단 한 줄.
  *
  * **`select('*')`로 통째로 받지 않는다.** 거의 모든 화면이 명단을 받으므로

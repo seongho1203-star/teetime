@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { composerReady, ncStatus } from '../lib/composer';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import {
-    BIRTH_MAX, BIRTH_MIN, REGION_MAX, ROLE_LABEL, birthValue, personLabel, type Gender,
+    APP_VERSION, BIRTH_MAX, BIRTH_MIN, REGION_MAX, ROLE_LABEL, birthValue, personLabel,
+    type Gender,
 } from '../lib/types';
 import { GenderAge } from '../components/GenderAge';
 import { Hinted } from '../components/Hinted';
@@ -111,14 +111,6 @@ export function Me() {
     /* 설치 신호는 lib/install이 앱 시작 때부터 붙잡아 둔다. */
     const [installable, setInstallable] = useState(canInstall());
     useEffect(() => onInstallChange(() => setInstallable(canInstall())), []);
-
-    /* **아래 진단 줄이 답을 하게 여기서 한 번 물어본다.**
-       `composerReady()`는 대화·댓글이 부르는데, 대화를 한 번도 안 열고
-       이 화면에 들어오면 아직 안 물어본 상태(`?`)로 나온다 — 실제로
-       그래서 `플러그인?`만 보고 판단이 한 번 막혔다. 한 번만 물어보고
-       기억하므로 여기서 불러도 값이 늘지 않는다. */
-    const [, ncSeen] = useState(0);
-    useEffect(() => { void composerReady().then(() => ncSeen(n => n + 1)); }, []);
 
     /* ── 알림 ────────────────────────────────────────────────
        기기마다 따로 켠다. 폰에서 켜도 PC는 안 켜진다 — 알림을 받을 곳이
@@ -346,17 +338,16 @@ export function Me() {
 
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
-            {/* **판 표시를 잠시 도로 붙였다**(앱을 고쳐 가며 확인하는 동안만).
-                앱은 웹 주소를 그대로 띄우는데 GitHub Pages가 문서를 10분쯤
-                물고 있어서, `고쳤는데 그대로다`가 **코드가 틀린 것인지 옛
-                화면이 남은 것인지** 밖에서는 갈릴 방법이 없었다.
-                이 줄이 그 답이다 — 여기 시각이 안 바뀌었으면 아직 옛 화면이다.
-                **확인이 끝나면 이 줄만 도로 뺄 것**(회원이 볼 값이 아니다). */}
-            {/* **글칸이 웹인지 앱인지 여기서 본다.** 폰에서만 갈리는 자리라
-                안 될 때 물어볼 값이 없으면 한 바퀴를 헛돈다(실제로 그랬다).
-                앱 쪽이 확인되면 `ncStatus()`만 지우면 된다. */}
+            {/* **진단 줄 둘은 걷어냈다**(출시용으로 넘어가면서 · 사용자 요청).
+                `화면 판 {__BUILD__}`는 앱이 웹 주소를 띄우던 때 **옛 화면이
+                남았는지**를 가리려고 붙여 둔 것이고, `ncStatus()`는 글칸이
+                웹인지 앱인지 보려던 것이다. 둘 다 회원이 볼 값이 아니다.
+                **다시 팔 일이 생기면 이 자리에 그대로 도로 붙이면 된다** —
+                `vite.config.ts`의 `define: __BUILD__`도, `lib/composer.ts`의
+                `ncStatus()`도 남겨 두었다. */}
             <p className="xs faint me-foot">
-                앱제작: 악마제리 · 화면 판 {__BUILD__} · {ncStatus()}
+                앱제작: 악마제리<br />
+                버전 {APP_VERSION}
             </p>
         </div>
     );
