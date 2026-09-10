@@ -3453,15 +3453,24 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
   없이 만드는 탓에 Xcode가 그 처리를 건너뛰므로, `ios.yml`이
   `archived-expanded-entitlements.xcent`를 직접 넣는다 — 빠지면 빌드는
   초록인데 폰에서 등록만 조용히 거절당한다.
-  - **`expanded`가 이름값을 한다 — 통째로 다 적어야 먹는다.**
-    `App.entitlements`를 그대로 복사해 두었더니(= `aps-environment` 한
-    줄뿐) `-exportArchive`가 그 파일을 **통째로 버리고** 프로파일에서 뽑은
-    넷(`application-identifier`·`com.apple.developer.team-identifier`·
-    `get-task-allow`·`beta-reports-active`)으로만 서명했다. Xcode가 거기
-    적는 것은 **변수까지 다 풀어 놓은 최종 목록**이라 그 넷이 없으면 쓸 수
-    없는 파일로 본다. 지금은 워크플로가 넷을 함께 적고,
-    **앱 쪽 권한의 원본은 그대로 `ios/App/App/App.entitlements`다**(거기서
-    값을 꺼내 쓴다 — 두 군데에 적으면 한쪽만 고치게 된다).
+  - **`archived-expanded-entitlements.xcent`를 넣는 길은 걷어냈다 — 지금
+    Xcode는 그 파일을 아예 안 본다.** 한 줄짜리로도, 프로파일 몫 넷
+    (`application-identifier`·`com.apple.developer.team-identifier`·
+    `get-task-allow`·`beta-reports-active`)을 다 갖춘 것으로도 넣어
+    봤지만(37·38판) 서명된 앱의 권한은 매번 프로파일에서 뽑은 넷
+    그대로였다. **다시 넣지 말 것** — 두 판을 헛돌았다.
+  - **그래서 서명이 끝난 앱에 우리가 직접 붙여 다시 서명한다**
+    (`알림 권한을 붙여 다시 서명`). `export`로 뽑은 `.ipa`를 풀어
+    `codesign -f -s "Apple Distribution" --entitlements …`로 겉만 다시
+    서명하고 `ditto`로 도로 묶는다. **속에 든 Frameworks는 안 건드린다** —
+    제 서명으로 봉해져 있고 겉을 다시 서명하면 `CodeResources`만 새로 셈된다.
+  - **권한 목록은 `embedded.mobileprovision`에서 통째로 꺼내 쓴다.**
+    애플이 그 파일에 네 값과 `aps-environment`까지 이미 담아 준다 —
+    손으로 적으면 그게 곧 두 번째 원본이 되어 언젠가 어긋난다.
+  - **올리는 것은 `altool`이다**(`xcrun altool --upload-app`).
+    `-exportArchive`로 올리면 **아카이브에서 다시 서명해** 방금 붙인 권한이
+    도로 날아간다. 열쇠는 `~/private_keys/AuthKey_<KEY_ID>.p8`에 두면
+    `altool`이 스스로 찾는다.
   - **그 파일을 넣는 것만으로는 안 된다 — 권한을 실제로 주는 것은 애플이
     내주는 프로비저닝 프로파일이다.** `com.kkakkung.app`의 App ID에서
     **Push Notifications를 켜 두지 않으면** 그 프로파일에 `aps-environment`가

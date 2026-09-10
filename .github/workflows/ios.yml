@@ -112,7 +112,7 @@ jobs:
       #
       # **알림을 붙이면서 그 전제가 하나 깨졌다** — 이제 앱에 entitlements
       # 파일이 있는데(`App/App.entitlements`), 서명을 끄면 그 처리 단계도
-      # 함께 건너뛴다. 아래 `알림 권한 실어 주기`가 그 자리를 메운다.
+      # 함께 건너뛴다. 아래 `알림 권한을 붙여 다시 서명`이 그 자리를 메운다.
       - name: 아카이브 (서명 없이)
         if: steps.keys.outputs.ready == 'yes'
         env:
@@ -130,69 +130,25 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }}
 
-      # ── 알림 권한을 아카이브에 실어 준다 ──────────────────────
-      #
-      # **아카이브를 서명 없이 만드는 것의 대가다**(위 참고). 서명을 끄면
-      # Xcode가 `entitlements`를 처리하는 단계도 함께 건너뛰어, 앱 안에
-      # `archived-expanded-entitlements.xcent`가 안 생긴다. 그러면 아래
-      # `-exportArchive`가 다시 서명할 때 **넣을 권한이 없어** 알림 권한
-      # (`aps-environment`)이 빠진 앱이 만들어진다 — 빌드는 초록이고
-      # TestFlight에도 올라가는데 **폰에서 알림 등록만 조용히 거절당한다.**
-      #
-      # 그래서 그 파일을 우리가 직접 넣어 준다. `-exportArchive`는 이 파일이
-      # 있으면 그걸 권한으로 삼아 서명한다.
-      #
-      # **`expanded`가 이름값을 한다 — 통째로 다 적어야 먹는다.**
-      # `App.entitlements`를 그대로 복사해 두었더니(= `aps-environment` 한
-      # 줄뿐) `-exportArchive`가 그 파일을 **통째로 버리고** 프로파일에서
-      # 뽑은 넷(`application-identifier`·`team-identifier`·`get-task-allow`·
-      # `beta-reports-active`)으로만 서명했다 — 37판 진단에서
-      # `서명 파일에는 알림 권한이 있다`인데 앱에는 없는 것으로 갈렸다.
-      # Xcode가 여기 적는 것은 **변수까지 다 풀어 놓은 최종 목록**이라,
-      # 그 넷이 빠져 있으면 쓸 수 없는 파일로 본다.
-      #
-      # 그래서 넷을 함께 적는다. **앱 쪽 권한의 원본은 그대로
-      # `ios/App/App/App.entitlements`다** — 여기서는 그 값을 꺼내 쓴다
-      # (두 군데에 적어 두면 한쪽만 고치게 된다).
-      #
-      # **여기서 확인하지 말 것 — 방금 우리가 넣은 파일을 우리가 보는 꼴이라
-      # 늘 통과한다.** 실제로 그렇게 두었다가 빌드가 내내 초록인데 폰에서만
-      # `유효한 aps-environment 인타이틀먼트 문자열을 찾을 수 없습니다`가
-      # 떴다(사용자 제보 · 1.34판). **진짜 확인은 서명이 끝난 뒤**에 있다
-      # (아래 `알림 권한이 진짜 실렸는지`).
-      - name: 알림 권한 실어 주기
-        if: steps.keys.outputs.ready == 'yes'
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -o pipefail
-          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
-          APS=$(plutil -extract aps-environment raw -o - ios/App/App/App.entitlements)
-          BID=$(plutil -extract CFBundleIdentifier raw -o - "$APP/Info.plist")
-          cat > "$APP/archived-expanded-entitlements.xcent" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>application-identifier</key><string>$TEAM_ID.$BID</string>
-            <key>com.apple.developer.team-identifier</key><string>$TEAM_ID</string>
-            <key>get-task-allow</key><false/>
-            <key>beta-reports-active</key><true/>
-            <key>aps-environment</key><string>$APS</string>
-          </dict></plist>
-          PLIST
-          plutil -lint "$APP/archived-expanded-entitlements.xcent"
+      # **`archived-expanded-entitlements.xcent`를 넣는 길은 걷어냈다.**
+      # 예전 Xcode는 아카이브 안의 그 파일을 권한으로 삼아 다시 서명했는데,
+      # **지금은 아예 안 본다** — 한 줄짜리로도, 프로파일 몫 넷을 다 갖춘
+      # 것으로도 넣어 봤지만(37·38판) 서명된 앱의 권한은 매번 프로파일에서
+      # 뽑은 넷 그대로였다. **다시 넣지 말 것** — 두 판을 헛돌았다.
+      # 지금은 서명이 끝난 앱에 **우리가 직접 붙여 다시 서명한다**(아래).
 
-      # ── 서명은 두 번 한다 — 먼저 파일로 뽑아 보고, 그다음 올린다 ────
+      # ── 파일로 뽑는다 (`export`, 올리지 않는다) ────────────────
       #
-      # **`destination: upload`는 `exportPath`에 아무것도 안 남긴다.**
-      # 올리고 지운다 — 그래서 서명 결과를 볼 방법이 없었고, 검사를 뒤에
-      # 붙여 봐야 `서명된 파일이 없어 건너뜁니다`로 조용히 지나갔다
-      # (35판에서 실제로 그랬다).
+      # **`destination: upload`를 쓰지 않는다.** 그건 `exportPath`에
+      # 아무것도 안 남기고(올리고 지운다) 곧바로 올려 버려서, 서명 결과를
+      # 볼 수도 고칠 수도 없다 — 검사를 뒤에 붙여 봐야
+      # `서명된 파일이 없어 건너뜁니다`로 조용히 지나갔다(35판).
       #
-      # 그래서 **`export`로 한 번 뽑아** 권한을 확인하고, 통과한 뒤에
-      # `upload`로 다시 내보낸다. 서명이 한 번 더 도는 값(2분쯤)을
-      # 치르는 대신, **올리기 전에** 잘못된 앱을 붙잡는다 —
-      # 빌드 번호를 헛되이 태우지 않는다.
+      # 그래서 여기서는 **파일로만 뽑는다.** 알림 권한을 붙여 다시 서명하고
+      # (다음 단계), 확인한 뒤에 그 파일을 그대로 올린다.
+      #
+      # **이 단계가 인증서와 프로비저닝을 받아 오는 자리이기도 하다** —
+      # 다음 단계의 다시 서명이 그 둘에 기댄다.
       - name: 서명해서 파일로 뽑기
         if: steps.keys.outputs.ready == 'yes'
         env:
@@ -215,7 +171,6 @@ jobs:
           PLIST
           }
           make_plist export
-          make_plist upload
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/Export-export.plist" \
@@ -225,59 +180,85 @@ jobs:
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID"
 
-      # ── 알림 권한이 진짜 실렸는지 ─────────────────────────────
+      # ── 알림 권한을 직접 붙여 다시 서명한다 ────────────────────
       #
-      # **서명이 끝난 앱을 본다.** 앞에서 `.xcent`를 넣어 두어도, 실제로
-      # 권한을 주는 것은 **애플이 내주는 프로비저닝 프로파일**이다 —
-      # `com.kkakkung.app`의 App ID에 **Push Notifications가 꺼져 있으면**
-      # 그 프로파일에 `aps-environment`가 없고, 서명할 때 통째로 빠진다.
-      # 빌드는 초록이고 TestFlight에도 올라가는데 **폰에서 알림 등록만
-      # 거절당한다**(사용자 제보 · 1.34판).
+      # **여기가 알림 권한이 앱에 실리는 유일한 자리다.**
+      # `-exportArchive`는 아카이브가 서명돼 있지 않으면 권한을
+      # **프로비저닝 프로파일에서만** 뽑아 쓰고, 우리가 아카이브에 넣어 둔
+      # `.xcent`는 안 본다(위 참고). 그래서 나온 앱을 풀어 우리가 다시 서명한다.
       #
-      # **여기서 못 찾으면 올리지 않고 멈춘다** — 무엇을 켜야 하는지 적어서.
-      - name: 알림 권한이 진짜 실렸는지
+      # **권한 목록은 프로파일에서 통째로 꺼내 쓴다.** 애플이 그 파일에
+      # `application-identifier`·`team-identifier`·`beta-reports-active`와
+      # **`aps-environment`까지** 이미 다 담아 준다(App ID에 Push
+      # Notifications를 켜 두었으므로) — 손으로 적으면 그게 곧 두 번째
+      # 원본이 되어 언젠가 어긋난다.
+      #
+      # **속에 든 것(Frameworks)은 다시 안 서명해도 된다** — 그것들은 제
+      # 서명으로 봉해져 있고, 겉을 다시 서명하면 목록(`CodeResources`)만
+      # 새로 셈된다.
+      - name: 알림 권한을 붙여 다시 서명
         if: steps.keys.outputs.ready == 'yes'
         run: |
           set -o pipefail
           IPA=$(ls "$RUNNER_TEMP/out"/*.ipa 2>/dev/null | head -1 || true)
           [ -n "$IPA" ] || { echo "::error::서명된 파일(.ipa)이 안 나왔습니다."; exit 1; }
-          rm -rf "$RUNNER_TEMP/peek" && mkdir -p "$RUNNER_TEMP/peek"
-          unzip -q "$IPA" -d "$RUNNER_TEMP/peek"
-          SIGNED=$(ls -d "$RUNNER_TEMP/peek/Payload"/*.app | head -1)
+          W="$RUNNER_TEMP/resign"
+          rm -rf "$W" && mkdir -p "$W"
+          unzip -q "$IPA" -d "$W"
+          APP=$(ls -d "$W/Payload"/*.app | head -1)
 
-          # **애플이 내준 서명 파일부터 본다 — 두 갈래를 가르는 자리다.**
-          # 여기에 `aps-environment`가 있는데 앱에 없으면 우리 쪽 셈이
-          # 틀린 것이고, 여기에도 없으면 **App ID에 Push Notifications가
-          # 안 켜진 것**이다. 둘을 안 가르면 엉뚱한 데를 고치게 된다.
-          echo "── 애플이 내준 서명 파일(embedded.mobileprovision) ──"
-          security cms -D -i "$SIGNED/embedded.mobileprovision" 2>/dev/null \
-            > "$RUNNER_TEMP/prof.plist" || true
-          plutil -p "$RUNNER_TEMP/prof.plist" \
-            | grep -Ei 'Name|aps-environment|application-identifier' || true
-          grep -q 'aps-environment' "$RUNNER_TEMP/prof.plist" \
-            && echo "→ 서명 파일에는 알림 권한이 있다" \
-            || echo "→ 서명 파일에 알림 권한이 없다 (App ID 쪽이다)"
-
-          echo "── 서명된 앱의 권한 ──"
-          codesign -d --entitlements :- "$SIGNED" 2>/dev/null > "$RUNNER_TEMP/ent.txt" || true
-          cat "$RUNNER_TEMP/ent.txt"
-          if grep -q 'aps-environment' "$RUNNER_TEMP/ent.txt"; then
-            echo "알림 권한이 앱에 실렸습니다."
-            exit 0
-          fi
-
-          # **어느 쪽이 빠졌는지에 따라 고칠 자리가 다르다** — 둘을 한 문구로
-          # 뭉뚱그리면 엉뚱한 데를 고치게 된다(37판에서 실제로 그럴 뻔했다).
-          if grep -q 'aps-environment' "$RUNNER_TEMP/prof.plist"; then
-            echo "::error::애플이 내준 서명 파일에는 알림 권한이 있는데 앱에 안 붙었습니다. \
-          워크플로의 \`알림 권한 실어 주기\` 단계를 볼 것 — 사람이 할 일은 없습니다."
-          else
-            echo "::error::서명된 앱에 알림 권한(aps-environment)이 없습니다. \
+          security cms -D -i "$APP/embedded.mobileprovision" > "$W/prof.plist"
+          plutil -extract Entitlements xml1 -o "$W/ent.plist" "$W/prof.plist"
+          plutil -p "$W/ent.plist"
+          grep -q 'aps-environment' "$W/ent.plist" || {
+            echo "::error::애플이 내준 서명 파일에 알림 권한이 없습니다. \
           developer.apple.com → Certificates, IDs & Profiles → Identifiers → \
           com.kkakkung.app 에서 Push Notifications를 켜고 Save한 뒤 다시 돌려 주세요."
-          fi
-          exit 1
+            exit 1
+          }
 
+          ID=$(security find-identity -v -p codesigning \
+               | grep -o '"Apple Distribution:[^"]*"' | head -1 | tr -d '"')
+          [ -n "$ID" ] || { echo "::error::배포용 인증서를 못 찾았습니다."; exit 1; }
+          echo "서명 인증서: $ID"
+          codesign -f -s "$ID" --entitlements "$W/ent.plist" \
+            --generate-entitlement-der --timestamp=none "$APP"
+
+          # **`ditto`로 다시 묶는다** — `zip`은 맥 번들의 심볼릭 링크를
+          # 제대로 못 담는 판이 있다. `--keepParent`가 `Payload/`를 그대로
+          # 맨 위에 두는 몫이다(그 짜임이 곧 `.ipa`다).
+          rm -f "$RUNNER_TEMP/kkakkung.ipa"
+          ( cd "$W" && ditto -c -k --sequesterRsrc --keepParent Payload "$RUNNER_TEMP/kkakkung.ipa" )
+          ls -l "$RUNNER_TEMP/kkakkung.ipa"
+
+      # ── 알림 권한이 진짜 실렸는지 ─────────────────────────────
+      #
+      # **올리기 전에, 다시 서명한 그 파일을 읽어 본다.** 앞 단계가 조용히
+      # 어긋나도 여기서 걸린다 — 빌드는 초록인데 폰에서만 등록이 거절되던
+      # 자국(1.34판)을 다시 만들지 않으려는 자리다.
+      - name: 알림 권한이 진짜 실렸는지
+        if: steps.keys.outputs.ready == 'yes'
+        run: |
+          set -o pipefail
+          rm -rf "$RUNNER_TEMP/peek" && mkdir -p "$RUNNER_TEMP/peek"
+          unzip -q "$RUNNER_TEMP/kkakkung.ipa" -d "$RUNNER_TEMP/peek"
+          SIGNED=$(ls -d "$RUNNER_TEMP/peek/Payload"/*.app | head -1)
+          codesign -v --deep --strict "$SIGNED" && echo "서명 확인 ok"
+          codesign -d --entitlements :- "$SIGNED" 2>/dev/null > "$RUNNER_TEMP/ent.txt" || true
+          cat "$RUNNER_TEMP/ent.txt"
+          grep -q 'aps-environment' "$RUNNER_TEMP/ent.txt" \
+            || { echo "::error::다시 서명했는데도 알림 권한이 없습니다."; exit 1; }
+          echo "알림 권한이 앱에 실렸습니다."
+
+      # ── TestFlight로 보낸다 ───────────────────────────────────
+      #
+      # **`xcodebuild -exportArchive`로 올리지 않는다.** 그건 아카이브에서
+      # 다시 서명해 올리므로, 방금 우리가 붙인 권한이 도로 날아간다.
+      # 그래서 **다시 서명한 그 파일을 그대로** `altool`로 올린다.
+      #
+      # 열쇠는 `~/private_keys/AuthKey_<KEY_ID>.p8`에 있고, `altool`이
+      # 그 자리를 스스로 찾는다(`--apiKey`에 이름만 준다).
+      #
       # **빌드 번호는 올릴 때마다 달라야 한다** — 같은 번호를 두 번 올리면
       # 애플이 거절한다. `github.run_number`가 저절로 하나씩 오르므로
       # 사람이 챙길 것이 없다(아카이브 단계에서 함께 준다).
@@ -288,14 +269,8 @@ jobs:
           ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           set -o pipefail
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/Export-upload.plist" \
-            -exportPath "$RUNNER_TEMP/sent" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_$KEY_ID.p8 \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID"
+          xcrun altool --upload-app -f "$RUNNER_TEMP/kkakkung.ipa" -t ios \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
 
       - name: 열쇠 지우기
         if: always()
