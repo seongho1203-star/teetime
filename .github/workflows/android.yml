@@ -5,16 +5,21 @@ name: 안드로이드 앱 (AAB)
 #
 # **아이폰 워크플로(`ios.yml`)와 다른 점이 셋이다:**
 #   1. **맥이 필요 없다** — 우분투에서 그대로 돈다.
-#   2. **비밀값이 없어도 만든다.** 아이폰은 애플 열쇠가 없으면 아카이브
+#   2. **서명 열쇠가 없어도 만든다.** 아이폰은 애플 열쇠가 없으면 아카이브
 #      자체를 못 만들지만, 안드로이드는 **서명 없이도 결과물이 나온다** —
 #      그래서 등록비를 내기 전에도 **앱이 제대로 만들어지는지 확인할 수
 #      있다.** 서명은 열쇠가 있을 때만 붙는다.
+#      **다만 `GOOGLE_SERVICES_JSON`은 없으면 만들지 않는다** — 그건 공짜로
+#      받는 것이고, 없이 만들면 알림이 빠진 앱이 조용히 나간다(아래).
 #   3. **Play에 저절로 안 올린다.** 첫 판은 어차피 손으로 올려야 앱이
 #      만들어진다(아래 `결과물 남기기` 참고).
 #
 # **알림에는 `google-services.json`이 있어야 한다.** 안드로이드 알림은
 # 구글(FCM)을 반드시 거치고, 그 파일이 없으면 앱은 멀쩡히 만들어지는데
-# **알림만 조용히 안 온다.**
+# **폰이 알림 주소(토큰)를 아예 못 받는다.**
+# 그래서 **없으면 만들다 멈추고**, 다 만든 뒤에는 **결과물을 열어**
+# 알림이 진짜 실렸는지 확인한다 — 아이폰에서 그 '초록인데 실은 알림이
+# 빠진 앱'을 여덟 판이나 쫓았다(`ios.yml`의 같은 자리 참고).
 
 on:
   workflow_dispatch:
@@ -85,21 +90,40 @@ jobs:
           fi
           npm run build
 
-      # **알림에 필요한 파일이다**(FCM). 없으면 앱은 만들어지지만 알림만
-      # 안 온다 — 그래서 없으면 또렷이 알리고 넘어간다.
+      # **알림에 필요한 파일이다**(FCM). 안드로이드 알림은 구글을 반드시
+      # 거치고, 이 파일이 없으면 앱은 멀쩡히 만들어지는데 **폰이 알림
+      # 주소(토큰)를 아예 못 받는다.**
       # 앱에 박히는 값이라 비밀이라기보다 설정에 가깝지만, 저장소가 공개라
       # 비밀값에 둔다.
+      #
+      # **없으면 빨갛게 세운다 — 예전에는 노란 줄만 남기고 넘어갔다.**
+      # 아이폰에서 그 '초록인데 실은 알림이 빠진 앱'을 여덟 판(34~41)이나
+      # 쫓았다. 여기도 같은 함정이라 **만들기 전에** 막는다.
+      # 서명 열쇠와는 다르다 — 그건 돈을 내야 생기지만 이건 공짜다.
       - name: 구글 설정 파일 놓기
         env:
           GS: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           if [ -z "$GS" ]; then
-            echo "::warning::GOOGLE_SERVICES_JSON 이 없어 **알림 없이** 만듭니다 (docs/설치.md 7-2번)."
-            exit 0
+            echo "::error::GOOGLE_SERVICES_JSON 이 없습니다. 이대로 만들면 \
+          앱은 멀쩡한데 알림만 조용히 안 옵니다 — docs/설치.md 7-2번을 보고 \
+          파이어베이스에서 google-services.json 을 받아 저장소 비밀값에 넣어 주세요."
+            exit 1
           fi
           printf '%s' "$GS" > android/app/google-services.json
-          python3 -c "import json;json.load(open('android/app/google-services.json'))" \
-            || { echo "::error::GOOGLE_SERVICES_JSON 이 JSON 모양이 아닙니다."; exit 1; }
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('android/app/google-services.json'))
+          names = [c['client_info']['android_client_info']['package_name']
+                   for c in d.get('client', [])]
+          print('이 파일에 든 앱:', names or '(없음)')
+          # **패키지 이름이 한 글자만 달라도 토큰을 못 받는다.** 파이어베이스에
+          # 앱을 등록할 때 제일 자주 틀리는 자리라 여기서 미리 잡는다.
+          if 'com.kkakkung.app' not in names:
+              print('::error::google-services.json 에 com.kkakkung.app 이 없습니다. '
+                    '파이어베이스에서 앱을 등록할 때 패키지 이름을 그대로 넣어 주세요.')
+              sys.exit(1)
+          PY
 
       - name: 앱 껍데기 맞추기
         run: npx cap sync android
@@ -130,6 +154,38 @@ jobs:
           ./gradlew bundleRelease --no-daemon \
             -PappVersionCode=${{ github.run_number }} \
             -PappVersionName=1.${{ github.run_number }}
+
+      # ── 알림이 진짜 실렸는지 ──────────────────────────────────
+      #
+      # **만들어 놓은 결과물을 직접 읽어 본다.** 앞 단계에서 파일을 놓아
+      # 두어도 Gradle 쪽 배선이 어긋나면 **플러그인이 조용히 안 돌고**
+      # 알림만 빠진 앱이 나온다(`android/app/build.gradle`이 파일이 있을
+      # 때만 플러그인을 붙이는 짜임이라 더 그렇다).
+      #
+      # **우리가 넣은 것을 우리가 다시 보면 안 된다** — 아이폰에서 그 검사가
+      # 늘 통과해 두 판을 헛돌았다. 그래서 여기서는 **빌드가 뱉어 놓은 것**
+      # 둘을 본다: 플러그인이 만들어 낸 `google_app_id`와, AAB 안에 들어간
+      # 알림 권한.
+      - name: 알림이 진짜 실렸는지
+        run: |
+          set -o pipefail
+
+          echo "── 구글 플러그인이 만들어 낸 값 ──"
+          RES=$(find android/app/build/generated/res/google-services \
+                -name 'values.xml' 2>/dev/null | head -1)
+          [ -n "$RES" ] || { echo "::error::구글 설정 플러그인이 안 돌았습니다. \
+          android/app/build.gradle 의 google-services 배선을 보세요."; exit 1; }
+          grep -o 'name="google_app_id"' "$RES" \
+            || { echo "::error::google_app_id 가 안 만들어졌습니다 — \
+          google-services.json 이 이 앱 것이 맞는지 보세요."; exit 1; }
+
+          echo "── AAB 안의 알림 권한 ──"
+          AAB=$(ls android/app/build/outputs/bundle/release/*.aab | head -1)
+          # 매니페스트는 글자가 아니라 눌러 담긴 모양이라 `-a`로 읽는다.
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml \
+            | grep -a -q 'POST_NOTIFICATIONS' \
+            || { echo "::error::AAB 에 알림 권한(POST_NOTIFICATIONS)이 없습니다."; exit 1; }
+          echo "알림 권한 · 구글 설정 둘 다 들어 있습니다."
 
       # **Play에 저절로 올리는 것은 아직 안 붙였다.**
       #
