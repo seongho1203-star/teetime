@@ -883,7 +883,9 @@ Deno.serve(async req => {
 
         if (endpoint.startsWith(FCM_MARK)) {
             // 열쇠가 없는 저장소에서는 건너뛴다 — **행은 안 지운다.**
-            if (!google) return;
+            // **조용히 넘어가지는 않는다** — 폰에서는 `켜짐`인데 소식만
+            // 안 오는 꼴이라, 로그에 까닭이 안 남으면 짚을 데가 없다.
+            if (!google) { console.error('fcm: FCM_SERVICE_ACCOUNT 가 없어 안드로이드 앱 기기를 건너뜁니다'); return; }
             try {
                 const r = await pushToFcm(google, endpoint.slice(FCM_MARK.length), one);
                 if (r === 'ok') sent++;
@@ -896,8 +898,14 @@ Deno.serve(async req => {
 
         if (endpoint.startsWith(APNS_MARK)) {
             /* 열쇠를 아직 안 넣어 둔 저장소에서는 앱 기기를 그냥 건너뛴다 —
-               **행을 지우지는 않는다.** 열쇠를 넣으면 그대로 살아나야 한다. */
-            if (!canApns()) return;
+               **행을 지우지는 않는다.** 열쇠를 넣으면 그대로 살아나야 한다.
+               **다만 로그에는 남긴다** — 폰에서는 `이 기기로 받기`가 켜져
+               있는데 소식만 안 오는 꼴이라, 까닭이 어디에도 안 적히면
+               어디가 막힌 것인지 밖에서 알 길이 없다(`docs/설치.md` 7-1번). */
+            if (!canApns()) {
+                console.error('apns: APNS_KEY_P8 · APNS_KEY_ID · APNS_TEAM_ID 중 없는 것이 있어 아이폰 앱 기기를 건너뜁니다');
+                return;
+            }
             try {
                 const r = await pushToApns(endpoint.slice(APNS_MARK.length), one);
                 if (r === 'ok') sent++;

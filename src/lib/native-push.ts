@@ -314,6 +314,13 @@ export function watchNativePush(onNav: (url: string) => void): void {
  *
  * **행을 지웠다 넣지 않고 고친다** — 지우면 그 기기에서 **대화 알림만
  * 꺼 둔 것**(`chat`)이 함께 날아간다.
+ *
+ * **토큰이 그대로여도 행이 아직 있는지 본다.** 이게 없으면 조용히 끊긴
+ * 채로 굳는 자리가 남는다 — 발송기가 애플에게 `410`·`400 BadDeviceToken`을
+ * 한 번 받으면 그 행을 걷는데(옛 토큰을 쌓아 두지 않으려고 그렇게 짜
+ * 두었다), 폰은 적어 둔 토큰이 그대로라 **`내 정보`에는 `켜짐`으로 보인다.**
+ * 켠 사람은 켠 줄 알고 있으니 알아챌 길이 아예 없다. 앱을 열 때 한 번
+ * 물어보는 값이 훨씬 싸다.
  */
 async function refresh(p: Plugin): Promise<void> {
     const old = savedToken();
@@ -324,25 +331,33 @@ async function refresh(p: Plugin): Promise<void> {
     } catch {
         return;   // 통신이 막혔거나 권한이 없다 — 그대로 두고 다음에 다시 본다
     }
-    if (fresh === old) return;
 
     const { data: { session } } = await supabase.auth.getSession();
     const uid = session?.user.id;
     if (!uid) return;   // 아직 로그인 전이다. 다음에 열 때 맞춘다
 
-    try { localStorage.setItem(KEY, fresh); } catch { /* 막힌 판 */ }
-    const { data } = await supabase.from('push_subscriptions')
-        .update({ endpoint: `${MARK}${fresh}` })
-        .eq('endpoint', `${MARK}${old}`)
-        .select('endpoint');
-    // 옛 행이 이미 지워졌으면(발송기가 죽은 것으로 보고 걷었다) 새로 넣는다.
-    if (!data?.length) {
-        await supabase.from('push_subscriptions').upsert({
-            endpoint: `${MARK}${fresh}`,
-            user_id: uid,
-            p256dh: '',
-            auth: '',
-            ua: navigator.userAgent.slice(0, 200),
-        });
+    if (fresh === old) {
+        /* 토큰은 그대로다. **행이 아직 있는지만** 본다 — 있으면 할 일이 없고,
+           걷혔으면 아래에서 되살린다. 못 물어봤을 때는 그냥 둔다(있는 쪽으로
+           기운다 — 헛 upsert가 `chat`을 건드리지는 않지만 쓸 일이 없다). */
+        const { data, error } = await supabase.from('push_subscriptions')
+            .select('endpoint').eq('endpoint', `${MARK}${fresh}`).maybeSingle();
+        if (error || data) return;
+    } else {
+        try { localStorage.setItem(KEY, fresh); } catch { /* 막힌 판 */ }
+        const { data } = await supabase.from('push_subscriptions')
+            .update({ endpoint: `${MARK}${fresh}` })
+            .eq('endpoint', `${MARK}${old}`)
+            .select('endpoint');
+        if (data?.length) return;   // 갈아 끼웠다
+        // 옛 행이 이미 지워졌으면(발송기가 죽은 것으로 보고 걷었다) 아래에서 새로 넣는다.
     }
+
+    await supabase.from('push_subscriptions').upsert({
+        endpoint: `${MARK}${fresh}`,
+        user_id: uid,
+        p256dh: '',
+        auth: '',
+        ua: navigator.userAgent.slice(0, 200),
+    });
 }
