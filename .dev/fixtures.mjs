@@ -231,7 +231,12 @@ export const messages = [
        공지 칸이 찾을 때는 화면에 없다(실제로 한 번 그렇게 걸렸다). */
     { id: 'm4', room_id: 'room1', user_id: uid(1), body: '카풀 필요하신 분 있으면 알려 주세요',
       pinned_at: iso(0, 8, 7), pinned_by: uid(1), created_at: iso(0, 8, 6) },
-    { id: 'm5', room_id: 'room1', user_id: uid(4), body: '저 한 자리 부탁드립니다', created_at: iso(0, 9, 30) },
+    /* **일부러 긴 글이다** — 여기에 답장하면 인용이 한 줄로 잘리는데(`nowrap`),
+       그 글의 min-content가 말풍선을 밀어 **화면 밖으로 나가던 자리**다
+       (사용자 제보 · 사진). 짧은 글로 되돌리면 그 검사가 헛돈다. */
+    { id: 'm5', room_id: 'room1', user_id: uid(4),
+      body: '저 한 자리 부탁드립니다 주말에 비 온다는데 그래도 가시는 거죠? 저는 우산 챙겨 가겠습니다',
+      created_at: iso(0, 9, 30) },
     // 답장 한 건과 언급 한 건. 인용 조각과 `@이름` 색을 눈으로 보려고 둔다.
     { id: 'm7', room_id: 'room1', user_id: ME, body: '@박승수 자리 있습니다. 오세요!',
       reply_to: 'm5', created_at: iso(0, 9, 32) },

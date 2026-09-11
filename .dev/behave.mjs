@@ -1245,7 +1245,13 @@ console.log('\n── 말풍선 꼬리 ──');
  * 고정 자료의 m7(내 글)·m8(남의 글)이 답장이다.
  */
 console.log('\n── 답장 인용 ──');
-await go('/#/chat', 1200);
+/* **문서를 새로 연다** — `#`만 바뀌는 이동은 화면을 새로 안 만들어서,
+   앞의 `가리기` 칸이 화면에만 덮어 둔 m5가 그대로 살아 있다. 그러면
+   인용이 `가려진 메시지` 네 글자로 줄어 **긴 글 검사가 헛돈다**
+   (`countPosts`·방 공지와 같은 자리다). */
+await go('/#/chat', 300);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1200);
 {
     const q = await page.evaluate(() => {
         const box = sel => {
@@ -1265,8 +1271,28 @@ await go('/#/chat', 1200);
             /* 내 노란 말풍선에서도 선이 보이는가 — `--line`으로 두면 안 보인다. */
             내선: getComputedStyle(
                 document.querySelector('[data-mid="m7"] .chat-quote')).borderBottomColor,
+            /* **긴 글에 답장한 말풍선이 화면 안에 드는가.** 인용은 한 줄로
+               자르느라 `nowrap`인데, 그 글의 min-content가 flex의
+               `min-width: auto`를 타고 말풍선·줄로 올라가 `.chat-col`의
+               87%를 넘겼다 — `mine`은 오른쪽 정렬이라 넘친 만큼이 **화면
+               왼쪽 밖으로** 나가 머리말이 통째로 안 보였다(사용자 제보).
+               `.chat-line`의 `max-width: 100%`와 `.chat-bubble`의
+               `min-width: 0`이 한 쌍으로 막는다 — 둘 중 하나만 빼도
+               여기가 빨갛게 뜬다. */
+            내왼쪽: Math.round(box('[data-mid="m7"] .chat-bubble').left),
+            내오른쪽: Math.round(box('[data-mid="m7"] .chat-bubble').right),
+            내폭: Math.round(box('[data-mid="m7"] .chat-bubble').width),
+            머리말왼쪽: Math.round(box('[data-mid="m7"] .chat-quote-who').left),
+            칸폭: Math.round(box('[data-mid="m7"] .chat-col').width),
+            창: innerWidth,
         };
     });
+    ok(q.내왼쪽 >= 0 && q.내오른쪽 <= q.창,
+       `긴 글에 답장해도 말풍선이 화면 안에 든다 (실제 ${q.내왼쪽}~${q.내오른쪽} / 창 ${q.창})`);
+    ok(q.내폭 <= q.칸폭 + 1,
+       `말풍선이 이름 칸(87%)을 안 넘는다 (실제 ${q.내폭} ≤ ${q.칸폭})`);
+    ok(q.머리말왼쪽 >= 0,
+       `\`○○에게 댓글\` 머리말이 잘려 나가지 않는다 (실제 x ${q.머리말왼쪽})`);
     ok(q.안에, '인용이 말풍선 안에 든다 — 위에 따로 뜬 쪽지가 아니다');
     ok(q.글.includes('에게 댓글'),
        `머리말이 \`○○에게 댓글\`이다 — 길게 누르는 창의 그 말과 같다 (실제 ${JSON.stringify(q.글.slice(0, 20))})`);

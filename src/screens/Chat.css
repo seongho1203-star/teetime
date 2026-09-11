@@ -713,6 +713,22 @@
     display: flex;
     align-items: flex-end;
     gap: 5px;
+    /* **`min-width: 0`이 인용과 한 쌍이다.** 말풍선 안 인용은 한 줄로
+       자르느라 `white-space: nowrap`인데, 그 글의 min-content가 원문
+       길이 그대로(578px)라 flex 기본값 `min-width: auto`를 타고
+       **말풍선 → 이 줄로 그대로 올라온다.** 그러면 `.chat-col`의
+       `max-width: 87%`를 넘어 651px이 되고, `mine`은 오른쪽 정렬이라
+       **넘친 만큼 화면 왼쪽 밖으로 나간다** — 머리말(`○○에게 댓글`)이
+       안 보이고 원문 앞부분이 잘린 채로 뜬다(사용자 제보 · 사진).
+       여기와 `.chat-bubble` **둘 다** 풀어 줘야 칸 안으로 들어온다.
+
+       **`max-width: 100%`가 실제로 잡아 주는 값이다 — `min-width: 0`만으로는
+       안 된다.** 이 줄은 `.chat-col`(세로 flex)의 **가로**, 곧 교차축이라
+       flex-shrink가 아예 안 걸리고 `fit-content`로 정해진다. 그 값을
+       줄이는 길은 `max-width`뿐이다(재서 확인했다 — min-width만 주면
+       651px 그대로다). */
+    min-width: 0;
+    max-width: 100%;
 }
 .chat-row.mine .chat-line { flex-direction: row-reverse; }
 
@@ -793,6 +809,10 @@
     line-height: 1.2;
     white-space: pre-wrap;
     word-break: break-word;
+    /* 위 `.chat-line`과 한 쌍 — 인용의 nowrap 글이 말풍선을 밀어내는 것을
+       여기서 끊는다. 글은 `word-break: break-word`로 어차피 접히므로
+       보통 말풍선의 너비는 그대로다. */
+    min-width: 0;
 }
 /* 내 말풍선은 **아이콘의 노랑**이다(`day`의 그 노랑).
    예전에는 카톡 브랜드색(#FEE500)이었는데, 화면을 아이콘 결로 바꾸면서
