@@ -1160,6 +1160,10 @@ export function Chat() {
                     base = root.clientHeight;
                     bar(false);
                     paint();
+                    /* **다 내려간 뒤의 높이는 웹이 스스로 안다**(`trueDown`).
+                       앱이 보낸 끝값이 어디선가 어긋나도 여기서 제자리로
+                       온다 — 키보드를 내렸는데 화면이 옛 크기로 굳던 자리다. */
+                    trueDown();
                     settleList();
                 }),
             ]);
@@ -1250,10 +1254,31 @@ export function Chat() {
          * 제자리로 오고, 안 어긋났으면 같은 값이라 아무 일도 안 한다.
          */
         let fixAt: ReturnType<typeof setTimeout> | undefined;
+        /**
+         * **키보드가 내려가 있을 때의 화면 높이는 웹이 스스로 안다.**
+         *
+         * 앱은 `resize: 'native'`라 키보드가 없으면 **웹뷰가 곧 화면**이고,
+         * 그 높이가 `documentElement.clientHeight`다. 그러니 그때만은 앱이
+         * 보내 준 값을 기다릴 것 없이 여기서 바로 적으면 된다.
+         *
+         * **이 줄이 있는 까닭**(사용자 제보 · 사진 두 장) — 키보드를 올린
+         * 화면은 멀쩡한데 내리면 대화 화면이 **키보드 올라온 크기 그대로
+         * 굳어** 그 아래가 통째로 비었다. 앱이 보낸 끝값이 어느 길에서
+         * 어긋났는지는 폰에서만 갈리는 자리라 여기서는 못 가리는데,
+         * **내려간 뒤의 답은 웹이 이미 들고 있으므로** 무엇이 어긋났든
+         * 제자리로 돌아온다. `--composer`는 안 건드린다 — 그쪽은 바가
+         * 가리는 자리라 웹이 모르는 값이다(6판 주석).
+         */
+        const trueDown = () => {
+            if (!owns()) return;
+            const h = root.clientHeight;
+            if (h > 0) root.style.setProperty('--chat-h', `${h}px`);
+        };
         const reassure = (e: KbSignal, dur: number) => {
             clearTimeout(fixAt);
             fixAt = setTimeout(() => {
                 writeKb(e);
+                if (!e.on) trueDown();
                 settleList();
             }, Math.round((dur || 0.25) * 1000) + 140);
         };
