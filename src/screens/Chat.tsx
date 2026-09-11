@@ -714,10 +714,19 @@ export function Chat() {
         if (!el || !roomId) return;
         let raf = 0;
         let last = el.scrollHeight;
+        /* **목록이 짧아지는 것도 함께 본다**(사용자 제보 · 사진 — 대화방에
+           처음 들어오면 맨 아래 말풍선이 입력칸에 반쯤 가렸고, 키보드를
+           한 번 올렸다 내리면 제자리로 왔다). 앱에서는 네이티브 바가 서면서
+           `.chat-input`이 50px쯤 **두꺼워지는데**, 그때 바뀌는 것은 목록의
+           `clientHeight`뿐이라 안에 든 내용 높이(`scrollHeight`)만 보던
+           이 감시가 그 순간을 통째로 놓쳤다. 굴러간 자리는 그대로인데
+           갈 수 있는 끝이 그만큼 밀려나 아래가 잘린 것이다. */
+        let lastFit = el.clientHeight;
         const until = performance.now() + 1500;
         const tick = () => {
             const h = el.scrollHeight;
-            if (h !== last) { last = h; pinBottom(); }
+            const fit = el.clientHeight;
+            if (h !== last || fit !== lastFit) { last = h; lastFit = fit; pinBottom(); }
             raf = performance.now() < until ? requestAnimationFrame(tick) : 0;
         };
         raf = requestAnimationFrame(tick);
