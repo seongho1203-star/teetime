@@ -288,11 +288,11 @@ export const messages = [
        나가므로(`pickSticker`), 사진처럼 그림 아래 한 줄이 붙는다. */
     { id: 'm16', room_id: 'room1', user_id: uid(3), body: '내일 봬요!',
       image_url: 'sticker:mvyay', created_at: iso(0, 9, 44) },
-    /* 검은 바탕 영상에서 잘라 온 묶음 셋 가운데 하나 — 서랍과 말풍선에
+    /* 검은 바탕 영상에서 잘라 온 묶음 가운데 하나 — 서랍과 말풍선에
        `.webp`로 제대로 걸리는지 함께 본다(`stickerSrc`가 `mv` 머리글자로
        확장자를 정한다). */
     { id: 'm19', room_id: 'room1', user_id: uid(2), body: '',
-      image_url: 'sticker:mvg13', created_at: iso(0, 9, 44) },
+      image_url: 'sticker:mvp12', created_at: iso(0, 9, 44) },
     /* **운영진이 가린 글**(카톡의 '가리기'). 글도 사진도 안 보이고
        `운영진이 가린 메시지입니다` 한 줄만 남아야 한다 — 여기로 내용이
        새어 나가면 가린 뜻이 없다. */
