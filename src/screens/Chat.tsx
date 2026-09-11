@@ -73,6 +73,22 @@ const JUMP_AT = 240;
  *  한 줄에 다 실으면 주소가 11KB가 되어 중간에서 잘린다. */
 const REACT_CHUNK = 60;
 
+/**
+ * **아직 서버에 안 닿은 내 글의 id 앞머리.**
+ *
+ * 보내기를 누르면 서버에 넣고 **답이 온 뒤에** 그리던 것을, 누르는 즉시
+ * 먼저 그리도록 바꾸면서 생긴 값이다(사용자 제보 — `전송 버튼을 누르면
+ * 채팅이 올라가는데 딜레이가 생겨`). 그 왕복이 인터넷 한 바퀴라
+ * 0.3~1초인데, 그동안 **글칸에 글도 그대로 남아 있어** 안 눌린 줄 알고
+ * 또 누르게 된다.
+ *
+ * 이 id를 단 줄은 화면에만 있으므로 **서버에 실어 보내면 안 된다** —
+ * 진짜 id는 uuid라, 섞여 나가면 그 조회가 통째로 400으로 막힌다
+ * (반응 받아 오는 자리가 그렇다).
+ */
+const TEMP_ID = 'tmp:';
+const isTemp = (id: string) => id.startsWith(TEMP_ID);
+
 type ReactSet = Dispatch<SetStateAction<Record<string, MessageReaction[]>>>;
 
 /** 반응 한 줄을 더한다. **내가 든 글의 것만** — 실시간은 방을 안 가리고 온다. */
@@ -166,6 +182,12 @@ export function Chat() {
      * **state로 되돌리지 말 것.**
      */
     const hasText = useRef(false);
+    /**
+     * **보내는 중인가.** 잇따라 눌러도 한 줄만 나가게 하는 자물쇠다
+     * (`send()` 참고 — 앱의 보내기 단추는 네이티브라 `disabled`가 안 걸린다).
+     * 아래 `sending`은 **웹 단추를 흐리게 하는 몫**이라 둘 다 필요하다.
+     */
+    const sendBusy = useRef(false);
     const [sending, setSending] = useState(false);
     const [hasMore, setHasMore] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -431,7 +453,11 @@ export function Chat() {
      * 스키마는 그보다 늦을 수 있다. 못 받으면 반응만 안 뜨고 대화는 멀쩡하다.
      */
     useEffect(() => {
-        const missing = messages.map(m => m.id).filter(id => !reactSeen.current.has(id));
+        /* **아직 서버에 안 닿은 내 글은 빼고 묻는다**(`TEMP_ID`). 그 id는
+           uuid가 아니라 한 줄만 섞여도 그 조회가 400으로 막히는데, 아래
+           `if (err) return`이 **남은 묶음까지 통째로 건너뛴다.** */
+        const missing = messages.map(m => m.id)
+            .filter(id => !isTemp(id) && !reactSeen.current.has(id));
         if (!missing.length) return;
         missing.forEach(id => reactSeen.current.add(id));
         let alive = true;
@@ -2294,8 +2320,8 @@ export function Chat() {
      * 글 한 줄(또는 사진 한 장, 이모티콘 하나)을 보낸다.
      * 보내기 · 사진 올리기 · 이모티콘이 같이 쓴다.
      */
-    const push = async (body: string, imageUrl: string | null) => {
-        if (!roomId) return false;
+    const push = async (body: string, imageUrl: string | null, replyId: string | null) => {
+        if (!roomId) return null;
         const { data: row, error: err } = await supabase
             .from('messages')
             // **사진이 없으면 image_url을, 답장이 아니면 reply_to를 아예
@@ -2304,19 +2330,32 @@ export function Chat() {
             .insert({
                 room_id: roomId, user_id: me, body,
                 ...(imageUrl ? { image_url: imageUrl } : {}),
-                ...(replyTo ? { reply_to: replyTo.id } : {}),
+                ...(replyId ? { reply_to: replyId } : {}),
             })
             .select('*').single();
-        if (err) { toast(readableError(err), 'error'); return false; }
-
-        setReplyTo(null);
-        clearDraft();
-        atBottom.current = true;
-        // 실시간 이벤트가 오기 전에 먼저 그린다. 내 글이 늦게 뜨면 답답하다.
-        if (row) setMessages(prev =>
-            prev.some(m => m.id === (row as Message).id) ? prev : [...prev, row as Message]);
-        return true;
+        if (err) { toast(readableError(err), 'error'); return null; }
+        return (row as Message) ?? null;
     };
+
+    /** 화면에만 먼저 그려 둘 내 글 한 줄. 서버 답이 오면 진짜 줄로 갈아 끼운다. */
+    const draftRow = (body: string, imageUrl: string | null, replyId: string | null): Message => ({
+        id: `${TEMP_ID}${crypto.randomUUID()}`,
+        room_id: roomId ?? '', user_id: me, body,
+        system: false, image_url: imageUrl, reply_to: replyId,
+        created_at: new Date().toISOString(),
+    });
+
+    /**
+     * 먼저 그려 둔 줄을 **진짜 줄로 갈아 끼운다.**
+     *
+     * 서버 답보다 **실시간 이벤트가 먼저 닿는 판이 있다** — 그때는 진짜
+     * 줄이 이미 목록에 있으므로 먼저 그린 것을 빼기만 한다. 안 그러면
+     * 같은 말이 두 줄로 남는다.
+     */
+    const swapRow = (prev: Message[], tmpId: string, row: Message) =>
+        (prev.some(m => m.id === row.id)
+            ? prev.filter(m => m.id !== tmpId)
+            : prev.map(m => (m.id === tmpId ? row : m)));
 
     /**
      * 보내고 나서도 **키보드를 내리지 않는다.**
@@ -2328,15 +2367,60 @@ export function Chat() {
      * 기기를 위해 여기서 손짓 안에서 **곧바로** 되돌린다.
      * 되돌리기는 반드시 `await` 앞이어야 한다 — 응답을 기다린 뒤에
      * `focus()`를 부르면 iOS가 사용자 손짓으로 안 쳐서 키보드가 안 올라온다.
+     *
+     * ## 누르는 즉시 올라간다 — 서버 답을 기다리지 않는다
+     *
+     * 사용자 제보 — `전송 버튼을 누르면 채팅이 올라가는데 딜레이가 생겨.
+     * 그래서 혹시 멈췄나 싶어서 다시 누르면 두 번이 올라갈 때가 있어.`
+     * 예전에는 **서버에 넣고 답이 온 뒤에야** 말풍선을 그리고 글칸을
+     * 비웠다. 그 왕복이 곧 인터넷 한 바퀴(0.3~1초)인데 그동안 화면에는
+     * **아무 일도 안 일어나고 친 글도 칸에 그대로 남아 있어**, 안 눌린
+     * 줄 알고 또 누르게 된다.
+     *
+     * 지금은 누르는 그 자리에서 **글칸을 비우고 말풍선을 먼저 그린다.**
+     * 실패하면 그 줄을 걷어내고 **친 글·고른 이모티콘·답장을 그대로
+     * 되돌려 놓는다** — 다시 누르면 되게 해야지, 적은 글이 사라지면 안 된다.
+     *
+     * ## 두 번 눌러도 한 번만 나간다
+     *
+     * **막는 것은 `busy`(ref)다. 단추를 흐리게 하는 것으로는 못 막는다** —
+     * 앱에서는 보내기 단추가 **네이티브 바**의 것이라(`ComposerBar.swift`)
+     * 웹의 `disabled`가 아예 안 걸린다. 그 단추는 `send` 신호를 그대로
+     * 다시 보내므로, **웹 쪽에서 값 하나로 잠가야** 두 줄이 안 올라간다.
+     * state가 아니라 ref인 것도 그래서다 — state는 다시 그려진 뒤에야
+     * 바뀌어서 연달아 누르는 그 순간을 못 잡는다.
      */
     const send = async () => {
         const body = currentDraft();
         // **이모티콘만 골라도 보낼 수 있다** — 글은 없어도 된다.
         if ((!body && !picked) || !roomId) return;
-        focusDraft();
+        if (sendBusy.current) return;
+        sendBusy.current = true;
         setSending(true);
-        const ok = await push(body, picked ? stickerRef(picked) : null);
-        if (ok) setPicked(null);
+
+        const sticker = picked ? stickerRef(picked) : null;
+        const quoted = replyTo;
+        const mine = draftRow(body, sticker, quoted?.id ?? null);
+
+        // 초점 되돌리기는 `await` 앞이어야 한다(위 참고).
+        focusDraft();
+        clearDraft();
+        setPicked(null);
+        setReplyTo(null);
+        atBottom.current = true;
+        setMessages(prev => [...prev, mine]);
+
+        const row = await push(body, sticker, quoted?.id ?? null);
+        if (row) {
+            setMessages(prev => swapRow(prev, mine.id, row));
+        } else {
+            // 못 보냈으면 먼저 그린 줄을 걷고 적어 둔 것을 그대로 돌려준다.
+            setMessages(prev => prev.filter(m => m.id !== mine.id));
+            setDraft(body);
+            setPicked(picked);
+            setReplyTo(quoted);
+        }
+        sendBusy.current = false;
         setSending(false);
         focusDraft();
     };
@@ -2447,7 +2531,19 @@ export function Chat() {
             if (upErr) throw upErr;
 
             const { data: pub } = supabase.storage.from('chat-photos').getPublicUrl(path);
-            await push(currentDraft(), pub.publicUrl);
+            const quoted = replyTo;
+            const row = await push(currentDraft(), pub.publicUrl, quoted?.id ?? null);
+            /* **사진은 먼저 그리지 않는다** — 올리는 데 몇 초가 걸려
+               그동안 보여 줄 그림이 없고, 사진을 고른 것 자체가 이미
+               '무언가 하는 중'으로 읽힌다(`사진 올리는 중…`이 뜬다).
+               못 올리면 적어 둔 글을 그대로 두어 다시 해 볼 수 있게 한다. */
+            if (row) {
+                setReplyTo(null);
+                clearDraft();
+                atBottom.current = true;
+                setMessages(prev =>
+                    prev.some(m => m.id === row.id) ? prev : [...prev, row]);
+            }
         } catch (err) {
             toast(readableError(err), 'error');
         } finally {

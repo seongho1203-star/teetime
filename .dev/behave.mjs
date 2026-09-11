@@ -1690,6 +1690,74 @@ console.log('\n── 접었다 펴면 그 사이 온 글 ──');
     await rCtx.close();
 }
 
+/* ── 6-1-1-1-10. 누르는 즉시 올라가고, 두 번 눌러도 한 번만 ────────
+ *
+ * 사용자 제보 — `전송 버튼을 누르면 채팅이 올라가는데 딜레이가 생겨.
+ * 그래서 혹시 멈췄나 싶어서 다시 누르면 두 번이 올라갈 때가 있어.`
+ *
+ * 예전에는 **서버에 넣고 답이 온 뒤에야** 말풍선을 그리고 글칸을 비웠다 —
+ * 그 왕복이 인터넷 한 바퀴라, 그동안 화면에는 아무 일도 안 일어나고
+ * 친 글도 칸에 그대로 남아 있었다.
+ *
+ * **여기서는 그 왕복을 일부러 900ms로 늘린다** — 빠른 서버에서는 둘이
+ * 구별이 안 되기 때문이다(`jank.mjs`에서 CPU를 느리게 거는 것과 같은 결).
+ * 고치기 전 코드로 되돌리면 네 줄이 다 빨갛게 뜬다.
+ *
+ * **창을 넓게 잡아 Enter로 보낸다**(640px부터가 그 길이다). 단추로
+ * 누르면 `disabled={sending}`에 막혀 **웹에서는 두 번째가 애초에 안
+ * 눌리는데**, 정작 문제가 난 앱에서는 보내기가 **네이티브 단추**라
+ * 그 막이 없다 — 단추를 눌러 재면 고치기 전 코드도 초록으로 떠서
+ * 아무 뜻이 없다. Enter는 `send()`를 곧바로 부르므로 앱과 같은 길이다.
+ */
+console.log('\n── 보내면 바로 올라간다 ──');
+{
+    const sCtx2 = await browser.newContext({
+        viewport: { width: 700, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await sCtx2.route('**/rest/v1/**', restRoute(tables));
+    let posts = 0;
+    await sCtx2.route('**/rest/v1/messages**', async route => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        posts++;
+        const sent = route.request().postDataJSON();
+        // 느린 인터넷인 척한다 — 답이 오기 전의 화면을 봐야 한다.
+        await new Promise(r => setTimeout(r, 900));
+        await route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({
+                id: `sent${posts}`, created_at: new Date().toISOString(), ...sent }),
+        });
+    });
+    await stubOutside(sCtx2);
+    await sCtx2.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const sp = await sCtx2.newPage();
+    await sp.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+    await sp.waitForTimeout(1400);
+
+    const had = await sp.$$eval('[data-mid]', e => e.length);
+    await sp.click('.chat-input .textarea');
+    await sp.fill('.chat-input .textarea', '지금 바로 올라가야 합니다');
+    await sp.press('.chat-input .textarea', 'Enter');
+    /* **멈춘 줄 알고 곧바로 한 번 더 누른다** — 답이 오기 전이다.
+       고치기 전에는 글칸이 안 비워져 같은 글을 다시 읽어 두 줄이 나갔다. */
+    await sp.press('.chat-input .textarea', 'Enter');
+    // 서버가 답하기 한참 전이다(900ms 중 250ms).
+    await sp.waitForTimeout(250);
+
+    ok((await sp.textContent('.chat-list') ?? '').includes('지금 바로 올라가야 합니다'),
+       '답을 기다리지 않고 말풍선이 먼저 올라간다');
+    ok(await sp.$eval('.chat-input .textarea', el => el.value) === '',
+       '글칸도 그 자리에서 비워진다');
+
+    await sp.waitForTimeout(1600);
+    ok(posts === 1, `두 번 눌러도 한 줄만 나간다 (${posts}번)`);
+
+    const now = await sp.$$eval('[data-mid]', e => e.length);
+    ok(now === had + 1, `말풍선도 하나만 남는다 (${had} → ${now})`);
+
+    await sCtx2.close();
+}
+
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
  * **`내 정보` 메뉴에 있다**(사용자 요청 — 홈 머리말의 그 자리를 🔔 알림에
