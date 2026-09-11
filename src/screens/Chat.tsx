@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
          type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
-import { useAsync, unwrap, fetchPeople, byId } from '../lib/db';
+import { useAsync, unwrap, useRefreshOnShow, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatChatDay, formatStamp, formatTime, kstDate, kstMinute } from '../lib/format';
 import { FIND_AT, REACTIONS, ROLE_LABEL, ROLE_TAG, personLabel,
@@ -358,6 +358,50 @@ export function Chat() {
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [roomId]);
+
+    /** 마지막 글을 화면 밖(아래 '접었다 펴면')에서도 읽어야 한다. */
+    const msgsRef = useRef(messages);
+    msgsRef.current = messages;
+
+    /**
+     * **접었다 펴면 그 사이 온 글을 받아 온다.**
+     *
+     * 위의 실시간은 **보고 있는 동안**만 맡는다 — 앱을 접으면 그 연결이
+     * 끊기고, **다시 이어져도 그동안 들어온 글은 되받아 오지 않는다.**
+     * 그런데 대화 알림을 눌러 들어오는 길이 바로 그것이라(껐다 켜는 게
+     * 아니라 접어 둔 것을 펴는 것) 화면도 새로 안 만들어지고, 첫 묶음을
+     * 받는 위 효과는 `roomId`가 그대로라 다시 안 돈다 — **알림을 눌러
+     * 들어갔는데 그 글이 없었다**(사용자 제보 — `채팅배너알림이 와서 그걸
+     * 눌러서 들어가면 채팅으로 들어는가지는데 새로운 내용이 안나와.
+     * 그래서 투표눌렀다 다시 대화들어가면 그제서야 나와`). 탭을 옮겼다
+     * 오면 나오던 것은 그때 화면이 새로 만들어져서다.
+     *
+     * **통째로 다시 받지 않는다 — 마지막 글 뒤엣것만 덧붙인다.**
+     * 다시 받으면 굴려 둔 자리도, `여기까지 읽으셨습니다` 줄도 잃는다.
+     * 실시간 덧붙이기와 같은 잣대라 **검색으로 옛 글에 가 있으면
+     * 건너뛴다**(`windowed`) — 거기에 오늘 글을 붙이면 안 된다.
+     *
+     * **알림함·홈·탭바가 쓰는 `useRefreshOnShow`와 같은 자리다** —
+     * 실시간으로 받는 화면은 이것이 늘 한 벌로 붙는다.
+     */
+    useRefreshOnShow(useCallback(() => {
+        if (!roomId || windowedRef.current) return;
+        const last = msgsRef.current[msgsRef.current.length - 1]?.created_at;
+        if (!last) return;                     // 아직 첫 묶음도 안 왔다 — 그쪽이 받는다.
+        (async () => {
+            const { data: rows, error: err } = await supabase
+                .from('messages').select('*').eq('room_id', roomId)
+                .gt('created_at', last)
+                .order('created_at', { ascending: true }).limit(MAX_CATCHUP);
+            if (err || !rows?.length) return;  // 못 받으면 조용히 — 실시간이 이어 간다.
+            setMessages(prev => {
+                // 실시간이 먼저 붙여 둔 것과 겹칠 수 있다. id로 거른다.
+                const have = new Set(prev.map(m => m.id));
+                const add = (rows as Message[]).filter(m => !have.has(m.id));
+                return add.length ? [...prev, ...add] : prev;
+            });
+        })();
+    }, [roomId]));
 
     /* ── 말풍선 반응 (카톡의 `😄 2`) ────────────────────────────
      *

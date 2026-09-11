@@ -1628,6 +1628,68 @@ await page.waitForTimeout(600);
 ok(await page.$('.chat-hits') === null, '결과를 누르면 찾는 창이 닫힌다');
 ok(await page.$('.chat-list') !== null, '대화가 다시 보인다');
 
+/* ── 6-1-1-1-9. 접었다 펴면 그 사이 온 글이 붙는다 ──────────────
+ *
+ * 사용자 제보 — `채팅배너알림이 와서 그걸 눌러서 들어가면 채팅으로
+ * 들어는가지는데 새로운 내용이 안나와. 그래서 투표눌렀다 다시 대화들어가면
+ * 그제서야 나와`.
+ *
+ * 실시간은 **보고 있는 동안**만 맡는다. 앱을 접으면 그 연결이 끊기고
+ * 다시 이어져도 그동안 들어온 글은 안 받아 오는데, **대화 알림을 눌러
+ * 들어오는 길이 바로 그것**이라(껐다 켜는 게 아니라 접은 것을 펴는 것)
+ * 화면도 새로 안 만들어져 첫 묶음 조회가 한 번도 다시 안 돌았다.
+ * 탭을 옮겼다 오면 나오던 것은 그때 화면이 새로 만들어져서다.
+ *
+ * **여기서는 실시간이 아예 막혀 있어**(`stubOutside`) 접어 둔 폰과 같은
+ * 상태가 된다 — `useRefreshOnShow`를 빼면 실제로 빨갛게 뜬다.
+ * 알림함 칸의 그 검사와 같은 자리다.
+ */
+console.log('\n── 접었다 펴면 그 사이 온 글 ──');
+{
+    const rCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await rCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(rCtx);
+    await rCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const rp = await rCtx.newPage();
+    await rp.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+    await rp.waitForTimeout(1400);
+
+    const before = await rp.$$eval('[data-mid]', e => e.length);
+    ok(before > 0, `대화가 떴다 (말풍선 ${before}개)`);
+
+    /* **가장 늦은 글보다 뒤에 둔다** — 화면은 마지막 글 뒤엣것만 받아 온다.
+       고정 시각을 적으면 도구를 돌리는 시각에 따라 앞뒤가 뒤집힌다. */
+    const newest = tables.messages
+        .filter(m => m.room_id === 'room1')
+        .reduce((a, m) => (m.created_at > a ? m.created_at : a), '');
+    tables.messages.push({
+        id: 'mAway', room_id: 'room1',
+        // **남이 보낸 글로 둔다** — 내 글은 보낼 때 이미 넣어 두는 자리다.
+        user_id: tables.messages.find(m => m.id === 'm1').user_id,
+        body: '접어 둔 사이에 온 글입니다',
+        created_at: new Date(Date.parse(newest) + 60_000).toISOString(),
+    });
+
+    await rp.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await rp.waitForTimeout(900);
+
+    ok(await rp.$('[data-mid="mAway"]') !== null,
+       '접어 두었다 펴면 그 사이 온 글이 붙는다');
+    ok((await rp.textContent('.chat-list') ?? '').includes('접어 둔 사이에 온 글입니다'),
+       '그 글의 내용이 그려진다');
+    /* **통째로 다시 받지 않는다** — 지난 글이 그대로 남아 있어야 굴려 둔
+       자리도, `여기까지 읽으셨습니다` 줄도 안 잃는다. */
+    const after = await rp.$$eval('[data-mid]', e => e.length);
+    ok(after === before + 1,
+       `지난 글은 그대로 두고 새 글만 덧붙인다 (${before} → ${after})`);
+
+    // 고정 자료를 되돌린다 — 뒤에 오는 칸들이 개수를 센다.
+    tables.messages.pop();
+    await rCtx.close();
+}
+
 /* ── 6-1-1-2. 앱 가이드로 들어가는 문 ───────────────────────────
  *
  * **`내 정보` 메뉴에 있다**(사용자 요청 — 홈 머리말의 그 자리를 🔔 알림에
