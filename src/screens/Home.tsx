@@ -217,8 +217,12 @@ export function Home() {
             {todo > 0 && (
                 <div className="home-block">
                     <div className="section-title">내가 할 일</div>
+                    {/* **그 투표로 바로 들어간다**(사용자 제보 — 목록으로만 갔다).
+                        `/polls`로 보내면 카드를 다시 찾아야 하고, 마감된 것이
+                        쌓인 주에는 어느 것이었는지도 모른다 — 알림을 누르면
+                        목록이 아니라 그 건으로 가는 것과 같은 잣대다. */}
                     {polls.map(p => (
-                        <Link key={p.id} to="/polls" className="home-row">
+                        <Link key={p.id} to={`/polls/${p.id}`} className="home-row">
                             <span className="badge">투표</span>
                             <span className="grow b truncate">{p.title}</span>
                             <span className="faint">›</span>

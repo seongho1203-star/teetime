@@ -1687,6 +1687,56 @@ await go('/#/help', 900);
 ok((await page.textContent('.page') ?? '').includes('앱 사용자 가이드'),
    '눌러 들어가면 가이드가 열린다');
 
+/* ── 6-1-1-3. 홈 `내가 할 일`의 투표 줄 ────────────────────────
+ *
+ * **누르면 그 투표로 들어가야 한다**(사용자 제보 — `투표를 누르면 해당
+ * 투표로 가야 되는데 그냥 투표 택바 메뉴로만 가지고`). 밑의 라운드 줄은
+ * 진작 그 라운드로 들어갔는데 투표만 `/polls`(목록)로 하드코딩돼 있었다 —
+ * 마감된 것이 쌓인 주에는 어느 것이었는지 다시 찾아야 한다. **알림을
+ * 누르면 목록이 아니라 그 건으로 가는 것과 같은 잣대다.**
+ *
+ * **고정 자료에서는 내가 p1에 이미 표를 던져 놓아** 이 줄이 안 뜬다
+ * (`v7`). 그래서 여기서만 **내 표를 빈손으로 돌려준다** — 아직 안 한
+ * 투표가 있는 상태를 만드는 것이지 다른 칸은 그대로다.
+ */
+console.log('\n── 홈의 `내가 할 일` 투표 줄 ──');
+{
+    const hCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await hCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(hCtx);
+    // 내 표만 빈손으로 — `내가 할 일`에 안 한 투표가 서게 한다.
+    await hCtx.route('**/rest/v1/poll_votes**', route => {
+        const u = route.request().url();
+        if (route.request().method() !== 'GET' || !u.includes(`user_id=eq.${ME}`))
+            return route.fallback();
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await hCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const hp = await hCtx.newPage();
+    await hp.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await hp.waitForTimeout(900);
+
+    const pollRow = await hp.$$eval('.home-row', els => els
+        .filter(e => e.querySelector('.badge')?.textContent === '투표')
+        .map(e => e.getAttribute('href')));
+    ok(pollRow.length > 0, `\`내가 할 일\`에 안 한 투표가 선다 (${pollRow.length}줄)`);
+    /* **목록(`#/polls`)이 아니라 `#/polls/<id>`여야 한다.** 옛 코드로
+       되돌리면 여기가 빨갛게 뜬다. */
+    ok(pollRow.every(h => /#\/polls\/[^/]+$/.test(h ?? '')),
+       `투표 줄이 그 투표로 간다 (실제 ${JSON.stringify(pollRow)})`);
+
+    // 진짜로 눌러서 상세가 열리는지까지 본다.
+    await hp.click('.home-row:has(.badge:text-is("투표"))');
+    await hp.waitForTimeout(700);
+    ok((await hp.evaluate(() => location.hash)).startsWith('#/polls/p'),
+       `눌러 들어가면 그 투표다 (${await hp.evaluate(() => location.hash)})`);
+    ok((await hp.textContent('.page') ?? '').includes('9월 정기 라운드 날짜'),
+       '그 투표의 제목이 보인다');
+    await hCtx.close();
+}
+
 /* ── 6-1-2. 홈 카드의 내 조 ─────────────────────────────────────
  *
  * 새벽에 나가면서 몇 조인지·몇 시에 치는지 보려고 라운드 상세까지 들어갈
