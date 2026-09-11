@@ -2097,19 +2097,22 @@ export function Chat() {
      * 참석 횟수를 받아 온다. **목록이나 카드를 처음 열 때 한 번만** 부른다 —
      * 대화를 보기만 하는 사람에게는 필요 없는 조회다.
      *
-     * **함수가 없으면 `null`로 둔다.** 오류를 0으로 넘기면 모두가
+     * **운영진만 본다**(사용자 요청 · 회원 명단과 같은 잣대다). 일반회원은
+     * 아예 안 부르고, DB도 같게 막혀 있다(`attendance_counts`).
+     *
+     * **함수가 없거나 막히면 `null`로 둔다.** 오류를 0으로 넘기면 모두가
      * `올해 0회`가 되어 **거짓말이 된다**(회원 명단과 같은 규칙이다).
      */
     const loadAttend = useCallback(async () => {
-        if (attendTried.current) return;
+        if (!isAdmin || attendTried.current) return;
         attendTried.current = true;
         const since = `${kstDate().slice(0, 4)}-01-01T00:00:00+09:00`;
         const { data: rows, error: err } = await supabase
             .rpc('attendance_counts', { p_since: since });
-        if (err) return;                       // 함수가 없는 저장소 — 안 적는다
+        if (err) return;                       // 함수가 없거나 막힘 — 안 적는다
         setAttend(Object.fromEntries(
             ((rows ?? []) as { user_id: string; n: number }[]).map(x => [x.user_id, x.n])));
-    }, []);
+    }, [isAdmin]);
 
     const openPeople = () => { setPeopleOn(true); loadAttend(); };
     /* **`memo`로 감싼 말풍선에 넘기는 값이라 붙박아 둔다** — 매번 새 함수를
@@ -3218,8 +3221,9 @@ export function Chat() {
                                     {ROLE_LABEL[card.role]}
                                 </span>
                             )}
-                            {/* 참석 횟수는 모두에게 보인다 — 누가 꾸준히 나오는지는
-                                감출 것이 아니다(회원 명단과 같은 규칙). */}
+                            {/* **참석 횟수는 운영진에게만 보인다**(사용자 요청 ·
+                                회원 명단과 같은 규칙). 일반회원은 `attend`가
+                                `null`이라 이 줄이 아예 없다. */}
                             {attend && <span className="dim xs">올해 {attend[card.id] ?? 0}회</span>}
                         </div>
                         {/* **내 얼굴에는 `@언급하기`를 안 붙인다** — 나를 부를 일이 없다. */}

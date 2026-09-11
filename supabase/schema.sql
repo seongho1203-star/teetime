@@ -892,13 +892,25 @@ revoke all on function queue_round_reminders(timestamptz) from public;
 --
 -- **지난 라운드만 센다**(`tee_at < now()`). 신청해 둔 앞으로의 라운드는
 -- 아직 나간 것이 아니다. 취소된 라운드도 뺀다.
+--
+-- **운영진만 볼 수 있다**(사용자 요청). 화면에서 감추는 것만으로는 부족해
+-- 여기서도 막는다 — 전화번호·차량번호를 `profile_private`으로 가른 것과
+-- 같은 잣대다.
+-- **빈 목록을 돌려주지 말 것** — 그러면 모두가 `올해 0회`가 되어 거짓말이
+-- 된다. 막을 때는 오류를 던져 **함수가 없는 저장소와 같은 길**로 보낸다:
+-- 화면이 그 오류를 `null`로 받아 그 줄을 아예 안 적는다.
 create or replace function attendance_counts(p_since timestamptz)
 returns table (user_id uuid, n integer)
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
+begin
+    if not is_admin() then
+        raise exception '운영진만 볼 수 있습니다' using errcode = '42501';
+    end if;
+    return query
     select s.user_id, count(*)::int
       from signups s
       join rounds  r on r.id = s.round_id
@@ -906,7 +918,8 @@ as $$
        and r.status <> 'cancelled'
        and r.tee_at >= p_since
        and r.tee_at <  now()
-     group by s.user_id
+     group by s.user_id;
+end
 $$;
 
 revoke all on function attendance_counts(timestamptz) from public;

@@ -92,16 +92,19 @@ export function Members() {
         /* **올해 몇 번 나갔나.** 세는 것은 DB가 한다 — 화면이 신청 기록을
            통째로 받아 세면 100명·1년치가 수백 KB다.
            **연도는 한국 날짜로 정한다.** 기기 시간대를 따르면 새해 첫날
-           해외에 있는 사람에게만 작년으로 세어진다. */
+           해외에 있는 사람에게만 작년으로 세어진다.
+           **운영진만 본다**(사용자 요청) — 일반회원은 **아예 안 부른다.**
+           DB도 같게 막혀 있으므로(`attendance_counts`) 여기서 부르면 오류가
+           올 뿐이지만, 헛조회를 내보낼 이유가 없다. */
         const since = `${kstDate().slice(0, 4)}-01-01T00:00:00+09:00`;
         const [list, contacts, att] = await Promise.all([
             fetchProfiles(),
             fetchContacts(),
-            supabase.rpc('attendance_counts', { p_since: since }),
+            isAdmin ? supabase.rpc('attendance_counts', { p_since: since }) : null,
         ]);
-        /* **함수가 없는 저장소에서는 아예 안 적는다**(`null`). 오류를 그냥
-           넘겨 빈 목록으로 두면 모두가 `올해 0회`가 되어 **거짓말이 된다.** */
-        const attend = att.error ? null : Object.fromEntries(
+        /* **함수가 없거나 막힌 저장소에서는 아예 안 적는다**(`null`). 오류를
+           그냥 넘겨 빈 목록으로 두면 모두가 `올해 0회`가 되어 **거짓말이 된다.** */
+        const attend = !att || att.error ? null : Object.fromEntries(
             ((att.data ?? []) as { user_id: string; n: number }[])
                 .map(x => [x.user_id, x.n]));
         return { list, contacts: byId(contacts), attend };
@@ -306,11 +309,10 @@ export function Members() {
                                         )}
                                         {p.id === me && <span className="xs faint">(나)</span>}
                                     </div>
-                                    {/* **참석 횟수는 모두에게 보인다.** 누가
-                                        꾸준히 나오는지는 감출 것이 아니고,
-                                        연말에 개근을 챙길 때도 쓰인다.
-                                        **전화번호·차량번호는 운영진에게만**
-                                        — 회원에게는 애초에 안 실려 온다. */}
+                                    {/* **참석 횟수도 운영진에게만 보인다**
+                                        (사용자 요청). 전화번호·차량번호와
+                                        같은 줄이고 같은 잣대다 — 회원에게는
+                                        애초에 안 실려 온다(DB도 막혀 있다). */}
                                     {(attend || isAdmin) && (
                                         <div className="xs faint">
                                             {attend && `올해 ${attend[p.id] ?? 0}회`}

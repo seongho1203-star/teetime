@@ -1972,6 +1972,8 @@ ok(Number(tq.get('amount')) > 0, `내 몫이 금액으로 들어간다 (실제 $
  * 받아 세면 100명·1년치가 수백 KB다.
  * **지난 라운드만 센다** — 앞으로의 라운드에 신청해 둔 것은 아직 나간 것이
  * 아니다. 고정 자료에서 지난 라운드는 r3 하나이고 세 사람이 나갔다.
+ * **보이는 사람은 운영진뿐이다**(사용자 요청) — 고정 자료의 나(ME)는
+ * 앱관리자라 여기서는 보이고, 아래 일반회원 칸에서는 안 보여야 한다.
  */
 console.log('\n── 회원 명단의 참석 횟수 ──');
 await go('/#/members', 800);
@@ -1980,6 +1982,47 @@ const line = n => rows.find(t => t.includes(n)) ?? '';
 ok(line('신성호').includes('올해 1회'), `나간 사람은 횟수가 붙는다 (실제 ${JSON.stringify(line('신성호'))})`);
 ok(line('정우성').includes('올해 0회'),
    `앞으로의 라운드만 신청한 사람은 0회다 (실제 ${JSON.stringify(line('정우성'))})`);
+
+/* **참석 횟수는 운영진만 본다**(사용자 요청). 화면에서 감추는 것만으로
+   끝내지 않고 DB도 막아 두었지만(`attendance_counts`가 `is_admin()`을 본다),
+   **일반회원은 애초에 안 부른다** — 헛조회를 내보낼 이유가 없다.
+   **흉내는 누가 불러도 숫자를 돌려주므로** 화면에서 안 막으면 그대로
+   보인다 — 막는 줄을 빼면 실제로 세 줄이 빨갛게 뜬다. */
+const aCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+const aSession = { ...SESSION, user: { ...SESSION.user, id: uid(5) } };  // 정우성 — 일반회원
+const aRpc = [];
+await aCtx.route('**/rest/v1/**', restRoute(tables));
+await aCtx.route('**/rest/v1/rpc/**', route => {
+    aRpc.push(new URL(route.request().url()).pathname.split('/').pop());
+    route.fallback();
+});
+await aCtx.route('**/auth/v1/**', r => r.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(aSession) }));
+await stubOutside(aCtx);
+await aCtx.addInitScript(s =>
+    localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), aSession);
+
+const aPage = await aCtx.newPage();
+await aPage.goto(BASE + '/#/members', { waitUntil: 'networkidle' });
+await aPage.waitForTimeout(900);
+const aRows = (await aPage.$$eval('.member-row', e => e.map(x => x.textContent))).join(' ');
+ok(!/올해 \d+회/.test(aRows),
+   `일반회원 명단에는 참석 횟수가 없다 (실제 ${JSON.stringify(aRows.match(/올해 \d+회/)?.[0] ?? '없음')})`);
+ok(!aRpc.includes('attendance_counts'), '일반회원은 그 조회를 아예 안 보낸다');
+
+/* **대화의 프로필 카드도 같은 잣대다** — 한쪽만 고치면 명단에서 감춰 놓고
+   대화에서 그대로 보여 준다. */
+await aPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+await aPage.waitForTimeout(1200);
+await aPage.click('.chat-who-btn');
+await aPage.waitForTimeout(400);
+await aPage.click('.chat-person');
+await aPage.waitForTimeout(400);
+const aCard = (await aPage.textContent('.chat-card')) ?? '';
+ok(!!aCard && !/올해 \d+회/.test(aCard),
+   `대화 프로필 카드에도 안 적는다 (실제 ${JSON.stringify(aCard.slice(0, 40))})`);
+await aCtx.close();
 
 /* ── 6-4-1. 회원 명단 차례 고르기 ───────────────────────────────
  *
