@@ -87,11 +87,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        (`ListSlider.swift`). 웹이 `attach`에 `slide: true`·`listTop`·
     ///        `listBg`를 주면 켜지고, `kb` 신호에 끝값(`chatH`·`pad`·`s`)과
     ///        `slide`가 실려 간다. 웹은 다시 배치를 마치면 `settled`로 알린다.
+    /// 15판 — 그 움직임이 **끝난 뒤 끝값을 한 번 더 알린다**
+    ///        (`ComposerBar.setKb`의 예약). 그림을 드는 동안에는 프레임마다
+    ///        안 알리므로, 그 사이에 다른 값이 끼어들면 되돌릴 자리가
+    ///        없었다 — 키보드를 내려도 화면이 옛 크기로 굳었다.
+    ///        같은 상태로 또 온 알림에는 그림을 다시 안 든다(`same`).
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 14
+    private static let version = 15
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

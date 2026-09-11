@@ -364,8 +364,15 @@ final class ComposerBar: UIView, UITextViewDelegate {
         let chatH = (on ? top : rest) + (on ? 0 : safe)
         let pad = core + (on ? 0 : tabH + safe)
         /* 목록 그림을 들고 움직일 수 있으면 든다. 바가 아직 자리를 못 잡았거나
-           (높이 0) 이 바의 키보드가 아니면 안 한다 — 그때는 13판 길이다. */
-        let slide = bounds.height > 1 && kbOwner && superview != nil
+           (높이 0) 이 바의 키보드가 아니면 안 한다 — 그때는 13판 길이다.
+
+           **같은 상태로 또 오면 그림을 다시 들지 않는다**(`same`). iOS는
+           키보드 알림을 한 움직임에 여러 번 던지는데, 그때마다 `begin`을
+           부르면 돌고 있던 그림을 걷고 새로 뜨는 데다 **웹이 굴린 자리를
+           한 번 더 옮긴다**(`slideKb`의 `s`). 상태가 그대로면 웹은 이미
+           끝값을 들고 있으므로 13판 길(`follow`)로 보내면 된다. */
+        let same = kbUp == on
+        let slide = !same && bounds.height > 1 && kbOwner && superview != nil
             && (slider?.begin(from: fromTop, to: toTop, dur: dur, opts: opts) ?? false)
 
         /* **웹에 먼저 알린다 — 아래 `guard`보다 앞이다.** 아래 것은 바가
@@ -377,7 +384,25 @@ final class ComposerBar: UIView, UITextViewDelegate {
                                       s: Double(fromTop - toTop), slide: slide)
         /* 그림을 들고 움직이는 동안은 프레임마다 안 알린다 — 웹이 그 값을
            적으면 그림 뒤에서 목록이 또 움직여, 걷을 때 자리가 어긋난다. */
-        if !slide { follow(dur: dur, info: info) }
+        if !slide {
+            /* **상태가 그대로면(`same`) 프레임마다 알리는 것도 안 켠다.**
+               돌고 있는 그림 뒤에서 목록이 또 움직이면 걷을 때 자리가
+               어긋난다 — 바뀐 것이 없으니 알릴 것도 없다. */
+            if !same { follow(dur: dur, info: info) }
+        } else {
+            /* **다 움직인 뒤에 끝값을 한 번 더 알린다.** 그림을 드는 동안에는
+               프레임마다 안 알리므로, 그 사이에 다른 값이 한 번이라도
+               끼어들면 되돌릴 자리가 없다 — 실기기에서 키보드를 내렸는데
+               대화 화면이 키보드 올라온 크기 그대로 굳어 그 아래가 통째로
+               비었다(사용자 제보 · 사진). 웹도 같은 일을 한 벌 더 한다
+               (`Chat.tsx`의 `reassure`) — 한쪽만 지우지 말 것. */
+            kbSeq += 1
+            let mine = kbSeq
+            DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.06) { [weak self] in
+                guard let self, self.kbSeq == mine else { return }
+                self.report(end: true)
+            }
+        }
 
         guard kbUp != on else { return }
         kbUp = on
@@ -410,6 +435,8 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     private var link: CADisplayLink?
     private var followUntil: CFTimeInterval = 0
+    /// 그림을 드는 판에서 **끝난 뒤 한 번 더 알리는** 예약을 가리는 번호.
+    private var kbSeq = 0
     /// 키보드 윗변(superview 기준). 올라오는 알림에서 잡아 둔다.
     private var kbTop: CGFloat = 0
     /// 키보드가 없을 때 바 아랫변(안전 영역 위).

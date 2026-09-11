@@ -1221,16 +1221,45 @@ export function Chat() {
          * 보내는 끝값 보고(`end: true`)는 그대로 오는데 같은 값이라 아무
          * 일도 안 한다.
          */
-        const slideKb = (e: KbSignal) => {
-            const el = listRef.current;
-            const s = Math.round(e.s ?? 0);
+        /**
+         * **끝값을 적는다 — 갈래와 상관없이 이 한 곳이다.**
+         *
+         * 14판은 그림을 드는 동안 바가 **프레임마다 안 알린다**
+         * (`ComposerBar.follow`를 안 켠다). 그래서 웹이 슬라이드 갈래를
+         * 안 타면 **아무도 `--chat-h`를 안 적는 자리**가 생긴다 — 키보드를
+         * 내렸는데 화면이 키보드 올라온 크기 그대로 굳어 그 아래가 통째로
+         * 비었다(사용자 제보 · 사진). 값을 적는 것을 먼저 하고 갈래는
+         * 그다음에 고르면 그 자리가 없어진다.
+         */
+        const writeKb = (e: KbSignal) => {
+            if (e.chatH === undefined || e.pad === undefined) return;
             root.style.setProperty('--chat-anim', '0ms');
-            root.style.setProperty('--chat-h', `${Math.round(e.chatH ?? 0)}px`);
-            root.style.setProperty('--composer', `${Math.round(e.pad ?? 0)}px`);
+            root.style.setProperty('--chat-h', `${Math.round(e.chatH)}px`);
+            root.style.setProperty('--composer', `${Math.round(e.pad)}px`);
             if (!kbFollow.current) {
                 kbFollow.current = true;
                 root.classList.add('kb-follow');
             }
+        };
+        /**
+         * **다 움직인 뒤에 끝값을 한 번 더 적는다.**
+         *
+         * 그림을 드는 동안에는 프레임마다 오는 값이 없어, 그 사이에 다른
+         * 값이 한 번이라도 끼어들면 **되돌릴 자리가 없다.** 폰에서만 갈리는
+         * 자리라 되돌아오는 길을 코드에 두는 것이 맞다 — 어긋났으면 여기서
+         * 제자리로 오고, 안 어긋났으면 같은 값이라 아무 일도 안 한다.
+         */
+        let fixAt: ReturnType<typeof setTimeout> | undefined;
+        const reassure = (e: KbSignal, dur: number) => {
+            clearTimeout(fixAt);
+            fixAt = setTimeout(() => {
+                writeKb(e);
+                settleList();
+            }, Math.round((dur || 0.25) * 1000) + 140);
+        };
+        const slideKb = (e: KbSignal) => {
+            const el = listRef.current;
+            const s = Math.round(e.s ?? 0);
             open(e.on);
             bar(e.on);
             want = e.on ? (want || recall()) : 0;
@@ -1251,11 +1280,15 @@ export function Chat() {
         };
 
         kbBeat.current = (on, dur, at, e) => {
+            /* **값은 갈래보다 먼저 적는다**(`writeKb` 주석). 14판 신호가
+               아니면(옛 앱) 실린 값이 없어 그냥 지나간다. */
+            if (e && owns()) writeKb(e);
             /* 14판 — 앱이 그림을 들고 움직인다고 하면 끝값을 한 번에 적는 길로.
                `slide`가 거짓이면(서랍·검색 중이라 웹이 꺼 두었거나, 그림을
                못 떴거나) 13판처럼 프레임마다 따라간다. */
             if (e?.slide && e.chatH !== undefined && e.pad !== undefined && canSlide()) {
                 slideKb(e);
+                reassure(e, dur);
                 return;
             }
             /* 시각만 담아 두고 **재는 것은 그리는 프레임에서** 한다(`flush`).
@@ -1353,6 +1386,7 @@ export function Chat() {
             kbFrame.current = null;
             kbFollow.current = false;
             root.classList.remove('kb-follow');
+            clearTimeout(fixAt);
             cancelAnimationFrame(flushAt);
             root.style.removeProperty('--chat-anim');
             drop.forEach(f => f());
