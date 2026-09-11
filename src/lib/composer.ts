@@ -163,17 +163,30 @@ export function composerReady(): Promise<boolean> {
  */
 const SLIDE_OFF_KEY = 'teetime:nc-slide';
 
-/** 앱이 목록 그림을 들고 움직일 수 있는 판인가(그리고 안 꺼 두었는가). */
+/**
+ * 앱이 목록 그림을 들고 움직일 수 있는 판인가.
+ *
+ * **기본이 꺼짐이다 — 켜려면 `teetime:nc-slide`를 `on`으로 적어야 한다.**
+ * 실기기에서 세 판을 돌려도 `채팅내용이 잘리거나 위아래로 깜빡인다`가
+ * 안 없어졌다(사용자 제보). 여기는 **헤드리스로 확인할 길이 아예 없는
+ * 자리**라(그림을 뜨고 미는 것이 앱이다) 고치는 쪽도 짐작이 되는데,
+ * 그러는 동안 대화 화면이 매일 쓰는 자리라는 것이 더 무겁다.
+ * 13판 길(`ComposerBar.follow` — 바가 프레임마다 제 자리를 알린다)은
+ * 오래 돌아 온 길이므로 그쪽을 기본으로 둔다.
+ *
+ * **코드는 지우지 않았다.** 다시 팔 때는 `내 정보`에 진단 줄을 먼저 넣고
+ * (`ncStatus`와 같은 방식) 실기기에서 값을 읽어 가며 할 것 — 짐작으로
+ * 고치면 또 판만 태운다.
+ */
 export function canSlide(): boolean {
     if (ncLog.ready !== true || ncLog.v < 14) return false;
-    try { return localStorage.getItem(SLIDE_OFF_KEY) !== 'off'; } catch { return true; }
+    try { return localStorage.getItem(SLIDE_OFF_KEY) === 'on'; } catch { return false; }
 }
-export function slideOff(): boolean {
-    try { return localStorage.getItem(SLIDE_OFF_KEY) === 'off'; } catch { return false; }
-}
-export function setSlideOff(off: boolean): void {
+/** 지금 꺼져 있는가(= 13판 길로 돈다). */
+export function slideOff(): boolean { return !canSlide(); }
+export function setSlideOn(on: boolean): void {
     try {
-        if (off) localStorage.setItem(SLIDE_OFF_KEY, 'off');
+        if (on) localStorage.setItem(SLIDE_OFF_KEY, 'on');
         else localStorage.removeItem(SLIDE_OFF_KEY);
     } catch { /* 사파리 잠금 */ }
 }
