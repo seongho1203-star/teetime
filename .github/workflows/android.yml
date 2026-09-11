@@ -1,4 +1,4 @@
-name: 안드로이드 앱 (AAB)
+name: 안드로이드 앱 (AAB · APK)
 
 # 안드로이드 앱을 만든다. 절차와 사용자가 손으로 할 일은
 # `docs/출시-전-할일.md` 0-6번에 있다.
@@ -13,6 +13,8 @@ name: 안드로이드 앱 (AAB)
 #      받는 것이고, 없이 만들면 알림이 빠진 앱이 조용히 나간다(아래).
 #   3. **Play에 저절로 안 올린다.** 첫 판은 어차피 손으로 올려야 앱이
 #      만들어진다(아래 `결과물 남기기` 참고).
+#      대신 **폰에 바로 깔리는 판(`kkakkung-apk`)을 함께 남긴다** —
+#      등록비를 내기 전에 알림과 소리를 확인할 수 있는 유일한 길이다.
 #
 # **알림에는 `google-services.json`이 있어야 한다.** 안드로이드 알림은
 # 구글(FCM)을 반드시 거치고, 그 파일이 없으면 앱은 멀쩡히 만들어지는데
@@ -142,7 +144,17 @@ jobs:
       # `bundleRelease`가 **AAB**를 만든다 — Play는 APK가 아니라 이걸 받는다.
       # **열쇠가 없으면 `ANDROID_KEYSTORE_PATH`가 빈 값이고**, 그때
       # `android/app/build.gradle`이 서명을 안 붙인다.
-      - name: 앱 만들기 (AAB)
+      #
+      # **`assembleDebug`를 함께 돌리는 것은 폰에 넣어 보기 위해서다.**
+      # 서명 안 된 AAB는 **깔 수도 없고 Play에 올릴 수도 없어**, 등록비를
+      # 내기 전에는 만들어 놓고도 확인할 길이 아예 없다. 디버그 판은
+      # 안드로이드가 늘 들고 있는 **디버그 열쇠로 저절로 서명**되므로
+      # 파일을 폰에 넣어 그대로 깔린다.
+      # **패키지 이름이 `com.kkakkung.app` 그대로라**(`build.gradle`에
+      # `applicationIdSuffix`가 없다) `google-services.json`도 그대로 먹어
+      # **알림과 까꿍 소리까지 여기서 확인된다.**
+      # 50초쯤 더 걸리는 것이 전부이고, Play에 올리는 것은 여전히 AAB다.
+      - name: 앱 만들기 (AAB · 폰에 넣어 볼 APK)
         env:
           ANDROID_KEYSTORE_PATH: ${{ steps.sign.outputs.store }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -151,7 +163,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew bundleRelease --no-daemon \
+          ./gradlew bundleRelease assembleDebug --no-daemon \
             -PappVersionCode=${{ github.run_number }} \
             -PappVersionName=1.${{ github.run_number }}
 
@@ -182,7 +194,12 @@ jobs:
           # (`.../res/processReleaseGoogleServices/values/`)로 옮겼다 —
           # 그래서 알림이 멀쩡히 실린 앱에서도 이 검사만 빨갛게 섰다.
           # 판이 올라도 안 깨지게 **`google_app_id`가 적힌 파일을 찾는다.**
-          RES=$(grep -rl 'google_app_id' android/app/build/generated 2>/dev/null | head -1 || true)
+          # **Release 것을 먼저 고른다.** 디버그 판(폰에 넣어 볼 APK)도 같이
+          # 만들면서 `processDebugGoogleServices` 자리가 함께 생기는데,
+          # 그것을 집으면 **Play에 올릴 판을 안 보고 통과하게 된다.**
+          RES=$(grep -rl 'google_app_id' android/app/build/generated 2>/dev/null \
+                | grep -i 'release' | head -1 || true)
+          [ -n "$RES" ] || RES=$(grep -rl 'google_app_id' android/app/build/generated 2>/dev/null | head -1 || true)
           [ -n "$RES" ] || { echo "::error::구글 설정 플러그인이 안 돌았거나 \
           google_app_id 가 안 만들어졌습니다 — android/app/build.gradle 의 \
           google-services 배선과, google-services.json 이 이 앱\
@@ -239,9 +256,22 @@ jobs:
       # `kkakkung-aab`를 받아 Play Console에 올리면 된다. 어차피 **첫 판은
       # 손으로 올려야** 앱이 만들어진다. 그다음부터 저절로 올리는 단계를
       # 붙이면 되고, 그때 필요한 것은 `docs/출시-전-할일.md` 0-6번에 있다.
-      - name: 결과물 남기기
+      - name: 결과물 남기기 (Play에 올릴 AAB)
         uses: actions/upload-artifact@v4
         with:
           name: kkakkung-aab
           path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+      # **폰에 바로 넣어 보는 파일이다.** 위 AAB는 Play를 거쳐야 깔리는데,
+      # 이것은 받아서 안드로이드 폰에 넣고 누르면 그대로 깔린다 —
+      # 등록비를 내기 전에 **알림과 까꿍 소리를 확인할 수 있는 유일한 길**이다.
+      # (`설정 → 출처를 알 수 없는 앱`을 한 번 열어 줘야 한다.)
+      # **Play에는 이 파일을 올리지 말 것** — 디버그 열쇠로 서명된 것이라
+      # 스토어가 안 받는다.
+      - name: 결과물 남기기 (폰에 넣어 볼 APK)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kkakkung-apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
