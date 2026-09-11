@@ -27,15 +27,47 @@
 .alert-row:disabled { cursor: default; }
 
 /**
- * **아직 안 읽은 줄만 도드라진다.**
+ * **읽은 것과 안 읽은 것을 색으로 가른다**(사용자 요청 — `내가 확인한건
+ * 색상을 다르게해서 확인한건지 안한건지 알수있게해줘`). 정산 알림 둘이
+ * 나란히 서면 어느 것이 새로 온 것인지 알 길이 없었다.
  *
- * 목록을 여는 순간 다 읽음으로 바뀌지만, **그 한 번은 보여야 한다** —
- * 무엇이 새로 온 것인지 모르면 종을 누른 뜻이 없다. 왼쪽에 분홍 띠 하나만
- * 두른다: 분홍은 '지금 눌러야 할 것' 자리이고 이 줄이 바로 그것이다.
+ * **라운드·투표의 `모집중`/`마감`과 같은 방식이다** — 테두리나 투명도만
+ * 만지면 목록을 훑을 때 여전히 다 같은 흰 카드로 보인다. **읽은 줄은
+ * 바탕을 통째로 내려야** 갈린다(`.badge live`/`.badge done`에 적어 둔 그
+ * 자리다). **테두리만 두던 때로 되돌리지 말 것.**
+ *
+ * **빨강을 쓴다** — 이 앱에서 빨강은 '내가 안 본 것'이고(탭바의 숫자 ·
+ * 종의 숫자) 이 줄이 정확히 그 뜻이다. **분홍을 쓰지 말 것**: 그건
+ * '지금 눌러야 할 것' 자리다.
+ *
+ * **무엇이 안 읽은 것인지는 `read_at`이 아니라 화면이 얼려 둔 목록이
+ * 정한다** — 여는 순간 다 읽음으로 찍기 때문이다(`Alerts.tsx` 참고).
  */
 .alert-row.fresh {
-    border-left: 3px solid var(--brand);
+    border-left: 3px solid var(--danger);
     padding-left: 10px;
+}
+
+.alert-row.seen {
+    background: var(--surface-2);
+    box-shadow: none;
+}
+.alert-row.seen .alert-icon { opacity: 0.55; }
+.alert-row.seen .alert-title { font-weight: 600; color: var(--text-dim); }
+
+/* 안 읽은 줄에만 붙는 작은 표. **색만으로 가르지 않으려고** 둔 것이다
+   (얼굴 테두리에 `aria-label`을 함께 적는 것과 같은 결이다). */
+.alert-new {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 16px;
+    vertical-align: 1px;
 }
 
 .alert-icon {

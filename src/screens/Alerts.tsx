@@ -20,7 +20,10 @@ import './Alerts.css';
  *
  * **여는 순간 다 읽음으로 본다.** 줄마다 눌러 읽게 하면 아이콘의 뱃지를
  * 지울 길이 없어진다 — 종을 눌렀다는 것이 곧 '무엇이 왔나 보자'다.
+ * 그래서 **무엇이 안 읽은 것이었는지는 따로 얼려 둔다**(`fresh`) —
+ * 안 그러면 들어가는 순간 전부 읽은 것으로 보인다.
  */
+/* oxlint-disable react/refs */
 export function Alerts() {
     const nav = useNavigate();
     const { data, loading, reload } = useAsync(fetchAlerts, [], 'alerts');
@@ -29,12 +32,33 @@ export function Alerts() {
        때마다 찍으면 쓰기가 그만큼 나가고, 그 쓰기가 다시 이벤트가 되어
        되돌아온다. 청소도 같은 자리에서 한 번만 한다(대화방을 연 사람이
        사진을 치우는 것과 같은 결이다). */
+    /* **'열기 전까지 안 읽었던 것'을 얼려 둔다.**
+     *
+     * 여는 순간 다 읽음으로 찍으므로(아래) `a.read_at`으로 그리면
+     * **한 줄도 안 갈린다** — 들어가 보면 전부 읽은 것으로 보인다
+     * (사용자 요청 — `내가 확인한건 색상을 다르게해서 확인한건지
+     * 안한건지 알수있게해줘`).
+     *
+     * 담기는 길이 둘이고 둘 다 필요하다:
+     *   ① **그릴 때** — 아직 `read_at`이 빈 줄을 보면 담는다. 목록이
+     *      읽음 찍기보다 먼저 닿는 흔한 길이다.
+     *   ② **`markAlertsRead()`가 돌려주는 id** — 반대 순서로 닿아
+     *      ①에서 이미 읽음으로 보이는 판을 메운다.
+     * 대화의 `lastSeen`을 첫 렌더에서 한 번만 집는 것과 같은 결이다.
+     *
+     * **id마다 한 번만 판단한다**(`judged`) — 실시간 이벤트로 다시
+     * 그려질 때마다 보면, 읽음으로 바뀐 줄이 그때 '읽은 것'으로
+     * 뒤집혀 색이 되돌아간다. 보고 있는 동안 새로 꽂히는 알림은
+     * 처음 보는 id라 그대로 `안 읽음`으로 들어간다(그게 맞다). */
+    const fresh = useRef<Set<string>>(new Set());
+    const judged = useRef<Set<string>>(new Set());
+
     const once = useRef(false);
     useEffect(() => {
         if (once.current) return;
         once.current = true;
         void (async () => {
-            await markAlertsRead();
+            for (const id of await markAlertsRead()) fresh.current.add(id);
             await purgeOldAlerts();
             reload();
         })();
@@ -49,7 +73,10 @@ export function Alerts() {
        **읽음도 함께 찍는다** — 이 화면을 보고 있다는 것이 곧 '봤다'라,
        안 찍으면 종의 숫자만 남는다. */
     useRefreshOnShow(useCallback(() => {
-        void (async () => { await markAlertsRead(); reload(); })();
+        void (async () => {
+            for (const id of await markAlertsRead()) fresh.current.add(id);
+            reload();
+        })();
     }, [reload]));
 
     const open = (a: AppNotification) => {
@@ -60,6 +87,14 @@ export function Alerts() {
     };
 
     const list = data ?? [];
+
+    /* 위 ① — 그리는 중에 ref를 건드린다. 일부러다(댓글 칸의 `hasText`와
+       같은 자리): 효과에서 보면 그 사이에 읽음이 찍혀 늦는다. */
+    for (const a of list) {
+        if (judged.current.has(a.id)) continue;
+        judged.current.add(a.id);
+        if (!a.read_at) fresh.current.add(a.id);
+    }
 
     return (
         <div className="page">
@@ -80,11 +115,16 @@ export function Alerts() {
 
             <div className="alert-list">
                 {list.map(a => (
-                    <button key={a.id} className={`alert-row${a.read_at ? '' : ' fresh'}`}
+                    <button key={a.id} className={`alert-row${fresh.current.has(a.id) ? ' fresh' : ' seen'}`}
                             onClick={() => open(a)} disabled={!a.url}>
                         <span className="alert-icon" aria-hidden="true">{icon(a)[0]}</span>
                         <span className="alert-body">
-                            <span className="alert-title">{icon(a)[1]}</span>
+                            <span className="alert-title">
+                                {icon(a)[1]}
+                                {fresh.current.has(a.id) && (
+                                    <span className="alert-new" aria-label="안 읽음">N</span>
+                                )}
+                            </span>
                             {a.body && <span className="alert-text">{a.body}</span>}
                             <span className="alert-when xs faint">{timeAgo(a.created_at)}</span>
                         </span>

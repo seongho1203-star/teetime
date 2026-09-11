@@ -55,10 +55,19 @@ export async function countUnreadAlerts(): Promise<number> {
  * **안 읽은 것이 없으면 아무것도 안 보낸다** — 목록을 다시 열 때마다
  * 헛 쓰기가 나가면 실시간 이벤트가 그만큼 돈다(`rememberCurrentRanks`와
  * 같은 결이다).
+ *
+ * **방금 읽음으로 바꾼 줄의 id를 돌려준다.** 화면이 `이번에 온 것`을
+ * 색으로 갈라 그리는 데 쓴다 — 여는 순간 다 읽음으로 찍어 버리므로
+ * `read_at`만 봐서는 **한 줄도 안 읽은 것으로 안 보인다.** 여기서
+ * 돌려주는 것이 곧 '열기 전까지 안 읽은 것이었다'는 유일한 증거다.
  */
-export async function markAlertsRead(): Promise<void> {
-    await supabase.from('notifications')
-        .update({ read_at: new Date().toISOString() }).is('read_at', null);
+export async function markAlertsRead(): Promise<string[]> {
+    const { data, error } = await supabase.from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .is('read_at', null)
+        .select('id');
+    if (error) return [];
+    return ((data ?? []) as { id: string }[]).map(r => r.id);
 }
 
 /**

@@ -44,6 +44,7 @@ const shots = [
     ['me',           '/#/me'                          ],
     ['members',      '/#/members'                     ],
     ['settle',       '/#/settle'                      ],
+    ['alerts',       '/#/alerts'                      ],
 ];
 
 const errors = [];

@@ -1639,11 +1639,29 @@ ok(await page.$('.chat-list') !== null, '대화가 다시 보인다');
  */
 console.log('\n── 앱 가이드로 들어가는 문 ──');
 await go('/#/', 900);
-const guide = await page.$$eval('.head-side a', e => e.map(x => x.getAttribute('href')));
+const guide = await page.$$eval('.page-head a', e => e.map(x => x.getAttribute('href')));
 ok(!guide.some(h => h?.includes('/help')),
    `홈 머리말에는 없다 — 그 자리는 🔔이다 (실제 ${JSON.stringify(guide)})`);
 ok(guide.some(h => h?.includes('/alerts')), '그 자리에 알림함으로 가는 종이 있다');
 ok(guide.some(h => h?.includes('/me')), '얼굴은 그대로 내 정보로 간다');
+
+/* **얼굴이 이름 왼쪽, 종이 오른쪽이다**(사용자 요청 — `종 옆에 프로필을
+   … 왼쪽으로 옮기고 기존 프로필 자리에 알림을 옮겨줘`).
+   자리를 재서 붙들어 둔다 — 클래스만 보면 CSS가 뒤집혀도 초록으로 뜬다. */
+const headPos = await page.evaluate(() => {
+    const x = s => document.querySelector(s)?.getBoundingClientRect();
+    return {
+        face: x('.head-me .avatar')?.left, name: x('.head-me .page-title')?.left,
+        bell: x('.head-side .bell')?.left,
+        sideLinks: document.querySelectorAll('.head-side a').length,
+    };
+});
+ok(headPos.face != null && headPos.name != null && headPos.face < headPos.name,
+   `얼굴이 이름 왼쪽에 있다 (얼굴 ${headPos.face} < 이름 ${headPos.name})`);
+ok(headPos.bell != null && headPos.bell > headPos.name,
+   '종은 오른쪽 끝에 홀로 선다');
+ok(headPos.sideLinks === 1,
+   `오른쪽에는 종 하나뿐이다 (${headPos.sideLinks}개)`);
 await go('/#/me', 900);
 ok((await page.textContent('.page') ?? '').includes('앱 사용자 가이드'),
    '내 정보 메뉴에 가이드가 있다');
@@ -3052,11 +3070,24 @@ console.log('\n── 알림함 (🔔) ──');
     await aCtx.route('**/rest/v1/**', restRoute(tables));
     await stubOutside(aCtx);
 
-    // 읽음 도장이 몇 번 나가는지 센다.
+    /* 읽음 도장이 몇 번 나가는지 세고, **진짜로 찍어 준다.**
+     *
+     * 흉내(`rest.mjs`)는 고치기를 받아도 고정 자료를 안 건드리는데, 그러면
+     * 다시 받아 온 줄이 여전히 `read_at`이 빈 채로 와서 **`read_at`으로
+     * 그리는 옛 코드도 초록으로 뜬다** — 초록을 위한 검사가 되어 버린다
+     * (깜빡임에서 얻은 교훈 그대로다). 진짜 PostgREST처럼 **찍고, 방금
+     * 찍은 줄만 돌려준다.** */
     const marks = [];
     await aCtx.route('**/rest/v1/notifications**', route => {
-        if (route.request().method() === 'PATCH') marks.push(1);
-        return route.fallback();
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        marks.push(1);
+        const hit = (tables.notifications ?? []).filter(n => !n.read_at);
+        const now = new Date().toISOString();
+        for (const n of hit) n.read_at = now;
+        return route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify(hit.map(n => ({ id: n.id }))),
+        });
     });
 
     await aCtx.addInitScript(s =>
@@ -3096,6 +3127,28 @@ console.log('\n── 알림함 (🔔) ──');
     ok(await ap.evaluate(() => location.hash) === '#/alerts', '종을 누르면 알림함으로 간다');
     ok(await ap.evaluate(() => document.querySelectorAll('.alert-row').length) === 4,
        '알림함에 왔던 알림이 쌓여 있다');
+
+    /* **읽은 것과 안 읽은 것이 색으로 갈리는가**(사용자 요청 — `내가
+       확인한건 색상을 다르게해서 확인한건지 안한건지 알수있게해줘`).
+       **여는 순간 다 읽음으로 찍으므로** `read_at`으로 그리면 여기서
+       넷 다 `seen`이 된다 — 화면이 얼려 둔 목록(`fresh`)을 빼면 실제로
+       빨갛게 뜬다. 고정 자료는 안 읽은 것 셋(n1·n2·nNew)과 읽은 것 하나다. */
+    const tone = await ap.evaluate(() => {
+        const rows = [...document.querySelectorAll('.alert-row')];
+        const bg = r => getComputedStyle(r).backgroundColor;
+        const f = rows.filter(r => r.classList.contains('fresh'));
+        const s = rows.filter(r => r.classList.contains('seen'));
+        return {
+            fresh: f.length, seen: s.length,
+            freshBg: f[0] && bg(f[0]), seenBg: s[0] && bg(s[0]),
+            mark: document.querySelectorAll('.alert-row.fresh .alert-new').length,
+        };
+    });
+    ok(tone.fresh === 3 && tone.seen === 1,
+       `안 읽은 셋과 읽은 하나로 갈린다 (안 읽음 ${tone.fresh} · 읽음 ${tone.seen})`);
+    ok(tone.freshBg && tone.seenBg && tone.freshBg !== tone.seenBg,
+       `바탕색이 실제로 다르다 (${tone.freshBg} vs ${tone.seenBg})`);
+    ok(tone.mark === 3, `안 읽은 줄에만 표가 붙는다 (${tone.mark}개)`);
     /* **제목의 그림글자를 두 번 그리지 않는다** — 제목에 이미 붙어 있어
        아이콘을 따로 그리면 `💰 💰 정산`이 된다(찍어 보고 잡았다). */
     ok(await ap.evaluate(() =>

@@ -162,9 +162,20 @@ export function Home() {
     return (
         <div className="page">
             <div className="page-head">
-                <div>
-                    <div className="sm faint">안녕하세요</div>
-                    <h1 className="page-title">{profile?.name || '회원'}님</h1>
+                {/* **얼굴이 이름 왼쪽에 붙는다**(사용자 요청 — `종 옆에
+                    프로필을 … 왼쪽으로 옮기고 기존 프로필 자리에 알림을`).
+                    카톡·인스타처럼 '누구의 화면인가'를 왼쪽에서 먼저 말하고,
+                    오른쪽은 누를 것 하나만 남는다.
+                    **얼굴만 링크다** — 제목까지 링크로 묶으면 인사말이 눌리는
+                    줄로 보여 무엇을 누르는 자리인지 흐려진다. */}
+                <div className="head-me">
+                    <Link to="/me" aria-label="내 정보">
+                        <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
+                    </Link>
+                    <div className="head-greet">
+                        <div className="sm faint">안녕하세요</div>
+                        <h1 className="page-title">{profile?.name || '회원'}님</h1>
+                    </div>
                 </div>
                 {/* **여기는 🔔 알림 자리다**(사용자 요청 — `앱가이드 위치를
                     다른데로 옮기고 그 자리에 종모양 알림을 만들어서`).
@@ -185,9 +196,6 @@ export function Home() {
                         {alerts > 0 && (
                             <span className="bell-dot">{alerts > 99 ? '99+' : alerts}</span>
                         )}
-                    </Link>
-                    <Link to="/me" aria-label="내 정보">
-                        <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
                     </Link>
                 </div>
             </div>
