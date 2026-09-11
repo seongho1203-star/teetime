@@ -166,26 +166,67 @@ jobs:
       # 늘 통과해 두 판을 헛돌았다. 그래서 여기서는 **빌드가 뱉어 놓은 것**
       # 둘을 본다: 플러그인이 만들어 낸 `google_app_id`와, AAB 안에 들어간
       # 알림 권한.
+      # **값을 잡는 자리마다 `|| true`를 붙인다.** `find`·`grep`·`ls`는 못
+      # 찾으면 1을 돌려주는데, `pipefail`이 걸린 `bash -e`에서는 그것이
+      # **다음 줄에 닿기도 전에** 스크립트를 끝낸다 — 우리가 적어 둔 오류
+      # 문구도 못 보고 `exit code 1` 한 줄만 남는다. 2~4판이 실제로 그렇게
+      # 섰다(아이폰에서 `grep`으로 겪은 그 자리와 같다).
       - name: 알림이 진짜 실렸는지
         run: |
           set -o pipefail
 
           echo "── 구글 플러그인이 만들어 낸 값 ──"
-          RES=$(find android/app/build/generated/res/google-services \
-                -name 'values.xml' 2>/dev/null | head -1)
-          [ -n "$RES" ] || { echo "::error::구글 설정 플러그인이 안 돌았습니다. \
-          android/app/build.gradle 의 google-services 배선을 보세요."; exit 1; }
-          grep -o 'name="google_app_id"' "$RES" \
-            || { echo "::error::google_app_id 가 안 만들어졌습니다 — \
-          google-services.json 이 이 앱 것이 맞는지 보세요."; exit 1; }
+          # **자리를 못박지 말 것.** 예전에는
+          # `build/generated/res/google-services`를 바로 가리켰는데,
+          # google-services 4.4부터는 **task 이름이 들어간 자리**
+          # (`.../res/processReleaseGoogleServices/values/`)로 옮겼다 —
+          # 그래서 알림이 멀쩡히 실린 앱에서도 이 검사만 빨갛게 섰다.
+          # 판이 올라도 안 깨지게 **`google_app_id`가 적힌 파일을 찾는다.**
+          RES=$(grep -rl 'google_app_id' android/app/build/generated 2>/dev/null | head -1 || true)
+          [ -n "$RES" ] || { echo "::error::구글 설정 플러그인이 안 돌았거나 \
+          google_app_id 가 안 만들어졌습니다 — android/app/build.gradle 의 \
+          google-services 배선과, google-services.json 이 이 앱\
+          (com.kkakkung.app) 것이 맞는지 보세요."; exit 1; }
+          echo "찾음: $RES"
+
+          AAB=$(ls android/app/build/outputs/bundle/release/*.aab 2>/dev/null | head -1 || true)
+          [ -n "$AAB" ] || { echo "::error::AAB 가 안 만들어졌습니다."; exit 1; }
+
+          # 매니페스트는 글자가 아니라 눌러 담긴 모양이다(AXML). 글자가
+          # UTF-16으로 들어 있으면 사이사이 `\0`이 끼어 `grep`이 못 찾으므로,
+          # **널을 걷어내고** 본다 — `grep -a`만으로는 판에 따라 헛짚는다.
+          MAN=$(unzip -p "$AAB" base/manifest/AndroidManifest.xml 2>/dev/null | tr -d '\0' || true)
+          [ -n "$MAN" ] || { echo "::error::AAB 에서 매니페스트를 못 읽었습니다."; exit 1; }
 
           echo "── AAB 안의 알림 권한 ──"
-          AAB=$(ls android/app/build/outputs/bundle/release/*.aab | head -1)
-          # 매니페스트는 글자가 아니라 눌러 담긴 모양이라 `-a`로 읽는다.
-          unzip -p "$AAB" base/manifest/AndroidManifest.xml \
-            | grep -a -q 'POST_NOTIFICATIONS' \
+          echo "$MAN" | grep -a -q 'POST_NOTIFICATIONS' \
             || { echo "::error::AAB 에 알림 권한(POST_NOTIFICATIONS)이 없습니다."; exit 1; }
-          echo "알림 권한 · 구글 설정 둘 다 들어 있습니다."
+
+          # ── 알림음 ──
+          #
+          # **소리는 채널에 박히고 채널은 `res/raw`의 이 파일을 가리킨다**
+          # (`MainActivity.createNotifyChannel`). 파일이 안 실리면 빌드는
+          # 초록인데 폰에서만 **조용히 기본음**이 난다 — 아이폰에서 여덟 판을
+          # 쫓은 그 '초록인데 실은 안 되는' 자리와 똑같다.
+          # `R.raw.kkakkung`으로 가리키므로 이름이 틀리면 컴파일이 먼저 서고,
+          # 여기서는 **정말 담겼는지**만 본다.
+          echo "── AAB 안의 알림음 ──"
+          unzip -l "$AAB" | grep -q 'res/raw/kkakkung' \
+            || { echo "::error::AAB 에 알림음(res/raw/kkakkung.wav)이 없습니다."; exit 1; }
+
+          # ── 기본 채널·아이콘 ──
+          #
+          # 앱이 꺼져 있을 때 오는 알림은 우리 코드가 아니라 파이어베이스
+          # SDK가 띄우므로, 이 둘이 빠지면 **기본음 + 흰 네모**가 된다.
+          echo "── 기본 채널·아이콘 ──"
+          echo "$MAN" | grep -a -q 'default_notification_channel_id' \
+            || { echo "::error::기본 알림 채널이 매니페스트에 없습니다 — \
+          까꿍 소리 대신 폰 기본음이 납니다."; exit 1; }
+          echo "$MAN" | grep -a -q 'default_notification_icon' \
+            || { echo "::error::기본 알림 아이콘이 매니페스트에 없습니다 — \
+          상태 막대에 흰 네모가 뜹니다."; exit 1; }
+
+          echo "알림 권한 · 구글 설정 · 알림음 · 기본 채널/아이콘 다 들어 있습니다."
 
       # **Play에 저절로 올리는 것은 아직 안 붙였다.**
       #

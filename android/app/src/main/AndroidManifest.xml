@@ -42,6 +42,32 @@
 
         </activity>
 
+        <!--
+          **알림이 앱 밖(시스템 트레이)에서 그려질 때 쓰는 기본값 셋이다.**
+          앱이 꺼져 있을 때 오는 알림은 우리 코드가 아니라 파이어베이스 SDK가
+          직접 띄우므로, 무엇으로 그릴지 여기에 적어 두지 않으면 제멋대로
+          고른다.
+
+          - **채널** — 발송기가 `channel_id`를 함께 보내지만, 그 값이 빠지거나
+            모르는 채널이면 여기 적힌 것으로 떨어진다. 안 적어 두면
+            파이어베이스가 제 `Miscellaneous` 채널을 만들어 **기본음**으로
+            띄운다(`까꿍` 소리가 안 난다). 채널을 만드는 곳은
+            `MainActivity`이고 **글자는 `res/values/notify.xml` 한 곳에 있다.**
+          - **아이콘** — 안 적으면 런처 아이콘을 쓰는데 그건 알파가 없는
+            흰 정사각 PNG라 **상태 막대에 흰 네모**로 뜬다
+            (`drawable/ic_stat_kkakkung.xml` 머리말 참고).
+          - **색** — 그 아이콘을 칠하는 색. 안 적으면 회색이다.
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/notify_channel_id" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_kkakkung" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notify_color" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

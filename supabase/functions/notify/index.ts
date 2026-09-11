@@ -382,6 +382,20 @@ async function shareNote(r: Record<string, unknown>): Promise<Note | null> {
  */
 const FCM_MARK = 'fcm:';
 
+/* 안드로이드 알림음. **아이폰과 달리 파일 이름이 아니라 `채널` 이름이다** —
+   안드로이드 8부터 소리는 payload가 아니라 채널에 박혀 있고, 그 채널은
+   앱이 미리 만들어 둔다(`android/app/src/main/java/.../MainActivity.java`).
+   **`android/app/src/main/res/values/notify.xml`의 `notify_channel_id`와
+   같은 글자여야 한다** — 어긋나면 안드로이드가 모르는 채널로 보고
+   매니페스트의 기본 채널로 떨어뜨린다(거기도 `까꿍`이라 소리는 나지만,
+   둘이 갈린 채로 굳으면 다음에 채널을 올릴 때 조용히 어긋난다).
+   **비밀값으로 갈아 끼울 수 있다**(`FCM_CHANNEL_ID`) — 앱을 다시 안 만들고
+   되돌릴 길을 아이폰(`APNS_SOUND`)과 같이 남겨 둔 것이다. */
+const FCM_CHANNEL = env('FCM_CHANNEL_ID') || 'kkakkung_v1';
+/* 안드로이드 8 **미만**에만 쓰이는 값이다(거기는 채널이 없다).
+   확장자를 뺀 `res/raw`의 파일 이름이다. */
+const FCM_SOUND = env('FCM_SOUND') || 'kkakkung';
+
 interface Account { client_email: string; private_key: string; project_id: string }
 
 function account(): Account | null {
@@ -473,7 +487,16 @@ async function pushToFcm(
                         /* 아이콘 위 숫자. **런처마다 다르게 그린다** —
                            삼성은 숫자로, 순정은 점만 찍거나 아예 안 그린다.
                            안 되는 기기에서도 알림은 그대로 뜬다. */
-                        notification: { tag: note.tag, notification_count: note.badge },
+                        notification: {
+                            tag: note.tag,
+                            notification_count: note.badge,
+                            /* **`까꿍` 소리가 나는 자리다.** 안드로이드 8부터는
+                               이 `channel_id`가 가리키는 채널의 소리로 울린다
+                               (앱이 `MainActivity`에서 만들어 둔 그것).
+                               `sound`는 8 미만 폰 몫이라 함께 적어 둔다. */
+                            channel_id: FCM_CHANNEL,
+                            sound: FCM_SOUND,
+                        },
                     },
                 },
             }),

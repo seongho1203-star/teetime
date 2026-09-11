@@ -73,7 +73,16 @@ const config: CapacitorConfig = {
          * **`badge`도 넣지 말 것.** 아이콘 위 숫자는 **앱을 안 보고 있을
          * 때만** 뜻이 있다 — 보고 있는데 붙여 두면, 지우는 자리가
          * `applicationDidBecomeActive`(=앱을 열 때) 하나뿐이라 **앱을 쓰는
-         * 내내 `1`이 남는다.** 그래서 여기는 `alert` 하나다. */
+         * 내내 `1`이 남는다.** 그래서 여기는 `alert` 하나다.
+         *
+         * **이 한 줄은 안드로이드에도 그대로 먹는다** — 이름만 보면 아이폰
+         * 것 같지만 아니다. 안드로이드는 앱이 앞에 떠 있으면 FCM이 알림을
+         * **아예 안 띄우고** 앱에게 넘기는데, 플러그인이 `alert`가 들어
+         * 있을 때만 제가 대신 띄워 준다(`PushNotificationsPlugin.
+         * fireNotification`). **빼면 안드로이드에서도 그 알림이 통째로
+         * 사라진다** — 위에 적은 그 자국이 그대로 난다.
+         * 그때 쓰는 채널·아이콘도 우리 것이 맞다: 채널은 발송기가 실어
+         * 보낸 `channel_id`, 아이콘·색은 매니페스트의 기본값이다. */
         PushNotifications: { presentationOptions: ['alert'] },
     },
 };
