@@ -131,7 +131,7 @@ const canApns = () =>
  */
 async function pushToApns(
     deviceToken: string,
-    note: { title: string; body: string; tag: string; url: string; badge: number },
+    note: { title: string; body: string; tag: string; url: string; badge: number; chat: boolean },
 ): Promise<'ok' | 'dead' | 'fail'> {
     const res = await fetch(`${APNS_HOST}/3/device/${deviceToken}`, {
         method: 'POST',
@@ -169,6 +169,12 @@ async function pushToApns(
             /* **갈 곳은 웹과 같은 값이다** — `lib/native-push.ts`가
                `data.url`로 받아 그 화면으로 옮긴다. */
             url: note.url,
+            /* **대화인가.** 앱이 이 표를 보고 **앞에 떠 있는 동안에는
+               배너를 안 띄운다**(`ios/App/App/MainViewController.swift`의
+               `QuietChatPush`) — 대화방을 열어 놓고 주고받는 내내 제 화면
+               위로 배너가 덮였다는 제보에서 나온 것이다. 나머지 알림은
+               그대로 뜬다. 이 표를 모르는 옛 앱은 그냥 지나간다. */
+            chat: note.chat,
         }),
     });
     if (res.ok) return 'ok';
@@ -462,7 +468,7 @@ async function fcmToken(a: Account): Promise<string> {
  */
 async function pushToFcm(
     a: Account, deviceToken: string,
-    note: { title: string; body: string; tag: string; url: string; badge: number },
+    note: { title: string; body: string; tag: string; url: string; badge: number; chat: boolean },
 ): Promise<'ok' | 'dead' | 'fail'> {
     const res = await fetch(
         `https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`,
@@ -478,8 +484,12 @@ async function pushToFcm(
                     notification: { title: note.title, body: note.body },
                     /* **갈 곳은 웹·아이폰과 같은 값이다** —
                        `lib/native-push.ts`가 `data.url`로 받는다.
-                       FCM의 `data`는 글자만 담을 수 있다. */
-                    data: { url: note.url },
+                       FCM의 `data`는 글자만 담을 수 있다.
+                       `chat`은 아이폰과 같은 표다 — **안드로이드는 아직
+                       이걸 안 본다**(배너를 띄우는 자리가 플러그인 안에
+                       있어 끼어들 데가 없다). 아이폰과 같은 값을 실어 두어
+                       나중에 손댈 때 발송기를 다시 안 고치게 한 것이다. */
+                    data: { url: note.url, chat: note.chat ? '1' : '0' },
                     android: {
                         priority: 'HIGH',
                         /* `tag`가 애플의 `collapse-id`와 같은 일을 한다 —
@@ -1023,6 +1033,10 @@ Deno.serve(async req => {
                (읽었는지 알 길이 없다) **앱을 열면 지워지는 것**으로 끝낸다
                (`AppDelegate`의 `applicationDidBecomeActive`). */
             badge: badgeFor(s.user_id),
+            /* **앱을 보고 있는 동안 배너를 띄울지 가르는 표다.**
+               아이폰 앱이 이 값을 보고 대화만 조용히 넘긴다 — 위
+               `pushToApns`의 주석 참고. */
+            chat: note.channel === 'chat',
         };
 
         if (endpoint.startsWith(FCM_MARK)) {
