@@ -19,7 +19,8 @@ import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import {
-    NativeComposer, canPickNative, composerReady, composerSkin, hush, ncLog, pickNativePhoto,
+    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, ncLog,
+    pickNativePhoto,
 } from '../lib/composer';
 
 /**
@@ -36,6 +37,12 @@ let lastBarH = 0;
  *  아직 답이 오기 전이라 늘 거짓이 된다(실기기에서 그래서 6판 코드가
  *  통째로 안 돌았다). */
 const owns6 = () => ncLog.v >= 6;
+
+/** 네이티브 바의 `kb` 신호. 14판부터 끝값(`chatH`·`pad`·`s`)과 `slide`가 실린다. */
+type KbSignal = {
+    on: boolean; dur: number; at: number;
+    chatH?: number; pad?: number; s?: number; slide?: boolean;
+};
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
@@ -822,7 +829,7 @@ export function Chat() {
     /** 네이티브 바(3판)가 알려 주는 **키보드가 움직이기 시작한 그 순간**.
      *  아래 `앱: 키보드와 같은 박자로` 효과가 채워 넣고, 네이티브 글칸의
      *  `kb` 신호가 부른다. 옛 앱과 웹에서는 늘 비어 있다. */
-    const kbBeat = useRef<((on: boolean, dur: number, at: number) => void) | null>(null);
+    const kbBeat = useRef<((on: boolean, dur: number, at: number, e?: KbSignal) => void) | null>(null);
     /** 진단 — 마지막 키보드 신호를 **그리는 프레임에서** 잰 늦음(ms)과 그래서
      *  쓴 시간, 그리고 `kb`가 iOS 신호보다 얼마나 먼저/늦게 닿았나(음수면 먼저). */
     /** 네이티브 바(4판)가 **그려지는 자리를 프레임마다** 알려 준다. 아래
@@ -1188,7 +1195,69 @@ export function Chat() {
          * 키보드와 **같이 끝난다.**
          * 0.25초라는 값 자체는 그대로다 — 눈대중으로 줄인 것이 아니다.
          */
-        kbBeat.current = (on, dur, at) => {
+        /**
+         * **앱이 목록 그림을 들고 움직이는 판**(14판 · `ListSlider.swift`).
+         *
+         * 사용자가 `카톡만큼 부드럽게`를 바라며 짚은 자리가 **키보드가
+         * 오르내릴 때**였다. 아래 `kbFrame`까지가 웹이 프레임마다 따라가는
+         * 길이었는데, 한 프레임마다 다리를 건너고 목록을 다시 배치하는
+         * 일이라 아무리 맞춰도 고르게 안 나온다. 이제는 키보드가 움직이기
+         * 시작하는 그 순간 앱이 웹뷰의 화면을 떠서 키보드와 **한 움직임**으로
+         * 옮기고, 웹은 그 그림 뒤에서 **한 번만** 이렇게 한다:
+         *
+         * 1. 끝값(`chatH`·`pad`)을 곧바로 적는다 — 전환 없이.
+         * 2. 굴린 자리를 `s`만큼 옮긴다. 목록 아랫변이 바 윗변에 붙어 있어
+         *    목록은 `s`만큼 짧아지거나 길어지는데, 그만큼 굴려야 **화면에
+         *    보이는 글이 그림과 같은 자리에 있다.** 카톡도 그렇게 움직인다 —
+         *    위로 올려 둔 채 글칸을 눌러도 글이 키보드와 함께 올라간다.
+         *    (예전 `settleList`는 맨 아래일 때만 끝으로 붙이고 아니면 그대로
+         *    두었다 — 그러면 그림을 걷을 때 `s`만큼 튄다.)
+         * 3. 다 그린 뒤(`requestAnimationFrame` 두 번) `settled`로 알린다.
+         *    **실제로 옮긴 거리(`dy`)를 실어 보낸다** — 내려갈 때 맨 위
+         *    가까이 있었으면 그만큼 못 옮기는데, 앱이 그 값으로 그림의 끝
+         *    자리를 맞춘다. 앱은 이 신호를 받아야 그림을 걷는다.
+         *
+         * `frame`은 이때 안 온다(앱이 안 보낸다). 바가 자리를 잡을 때마다
+         * 보내는 끝값 보고(`end: true`)는 그대로 오는데 같은 값이라 아무
+         * 일도 안 한다.
+         */
+        const slideKb = (e: KbSignal) => {
+            const el = listRef.current;
+            const s = Math.round(e.s ?? 0);
+            root.style.setProperty('--chat-anim', '0ms');
+            root.style.setProperty('--chat-h', `${Math.round(e.chatH ?? 0)}px`);
+            root.style.setProperty('--composer', `${Math.round(e.pad ?? 0)}px`);
+            if (!kbFollow.current) {
+                kbFollow.current = true;
+                root.classList.add('kb-follow');
+            }
+            open(e.on);
+            bar(e.on);
+            want = e.on ? (want || recall()) : 0;
+            let dy = 0;
+            if (el) {
+                /* 여기서 `scrollTop`을 적고 다시 읽는 것이 곧 **한 번의 배치**다 —
+                   높이를 바꿔 둔 뒤라 브라우저가 그 자리에서 배치하고 끝값으로
+                   자른다. 그래서 `dy`가 실제로 옮긴 거리가 된다. */
+                const before = el.scrollTop;
+                el.scrollTop = before + s;
+                dy = Math.round(el.scrollTop - before);
+                /* 맨 아래였으면 옮긴 뒤에도 맨 아래다(`s`만큼 짧아지며 끝도
+                   `s`만큼 내려간다). 아니었으면 그대로 아니다 — 값을 안 건드린다. */
+            }
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                void hush(NativeComposer.settled({ dy }));
+            }));
+        };
+
+        kbBeat.current = (on, dur, at, e) => {
+            /* 14판 — 앱이 그림을 들고 움직인다고 하면 끝값을 한 번에 적는 길로.
+               `slide`가 거짓이면(서랍·검색 중이라 웹이 꺼 두었거나, 그림을
+               못 떴거나) 13판처럼 프레임마다 따라간다. */
+            if (e?.slide && e.chatH !== undefined && e.pad !== undefined && canSlide()) {
+                slideKb(e);
+                return;
+            }
             /* 시각만 담아 두고 **재는 것은 그리는 프레임에서** 한다(`flush`).
                그다음은 여느 신호와 같다 — 먼저 닿은 쪽이 하고 나중 것은
                같은 값이라 그냥 지나간다. */
@@ -1895,6 +1964,11 @@ export function Chat() {
      * 보기`를 누른 만큼만 찾아져서, 정작 오래된 것을 못 찾는다.
      */
     const [searchOn, setSearchOn] = useState(false);
+    /** 서랍을 여닫은 뒤 그림 들기를 도로 켤 때 검색 중인지 보려고(`toggleTray`). */
+    const searchOnRef = useRef(false);
+    searchOnRef.current = searchOn;
+    const slideBack = useRef(0);
+    useEffect(() => () => clearTimeout(slideBack.current), []);
     const [hits, setHits] = useState<Message[] | null>(null);
     const [searching, setSearching] = useState(false);
     const sqRef = useRef<HTMLInputElement>(null);
@@ -2082,8 +2156,12 @@ export function Chat() {
     const overlayUp = !!zoom || !!card || pickText !== null || !!menuFor;
     useEffect(() => {
         if (!ncOn.current || ncLog.v < 7) return;
-        if (overlayUp) void hush(NativeComposer.blur());
+        /* **감추는 것을 먼저, 키보드 내리기를 그다음에.** 앱은 부르는 차례대로
+           도는데, 14판은 키보드가 내려갈 때 목록 그림을 들고 움직인다 —
+           바가 감춰져 있으면 안 든다(덮는 창 위로 그림이 올라오면 안 된다).
+           내리기를 먼저 보내면 그 판단이 감추기 전에 나 버린다. */
         void hush(NativeComposer.setState({ hidden: overlayUp }));
+        if (overlayUp) void hush(NativeComposer.blur());
     }, [overlayUp]);
     /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
     const [attend, setAttend] = useState<Record<string, number> | null>(null);
@@ -2439,6 +2517,19 @@ export function Chat() {
      * 열고 나서 대화를 맨 아래로 붙이는 일은 위의 `useLayoutEffect`가 한다.
      */
     const toggleTray = () => {
+        /* **서랍을 여닫는 동안은 앱이 목록 그림을 안 들게 한다**(14판).
+           서랍은 키보드와 자리를 맞바꾸므로 키보드가 내려가는 그 자리에
+           서랍이 선다 — 그때 그림을 키보드와 함께 내리면 서랍이 붙는 순간
+           목록이 도로 올라와 두 번 움직인다. 앱은 보낸 값만 고치고 부르는
+           차례대로 도므로, 끄는 것을 초점 여닫기보다 **먼저** 보낸다.
+           다 움직인 뒤(0.9초) 다시 켠다 — 검색 중이면 그대로 꺼 둔다. */
+        if (ncOn.current && canSlide()) {
+            void hush(NativeComposer.setState({ slide: false }));
+            clearTimeout(slideBack.current);
+            slideBack.current = window.setTimeout(() => {
+                if (ncOn.current) void hush(NativeComposer.setState({ slide: !searchOnRef.current }));
+            }, 900);
+        }
         setTray(open => {
             if (open) focusDraft();
             else blurDraft();
@@ -2637,7 +2728,7 @@ export function Chat() {
                    `kbBeat` 주석에 있다. 옛 앱은 이 신호를 안 보내므로
                    `keyboardWillShow`/`Hide`만으로 예전처럼 돈다. */
                 NativeComposer.addListener('kb', e => {
-                    kbBeat.current?.(e.on, e.dur, e.at);
+                    kbBeat.current?.(e.on, e.dur, e.at, e);
                 }),
                 /* **바가 그려지는 자리, 프레임마다**(4판부터). 화면 높이를
                    그 값으로 그대로 몬다 — 까닭은 위 `kbFrame` 주석에 있다. */
@@ -2677,6 +2768,10 @@ export function Chat() {
             await hush(NativeComposer.attach(composerSkin({
                 showIcon: STICKERS.length > 0,
                 hintText: '메시지',
+                /* **키보드가 오르내릴 때 목록 그림을 앱이 들고 움직이게 한다**
+                   (14판 · `slideKb` 주석). 목록이 시작하는 자리(`listTop`)는
+                   아래 효과가 재서 알려 준다 — 여기서는 켜기만 한다. */
+                slide: canSlide(),
             })));
             if (dead) return;
             ncOn.current = true;
@@ -2724,6 +2819,41 @@ export function Chat() {
         if (!nativeBar) return;
         void hush(NativeComposer.setState({ tray, forceSend: picked !== null }));
     }, [nativeBar, tray, picked]);
+
+    /**
+     * **목록이 시작하는 자리를 앱에 알린다**(14판 · `slideKb` 주석). 앱이 뜨는
+     * 그림은 머리말·방 공지 **아래**부터 움직여야 하는데 그 경계는 웹만 안다.
+     * 방 공지가 붙거나 펴지면 목록 높이가 바뀌므로 `ResizeObserver`로 잡고,
+     * 값이 바뀔 때만 보낸다(같은 값을 되풀이해 건너보내지 않는다).
+     * `loading`을 보는 것은 목록이 스피너 뒤에야 생기기 때문이다.
+     */
+    useEffect(() => {
+        if (!nativeBar || loading || !canSlide()) return;
+        const el = listRef.current;
+        if (!el) return;
+        let last = -1;
+        const tell = () => {
+            const t = Math.round(el.getBoundingClientRect().top);
+            if (t === last) return;
+            last = t;
+            void hush(NativeComposer.setState({ listTop: t }));
+        };
+        tell();
+        const ro = new ResizeObserver(tell);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [nativeBar, loading]);
+
+    /**
+     * **검색 중에는 그림을 안 든다**(14판). 검색 결과 창이 목록 위를 덮고
+     * 있는데(`position: absolute`) 그때 키보드가 내려가며 그림을 밀면 그
+     * 창까지 밀린다. 검색 칸은 웹 글칸이라 앱도 제 키보드가 아닌 줄 알지만
+     * (`kbOwner`), 바를 눌렀다가 검색으로 옮겨 간 판은 못 가리므로 여기서 끈다.
+     */
+    useEffect(() => {
+        if (!nativeBar || !canSlide()) return;
+        void hush(NativeComposer.setState({ slide: !searchOn }));
+    }, [nativeBar, searchOn]);
 
     if (loading) return <div className="page center-fill"><div className="spinner" /></div>;
     if (error || !data?.room) {

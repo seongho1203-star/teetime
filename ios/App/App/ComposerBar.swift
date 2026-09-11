@@ -56,8 +56,16 @@ protocol ComposerBarDelegate: AnyObject {
      * 다 쓰면 화면이 키보드보다 늦게 도착한다(사용자 제보 — `채팅배경이
      * 좀 늦게 따라와`). `at`을 견주면 **얼마나 늦었는지**가 나오므로 남은
      * 시간만큼만 움직여 함께 끝낼 수 있다.
+     *
+     * **14판부터 끝값도 함께 실어 보낸다** — `chatH`·`pad`는 다 움직인 뒤의
+     * 대화 화면 높이와 입력칸 여백(`report`의 그 셈을 끝 자리로 낸 것),
+     * `s`는 바 윗변(=목록 아랫변)이 움직일 거리(위로가 양수)다. `slide`가
+     * 참이면 **앱이 그 사이 목록 그림을 들고 움직이므로**(`ListSlider`) 웹은
+     * 끝값을 한 번에 적고 굴린 자리를 `s`만큼 옮긴 뒤 `settled`로 알리면 된다.
+     * 거짓이면 13판처럼 `frame`이 프레임마다 온다.
      */
-    func composerKeyboard(on: Bool, dur: Double, at: Double)
+    func composerKeyboard(on: Bool, dur: Double, at: Double,
+                          chatH: Double, pad: Double, s: Double, slide: Bool)
     /**
      * 키보드가 움직이는 동안 바가 **실제로 그려지는 자리**(4판).
      * `bottom`은 바 아랫변(= 키보드 윗변, 화면 기준) · `h`는 바 높이 ·
@@ -276,6 +284,19 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// 키보드가 올라와 있는가. 아래 빈자리를 둘지가 이걸로 갈린다.
     private(set) var kbUp = false
 
+    /// 키보드가 움직이는 동안 목록 그림을 들고 움직이는 것(14판). 플러그인이
+    /// 세워서 넣어 준다. 없으면 13판처럼 프레임마다 알리는 길만 간다.
+    var slider: ListSlider?
+
+    /**
+     * **지금 뜬 키보드가 이 바의 것인가.** 대화 검색 칸(웹) 때문에 뜬
+     * 키보드가 내려갈 때 목록 그림을 밀면 검색 결과 창까지 밀린다 — 그때는
+     * 안 한다. `textViewDidBeginEditing`에서 켜고 **키보드가 다 내려간 뒤에**
+     * 끈다(`keyboardDidHide`). 초점이 떠나는 순간 끄면 `willHide`가 그보다
+     * 먼저 와서 내려가는 길에는 늘 거짓이 된다.
+     */
+    private var kbOwner = false
+
     /// 칠하고 누를 수 있는 곳의 아래 끝.
     private func innerBottom() -> CGFloat {
         return bounds.height - safeAreaInsets.bottom - (kbUp ? 0 : tabH)
@@ -300,10 +321,16 @@ final class ComposerBar: UIView, UITextViewDelegate {
                       name: UIResponder.keyboardWillShowNotification, object: nil)
         c.addObserver(self, selector: #selector(kbHide(_:)),
                       name: UIResponder.keyboardWillHideNotification, object: nil)
+        c.addObserver(self, selector: #selector(kbGone(_:)),
+                      name: UIResponder.keyboardDidHideNotification, object: nil)
     }
 
-    @objc private func kbShow(_ n: Notification) { setKb(true, n) }
+    @objc private func kbShow(_ n: Notification) {
+        if textView.isFirstResponder { kbOwner = true }
+        setKb(true, n)
+    }
     @objc private func kbHide(_ n: Notification) { setKb(false, n) }
+    @objc private func kbGone(_ n: Notification) { kbOwner = false }
 
     /**
      * 아래 빈자리(`tabH`)를 걷거나 되돌린다. **키보드와 같은 시간·곡선으로
@@ -315,13 +342,42 @@ final class ComposerBar: UIView, UITextViewDelegate {
     private func setKb(_ on: Bool, _ n: Notification? = nil) {
         let info = n?.userInfo
         let dur = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 7
+        let opts = UIView.AnimationOptions(rawValue: UInt(curve) << 16)
+
+        /* **끝 자리를 먼저 셈한다**(14판). 바 윗변이 어디서 어디로 가는지가
+           곧 목록이 움직일 거리다 — `report`와 같은 셈을 끝값으로 낸 것이라,
+           둘이 어긋나면 그림을 걷을 때 튄다. 한쪽만 고치지 말 것. */
+        let safe = superview?.safeAreaInsets.bottom ?? 0
+        let rest = superview.map { $0.bounds.maxY - $0.safeAreaInsets.bottom } ?? 0
+        var top = rest
+        if on, let sv = superview,
+           let end = info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            let f = sv.convert(end, from: nil)
+            if f.minY < rest - 1 { top = f.minY }
+        }
+        let core = padV * 2 + fieldHeight()
+        let toTop = (on ? top : rest) - core - (on ? 0 : tabH)
+        // 움직이는 중이면 **그려진 자리**에서 출발한다(연달아 누른 경우).
+        let moving = !(layer.animationKeys()?.isEmpty ?? true)
+        let fromTop = (moving ? layer.presentation()?.frame.minY : nil) ?? frame.minY
+        let chatH = (on ? top : rest) + (on ? 0 : safe)
+        let pad = core + (on ? 0 : tabH + safe)
+        /* 목록 그림을 들고 움직일 수 있으면 든다. 바가 아직 자리를 못 잡았거나
+           (높이 0) 이 바의 키보드가 아니면 안 한다 — 그때는 13판 길이다. */
+        let slide = bounds.height > 1 && kbOwner && superview != nil
+            && (slider?.begin(from: fromTop, to: toTop, dur: dur, opts: opts) ?? false)
 
         /* **웹에 먼저 알린다 — 아래 `guard`보다 앞이다.** 아래 것은 바가
            비워 둘 자리(`tabH`)를 걷는 일이라 상태가 같으면 건너뛰어도 되지만,
            웹은 그 값과 상관없이 시각을 알아야 한다. */
         barDelegate?.composerKeyboard(on: on, dur: dur,
-                                      at: Date().timeIntervalSince1970 * 1000)
-        follow(dur: dur, info: info)
+                                      at: Date().timeIntervalSince1970 * 1000,
+                                      chatH: Double(chatH), pad: Double(pad),
+                                      s: Double(fromTop - toTop), slide: slide)
+        /* 그림을 들고 움직이는 동안은 프레임마다 안 알린다 — 웹이 그 값을
+           적으면 그림 뒤에서 목록이 또 움직여, 걷을 때 자리가 어긋난다. */
+        if !slide { follow(dur: dur, info: info) }
 
         guard kbUp != on else { return }
         kbUp = on
@@ -329,9 +385,6 @@ final class ComposerBar: UIView, UITextViewDelegate {
         setNeedsLayout()
         guard let sv = superview else { return }
         sv.setNeedsLayout()
-
-        let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 7
-        let opts = UIView.AnimationOptions(rawValue: UInt(curve) << 16)
 
         // iOS 15 아래의 예비 길 — 키보드 높이만큼 바 아래를 올린다.
         if let c = bottomC {
@@ -447,9 +500,10 @@ final class ComposerBar: UIView, UITextViewDelegate {
     }
 
     /// `CADisplayLink`는 대상을 붙들고 있어 **떼어 낼 때 끊어야** 바가 해제된다.
+    /// 들고 있던 목록 그림도 같이 걷는다 — 바 없이 그림만 남으면 안 된다.
     override func willMove(toSuperview newSuperview: UIView?) {
         super.willMove(toSuperview: newSuperview)
-        if newSuperview == nil { link?.invalidate(); link = nil }
+        if newSuperview == nil { link?.invalidate(); link = nil; slider?.cancel() }
     }
 
     /// 아래 빈자리는 우리 것이 아니다 — 손짓을 그대로 흘려보낸다.
@@ -558,6 +612,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
     }
 
     func textViewDidBeginEditing(_ tv: UITextView) {
+        kbOwner = true
         refreshHint()
         refreshSend()
         barDelegate?.composerFocus(true)

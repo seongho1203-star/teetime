@@ -57,7 +57,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "resume", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickPhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "savePhoto", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settled", returnType: CAPPluginReturnPromise)
     ]
 
     /// 이 판의 번호. 바를 세우는 방식이 바뀌면 올린다(웹이 `html.nc2`로 가른다).
@@ -82,17 +83,23 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 13판 — 사진을 긴 변 2560px으로 줄인다(웹과 같은 값). 올라가는 것을
     ///        확인한 뒤 화질을 되올린 것이다 — 크게 본 사진을 벌려 키우면
     ///        1600px으로는 흐릿했다.
+    /// 14판 — **키보드가 오르내리는 동안 목록 그림을 앱이 들고 움직인다**
+    ///        (`ListSlider.swift`). 웹이 `attach`에 `slide: true`·`listTop`·
+    ///        `listBg`를 주면 켜지고, `kb` 신호에 끝값(`chatH`·`pad`·`s`)과
+    ///        `slide`가 실려 간다. 웹은 다시 배치를 마치면 `settled`로 알린다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 13
+    private static let version = 14
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
     private static let holdFor = 0.8
 
     private var bar: ComposerBar?
+    /// 키보드가 오르내릴 때 목록 그림을 들고 움직이는 것(14판). 바와 한 벌이다.
+    private let slider = ListSlider()
     /// 붙어 있는가. 떼어 낸 뒤에 오는 신호를 흘려보내는 데 쓴다.
     private var live = false
     /// 붙들어 두기가 몇 번째인가. 겹쳐 불려도 **늦게 부른 쪽**이 이긴다.
@@ -114,6 +121,13 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             let bar = self.bar ?? ComposerBar(frame: CGRect(x: 0, y: 0, width: root.bounds.width, height: 58))
             bar.barDelegate = self
             self.bar = bar
+            /* 목록 그림은 웹뷰에서 떠서 바 바로 아래에 얹는다(14판). 세울 때마다
+               다시 이어 둔다 — 화면을 나갔다 오면 웹뷰는 그대로여도 바는
+               떼었다 다시 붙기 때문이다. */
+            self.slider.webView = self.bridge?.webView
+            self.slider.root = root
+            self.slider.above = bar
+            bar.slider = self.slider
 
             if bar.superview !== root {
                 bar.removeFromSuperview()
@@ -162,6 +176,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         DispatchQueue.main.async {
             self.live = false
             self.release()
+            self.slider.cancel()
+            self.slider.enabled = false
             _ = self.bar?.textView.resignFirstResponder()
             self.bar?.removeFromSuperview()
             /* **바는 버리지 않는다 — 다음에 다시 쓴다.**
@@ -278,6 +294,20 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 옛 웹이 부르던 것. 이제 할 일이 없다(머리말 참고).
     @objc func pause(_ call: CAPPluginCall) { call.resolve() }
     @objc func resume(_ call: CAPPluginCall) { call.resolve() }
+
+    /**
+     * 웹이 **키보드 끝값대로 다시 배치를 마쳤다**(14판 · `ListSlider.ack`).
+     * `dy`는 실제로 옮긴 굴림 거리다. 이게 와야 그림을 걷는다 — 먼저 걷으면
+     * 옛 화면이 한 프레임 비친다. 내려가는 길에서는 여기서 새 그림으로
+     * 갈아 끼운다.
+     */
+    @objc func settled(_ call: CAPPluginCall) {
+        let dy = CGFloat(call.getDouble("dy") ?? 0)
+        DispatchQueue.main.async {
+            self.slider.ack(dy: dy)
+            call.resolve()
+        }
+    }
 
     // ── 사진 (8판) ───────────────────────────────────────
     //
@@ -552,6 +582,14 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
            **여기서 먼저 내보이고 그다음에 초점을 준다**(부르는 차례가 곧 그것이다). */
         if let v = call.getBool("hidden") { bar.isHidden = v }
 
+        /* **키보드가 오르내릴 때 목록 그림을 들고 움직일지**(14판). 웹이
+           켜고 끈다 — 서랍을 여닫는 동안·검색 중에는 끈다(그때 밀면 서랍이나
+           검색 창까지 밀린다). `listTop`은 목록이 시작하는 자리(머리말·방
+           공지 아래, 웹뷰 기준 pt), `listBg`는 목록 바탕색이다. */
+        if let v = call.getBool("slide") { slider.enabled = v }
+        if let v = n("listTop") { slider.listTop = v }
+        if let v = c("listBg") { slider.listBg = v }
+
         if let v = call.getString("hintText") { bar.setHint(v) }
         if let v = call.getBool("showIcon") { bar.showIcon = v }
         if let v = call.getBool("showPlus") { bar.showPlus = v }
@@ -596,9 +634,11 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 키보드가 움직이기 시작했다. **시각을 함께 보낸다** — 웹이 얼마나 늦게
     /// 받았는지를 재서 남은 시간만큼만 움직이게 하려는 것이다
     /// (`ComposerBar.composerKeyboard` 주석 · `Chat.tsx`의 `kb` 듣기).
-    func composerKeyboard(on: Bool, dur: Double, at: Double) {
+    func composerKeyboard(on: Bool, dur: Double, at: Double,
+                          chatH: Double, pad: Double, s: Double, slide: Bool) {
         guard live else { return }
-        notifyListeners("kb", data: ["on": on, "dur": dur, "at": at])
+        notifyListeners("kb", data: ["on": on, "dur": dur, "at": at,
+                                     "chatH": chatH, "pad": pad, "s": s, "slide": slide])
     }
 
     /// 키보드가 움직이는 동안 바가 그려지는 자리(프레임마다 · 4판).

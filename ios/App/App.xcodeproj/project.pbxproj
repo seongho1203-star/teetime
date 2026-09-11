@@ -13,6 +13,7 @@
 		CB1000000000000000000A02 /* ComposerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1000000000000000000A01 /* ComposerBar.swift */; };
 		CB1000000000000000000A04 /* NativeComposerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1000000000000000000A03 /* NativeComposerPlugin.swift */; };
 		CB1000000000000000000A06 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1000000000000000000A05 /* MainViewController.swift */; };
+		CB1000000000000000000A0A /* ListSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1000000000000000000A09 /* ListSlider.swift */; };
 		CB1000000000000000000A08 /* kkakkung.wav in Resources */ = {isa = PBXBuildFile; fileRef = CB1000000000000000000A07 /* kkakkung.wav */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
@@ -29,6 +30,7 @@
 		CB1000000000000000000A01 /* ComposerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerBar.swift; sourceTree = "<group>"; };
 		CB1000000000000000000A03 /* NativeComposerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeComposerPlugin.swift; sourceTree = "<group>"; };
 		CB1000000000000000000A05 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
+		CB1000000000000000000A09 /* ListSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSlider.swift; sourceTree = "<group>"; };
 		CB1000000000000000000A07 /* kkakkung.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = kkakkung.wav; sourceTree = "<group>"; };
 		504EC30C1FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -86,6 +88,7 @@
 				CB1000000000000000000A01 /* ComposerBar.swift */,
 				CB1000000000000000000A03 /* NativeComposerPlugin.swift */,
 				CB1000000000000000000A05 /* MainViewController.swift */,
+				CB1000000000000000000A09 /* ListSlider.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -226,6 +229,7 @@
 				CB1000000000000000000A02 /* ComposerBar.swift in Sources */,
 				CB1000000000000000000A04 /* NativeComposerPlugin.swift in Sources */,
 				CB1000000000000000000A06 /* MainViewController.swift in Sources */,
+				CB1000000000000000000A0A /* ListSlider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

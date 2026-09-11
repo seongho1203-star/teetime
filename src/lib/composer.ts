@@ -58,7 +58,23 @@ type Native = {
      * 늦는데, 그만큼 늦게 시작해 놓고 0.25초를 다 쓰면 화면이 키보드보다
      * 늦게 도착한다. `Date.now()`와 견주면 늦은 만큼이 그대로 나온다.
      */
-    addListener(n: 'kb', cb: (e: { on: boolean; dur: number; at: number }) => void): Promise<Handle>;
+    addListener(n: 'kb', cb: (e: {
+        on: boolean; dur: number; at: number;
+        /**
+         * 14판부터 — 다 움직인 뒤의 화면 높이·입력칸 여백(`chatH`·`pad`), 바
+         * 윗변(=목록 아랫변)이 움직일 거리 `s`(위로가 양수), 그리고 **앱이 그
+         * 사이 목록 그림을 들고 움직이는가**(`slide`). 참이면 웹은 끝값을 한
+         * 번에 적고 굴린 자리를 `s`만큼 옮긴 뒤 `settled`로 알린다 — 프레임마다
+         * 오는 `frame`은 그때 안 온다. 거짓이면 13판과 같다.
+         */
+        chatH?: number; pad?: number; s?: number; slide?: boolean;
+    }) => void): Promise<Handle>;
+    /**
+     * 키보드 끝값대로 **다시 배치를 마쳤다**(14판). `dy`는 실제로 옮긴 굴림
+     * 거리다(위로가 양수). 앱은 이걸 받아야 목록 그림을 걷고, 내려가는 길에서는
+     * 새 그림으로 갈아 끼운다(`ListSlider.swift`).
+     */
+    settled(o: { dy: number }): Promise<void>;
     /**
      * 키보드가 움직이는 동안 **바가 실제로 그려지는 자리**(4판부터, 프레임마다).
      * `bottom`은 바 아랫변(= 키보드 윗변) · `h`는 바 높이 · `p`는 0(내려가
@@ -131,6 +147,35 @@ export function composerReady(): Promise<boolean> {
         return ncLog.ready;
     })();
     return asked;
+}
+
+/* ── 키보드가 오르내릴 때 목록 그림을 앱이 들고 움직인다(14판) ──
+ *
+ * 사용자가 `카톡만큼 부드럽게`를 바라며 짚은 자리가 **키보드가 오르내릴
+ * 때**였다. 13판까지는 바가 프레임마다 자리를 알리고 웹이 그때마다 목록을
+ * 다시 배치했는데, 그 길은 한 프레임마다 다리를 건너고 배치를 다시 하는
+ * 일이라 고르게 안 나온다. 14판은 앱이 목록의 **그림**을 떠서 키보드와 한
+ * 움직임으로 옮기고, 웹은 그 뒤에서 **한 번만** 다시 배치한다
+ * (`ios/App/App/ListSlider.swift`).
+ *
+ * **끄는 스위치가 웹에 있다**(`teetime:nc-slide` = `off`). 실기기에서 어긋나면
+ * 앱을 다시 만들지 않고 13판 길로 되돌릴 수 있어야 한다.
+ */
+const SLIDE_OFF_KEY = 'teetime:nc-slide';
+
+/** 앱이 목록 그림을 들고 움직일 수 있는 판인가(그리고 안 꺼 두었는가). */
+export function canSlide(): boolean {
+    if (ncLog.ready !== true || ncLog.v < 14) return false;
+    try { return localStorage.getItem(SLIDE_OFF_KEY) !== 'off'; } catch { return true; }
+}
+export function slideOff(): boolean {
+    try { return localStorage.getItem(SLIDE_OFF_KEY) === 'off'; } catch { return false; }
+}
+export function setSlideOff(off: boolean): void {
+    try {
+        if (off) localStorage.setItem(SLIDE_OFF_KEY, 'off');
+        else localStorage.removeItem(SLIDE_OFF_KEY);
+    } catch { /* 사파리 잠금 */ }
 }
 
 /* ── 사진 고르기 — 대화의 `+`와 `내 정보`의 프로필 사진이 같이 쓴다 ──
@@ -258,6 +303,9 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
         offBg: hex('--surface-3', '#e4e9da'),
         offFg: hex('--text-faint', '#8b9486'),
         line: hex('--line', '#dde3d1'),
+        /* 목록 바탕색(14판 — 내려갈 때 위에 잠깐 드러나는 자리를 이 색으로
+           덮는다). 모르는 판은 그냥 지나친다. */
+        listBg: hex('--chat-bg', '#7369a0'),
     };
     return { ...skinCache, ...over };
 }
