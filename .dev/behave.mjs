@@ -942,7 +942,7 @@ if (!hasStickers) {
 
 /* 그린 것부터. 말풍선을 두르지 않는다(이모지만 보낸 글과 같은 결이다). */
 const stickerShots = await page.$$eval('.chat-sticker', e => e.map(x => x.getAttribute('src')));
-ok(stickerShots.length === 3 && stickerShots.every(s => s?.includes('/stickers/')),
+ok(stickerShots.length === 4 && stickerShots.every(s => s?.includes('/stickers/')),
    `보낸 이모티콘은 그림으로 그려진다 (실제 ${JSON.stringify(stickerShots)})`);
 ok((await page.$$eval('.chat-bubble', e => e.map(x => x.textContent))).every(t => t?.trim()),
    '글 없이 보낸 이모티콘에는 빈 말풍선이 안 붙는다');
