@@ -251,6 +251,11 @@ export const messages = [
        않았고, 투표 탭으로 건너가 목록에서 다시 찾아야 했다. */
     { id: 'sys4', room_id: 'room1', user_id: uid(3), system: true, poll_id: 'p1',
       body: '박승수님이 투표를 올렸습니다\n9월 라운드 날짜', created_at: iso(0, 9, 35) },
+    /* 사람이 올린 **공지** 공유(`📣 대화방에 공유`). 라운드와 같은 카드라
+       나란히 두고 갈 곳(`/board/…`)까지 함께 본다. */
+    { id: 'sys6', room_id: 'room1', user_id: ME, system: true, post_id: 'b1',
+      body: '신성호님이 공지를 공유했습니다\n9월 회비 안내\n9월 회비는 8월 31일까지 입금 부탁드립니다.',
+      created_at: iso(0, 9, 44) },
     /* 지운 것은 **갈 곳이 없어 카드가 아니다** — 가운데 한 줄로 남는다. */
     { id: 'sys5', room_id: 'room1', user_id: uid(4), system: true,
       body: '김지명님이 라운드 모집을 지웠습니다\n영광웰빙CC', created_at: iso(0, 9, 43) },

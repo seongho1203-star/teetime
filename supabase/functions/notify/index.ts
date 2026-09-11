@@ -344,34 +344,52 @@ async function alwaysFor(r: Record<string, unknown>): Promise<string[]> {
 }
 
 /**
- * 사람이 `📣 대화방에 공유`로 올린 라운드 줄.
+ * 사람이 `📣 대화방에 공유`로 올린 줄 — **라운드와 공지 둘이다.**
  *
  * `system` 줄은 원래 안 울리는데(위 planFor 참고) 이것만 뚫는다 —
- * **자리가 남았다고 다시 알리는 것이 그 단추의 목적**이라, 대화방에만
- * 남으면 하루 백 마디가 쌓이는 방에서 또 묻힌다.
+ * **묻힌 것을 다시 알리는 것이 그 단추의 목적**이라, 대화방에만 남으면
+ * 하루 백 마디가 쌓이는 방에서 또 묻힌다.
  *
  * **문구를 글에서 가져오지 않는다.** 대화 글은 회원이 손으로도 넣을 수
- * 있는 값이라, 라운드를 다시 읽어 거기서 짠다 — 무엇을 적어 보내든
- * 알림에는 그 라운드의 사실만 나간다.
+ * 있는 값이라, 라운드·공지를 다시 읽어 거기서 짠다 — 무엇을 적어 보내든
+ * 알림에는 그 라운드·공지의 사실만 나간다.
  *
- * `tag`는 모집 알림과 **같은** `round-`다. 같은 라운드 이야기라 알림창에
- * 두 줄이 쌓일 이유가 없고, 뒤엣것이 앞엣것을 대신하는 것이 맞다.
+ * `tag`는 처음 알림과 **같다**(`round-` · `post-`). 같은 건 이야기라
+ * 알림창에 두 줄이 쌓일 이유가 없고, 뒤엣것이 앞엣것을 대신하는 것이 맞다.
  */
 async function shareNote(r: Record<string, unknown>): Promise<Note | null> {
-    if (r.notify !== true || typeof r.round_id !== 'string') return null;
+    if (r.notify !== true) return null;
+    const who = await nameOf(r.user_id);
+    const except = typeof r.user_id === 'string' ? r.user_id : null;
+
+    /* 공지 공유. **`post_id`를 먼저 본다** — 한 줄에 둘이 함께 설 일은
+       없지만, 갈래를 하나로 못박아 두면 어느 쪽으로 갈지 헷갈릴 자리가 없다. */
+    if (typeof r.post_id === 'string') {
+        const { data: pt } = await db.from('posts')
+            .select('title').eq('id', r.post_id).maybeSingle();
+        if (!pt) return null;
+        return {
+            title: '📢 공지 공유',
+            body: `${who}님이 올렸습니다\n${String(pt.title ?? '').slice(0, 80)}`,
+            tag: `post-${r.post_id}`,
+            url: `#/board/${r.post_id}`,
+            except,
+        };
+    }
+
+    if (typeof r.round_id !== 'string') return null;
     const { data: rd } = await db.from('rounds')
         .select('course, title, kind, tee_at, capacity').eq('id', r.round_id).maybeSingle();
     if (!rd) return null;
     const screen = rd.kind === 'screen';
     const where = (rd.course as string) || (rd.title as string)
         || (screen ? '스크린' : '라운드');
-    const who = await nameOf(r.user_id);
     return {
         title: screen ? '🎯 스크린 공유' : '⛳ 라운드 공유',
         body: `${who}님이 올렸습니다\n${where} · ${kstWhen(rd.tee_at)}`,
         tag: `round-${r.round_id}`,
         url: `#/rounds/${r.round_id}`,
-        except: typeof r.user_id === 'string' ? r.user_id : null,
+        except,
     };
 }
 
@@ -529,13 +547,13 @@ async function planFor(hook: Hook): Promise<Note | null> {
            그 건은 `⛳ 새 모집` 알림이 이미 나간 뒤다 — 여기서 또 보내면
            같은 일로 두 번 울린다.
 
-           **딱 하나 예외가 `notify`가 선 줄이다** — 라운드 상세의
-           `📣 대화방에 공유`로 **사람이 눌러서** 올린 것이라, 자리가 남았다고
+           **딱 하나 예외가 `notify`가 선 줄이다** — 라운드·공지 상세의
+           `📣 대화방에 공유`로 **사람이 눌러서** 올린 것이라, 묻힌 것을
            다시 알리는 것이 그 단추의 목적이다. 대화방에만 남으면 하루에
            백 마디가 쌓이는 방에서 또 묻힌다.
-           **문구는 글이 아니라 라운드에서 다시 짠다** — 대화 글은 회원이
-           손으로도 넣을 수 있는 값이라, 거기 적힌 것을 그대로 백 명의
-           알림창에 띄우지 않으려는 것이다. */
+           **문구는 글이 아니라 라운드·공지에서 다시 짠다** — 대화 글은
+           회원이 손으로도 넣을 수 있는 값이라, 거기 적힌 것을 그대로
+           백 명의 알림창에 띄우지 않으려는 것이다. */
         if (r.system === true) return shareNote(r);
 
         const who = await nameOf(r.user_id);

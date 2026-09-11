@@ -1161,6 +1161,14 @@ alter table messages add column if not exists system boolean not null default fa
 alter table messages add column if not exists round_id uuid
     references rounds(id) on delete set null;
 
+-- 어느 공지 이야기인가. 라운드와 **완전히 같은 구실**이다 — 공지 상세의
+-- `📣 대화방에 공유`로 사람이 올릴 때 붙고, 그 글은 대화에서 눌리는 카드가
+-- 되어 바로 그 공지로 들어간다. 새 공지에 저절로 붙지는 않는다(그때는
+-- `📢 새 공지` 알림이 이미 나가고, 대화방에 남기는 줄도 없다).
+-- **지워진 공지의 옛 카드는 `set null`로 조용히 안 눌리는 줄이 된다.**
+alter table messages add column if not exists post_id uuid
+    references posts(id) on delete set null;
+
 -- **이 안내 줄은 그래도 폰을 울려야 한다.**
 -- `system` 줄은 알림을 안 보내는 것이 기본이다 — 모집을 열 때 저절로 남는
 -- 줄은 `⛳ 새 모집`이 이미 나간 뒤라 또 울리면 두 번 울린다. 그런데

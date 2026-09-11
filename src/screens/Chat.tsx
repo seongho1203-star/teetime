@@ -2899,7 +2899,10 @@ export function Chat() {
                                     : m.poll_id
                                         ? <LinkCard body={m.body} to={`/polls/${m.poll_id}`}
                                                     go="투표 보러 가기 ›" rest="chat-result-win" />
-                                        : <div className="chat-notice">{m.body}</div>
+                                        : m.post_id
+                                            ? <LinkCard body={m.body} to={`/board/${m.post_id}`}
+                                                        go="공지 보러 가기 ›" rest="chat-result-note" />
+                                            : <div className="chat-notice">{m.body}</div>
                             )}
                             {m.id === unreadFrom && (
                                 <div className="chat-unread">여기까지 읽으셨습니다</div>
@@ -2981,18 +2984,21 @@ export function Chat() {
                 )}
 
                 {/* 답장할 글을 입력칸 위에 물려 둔다. ✕로 뗀다.
-                    입력칸 안이라 키보드가 올라와도 함께 따라 올라간다. */}
+                    입력칸 안이라 키보드가 올라와도 함께 따라 올라간다.
+                    **말은 `댓글`이다** — 길게 누르는 창의 그 줄과도, 올라간
+                    말풍선의 머리말과도 같아야 한다(한쪽만 고치면 누른 것과
+                    남는 것이 달라 보인다). */}
                 {replyTo && (
                     <div className="reply-bar">
                         <div className="grow" style={{ minWidth: 0 }}>
                             <div className="xs b">
-                                {(names[replyTo.user_id ?? '']?.name ?? '알 수 없음')}에게 답장
+                                {(names[replyTo.user_id ?? '']?.name ?? '알 수 없음')}에게 댓글
                             </div>
                             <div className="xs faint truncate">{preview(replyTo)}</div>
                         </div>
                         <button className="reply-x" onClick={() => setReplyTo(null)}
                                 onMouseDown={e => e.preventDefault()}
-                                aria-label="답장 그만두기">✕</button>
+                                aria-label="댓글 그만두기">✕</button>
                     </div>
                 )}
 
@@ -3941,16 +3947,35 @@ const Bubble = memo(function Bubble({
         if (hit) onReply(message);
     };
 
-    const quote = !hidden && (quoted || lostQuote) && (
-        <button className="chat-quote"
+    /* ── 답장 인용 — **말풍선 안에 든다**(사용자 요청 · 카톡 사진을 받아
+     *  맞췄다). 머리말(`○○에게 댓글`) · 원문 한 줄 · 가는 선, 그 아래가
+     *  답장 글이다. 예전에는 말풍선 **위에** 따로 뜬 쪽지였는데, 그러면 한
+     *  마디가 두 덩어리로 보여 어디까지가 답장인지 흐렸다.
+     *
+     *  - **이름은 닉네임 그대로다**(`83/신성호/광산구`가 아니라). 문장에
+     *    가까운 줄이라 긴 이름표는 목록의 이름 자리 몫이다(홈의 `내 조` 줄과 같다).
+     *  - **`댓글`은 길게 누르는 창과 같은 말이다**(사용자가 정한 이름이다) —
+     *    한쪽만 고치면 누른 것과 남는 것이 달라 보인다.
+     *  - 원문은 **한 줄로 자른다.** 길면 말풍선이 통째로 커져 정작 답장 글이
+     *    밀린다(카톡도 한두 줄에서 자른다).
+     *  - **사진·이모티콘 답장에는 말풍선이 없다** — 그때만 예전처럼 위에
+     *    쪽지로 띄운다(`above`). 카톡도 그 자리에서는 쪽지로 그린다.
+     */
+    const quoteAt = (where: 'in' | 'above') => (
+        <button className={`chat-quote ${where}`}
                 onClick={() => quoted && onJump(quoted.id)}
                 disabled={!quoted}>
-            <span className="chat-quote-who">{quoted ? (quotedWho ?? '알 수 없음') : '지난 대화'}</span>
+            <span className="chat-quote-who truncate">
+                {quoted ? `${quotedWho ?? '알 수 없음'}에게 댓글` : '지난 대화에 댓글'}
+            </span>
             <span className="chat-quote-text truncate">
                 {quoted ? preview(quoted) : '원본을 찾지 못했습니다'}
             </span>
         </button>
     );
+    const hasQuote = !hidden && (quoted || lostQuote);
+    /** 말풍선 안에 넣을 수 있는가 — **글 말풍선을 그릴 때만**이다. */
+    const quoteIn = hasQuote && !message.image_url;
 
     return (
         <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}
@@ -3983,7 +4008,7 @@ const Bubble = memo(function Bubble({
                         {personLabel(who) || '알 수 없음'}
                     </span>
                 )}
-                {quote}
+                {hasQuote && !quoteIn && quoteAt('above')}
                 <div className="chat-line">
                     {/* **운영진이 가린 글**(카톡의 '가리기'). 글·사진·이모티콘을
                         통째로 덮고 안내 한 줄만 남긴다 — 지운 것이 아니라
@@ -4005,7 +4030,12 @@ const Bubble = memo(function Bubble({
                         // 사진은 말풍선 없이 그 자체로 보여 준다. 누르면
                         // 앱 안에서 크게 뜬다(`onPhotoTap`).
                         ? <ChatPhoto url={message.image_url} onLoad={onImageLoad} />
-                        : <div className={`chat-bubble${big ? ' emoji-only' : ''}`}>
+                        /* **인용이 붙으면 말풍선을 벗기지 않는다.** 이모지만
+                           보낸 글은 원래 말풍선 없이 크게 그리는데, 답장에는
+                           그 안에 머리말과 가는 선이 들어가야 하므로 말풍선이
+                           있어야 한다 — 벗기면 인용이 허공에 뜬다. */
+                        : <div className={`chat-bubble${big && !quoteIn ? ' emoji-only' : ''}`}>
+                              {quoteIn && quoteAt('in')}
                               <Body text={message.body} names={mentionNames} me={myName} allowAll={allowAll} />
                           </div>}
                     {/* 시각은 **덩어리의 마지막 줄**에 붙는다. 사진에 글을 함께
@@ -4118,15 +4148,15 @@ function Links({ text }: { text: string }) {
 }
 
 /**
- * 대화방에 남는 **눌리는 카드** — 라운드와 투표가 같이 쓴다.
+ * 대화방에 남는 **눌리는 카드** — 라운드·투표·공지가 같이 쓴다.
  *
  * **안내 줄을 눌러서 바로 들어갈 수 있어야 한다**(사용자 요청). 예전에는
  * 가운데 한 줄짜리 글이라, 모집이 열린 것을 대화에서 보고도 라운드 탭으로
  * 건너가 목록에서 다시 찾아야 했다 — 그러면 그 줄을 남기는 뜻이 반쯤 없어진다.
  *
- * 넣는 곳이 셋이다: 모집·투표를 열 때 저절로(`announce_to_chat`), 투표가
- * 끝났을 때(`post_poll_result`), 그리고 라운드 상세의 `📣 대화방에 공유`.
- * **셋을 한 코드로 그린다** — 따로 만들면 한쪽만 고치게 된다.
+ * 넣는 곳이 넷이다: 모집·투표를 열 때 저절로(`announce_to_chat`), 투표가
+ * 끝났을 때(`post_poll_result`), 그리고 **라운드 상세와 공지 상세**의
+ * `📣 대화방에 공유`. **넷을 한 코드로 그린다** — 따로 만들면 한쪽만 고치게 된다.
  *
  * **줄 수를 세지 않는다.** 첫 줄만 갈라 흐리게 놓고 나머지는 있는 대로
  * 그리므로 문구가 늘거나 줄어도 안 깨진다. 다만 **한 줄짜리는 그 줄이 곧

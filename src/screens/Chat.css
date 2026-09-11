@@ -1707,31 +1707,55 @@ html:not(.native) body.kb-open .chat-list { padding-bottom: calc(var(--composer,
     .chat-row:hover .chat-reply-btn { opacity: 1; pointer-events: auto; }
 }
 
-/* 인용. 말풍선 위에 붙는 작은 조각이라 글자를 한 단계 낮춘다. */
+/* ── 답장 인용 — **말풍선 안에 든다**(카톡과 같다. 사용자 요청) ──
+   머리말(`○○에게 댓글`) · 원문 한 줄 · 가는 선, 그 아래가 답장 글이다.
+   말풍선 위에 따로 뜬 쪽지였을 때는 한 마디가 두 덩어리로 보였다.
+
+   **글자는 말풍선(15px)보다 한 톤 낮춘다** — 같은 크기로 두면 인용이
+   답장만큼 커 보여 무엇이 새 글인지 흐려진다. 카톡도 그 줄이 작다. */
 .chat-quote {
     display: flex;
     flex-direction: column;
     gap: 1px;
     align-items: flex-start;
-    /* 글 길이만큼만. 안 주면 `.chat-col`이 늘려서 짧은 인용도 통째로
-       한 줄을 차지한다. */
-    align-self: flex-start;
+    text-align: left;
     max-width: 100%;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.35;
+    color: inherit;
+}
+/* 말풍선 안 — **배경도 테두리도 없다. 가르는 것은 가는 선 하나다.**
+   `width: 100%`가 한 쌍이다: 그게 없으면 인용 두 줄이 제 글자 길이만큼만
+   차지해 선이 말풍선을 가로지르지 못한다.
+   선 색을 `--line`으로 두지 말 것 — 흰 말풍선에만 맞는 값이라 **내 노란
+   말풍선 위에서는 보이지 않는다.** 검정 10%는 둘 다에서 같게 보인다. */
+.chat-quote.in {
+    width: 100%;
+    padding: 0 0 5px;
+    margin: 0 0 5px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+/* 사진·이모티콘 답장에는 말풍선이 없어 그 위에 쪽지로 뜬다.
+   **글 길이만큼만** — 안 주면 `.chat-col`이 늘려서 짧은 인용도 통째로
+   한 줄을 차지한다. */
+.chat-quote.above {
+    align-self: flex-start;
     padding: 4px 9px;
     border-radius: 11px;
     border-left: 3px solid var(--line);
     background: var(--surface-3);
-    text-align: left;
     color: var(--text-dim);
 }
-.chat-row.mine .chat-quote {
+.chat-row.mine .chat-quote.above {
     align-items: flex-end;
     align-self: flex-end;
     border-left: 0;
     border-right: 3px solid #edc82c;
 }
-.chat-quote-who { font-size: 11.5px; font-weight: 800; color: var(--text-dim); }
-.chat-quote-text { font-size: 12.3px; max-width: 100%; }
+.chat-quote-who { font-weight: 800; max-width: 100%; }
+/* 원문은 머리말보다 옅다 — 새 글과 견줘 한 발 물러나 보여야 한다. */
+.chat-quote-text { max-width: 100%; opacity: 0.78; }
 .chat-quote:disabled { opacity: 0.7; }
 
 /* 인용을 눌러 원본으로 갔을 때 어디인지 알려 주는 한 번짜리 깜빡임.

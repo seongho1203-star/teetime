@@ -649,6 +649,49 @@ await go('/#/rounds/r3', 700);
 ok(!(await page.textContent('.page') ?? '').includes('대화방에 공유'),
    '지난 라운드에는 없다 — 이제 와서 부를 이유가 없다');
 
+/* ── 6-1-1-2. 공지를 대화방에 공유 ──────────────────────────────
+ *
+ * 사용자 요청 — `공지도 대화창 공유 기능 만들어 줘`. 공지를 올리면
+ * `📢 새 공지`가 한 번 나가고 끝이라, 그 알림을 놓치면 공지 탭에 들어가
+ * 보기 전까지 모른다. **라운드 공유와 완전히 같은 짜임이다** — 한쪽만
+ * 고치면 두 단추가 다르게 굴러간다.
+ */
+console.log('\n── 공지를 대화방에 공유 ──');
+await go('/#/board/b1', 700);
+ok((await page.textContent('.page') ?? '').includes('대화방에 공유'),
+   '공지 상세에 공유 단추가 있다');
+
+writes.length = 0;
+await page.getByText('📣 대화방에 공유').click();
+await page.getByText('올리기', { exact: true }).click();
+await page.waitForTimeout(600);
+const shared = writes.find(([w]) => w === 'messages POST')?.[1];
+ok(shared?.post_id === 'b1' && shared?.system === true,
+   `그 공지를 단 안내 글로 들어간다 (실제 ${JSON.stringify(shared)})`);
+ok(String(shared?.body ?? '').startsWith('신성호님이 공지를 공유했습니다\n9월 회비 안내'),
+   `머리말 다음 줄이 제목이다 (실제 ${JSON.stringify(shared?.body?.split('\n').slice(0, 2))})`);
+/* **본문은 첫 줄만 붙인다.** 긴 공지를 통째로 옮기면 그 카드가 대화방을
+   덮는데, 어차피 눌러서 읽는 자리다. 고정 자료의 b1은 본문이 네 줄이다. */
+ok(String(shared?.body ?? '').split('\n').length === 3,
+   `본문은 첫 줄만 곁줄로 붙는다 (실제 ${String(shared?.body ?? '').split('\n').length}줄)`);
+ok(shared?.notify === true,
+   `사람이 올린 공유에는 알림 표가 선다 (실제 ${JSON.stringify(shared?.notify)})`);
+
+/* 칸이 없는 저장소에서도 올라간다 — 라운드에서 겪은 그 자리다
+   (`schema.sql`이 앱보다 늦게 올라가는 사이가 있다). */
+missingColumns = ['notify', 'post_id'];
+await go('/#/board/b1', 700);
+writes.length = 0;
+await page.getByText('📣 대화방에 공유').click();
+await page.getByText('올리기', { exact: true }).click();
+await page.waitForTimeout(800);
+const postTries = writes.filter(([w]) => w === 'messages POST').map(([, v]) => v);
+ok(postTries.length === 3 && !('notify' in (postTries[2] ?? {})) && !('post_id' in (postTries[2] ?? {})),
+   `둘 다 없으면 하나씩 빼며 세 번째에 들어간다 (실제 ${postTries.length}번)`);
+ok((await page.textContent('body') ?? '').includes('대화방에 올렸습니다'),
+   '`post_id`가 없는 저장소에서도 공유가 통째로 실패하지 않는다');
+missingColumns = [];
+
 /* 대화방에서 그 줄이 **눌러서 들어가는 카드**인가. 예전에는 가운데 한 줄이라
    보려면 라운드·투표 탭으로 건너가 목록에서 다시 찾아야 했다(사용자 제보 —
    대화를 보다가 바로 들어가지는 것이 이 카드의 전부다). */
@@ -660,11 +703,17 @@ ok(chatCards.some(h => h?.includes('/rounds/r4')),
 ok(chatCards.some(h => h?.includes('/rounds/r2')), '저절로 남은 모집 안내도 카드다');
 ok(chatCards.some(h => h?.includes('/polls/p1')), '투표를 올린 안내도 카드다');
 ok(chatCards.some(h => h?.includes('/polls/p2')), '투표 결과도 그대로 카드다');
+/* **공지 공유도 같은 카드다**(사용자 요청 — 라운드에 있던 그 단추를 공지에도).
+   눌러서 그 공지로 바로 들어가야 대화방에 올리는 뜻이 산다. */
+ok(chatCards.some(h => h?.includes('/board/b1')),
+   `공지 공유도 눌리는 카드다 (실제 ${JSON.stringify(chatCards)})`);
 /* 갈 곳에 맞는 말이 붙는가 — 라운드 카드에 `투표 보러 가기`가 붙으면
    눌러 놓고 딴 데로 간 줄 안다. */
 const goes = await page.$$eval('.chat-result', e => e.map(x => [
     x.getAttribute('href'), x.querySelector('.chat-result-go')?.textContent]));
-ok(goes.every(([h, g]) => h?.includes('/rounds/') ? g?.includes('라운드') : g?.includes('투표')),
+const wordFor = h => h?.includes('/rounds/') ? '라운드'
+    : h?.includes('/polls/') ? '투표' : '공지';
+ok(goes.every(([h, g]) => g?.includes(wordFor(h))),
    `카드마다 갈 곳에 맞는 말이 붙는다 (실제 ${JSON.stringify(goes)})`);
 /* **지운 것은 카드가 아니다** — 갈 곳이 이미 없다. */
 const notices = await page.$$eval('.chat-notice', e => e.map(x => x.textContent));
@@ -1182,6 +1231,49 @@ console.log('\n── 말풍선 꼬리 ──');
     ok(t.이모지 === null, '이모지만 보낸 글에는 안 붙는다 — 말풍선 자체가 없다');
     ok(t.사진글 === null, '사진 아래 딸린 글에는 안 붙는다 — 위가 사진으로 막혀 있다');
     ok(t.넘침 === 0, `뿔이 가로 스크롤을 만들지 않는다 (실제 ${t.넘침}px)`);
+}
+
+/* ── 6-1-1-3-1-11-3. 답장 인용 — 말풍선 안에 든다 ──────────────
+ *
+ * 사용자 요청 — `답장 기능을 카카오톡처럼 만들어주고`(카톡 사진을 받아
+ * 맞췄다). 예전에는 말풍선 **위에** 따로 뜬 쪽지라 한 마디가 두 덩어리로
+ * 보였다. 카톡은 머리말(`○○에게 댓글`) · 원문 · 가는 선을 **말풍선 안에**
+ * 넣고 그 아래에 답장 글을 놓는다.
+ *
+ * **눈으로는 `좀 다르네` 정도로만 보이는 자리**라 자리와 값을 재서 붙든다 —
+ * 인용의 아래변이 말풍선 안에 있는가, 가르는 선이 있는가, 말이 `댓글`인가.
+ * 고정 자료의 m7(내 글)·m8(남의 글)이 답장이다.
+ */
+console.log('\n── 답장 인용 ──');
+await go('/#/chat', 1200);
+{
+    const q = await page.evaluate(() => {
+        const box = sel => {
+            const e = document.querySelector(sel);
+            return e ? e.getBoundingClientRect() : null;
+        };
+        const quote = document.querySelector('[data-mid="m8"] .chat-quote');
+        const bubble = box('[data-mid="m8"] .chat-bubble');
+        const qb = quote?.getBoundingClientRect();
+        const cs = quote ? getComputedStyle(quote) : null;
+        return {
+            글: quote?.textContent ?? '',
+            안에: !!(qb && bubble) && qb.bottom <= bubble.bottom && qb.top >= bubble.top,
+            선: cs?.borderBottomWidth,
+            /* 말풍선 글자(15px)보다 작아야 인용이 답장만큼 커 보이지 않는다. */
+            글자: cs?.fontSize,
+            /* 내 노란 말풍선에서도 선이 보이는가 — `--line`으로 두면 안 보인다. */
+            내선: getComputedStyle(
+                document.querySelector('[data-mid="m7"] .chat-quote')).borderBottomColor,
+        };
+    });
+    ok(q.안에, '인용이 말풍선 안에 든다 — 위에 따로 뜬 쪽지가 아니다');
+    ok(q.글.includes('에게 댓글'),
+       `머리말이 \`○○에게 댓글\`이다 — 길게 누르는 창의 그 말과 같다 (실제 ${JSON.stringify(q.글.slice(0, 20))})`);
+    ok(q.선 === '1px', `원문과 답장을 가는 선으로 가른다 (실제 ${q.선})`);
+    ok(parseFloat(q.글자) < 15, `인용 글자는 말풍선보다 작다 (실제 ${q.글자})`);
+    ok(q.내선 === 'rgba(0, 0, 0, 0.1)',
+       `노란 말풍선에서도 같은 선을 쓴다 — \`--line\`은 거기서 안 보인다 (실제 ${q.내선})`);
 }
 
 /* ── 6-1-1-3-1-12. 길게 누른 창의 크기 ─────────────────────────
