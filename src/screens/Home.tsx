@@ -169,11 +169,15 @@ export function Home() {
                     **얼굴만 링크다** — 제목까지 링크로 묶으면 인사말이 눌리는
                     줄로 보여 무엇을 누르는 자리인지 흐려진다. */}
                 <div className="head-me">
-                    <Link to="/me" aria-label="내 정보">
-                        <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
-                    </Link>
-                    <div className="head-greet">
-                        <div className="sm faint">안녕하세요</div>
+                    {/* **인사말은 얼굴 위, 화면 맨 왼쪽에 붙는다**(사용자 요청 —
+                        `안녕하세요는 왼쪽으로 당기고`). 얼굴 옆에 두면 그
+                        너비만큼 안으로 밀려 다른 화면의 제목 줄과 시작점이
+                        어긋난다. 얼굴은 **이름 줄과 나란히** 선다. */}
+                    <div className="sm faint">안녕하세요</div>
+                    <div className="head-name">
+                        <Link to="/me" aria-label="내 정보">
+                            <Avatar name={profile?.name} url={profile?.avatar_url} gender={profile?.gender} />
+                        </Link>
                         <h1 className="page-title">{profile?.name || '회원'}님</h1>
                     </div>
                 </div>

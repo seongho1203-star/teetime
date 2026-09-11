@@ -1649,11 +1649,17 @@ ok(guide.some(h => h?.includes('/me')), '얼굴은 그대로 내 정보로 간�
    … 왼쪽으로 옮기고 기존 프로필 자리에 알림을 옮겨줘`).
    자리를 재서 붙들어 둔다 — 클래스만 보면 CSS가 뒤집혀도 초록으로 뜬다. */
 const headPos = await page.evaluate(() => {
-    const x = s => document.querySelector(s)?.getBoundingClientRect();
+    const r = s => document.querySelector(s)?.getBoundingClientRect();
+    const mid = b => b && b.top + b.height / 2;
+    const face = r('.head-me .avatar'), name = r('.head-me .page-title');
     return {
-        face: x('.head-me .avatar')?.left, name: x('.head-me .page-title')?.left,
-        bell: x('.head-side .bell')?.left,
+        face: face?.left, name: name?.left,
+        bell: r('.head-side .bell')?.left,
         sideLinks: document.querySelectorAll('.head-side a').length,
+        // 인사말은 얼굴 옆이 아니라 **그 위, 왼쪽 끝**이다.
+        greet: r('.head-me > .sm.faint')?.left,
+        // 얼굴과 이름의 세로 가운데가 맞는가.
+        gap: Math.abs(mid(face) - mid(name)),
     };
 });
 ok(headPos.face != null && headPos.name != null && headPos.face < headPos.name,
@@ -1662,6 +1668,18 @@ ok(headPos.bell != null && headPos.bell > headPos.name,
    '종은 오른쪽 끝에 홀로 선다');
 ok(headPos.sideLinks === 1,
    `오른쪽에는 종 하나뿐이다 (${headPos.sideLinks}개)`);
+
+/* **인사말은 얼굴 위, 왼쪽 끝이다**(사용자 요청 — `안녕하세요는 왼쪽으로
+   당기고`). 얼굴 옆 묶음에 넣으면 그 너비만큼 안으로 밀린다 — 그때는
+   `안녕하세요`가 얼굴보다 오른쪽에서 시작해 여기가 빨갛게 뜬다. */
+ok(headPos.greet != null && headPos.greet <= headPos.face,
+   `인사말이 얼굴과 같은 왼쪽 끝에서 시작한다 (인사말 ${headPos.greet} ≤ 얼굴 ${headPos.face})`);
+
+/* **얼굴은 이름 줄과 나란히 선다**(사용자 요청 — `프로필을 조금 내려서
+   악마제리님과 정렬을 맞춰주고`). 인사말까지 아우르는 가운데에 두면
+   두 줄 사이에 걸쳐 **13px쯤 위로 뜬다** — 그 자국을 숫자로 잡는다. */
+ok(headPos.gap != null && headPos.gap <= 2,
+   `얼굴 가운데가 이름 줄과 맞는다 (어긋남 ${headPos.gap?.toFixed(1)}px)`);
 await go('/#/me', 900);
 ok((await page.textContent('.page') ?? '').includes('앱 사용자 가이드'),
    '내 정보 메뉴에 가이드가 있다');
