@@ -390,6 +390,21 @@ final class ComposerBar: UIView, UITextViewDelegate {
                있다**(숫자판 ↔ 글자판). 거기서 건너뛰면 웹이 새 높이를
                영영 못 듣는다 — `same`으로 막는 것은 그림을 드는 쪽뿐이다. */
             follow(dur: dur, info: info)
+            /* **그것만으로는 모자랐다**(16판 · 사용자 제보 — 천지인에서 쿼티로
+               바꾸니 목록 아래에 밝은 띠). 그 알림은 시간이 0이라 따라가기가
+               0.05초 만에 끝나는데, `keyboardLayoutGuide`가 바를 옮기는 것은
+               그 뒤다 — 끝값을 옛 자리로 보내 놓고 아무도 다시 안 알렸다.
+               아래 `guard`가 같은 상태면 되돌아서므로 여기서 한 번 더 예약한다.
+               (`center`의 `didSet`도 같은 자리를 지킨다 — 둘 다 같은 값이라
+               겹쳐도 탈이 없다.) */
+            if same {
+                kbSeq += 1
+                let mine = kbSeq
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(dur, 0.1) + 0.06) { [weak self] in
+                    guard let self, self.kbSeq == mine else { return }
+                    self.report(end: true)
+                }
+            }
         } else {
             /* **다 움직인 뒤에 끝값을 한 번 더 알린다.** 그림을 드는 동안에는
                프레임마다 안 알리므로, 그 사이에 다른 값이 한 번이라도
@@ -542,6 +557,20 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
     override var intrinsicContentSize: CGSize {
         return CGSize(width: UIView.noIntrinsicMetric, height: barHeight())
+    }
+
+    /**
+     * **바가 자리만 옮겨도 웹에 알린다**(16판). Auto Layout은 `center`·`bounds`를
+     * 고쳐 자리를 잡는데, 높이는 그대로고 자리만 옮기면 `layoutSubviews`가
+     * 안 불려 아무도 안 알렸다 — 키보드가 떠 있는 채로 높이만 바뀔 때
+     * (천지인 ↔ 쿼티) `keyboardLayoutGuide`가 바를 옮기는 자리가 그것이다.
+     * 움직이는 동안(`link`)은 `tick`이 프레임마다 알리므로 건너뛴다.
+     */
+    override var center: CGPoint {
+        didSet {
+            guard center != oldValue, link == nil, superview != nil else { return }
+            report(end: true)
+        }
     }
 
     override func safeAreaInsetsDidChange() {

@@ -92,11 +92,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        안 알리므로, 그 사이에 다른 값이 끼어들면 되돌릴 자리가
     ///        없었다 — 키보드를 내려도 화면이 옛 크기로 굳었다.
     ///        같은 상태로 또 온 알림에는 그림을 다시 안 든다(`same`).
+    /// 16판 — **키보드가 떠 있는 채로 높이만 바뀌어도**(천지인 ↔ 쿼티) 바가
+    ///        옮겨 앉은 자리를 웹에 알린다(`ComposerBar.center`의 `didSet`과
+    ///        `setKb`의 `same` 갈래). 그 알림은 시간이 0이라 프레임 따라가기가
+    ///        바가 옮기기도 전에 끝났고, 옮긴 뒤에는 아무도 안 알려 목록
+    ///        아래에 옛 키보드 높이만큼 밝은 띠가 남았다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 15
+    private static let version = 16
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

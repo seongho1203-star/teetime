@@ -1152,7 +1152,26 @@ export function Chat() {
         };
 
         paint();
-        const onResize = () => paint();
+        /**
+         * **키보드가 떠 있는 채로 창이 줄어들면 그 높이를 그대로 적는다**
+         * (`trueUp` — 사용자 제보: 천지인에서 쿼티로 바꾸니 키보드 높이가
+         * 달라지며 목록 아래에 밝은 띠가 남았다). 그때 iOS는 `keyboardWillShow`를
+         * 시간 0으로 다시 던지는데, 바의 따라가기는 0.05초 만에 끝나고 바가
+         * 옮겨 앉는 것은 그 뒤라 **`--chat-h`가 옛 키보드 높이에 굳었다.**
+         * 앱은 16판부터 옮긴 자리를 다시 알리지만, 옛 앱을 든 폰은 웹만
+         * 밀어서 고쳐야 한다 — `resize: 'native'`라 **키보드가 떠 있으면
+         * 창(`clientHeight`)의 아랫변이 곧 키보드 윗변 = 바 아랫변**이니
+         * 웹이 스스로 아는 값이다(`trueDown`과 같은 결). 움직이는 동안과
+         * 키보드가 없을 때(창이 원래 높이)는 손대지 않는다 — 내려갈 때
+         * 플러그인이 창을 먼저 늘리는데 거기서 적으면 툭 뛴다.
+         */
+        const trueUp = () => {
+            if (!owns() || kbMoving.current) return;
+            if (!document.body.classList.contains('kb-open')) return;
+            const h = root.clientHeight;
+            if (h > 0 && h < base - 40) root.style.setProperty('--chat-h', `${h}px`);
+        };
+        const onResize = () => { paint(); trueUp(); };
         window.visualViewport?.addEventListener('resize', onResize);
         window.addEventListener('resize', onResize);
 
