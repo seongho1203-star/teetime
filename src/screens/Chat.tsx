@@ -848,6 +848,17 @@ export function Chat() {
     }) => void) | null>(null);
     /** 지금 바를 따라가는 중인가. 그동안은 높이를 **다른 데서 안 적는다.** */
     const kbFollow = useRef(false);
+    /**
+     * **키보드가 지금 오르내리는 중인가**(`kb` 신호 ~ `frame`의 `end` 사이).
+     *
+     * 그 사이에는 **화면을 다시 그리게 하지 않는다** — 실기기 진단에서
+     * 내려가는 길에만 `최대 34ms@201`로 한 프레임이 통째로 비었는데,
+     * 그 201ms째에 있던 것이 `onComposerBlur`의 150ms짜리 `setFocused(false)`
+     * 였다(`onComposerBlur` 주석). **올라갈 때는 같은 다시 그리기가
+     * `onComposerFocus`에서 키보드가 움직이기 **전에** 끝나 공짜다** —
+     * 그것이 한쪽만 거칠던 까닭이다.
+     */
+    const kbMoving = useRef(false);
 
     const kbRef = useRef({ typing: false, vh: 0, frame: 0, locked: false, width: 0,
                           /** 바로 앞에 키보드가 올라와 있었는가. 내려가는 **그 순간**만
@@ -1253,6 +1264,8 @@ export function Chat() {
          * 비었다(사용자 제보 · 사진). 값을 적는 것을 먼저 하고 갈래는
          * 그다음에 고르면 그 자리가 없어진다.
          */
+        /** 위 `kbMoving`을 내려 줄 예비 타이머. */
+        let moveEnd = 0;
         const writeKb = (e: KbSignal) => {
             if (e.chatH === undefined || e.pad === undefined) return;
             root.style.setProperty('--chat-anim', '0ms');
@@ -1326,6 +1339,13 @@ export function Chat() {
             /* 오르내리는 한 판을 재기 시작한다(진단 — `kbLog` 주석).
                값은 `내 정보` 맨 아래 한 줄로 나온다. */
             kbMark(on);
+            /* 움직이는 동안에는 화면을 다시 그리지 않는다(`kbMoving` 주석).
+               **예비 타이머를 함께 건다** — 그림을 드는 갈래(14판)에서는
+               `frame`이 아예 안 와서 이 표가 안 내려간다. */
+            kbMoving.current = true;
+            clearTimeout(moveEnd);
+            moveEnd = window.setTimeout(
+                () => { kbMoving.current = false; }, Math.round((dur || 0.25) * 1000) + 160);
             /* **끝값은 그림을 드는 갈래에서만 적는다.** 한동안 여기(갈래를
                고르기 전)에서 적었는데, 그림을 안 드는 판에서는 바가
                프레임마다 자리를 알려 주므로(`follow`) **끝값을 먼저 적으면
@@ -1371,6 +1391,7 @@ export function Chat() {
         };
         kbFrame.current = e => {
             kbTick(e.end);   // 진단 — 신호가 얼마나 고르게 닿는가(`kbLog` 주석)
+            if (e.end) { kbMoving.current = false; clearTimeout(moveEnd); }
             /* **6판은 늘 바가 적는다** — 움직이는 동안인지 가리지 않는다.
                `end`는 '이번 움직임이 끝났다'는 뜻일 뿐이라, 거기서 웹 셈으로
                돌아가면 그때부터 둘이 엇갈린다(위 `owns` 주석). */
@@ -1437,6 +1458,8 @@ export function Chat() {
             kbFollow.current = false;
             root.classList.remove('kb-follow');
             clearTimeout(fixAt);
+            clearTimeout(moveEnd);
+            kbMoving.current = false;
             cancelAnimationFrame(flushAt);
             root.style.removeProperty('--chat-anim');
             drop.forEach(f => f());
@@ -1590,6 +1613,22 @@ export function Chat() {
      * 보내기 버튼을 누를 때 잠깐 초점이 떴다가 돌아오는 기기가 있는데,
      * 그때마다 화면을 접었다 폈다 하면 대화가 껑충 뛴다. 조금 기다렸다가
      * 그래도 안 돌아오면 그때 접는다.
+     *
+     * **그런데 그 '조금'이 하필 키보드가 내려가는 한가운데였다.**
+     * 실기기 진단(1.68)에서 내려가는 길에만 한 프레임이 통째로 비었는데
+     * (`↓ 27칸·최대 34ms@201`) 그 **201ms째**가 바로 이 150ms 타이머가
+     * `setFocused(false)`로 화면을 다시 그리던 자리다. 말풍선은 `memo`라
+     * 다시 안 그려져도 화면 전체를 한 번 맞춰 보는 값이 폰에서는 그만큼 든다.
+     * **올라갈 때는 같은 다시 그리기가 `onComposerFocus`에서 키보드가
+     * 움직이기 전에 끝나 공짜다** — 그것이 한쪽만 거칠던 까닭이었다.
+     * (앞서 짚었던 둘은 숫자로 갈렸다 — `정리`가 8ms라 우리 `hide()`가
+     * 아니었고, 벌어진 자리가 `@201`이라 시작 순간의 웹뷰 되늘리기도 아니다.)
+     *
+     * 그래서 **키보드가 다 내려간 뒤에 접는다**(`kbMoving`). 기다리는 동안
+     * 달라 보이는 것은 없다 — 안내 글씨와 보내기 단추가 0.3초쯤 늦게
+     * 제자리로 갈 뿐이고, 그동안 키보드는 아직 화면에 있다.
+     * **못 기다리는 판에도 길을 남긴다**(`WAIT_MAX`) — 신호가 안 오는
+     * 판에서 영영 안 접히면 안 된다.
      */
     const onComposerBlur = () => {
         clearTimeout(blurTimer.current);
@@ -1598,12 +1637,19 @@ export function Chat() {
         // 두면 그 끝에서 화면이 한 번에 툭 늘어나 뚝뚝 끊겨 보인다.
         // 풀어 두면 매 단계 따라 늘어나 카톡처럼 함께 내려간다.
         kbRef.current.locked = false;
-        blurTimer.current = window.setTimeout(() => {
+        const WAIT_MAX = 900;
+        const from = Date.now();
+        const fold = () => {
+            if (kbMoving.current && Date.now() - from < WAIT_MAX) {
+                blurTimer.current = window.setTimeout(fold, 60);
+                return;
+            }
             kbRef.current.typing = false;
             setFocused(false);
             setMention(null);
             applyKeyboard(true);
-        }, 150);
+        };
+        blurTimer.current = window.setTimeout(fold, 150);
     };
 
     useEffect(() => () => clearTimeout(blurTimer.current), []);
