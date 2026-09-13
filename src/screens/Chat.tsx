@@ -19,8 +19,8 @@ import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import {
-    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbTick, kbWork, ncLog,
-    pickNativePhoto,
+    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbSnap, kbTick, kbWork,
+    ncLog, pickNativePhoto,
 } from '../lib/composer';
 
 /**
@@ -1266,6 +1266,42 @@ export function Chat() {
          */
         /** 위 `kbMoving`을 내려 줄 예비 타이머. */
         let moveEnd = 0;
+        /**
+         * **다 움직인 뒤 화면이 놓인 자리를 한 줄로 적는다**(진단 — `kbSnap`).
+         *
+         * 1.69 사진에서 키보드가 떠 있는데 **목록 아래·바 위에 밝은 띠**가
+         * 남아 있었다. 그 띠가 누구 몫인지는 값을 봐야 갈린다 — `--chat-h`가
+         * 키보드 윗변보다 작은지(`.chat`이 일찍 끝난다) · `--composer`가 바보다
+         * 큰지(입력칸 여백이 남는다) · 창(`clientHeight`)이 아직 안 줄었는지.
+         * 그래서 CSS 값 둘과 **실제로 그려진 자리** 셋(창·목록 아랫변·입력칸
+         * 윗변/높이), 그리고 바가 마지막으로 보낸 자리(`frame`)를 함께 적는다.
+         * `내 정보` 맨 아래 `↑끝`·`↓끝` 줄이 그것이다. **까닭이 가려지면 걷어낼 것.**
+         */
+        let lastFrame = { bottom: 0, h: 0, p: 0 };
+        let snapAt = 0;
+        const snap = (on: boolean, dur: number) => {
+            clearTimeout(snapAt);
+            snapAt = window.setTimeout(() => {
+                const cs = getComputedStyle(root);
+                const num = (v: string) => Math.round(parseFloat(v) || 0);
+                const list = listRef.current;
+                const chat = list?.closest<HTMLElement>('.chat') ?? null;
+                const inp = barRef.current;
+                const r = (el: HTMLElement | null) => el?.getBoundingClientRect();
+                const c = r(chat), l = r(list), i = r(inp);
+                kbSnap(on, [
+                    `h${num(cs.getPropertyValue('--chat-h'))}`,
+                    `c${num(cs.getPropertyValue('--composer'))}`,
+                    `창${root.clientHeight}`,
+                    `채${c ? Math.round(c.bottom) : '-'}`,
+                    `목${l ? Math.round(l.bottom) : '-'}`,
+                    `입${i ? `${Math.round(i.top)}+${Math.round(i.height)}` : '-'}`,
+                    `바${Math.round(lastFrame.bottom)}/${Math.round(lastFrame.h)}`,
+                    `p${Math.round(lastFrame.p * 100) / 100}`,
+                    `s${num(cs.getPropertyValue('--safe-b'))}`,
+                ].join(' '));
+            }, Math.round((dur || 0.25) * 1000) + 400);
+        };
         const writeKb = (e: KbSignal) => {
             if (e.chatH === undefined || e.pad === undefined) return;
             root.style.setProperty('--chat-anim', '0ms');
@@ -1338,7 +1374,8 @@ export function Chat() {
         kbBeat.current = (on, dur, at, e) => {
             /* 오르내리는 한 판을 재기 시작한다(진단 — `kbLog` 주석).
                값은 `내 정보` 맨 아래 한 줄로 나온다. */
-            kbMark(on);
+            kbMark(on, dur);
+            snap(on, dur);
             /* 움직이는 동안에는 화면을 다시 그리지 않는다(`kbMoving` 주석).
                **예비 타이머를 함께 건다** — 그림을 드는 갈래(14판)에서는
                `frame`이 아예 안 와서 이 표가 안 내려간다. */
@@ -1391,6 +1428,7 @@ export function Chat() {
         };
         kbFrame.current = e => {
             kbTick(e.end);   // 진단 — 신호가 얼마나 고르게 닿는가(`kbLog` 주석)
+            lastFrame = { bottom: e.bottom, h: e.h, p: e.p };
             if (e.end) { kbMoving.current = false; clearTimeout(moveEnd); }
             /* **6판은 늘 바가 적는다** — 움직이는 동안인지 가리지 않는다.
                `end`는 '이번 움직임이 끝났다'는 뜻일 뿐이라, 거기서 웹 셈으로
@@ -1459,6 +1497,7 @@ export function Chat() {
             root.classList.remove('kb-follow');
             clearTimeout(fixAt);
             clearTimeout(moveEnd);
+            clearTimeout(snapAt);
             kbMoving.current = false;
             cancelAnimationFrame(flushAt);
             root.style.removeProperty('--chat-anim');

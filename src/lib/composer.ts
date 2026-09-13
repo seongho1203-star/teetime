@@ -168,8 +168,15 @@ type KbRun = {
     at: number;
     /** `hide()`가 도는 데 걸린 시간(내려갈 때만). */
     work: number;
+    /**
+     * 다 움직인 뒤 화면이 어떻게 놓였나(1.70부터). 1.69 사진에서 키보드가
+     * 떠 있는데 **목록 아래·바 위에 밝은 띠**가 남아 있었다 — `--chat-h`·
+     * `--composer`·창·목록·입력칸의 실제 자리를 한 줄로 적어 어느 값이
+     * 어긋난 것인지 가린다(`Chat.tsx`의 `kbSnap`).
+     */
+    snap: string;
 };
-const kbRun = (): KbRun => ({ n: 0, ms: 0, gap: 0, at: 0, work: 0 });
+const kbRun = (): KbRun => ({ n: 0, ms: 0, gap: 0, at: 0, work: 0, snap: '' });
 export const kbLog = {
     up: kbRun(),
     down: kbRun(),
@@ -177,10 +184,23 @@ export const kbLog = {
     cur: null as { on: boolean; t0: number; last: number; run: KbRun } | null,
 };
 
-/** 키보드가 움직이기 시작했다(`kb` 신호). */
-export function kbMark(on: boolean): void {
+/**
+ * 키보드가 움직이기 시작했다(`kb` 신호).
+ *
+ * **시간이 0에 가까운 알림은 안 잰다.** iOS는 키보드가 이미 떠 있는데도
+ * `keyboardWillShow`를 또 던질 때가 있고(같은 자리라 `dur`가 0이다), 그것을
+ * 한 판으로 세면 **진짜 움직임을 잰 값을 덮어쓴다** — 1.69에서 `↑4칸·65ms`로
+ * 찍힌 것이 그것이었다(0.05초 예비 시간만큼 서너 번 닿고 끝난 것).
+ */
+export function kbMark(on: boolean, dur?: number): void {
+    if (dur !== undefined && dur < 0.1) { kbLog.cur = null; return; }
     const t = Date.now();
     kbLog.cur = { on, t0: t, last: t, run: kbRun() };
+}
+
+/** 다 움직인 뒤 화면이 놓인 자리를 적어 둔다(위 `snap`). */
+export function kbSnap(on: boolean, s: string): void {
+    (on ? kbLog.up : kbLog.down).snap = s;
 }
 
 /** 내려갈 때 `hide()`가 그 자리에서 한 일이 몇 ms였나. 위 ①과 ②를 가르는 값이다. */
@@ -210,8 +230,12 @@ export function kbStat(): string {
     if (!kbLog.up.n && !kbLog.down.n) return '';
     const one = (r: KbRun) =>
         `${r.n}칸·최대${r.gap}ms@${r.at}·${r.ms}ms`;
-    return `↑${one(kbLog.up)}
-↓${one(kbLog.down)}·정리${kbLog.down.work}ms`;
+    return [
+        `↑${one(kbLog.up)}`,
+        kbLog.up.snap && `↑끝 ${kbLog.up.snap}`,
+        `↓${one(kbLog.down)}·정리${kbLog.down.work}ms`,
+        kbLog.down.snap && `↓끝 ${kbLog.down.snap}`,
+    ].filter(Boolean).join('\n');
 }
 
 let asked: Promise<boolean> | null = null;
