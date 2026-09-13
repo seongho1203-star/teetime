@@ -129,17 +129,47 @@ export function ncStatus(): string {
  *
  * 재는 것은 **바가 보내 주는 자리 신호가 얼마나 고르게 닿는가**다.
  * 화면은 그 신호가 닿을 때마다 한 번씩 움직이므로, 신호 사이가 벌어진
- * 만큼이 곧 눈에 보이는 끊김이다. 짚이는 데가 하나 있다 —
- * 키보드 플러그인은 **내릴 때 웹뷰를 0.01초 만에 통째로 늘리고**
- * (`Keyboard.m` · 올릴 때는 `애니메이션 시간 + 0.2초`), 그 큰 크기 변화의
- * 배치 비용이 **내려가기 시작하는 바로 그 순간** 주 갈래에 얹힌다.
- * 그렇다면 `↓`의 `최대`만 크게 나온다.
+ * 만큼이 곧 눈에 보이는 끊김이다.
+ *
+ * **첫 판(1.67)에서 실기기 값이 나왔다** — `↑ 28칸·최대 19ms·439ms` ·
+ * `↓ 26칸·최대 43ms·442ms`. 올라갈 때는 거의 한 프레임(16.7ms)마다 고르게
+ * 닿는데 **내려올 때만 한 번 43ms가 빈다**(두 프레임쯤 빠진다). 그 한 번이
+ * 곧 눈에 보이는 끊김이다.
+ *
+ * **그다음은 그 끊김이 누구 몫인지 가리는 것이다.** 갈래가 둘인데 고칠 수
+ * 있고 없고가 정반대로 갈린다:
+ *   ① **우리 일** — `hide()`가 내려가기 시작하는 그 순간 `kb-open`·`kb-bar`를
+ *      떼고(뿌리 클래스라 문서 전체 스타일을 다시 셈한다) `settleList()`가
+ *      `scrollHeight`를 읽어 **배치를 그 자리에서 강제로** 끝낸다.
+ *      **올라갈 때는 이 일이 미리 끝나 있다** — `kbHint`가 글칸에 초점이
+ *      가는 순간(키보드가 움직이기 전) 같은 것을 해 두기 때문이다.
+ *      **이것이 지금까지 찾은 유일한 비대칭이다.**
+ *   ② **플러그인 몫** — 내릴 때 웹뷰를 0.01초 만에 통째로 늘린다
+ *      (`Keyboard.m` · 올릴 때는 `애니메이션 시간 + 0.2초`라 움직임이 다
+ *      끝난 뒤다). 그 큰 크기 변화의 값은 우리 코드 밖에서 든다.
+ *
+ * 그래서 **`hide()`가 도는 데 걸린 시간(`정리`)을 함께 잰다** — 거기에
+ * 값이 실리면 ①이라 고칠 자리가 있고, `정리`가 1~2ms인데 `최대`만 크면
+ * ②라 **웹에서는 손댈 데가 없다**(그때의 다음 손은 목록을 네이티브로
+ * 옮기는 일이다). **가장 크게 벌어진 자리가 언제인지(`@`)도 적는다** —
+ * 0에 가까우면 '시작하자마자'라는 뜻이라 위 둘 중 하나가 맞는다.
  *
  * 값은 `내 정보` 맨 아래에 한 줄로 적는다 — **토스트로 알리면 몇 초 뒤
  * 사라져 사진으로 찍어 보낼 수가 없다**(알림 걸음 줄에서 얻은 교훈이다).
  */
-type KbRun = { n: number; ms: number; gap: number };
-const kbRun = (): KbRun => ({ n: 0, ms: 0, gap: 0 });
+type KbRun = {
+    /** 신호가 몇 번 닿았나. */
+    n: number;
+    /** 다 걸린 시간. */
+    ms: number;
+    /** 신호 사이가 가장 많이 벌어진 값. */
+    gap: number;
+    /** 그 벌어진 자리가 움직임 시작에서 몇 ms째인가. */
+    at: number;
+    /** `hide()`가 도는 데 걸린 시간(내려갈 때만). */
+    work: number;
+};
+const kbRun = (): KbRun => ({ n: 0, ms: 0, gap: 0, at: 0, work: 0 });
 export const kbLog = {
     up: kbRun(),
     down: kbRun(),
@@ -153,13 +183,21 @@ export function kbMark(on: boolean): void {
     kbLog.cur = { on, t0: t, last: t, run: kbRun() };
 }
 
+/** 내려갈 때 `hide()`가 그 자리에서 한 일이 몇 ms였나. 위 ①과 ②를 가르는 값이다. */
+export function kbWork(ms: number): void {
+    if (kbLog.cur) kbLog.cur.run.work = Math.round(ms);
+}
+
 /** 바가 자리를 알려 왔다(`frame` 신호). 움직이는 중일 때만 센다. */
 export function kbTick(end: boolean): void {
     const c = kbLog.cur;
     if (!c) return;
     const t = Date.now();
     c.run.n += 1;
-    c.run.gap = Math.max(c.run.gap, t - c.last);
+    if (t - c.last > c.run.gap) {
+        c.run.gap = t - c.last;
+        c.run.at = c.last - c.t0;      // 벌어지기 **시작한** 자리
+    }
     c.run.ms = t - c.t0;
     c.last = t;
     if (!end) return;
@@ -167,11 +205,13 @@ export function kbTick(end: boolean): void {
     kbLog.cur = null;
 }
 
-/** `내 정보` 아래에 적을 한 줄. 아직 한 번도 안 움직였으면 빈 글자다. */
+/** `내 정보` 아래에 적을 두 줄. 아직 한 번도 안 움직였으면 빈 글자다. */
 export function kbStat(): string {
-    const one = (r: KbRun) => `${r.n}칸·최대${r.gap}ms·${r.ms}ms`;
     if (!kbLog.up.n && !kbLog.down.n) return '';
-    return `키보드 ↑${one(kbLog.up)} ↓${one(kbLog.down)}`;
+    const one = (r: KbRun) =>
+        `${r.n}칸·최대${r.gap}ms@${r.at}·${r.ms}ms`;
+    return `↑${one(kbLog.up)}
+↓${one(kbLog.down)}·정리${kbLog.down.work}ms`;
 }
 
 let asked: Promise<boolean> | null = null;

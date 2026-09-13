@@ -19,7 +19,7 @@ import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import {
-    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbTick, ncLog,
+    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbTick, kbWork, ncLog,
     pickNativePhoto,
 } from '../lib/composer';
 
@@ -1117,6 +1117,14 @@ export function Chat() {
         /** 키보드가 내려간다. `keyboardWillHide`와 네이티브 바의 `kb`가
             같이 쓴다 — 먼저 닿은 쪽이 하고 나중 것은 같은 값이라 그냥 지나간다. */
         const hide = () => {
+            /* **여기서 걸린 시간이 진단의 핵심이다**(`kbWork` · `kbLog` 주석).
+               이 블록은 키보드가 내려가기 **시작하는 바로 그 프레임**에 도는데,
+               뿌리 클래스를 떼어 문서 전체 스타일을 다시 셈하게 하고
+               `settleList()`가 `scrollHeight`를 읽어 배치까지 그 자리에서
+               끝낸다. 올라갈 때는 같은 일이 `kbHint`로 **미리** 끝나 있어
+               공짜다 — 지금까지 찾은 유일한 비대칭이 이것이라, 값이 실리는지
+               보고 고칠 자리가 있는지 가린다. */
+            const t0 = performance.now();
             want = 0;
             open(false);
             /* **2판부터는 탭바를 여기서 바로 내놓는다.** 바가 늘 화면
@@ -1129,6 +1137,7 @@ export function Chat() {
             if (root.classList.contains('nc2')) bar(false);
             paint();
             settleList();
+            kbWork(performance.now() - t0);
         };
 
         paint();

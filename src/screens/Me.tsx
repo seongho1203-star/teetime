@@ -530,7 +530,9 @@ export function Me() {
                     오면 적혀 있다 — 아직 안 움직였으면 줄 자체가 없고,
                     웹에서는 신호가 아예 없어 늘 안 보인다.
                     **까닭이 가려지면 이 줄을 걷어낼 것.** */}
-                {kbStat() && <><br />{kbStat()}</>}
+                {kbStat().split('\n').filter(Boolean).map(line => (
+                    <span key={line}><br />{line}</span>
+                ))}
             </p>
         </div>
     );
