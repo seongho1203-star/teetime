@@ -1558,6 +1558,25 @@ const seen = inRoom.map(t => order.find(n => t?.includes(n))).filter(Boolean);
 ok(seen.join(' ') === order.join(' '),
    `운영진 먼저 · 그다음 나이순 (실제 ${seen.join(' ')})`);
 
+/* **직책은 글자가 아니라 얼굴에 붙는 표다**(사용자 요청 — `운영진은 글씨로
+   앱관리자 이렇게 표시하지말고 사진처럼 표시해줘`). 클래스 이름만 보면
+   글자표가 그대로 남아 있어도 초록으로 뜨므로 **둘을 함께 본다** —
+   표가 붙은 사람 수(고정 자료로 넷: 앱관리자·운영자·부운영자·총무)와,
+   글자표가 한 줄도 안 남았는가. **색만으로 가르지 않으므로** 표에
+   직책 이름이 `aria-label`로 달려 있는지도 잰다. */
+const rank = await page.$$eval('.chat-person .chat-rank',
+    els => els.map(e => e.getAttribute('aria-label')));
+ok(rank.length === 4, `직책은 얼굴에 붙는 표다 (실제 ${rank.length}명)`);
+ok(!await page.$('.chat-person .role-tag'),
+   '이름 뒤에 `앱관리자` 같은 글자표를 안 붙인다');
+ok(rank.includes('앱관리자') && rank.includes('총무'),
+   `표에 직책 이름이 달려 있다 — 색만으로 가르지 않는다 (실제 ${rank.join('·')})`);
+/* **`나`는 이름 앞이다**(카톡과 같다). 뒤에 두면 긴 이름표에 밀린다. */
+ok(await page.$eval('.chat-person-me', e => {
+    const b = x => x.getBoundingClientRect();
+    return b(e).left < b(e.parentElement.querySelector('.chat-person-name')).left;
+}), '`나` 표는 이름 앞에 온다');
+
 /* 줄을 누르면 그 사람 카드가 뜬다. */
 await page.click('.chat-person');
 await page.waitForTimeout(400);

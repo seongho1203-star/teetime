@@ -111,36 +111,98 @@
     padding: 9px var(--gap);
     border-bottom: 1px solid var(--line);
 }
-.chat-people-n { font-size: var(--fs-sm); font-weight: 800; color: var(--text); }
-.chat-people-find { padding: 9px var(--gap); border-bottom: 1px solid var(--line); }
+.chat-people-n { font-size: var(--fs); font-weight: 800; color: var(--text); }
+.chat-people-find { padding: 9px var(--gap); }
+
+/* **크기는 카톡 스크린샷을 픽셀로 재서 맞춘 값이다**(사용자 요청 —
+   `글씨크기나 디자인을 이렇게해주고`). 말풍선 때와 같은 자로 쟀다 —
+   그 폰(1206×2622)에서 배율이 3.0이고, 글자는 잉크로 견주지 않고
+   **이미 맞춰 둔 말풍선(15px Pretendard = 잉크 39픽셀)과의 비율**로 냈다.
+
+   | | 카톡(사진 픽셀) | 우리 |
+   |---|---|---|
+   | 줄 높이   | 150 | **50px**(36 + 7×2) |
+   | 아바타     | 108 | **36px** |
+   | 아바타→이름 | 39 | **13px** |
+   | 이름 잉크   | 41 | 15 × 41/39 ≈ 16 → **`--fs-md`** |
+   | 머리말 잉크 | 37 | 15 × 37/39 ≈ 14 → **`--fs`** |
+   | 직책 표    | 48 | **16px**(흰 테두리까지) |
+
+   **줄을 가르는 선이 없다** — 사진을 픽셀로 훑어 확인했다(행 사이가
+   순백 한 줄도 안 끊긴다). 얼굴이 이미 줄을 갈라 주므로 선을 그으면
+   목록만 빽빽해진다. **되살리지 말 것.** */
 .chat-person {
     display: flex;
     align-items: center;
-    gap: var(--gap-sm);
+    gap: 13px;
     width: 100%;
-    padding: 9px var(--gap);
+    padding: 7px var(--gap);
     border: 0;
-    border-bottom: 1px solid var(--line);
     background: none;
     text-align: left;
     cursor: pointer;
 }
 .chat-person:active { background: var(--surface-2); }
-/* 이름표가 `83/신성호/광산구`라 길다 — 표가 밀리지 않게 여기서만 줄인다. */
-.chat-person-name {
+/* 직책 표가 얼굴 오른아래에 걸터앉을 기준 칸이다. */
+.chat-person-face { position: relative; flex: 0 0 auto; line-height: 0; }
+/* **얼굴은 모서리 둥근 네모다**(`.chat-avatar`와 같은 결 — 대화 화면에서
+   '카톡 같다'는 느낌을 만드는 자리다). 둥글기는 말풍선 옆 얼굴의
+   비율(10/29)을 그대로 옮긴 값이다. */
+.chat-person-face .avatar {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    font-size: var(--fs-sm);
+}
+/* **직책 표 — 색은 회원 명단의 직책표(`.role-*`)를 그대로 물려받는다.**
+   `background: currentColor`라 여기서 색을 새로 정할 자리가 아예 없다 —
+   한쪽만 고쳐 명단과 어긋나는 일을 없애려는 것이다.
+   그림은 흰색이어야 하므로 **안쪽에서 색을 한 번 뒤집는다**(svg의
+   `color: var(--surface)` → 그 안의 `currentColor`가 흰색이 된다). */
+.chat-rank {
+    position: absolute;
+    right: -3px;
+    bottom: -2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: currentColor;
+    border: 2px solid var(--bg);
+    display: grid;
+    place-items: center;
+}
+.chat-rank svg { width: 10px; height: 10px; display: block; color: var(--surface); }
+
+/* `나`·이름을 한 줄로 묶는다. `min-width: 0`이 있어야 긴 이름표에
+   말줄임이 걸린다(없으면 제 글자 길이만큼 벌어진다). */
+.chat-person-line {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     flex: 1;
     min-width: 0;
-    font-size: var(--fs-sm);
+}
+.chat-person-name {
+    min-width: 0;
+    font-size: var(--fs-md);
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* 이름 **앞**에 붙는 동그란 `나`(카톡과 같다). 뜻이 있는 색을 안 쓴다 —
+   '나'라는 것은 알려 주는 값이지 눌러야 할 것이 아니다. */
 .chat-person-me {
     flex: 0 0 auto;
-    font-size: var(--fs-xs);
-    font-weight: 700;
-    color: var(--text-dim);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    color: var(--surface);
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    display: grid;
+    place-items: center;
 }
 
 /* 말풍선 옆 얼굴이 눌리는 곳이 된다.

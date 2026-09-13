@@ -3819,6 +3819,49 @@ function roomOrder(a: Person, b: Person): number {
 }
 
 /**
+ * **직책은 글자가 아니라 얼굴에 붙는 작은 표다**(사용자 요청 — `운영진은
+ * 글씨로 앱관리자 이렇게 표시하지말고 사진처럼 표시해줘` · 카톡 사진을
+ * 받아 맞췄다). 예전에는 이름 뒤에 `앱관리자`라고 적었는데, 이름표가
+ * 이미 `83/신성호/광산구`로 길어서 좁은 화면에서는 그 표가 줄을 밀어냈다.
+ *
+ * - **운영진 셋(앱관리자·운영자·부운영자)은 왕관이고 색만 다르다** —
+ *   카톡이 방장·부방장에 왕관을 쓰는 그 자리다. 색은 **회원 명단의
+ *   직책표(`ROLE_TAG` → `.role-*`)를 그대로 물려받는다**(`background:
+ *   currentColor`) — 여기서 색을 새로 정하면 명단과 어긋난다.
+ * - **총무는 왕관이 아니다** — 앱의 다른 모든 자리에서 총무는 운영진이
+ *   아니므로(돈만 만진다) 지폐 표를 따로 그린다. **왕관을 주지 말 것.**
+ * - **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다
+ *   (투표 결과 카드의 `🗳`에서 겪었다). `HoldIcons`와 같은 결의 SVG다.
+ * - **색만으로 가르지 않는다** — 누르면 뜨는 프로필 카드가 직책을 글자로
+ *   적고, 표 자체에도 `aria-label`·`title`로 그 이름을 달아 둔다
+ *   (얼굴 테두리의 남녀 구분과 같은 잣대다).
+ */
+function RankMark({ role }: { role: Person['role'] }) {
+    const tag = ROLE_TAG[role];
+    if (!tag) return null;
+    const 총무 = role === 'treasurer';
+    return (
+        <span className={`chat-rank ${tag}`}
+              title={ROLE_LABEL[role]} aria-label={ROLE_LABEL[role]}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                {총무
+                    ? (/* `₩` — 돈을 맡는 자리. **획을 굵게 두고 가로줄은
+                          하나만 긋는다** — 10px에서 두 줄은 뭉개진다. */ <>
+                        <path d="M2.6 3.6L6 11.4L8 6.4L10 11.4L13.4 3.6"
+                              fill="none" stroke="currentColor" strokeWidth="1.9"
+                              strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M2.2 7.4H13.8" stroke="currentColor"
+                              strokeWidth="1.7" strokeLinecap="round" />
+                    </>)
+                    : (/* 왕관 — 운영진 */
+                        <path d="M2.2 12.4V5.0L5.6 8.2L8 3.4L10.4 8.2L13.8 5.0V12.4Z"
+                              fill="currentColor" />)}
+            </svg>
+        </span>
+    );
+}
+
+/**
  * **참여자 목록**(카톡 오픈톡의 ☰).
  *
  * **찾는 글자를 대화 화면이 아니라 여기서 들고 있다.** 위에 두었더니 한
@@ -3860,14 +3903,18 @@ function PeopleList({ people, me, onPick, onClose }: {
             )}
             {rows.filter(p => !q || (p.name ?? '').includes(q)).map(p => (
                 <button key={p.id} className="chat-person" onClick={() => onPick(p)}>
-                    <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />
-                    <span className="chat-person-name">{personLabel(p)}</span>
-                    {ROLE_TAG[p.role] && (
-                        <span className={`role-tag ${ROLE_TAG[p.role]}`}>
-                            {ROLE_LABEL[p.role]}
-                        </span>
-                    )}
-                    {p.id === me && <span className="chat-person-me">나</span>}
+                    {/* 얼굴과 직책 표를 한 덩어리로 묶는다 — 표가 얼굴
+                        오른아래에 걸터앉아야 하므로 기준 칸이 필요하다. */}
+                    <span className="chat-person-face">
+                        <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                        <RankMark role={p.role} />
+                    </span>
+                    {/* `나`는 이름 **앞**에 붙는 동그란 표다(카톡과 같다).
+                        뒤에 두면 긴 이름표에 밀려 화면 밖으로 나간다. */}
+                    <span className="chat-person-line">
+                        {p.id === me && <span className="chat-person-me">나</span>}
+                        <span className="chat-person-name">{personLabel(p)}</span>
+                    </span>
                 </button>
             ))}
         </div>
