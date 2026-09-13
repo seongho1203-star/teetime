@@ -3793,6 +3793,32 @@ function PhotoZoom({ url, busy, onSave, onShare, onClose }: {
 }
 
 /**
+ * 참여자 목록의 차례 — **운영진이 맨 위, 그다음은 나이순**(사용자 요청).
+ *
+ * 세 묶음으로 나눈다. **`ROLE_TAG`가 붙는 사람이 위로 오는 것**이라
+ * 이름표와 차례가 어긋나지 않는다:
+ *   ① 운영진(앱관리자·운영자·부운영자 — DB의 `is_admin()`과 같은 잣대)
+ *   ② 총무 — 운영진에는 안 들지만 직책이 있어 일반회원보다 위에 둔다
+ *   ③ 일반회원
+ *
+ * **묶음 안에서는 연장자가 앞이다**(태어난 해가 이른 순) — 회원 명단의
+ * `나이` 차례와 같은 규칙이고, **모르는 값은 늘 뒤로 보낸다**(`null`은
+ * 0이 아니라 **아직 안 적음**이다).
+ * **같은 값끼리는 이름순이다** — 안 그러면 다시 그릴 때마다 줄이 뒤바뀐다.
+ *
+ * **내보내지 말 것** — 화면 파일에서 함수를 내보내면 fast refresh가
+ * 깨진다(`pollClosed`를 types.ts에 둔 것과 같은 이유다).
+ */
+function roomOrder(a: Person, b: Person): number {
+    const tier = (r: Person['role']) =>
+        r === 'superadmin' || r === 'admin' || r === 'staff' ? 0
+            : r === 'treasurer' ? 1 : 2;
+    return tier(a.role) - tier(b.role)
+        || (a.birth_year ?? 9999) - (b.birth_year ?? 9999)
+        || (a.name || '').localeCompare(b.name || '', 'ko');
+}
+
+/**
  * **참여자 목록**(카톡 오픈톡의 ☰).
  *
  * **찾는 글자를 대화 화면이 아니라 여기서 들고 있다.** 위에 두었더니 한
@@ -3816,6 +3842,10 @@ function PeopleList({ people, me, onPick, onClose }: {
        (`FIND_AT` — 정산에서 사람 고를 때와 같은 잣대다). */
     const [find, setFind] = useState('');
     const q = find.trim();
+    /* 차례는 고정이라 **한 번 세워 두고 거르기만 한다** — 글자를 칠 때마다
+       다시 세우지 않으려는 것이다(차례가 고정이므로 거른 뒤에 세우는 것과
+       결과가 같다). */
+    const rows = useMemo(() => [...people].sort(roomOrder), [people]);
     return (
         <div className="chat-people">
             <div className="chat-people-head">
@@ -3828,7 +3858,7 @@ function PeopleList({ people, me, onPick, onClose }: {
                            value={find} onChange={e => setFind(e.target.value)} />
                 </div>
             )}
-            {people.filter(p => !q || (p.name ?? '').includes(q)).map(p => (
+            {rows.filter(p => !q || (p.name ?? '').includes(q)).map(p => (
                 <button key={p.id} className="chat-person" onClick={() => onPick(p)}>
                     <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />
                     <span className="chat-person-name">{personLabel(p)}</span>

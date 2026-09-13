@@ -1547,6 +1547,17 @@ ok(inRoom.some(t => t?.includes('나')), '내 줄에는 `나` 표가 붙는다')
 ok((await page.textContent('.chat-people-n') ?? '').includes('명'),
    '몇 명인지 머리말에 적는다');
 
+/* **차례는 운영진 먼저, 그다음 나이순이다**(사용자 요청 — `운영진이 맨위에
+   오고 그 다음은 나이순으로 정렬되게해줘`). 고정 자료로 세 가지가 한꺼번에
+   걸린다 — 운영진 셋이 앞, 그 안에서도 연장자 먼저(68 → 72 → 80),
+   총무는 운영진 뒤 일반회원 앞, 태어난 해를 안 적은 사람은 맨 뒤.
+   **이름만 보면 CSS도 정렬도 안 보므로 차례 자체를 적어 둔다.** */
+const order = ['이관교', '신성호', '김지명', '박승수',
+               '임채원', '정우성', '장동건', '오세훈'];
+const seen = inRoom.map(t => order.find(n => t?.includes(n))).filter(Boolean);
+ok(seen.join(' ') === order.join(' '),
+   `운영진 먼저 · 그다음 나이순 (실제 ${seen.join(' ')})`);
+
 /* 줄을 누르면 그 사람 카드가 뜬다. */
 await page.click('.chat-person');
 await page.waitForTimeout(400);
