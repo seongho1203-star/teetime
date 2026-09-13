@@ -1577,6 +1577,34 @@ ok(await page.$eval('.chat-person-me', e => {
     return b(e).left < b(e.parentElement.querySelector('.chat-person-name')).left;
 }), '`나` 표는 이름 앞에 온다');
 
+/* **서랍 맨 위에 `최근 사진`이 있다**(사용자 요청 — `메뉴누르면 사진처럼
+   사진/동영상 만들어줘` · 카톡 서랍 사진을 받아 맞췄다). 올린 사진을
+   되짚으려면 대화를 위로 계속 올리는 것 말고는 길이 없었다.
+   **이모티콘이 안 섞이는지가 핵심이다** — 사진과 같은 칸(`image_url`)을
+   쓰므로 서버에서 걸러 내는 조건(`not.ilike.sticker:%`)이 빠지면 우리
+   대화방은 대부분이 이모티콘이라 서른 칸이 죄다 이모티콘으로 찬다.
+   (고정 자료는 사진 한 장 · 이모티콘 넷이라 그 한 줄로 갈린다.) */
+const shots = await page.$$eval('.chat-shot img', els => els.map(e => e.src));
+ok(shots.length > 0, `서랍에 최근 사진이 늘어선다 (실제 ${shots.length}장)`);
+ok(!shots.some(s => s.includes('/stickers/')),
+   '이모티콘은 사진 줄에 안 섞인다');
+ok(await page.evaluate(() => {
+    const b = e => e.getBoundingClientRect().top;
+    return b(document.querySelector('.chat-shots-h'))
+         < b(document.querySelector('.chat-people-n'));
+}), '사진 줄이 참여자 목록보다 위에 온다');
+/* **누르면 앱 안에서 크게 뜬다** — 서랍(z-index 6) 위로 제대로 덮이는지가
+   자리다. 클래스만 보면 뒤에 깔려 있어도 초록으로 뜨므로 **그 자리를
+   실제로 누르면 무엇이 잡히는가**를 본다. */
+await page.click('.chat-shot');
+await page.waitForTimeout(400);
+ok(await page.evaluate(() => {
+    const hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    return !!hit?.closest('.photo-zoom');
+}), '썸네일을 누르면 서랍 위로 크게 뜬다');
+await page.click('.photo-zoom-x');
+await page.waitForTimeout(300);
+
 /* 줄을 누르면 그 사람 카드가 뜬다. */
 await page.click('.chat-person');
 await page.waitForTimeout(400);

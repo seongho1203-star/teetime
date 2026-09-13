@@ -3409,8 +3409,9 @@ export function Chat() {
                 100명이면 훑을 수가 없으므로 **열둘을 넘으면 찾게 한다**
                 (`FIND_AT` — 정산에서 사람 고를 때와 같은 잣대다). */}
             {peopleOn && (
-                <PeopleList people={roomPeople} me={me}
-                            onPick={openCard} onClose={() => setPeopleOn(false)} />
+                <PeopleList people={roomPeople} me={me} room={roomId}
+                            onPick={openCard} onPhoto={setZoom}
+                            onClose={() => setPeopleOn(false)} />
             )}
 
             {/* **프로필 카드** — 얼굴을 누르거나 참여자 목록에서 고르면 뜬다.
@@ -3861,6 +3862,54 @@ function RankMark({ role }: { role: Person['role'] }) {
     );
 }
 
+/** 서랍에 늘어놓을 사진 수. 그래서 머리말이 `사진`이 아니라 **`최근 사진`**이다. */
+const SHOTS = 30;
+
+/** 서랍의 사진 한 장. */
+type Shot = { id: string; url: string; at: string };
+
+/**
+ * **서랍이 열릴 때 그 방의 사진만 따로 받아 온다**(카톡 서랍의
+ * `사진/동영상` 자리다 · 사용자 요청 — `메뉴누르면 사진처럼 사진/동영상
+ * 만들어줘`). 올린 사진을 되짚으려면 대화를 위로 계속 올리는 것 말고는
+ * 길이 없었다 — 검색(🔍)은 글자만 찾는다.
+ *
+ * - **서랍을 열 때만 나가는 조회다.** 대화 화면이 늘 들고 있을 값이 아니고
+ *   (통신량 규칙), 여는 일이 드물어 그때 한 번 물어보는 값이 싸다.
+ * - **이모티콘은 서버에서 걸러 낸다**(`not.ilike.sticker:%`). 사진과 같은
+ *   칸(`image_url`)을 쓰므로 그냥 받으면 **우리 대화방은 대부분이
+ *   이모티콘**이라 서른 줄이 죄다 이모티콘으로 차 사진이 한 장도 안 남는다.
+ *   **`like`가 아니라 `ilike`인 것은 흉내(`.dev/rest.mjs`) 때문이다** —
+ *   거기 `like`가 없어 조건이 통째로 무시되면 **검사만 초록으로 뜬다.**
+ *   id는 소문자 ASCII라 대소문자를 안 가려도 같은 값이다.
+ * - **가린 글은 화면에서 거른다**(대화 검색과 같은 잣대). 덮어 둔 사진이
+ *   여기로 새면 안 된다.
+ * - **오류는 그냥 삼킨다**(반응·참석 횟수와 같은 결이다). `image_url`·
+ *   `hidden_at` 칸이 아직 없는 저장소에서는 400이 나는데, 그걸 던지면
+ *   서랍이 통째로 안 열린다 — 못 받으면 **이 묶음만 안 그린다.**
+ */
+function useShots(room: string | undefined) {
+    const [shots, setShots] = useState<Shot[]>([]);
+    useEffect(() => {
+        if (!room) return;
+        let alive = true;
+        void (async () => {
+            const { data, error } = await supabase
+                .from('messages').select('id, image_url, hidden_at, created_at')
+                .eq('room_id', room)
+                .not('image_url', 'is', null)
+                .not('image_url', 'ilike', 'sticker:%')
+                .order('created_at', { ascending: false }).limit(SHOTS);
+            if (!alive || error) return;
+            setShots((data ?? [])
+                .filter(m => !m.hidden_at && m.image_url)
+                .map(m => ({ id: m.id, url: m.image_url as string, at: m.created_at })));
+        })();
+        return () => { alive = false; };
+    }, [room]);
+    return shots;
+}
+
 /**
  * **참여자 목록**(카톡 오픈톡의 ☰).
  *
@@ -3875,10 +3924,12 @@ function RankMark({ role }: { role: Person['role'] }) {
  * 첫 글자로 넘어가는 순간 목록이 통째로 갈리는데, 늦추면 리액트가 그
  * 큰 그림을 두 번 그린다).
  */
-function PeopleList({ people, me, onPick, onClose }: {
+function PeopleList({ people, me, room, onPick, onPhoto, onClose }: {
     people: Person[];
     me: string;
+    room: string | undefined;
     onPick: (p: Person) => void;
+    onPhoto: (url: string) => void;
     onClose: () => void;
 }) {
     /* 100명이면 훑을 수가 없으므로 **열둘을 넘으면 찾게 한다**
@@ -3889,12 +3940,43 @@ function PeopleList({ people, me, onPick, onClose }: {
        다시 세우지 않으려는 것이다(차례가 고정이므로 거른 뒤에 세우는 것과
        결과가 같다). */
     const rows = useMemo(() => [...people].sort(roomOrder), [people]);
+    /* **저장 기간(90일)이 지나 지워진 사진은 조용히 뺀다.** 주소는 글에
+       그대로 남아 있어 목록에는 실려 오는데 그림만 404다 — 말풍선에서
+       `사진 저장 기간이 만료되었습니다`로 바꿔 적는 그 자리이고, 여기서는
+       네모난 빈칸이 되므로 아예 안 그린다.
+       **참·거짓이 아니라 그 사진의 id를 담는다**(`Avatar`의 `bad`와 같은
+       결이다) — 참·거짓으로 두면 한 장만 지워져도 줄이 통째로 사라진다. */
+    const [gone, setGone] = useState<Set<string>>(() => new Set());
+    const shots = useShots(room).filter(s => !gone.has(s.id));
     return (
         <div className="chat-people">
+            {/* 방 이름은 바로 위 대화 머리말에 그대로 보이므로 여기서 또
+                적지 않는다 — 이 줄에 남는 것은 나가는 길 하나뿐이다. */}
             <div className="chat-people-head">
-                <span className="chat-people-n">참여자 {people.length}명</span>
                 <button className="chat-search-x" onClick={onClose}>닫기</button>
             </div>
+            {/* **최근 사진** — 카톡 서랍의 `사진/동영상` 자리다.
+                **`동영상`을 안 적는 것은 우리가 못 보내기 때문이고**,
+                `최근`을 붙인 것은 마지막 `SHOTS`장만 보여 주기 때문이다
+                (다 있는 것처럼 적으면 거짓말이 된다).
+                한 장도 없으면 **묶음째 안 그린다** — 글만 오간 방에 빈
+                칸이 덩그러니 남지 않게. */}
+            {shots.length > 0 && (
+                <section className="chat-shots">
+                    <div className="chat-shots-h">최근 사진</div>
+                    <div className="chat-shots-row">
+                        {shots.map(s => (
+                            <button key={s.id} className="chat-shot"
+                                    aria-label={`${formatChatDay(s.at)} 사진`}
+                                    onClick={() => onPhoto(s.url)}>
+                                <img src={s.url} alt="" loading="lazy"
+                                     onError={() => setGone(g => new Set(g).add(s.id))} />
+                            </button>
+                        ))}
+                    </div>
+                </section>
+            )}
+            <div className="chat-people-n">참여자 {people.length}명</div>
             {people.length > FIND_AT && (
                 <div className="chat-people-find">
                     <input className="chat-search-in" type="search" aria-label="참여자 찾기"

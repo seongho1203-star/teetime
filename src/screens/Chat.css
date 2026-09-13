@@ -104,14 +104,61 @@
     background: var(--bg);
     -webkit-overflow-scrolling: touch;
 }
+/* 나가는 길 하나만 남은 줄이라 오른쪽으로 민다 — 방 이름은 바로 위
+   대화 머리말에 그대로 보인다. */
 .chat-people-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     padding: 9px var(--gap);
     border-bottom: 1px solid var(--line);
 }
-.chat-people-n { font-size: var(--fs); font-weight: 800; color: var(--text); }
+
+/* 서랍 안의 묶음 머리말 — `최근 사진`과 `참여자 N명`이 **같은 값을 쓴다.**
+   카톡 서랍도 `사진/동영상`과 `대화상대 54`가 같은 크기다. */
+.chat-shots-h,
+.chat-people-n {
+    display: block;
+    padding: 13px var(--gap) 8px;
+    font-size: var(--fs);
+    font-weight: 800;
+    color: var(--text);
+}
+
+/* **썸네일 크기는 카톡 서랍 사진을 픽셀로 재서 맞춘 값이다**(그 폰
+   1206×2622 · 배율 3.0 — 대화 화면을 맞출 때와 같은 자다).
+   한 장 192픽셀 → **64px**, 사이 12픽셀 → **4px**, 모서리 7픽셀 → **4px**.
+   **눈대중으로 고치지 말 것.**
+
+   **가로로만 굴러간다** — 세로로 쌓으면 사진 서른 장이 서랍을 통째로
+   먹어 참여자 목록이 저 아래로 밀린다. 뒤로 가기 손짓(`useBackSwipe`)은
+   **가로로 넘치는 칸을 알아서 비켜 주므로**(클래스가 아니라 실제로
+   넘치는지를 본다) 여기에 따로 적을 것이 없다. */
+.chat-shots-row {
+    display: flex;
+    gap: 4px;
+    padding: 0 var(--gap) 13px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.chat-shots-row::-webkit-scrollbar { display: none; }
+.chat-shot {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 64px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--surface-2);
+    line-height: 0;
+    cursor: pointer;
+}
+.chat-shot:active { opacity: 0.7; }
+.chat-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 .chat-people-find { padding: 9px var(--gap); }
 
 /* **크기는 카톡 스크린샷을 픽셀로 재서 맞춘 값이다**(사용자 요청 —
