@@ -119,6 +119,61 @@ export function ncStatus(): string {
     return `글칸 앱${yn(ncLog.native)}·플러그인${yn(ncLog.ready)}${v}·바${yn(ncLog.stood)}`;
 }
 
+/* ── 키보드가 오르내릴 때를 재어 둔다(진단) ─────────────────────
+ *
+ * 사용자 제보 — `키보드가 올라갈 때는 OK. 부드럽게 올라가. 근데 내려올
+ * 때가 부드럽지 못해`. **오르내리는 코드는 완전히 대칭이라** 코드만 읽어서는
+ * 한쪽만 거친 까닭을 못 가린다. 이 자리는 헤드리스로 확인할 길이 아예
+ * 없으므로(키보드가 없다) **폰에서 재는 수밖에 없다** — 짐작으로 고치다
+ * 판만 셋을 태운 자리다(14판 `ListSlider`).
+ *
+ * 재는 것은 **바가 보내 주는 자리 신호가 얼마나 고르게 닿는가**다.
+ * 화면은 그 신호가 닿을 때마다 한 번씩 움직이므로, 신호 사이가 벌어진
+ * 만큼이 곧 눈에 보이는 끊김이다. 짚이는 데가 하나 있다 —
+ * 키보드 플러그인은 **내릴 때 웹뷰를 0.01초 만에 통째로 늘리고**
+ * (`Keyboard.m` · 올릴 때는 `애니메이션 시간 + 0.2초`), 그 큰 크기 변화의
+ * 배치 비용이 **내려가기 시작하는 바로 그 순간** 주 갈래에 얹힌다.
+ * 그렇다면 `↓`의 `최대`만 크게 나온다.
+ *
+ * 값은 `내 정보` 맨 아래에 한 줄로 적는다 — **토스트로 알리면 몇 초 뒤
+ * 사라져 사진으로 찍어 보낼 수가 없다**(알림 걸음 줄에서 얻은 교훈이다).
+ */
+type KbRun = { n: number; ms: number; gap: number };
+const kbRun = (): KbRun => ({ n: 0, ms: 0, gap: 0 });
+export const kbLog = {
+    up: kbRun(),
+    down: kbRun(),
+    /** 지금 재는 중인 한 판. 신호가 끝나면 위 둘 중 하나에 옮겨 담는다. */
+    cur: null as { on: boolean; t0: number; last: number; run: KbRun } | null,
+};
+
+/** 키보드가 움직이기 시작했다(`kb` 신호). */
+export function kbMark(on: boolean): void {
+    const t = Date.now();
+    kbLog.cur = { on, t0: t, last: t, run: kbRun() };
+}
+
+/** 바가 자리를 알려 왔다(`frame` 신호). 움직이는 중일 때만 센다. */
+export function kbTick(end: boolean): void {
+    const c = kbLog.cur;
+    if (!c) return;
+    const t = Date.now();
+    c.run.n += 1;
+    c.run.gap = Math.max(c.run.gap, t - c.last);
+    c.run.ms = t - c.t0;
+    c.last = t;
+    if (!end) return;
+    if (c.on) kbLog.up = c.run; else kbLog.down = c.run;
+    kbLog.cur = null;
+}
+
+/** `내 정보` 아래에 적을 한 줄. 아직 한 번도 안 움직였으면 빈 글자다. */
+export function kbStat(): string {
+    const one = (r: KbRun) => `${r.n}칸·최대${r.gap}ms·${r.ms}ms`;
+    if (!kbLog.up.n && !kbLog.down.n) return '';
+    return `키보드 ↑${one(kbLog.up)} ↓${one(kbLog.down)}`;
+}
+
 let asked: Promise<boolean> | null = null;
 
 /**

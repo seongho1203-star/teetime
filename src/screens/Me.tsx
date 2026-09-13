@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { canPickNative, composerReady, pickNativePhoto } from '../lib/composer';
+import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -523,6 +523,14 @@ export function Me() {
             <p className="xs faint me-foot">
                 앱제작: 악마제리<br />
                 버전 {APP_VERSION}
+                {/* **키보드가 오르내린 판을 잰 값**(진단 · `lib/composer.ts`의
+                    `kbLog` 주석). `내려올 때가 부드럽지 못하다`는 제보를 쫓는
+                    자리인데 **헤드리스에는 키보드가 없어** 폰에서 재는 수밖에
+                    없다. 대화방에서 키보드를 한 번 올렸다 내린 뒤 여기로
+                    오면 적혀 있다 — 아직 안 움직였으면 줄 자체가 없고,
+                    웹에서는 신호가 아예 없어 늘 안 보인다.
+                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
+                {kbStat() && <><br />{kbStat()}</>}
             </p>
         </div>
     );

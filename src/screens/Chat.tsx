@@ -19,7 +19,7 @@ import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import {
-    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, ncLog,
+    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbTick, ncLog,
     pickNativePhoto,
 } from '../lib/composer';
 
@@ -1314,6 +1314,9 @@ export function Chat() {
         };
 
         kbBeat.current = (on, dur, at, e) => {
+            /* 오르내리는 한 판을 재기 시작한다(진단 — `kbLog` 주석).
+               값은 `내 정보` 맨 아래 한 줄로 나온다. */
+            kbMark(on);
             /* **끝값은 그림을 드는 갈래에서만 적는다.** 한동안 여기(갈래를
                고르기 전)에서 적었는데, 그림을 안 드는 판에서는 바가
                프레임마다 자리를 알려 주므로(`follow`) **끝값을 먼저 적으면
@@ -1358,6 +1361,7 @@ export function Chat() {
             return Number.isFinite(v) ? v : 0;
         };
         kbFrame.current = e => {
+            kbTick(e.end);   // 진단 — 신호가 얼마나 고르게 닿는가(`kbLog` 주석)
             /* **6판은 늘 바가 적는다** — 움직이는 동안인지 가리지 않는다.
                `end`는 '이번 움직임이 끝났다'는 뜻일 뿐이라, 거기서 웹 셈으로
                돌아가면 그때부터 둘이 엇갈린다(위 `owns` 주석). */
