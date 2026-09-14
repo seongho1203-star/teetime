@@ -58,13 +58,18 @@ export function setListOn(on: boolean): void {
  * 돌아오고**(앱 한 바퀴는 30분이다), 18판을 받으면 저절로 앱 목록으로
  * 돌아온다 — 12판 `canPickNative()`에서 쓴 그 수다.
  *
- * **지금은 20판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
+ * **지금은 21판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
  * `여기까지 읽으셨습니다` 줄(3판) · 손짓(4판) · 굴리기 얽힘(5판)까지
  * 앱이 맡는다. 그 아래 판을 든 폰은 못 그리거나(사진이 글자로 보인다)
  * 못 움직여서(길게 눌러도 창이 안 뜬다), **같은 수로 웹 목록으로 되돌린다.**
+ *
+ * **20판을 21로 올린 것이 그 본보기다** — 20판에서는 얼굴·인용·밀기가
+ * 안 눌리고 `최근 대화로` 줄이 앱 목록에 가려 안 보였다(사용자 제보).
+ * 수를 올려 두면 그 판을 든 폰은 **웹만 밀어도 그날로** 웹 목록으로
+ * 돌아오고, 새 앱을 받으면 저절로 앱 목록으로 돌아온다.
  */
 export function canNativeList(): boolean {
-    return ncLog.ready === true && ncLog.v >= 20 && listOn();
+    return ncLog.ready === true && ncLog.v >= 21 && listOn();
 }
 
 /* ── 묶는 규칙 (웹 목록과 앱 목록이 같이 본다) ─────────────── */
@@ -133,6 +138,14 @@ export type ListRow = {
      */
     quoteText?: string;
     /**
+     * 인용을 누르면 갈 **원본 글의 id**. 없으면 누를 수 없다 — 지난 묶음에
+     * 있어 아직 안 받아 온 원본이 그렇다(웹 목록에서도 안 움직인다).
+     *
+     * **이 값을 빠뜨리면 인용이 통째로 안 눌린다** — 앱은 어디로 뛸지를
+     * 알 길이 아예 없다(20판에서 실제로 그랬다).
+     */
+    quoteTo?: string;
+    /**
      * 말풍선 아래 반응 알약. **차례는 먼저 달린 순서다**(`countReacts`) —
      * 개수순으로 세우면 새 반응이 들어올 때마다 칩이 자리를 바꾼다.
      */
@@ -197,6 +210,15 @@ export function chatListSkin(el: HTMLElement | null): Record<string, unknown> {
         /* 인용 글자는 **말풍선보다 한 톤 낮춘다**(웹의 `.chat-quote`).
            알약은 **30px 아래로 내리지 말 것** — 누를 자리다. */
         quoteSize: 13, quoteLine: 18, reactH: 30,
+        /* `최근 대화로` 줄(웹의 `.chat-jump`). **앱이 그린다** — 그 단추는
+           목록 위에 떠 있는데 앱 목록은 웹 화면 **위에 얹힌 앱 부품**이라
+           웹이 그리면 통째로 가려진다(사용자 제보 — `최신대화로 버튼
+           안나옴`). 네이티브 바에서 겪은 그 자리다.
+           값은 `.chat-jump`와 같은 것이다 — **한쪽만 고치지 말 것.** */
+        jumpBg: read(root, '--surface', '#ffffff'),
+        jumpLine: read(root, '--line', 'rgba(0,0,0,0.1)'),
+        jumpDim: read(root, '--text-dim', '#5b6455'),
+        jumpH: 38, jumpSize: 13,
     };
 }
 
@@ -279,10 +301,35 @@ export async function listScrollTo(
     }
 }
 
+/* ── 재는 줄 ─────────────────────────────────────────────── */
+
+/**
+ * **앱이 보낸 신호를 세어 둔다.** 여기는 헤드리스로 한 줄도 확인할 수 없는
+ * 자리라(그리고 손짓을 잡는 것이 앱이다) **값을 화면에 적어 두고 사람이
+ * 읽어 주는 편이 결국 빠르다** — `ncStatus()`·`kbStat()`과 같은 방식이다.
+ *
+ * 손짓이 안 먹는다는 제보가 오면 이 줄 하나로 갈린다:
+ * 눌렀는데 `탭`이 안 늘면 **앱이 안 보내는 것**이고, 느는데 화면이 안
+ * 움직이면 **웹이 안 받는 것**이다.
+ */
+export const listLog = { tap: 0, hold: 0, state: 0, far: 0, last: '' };
+
+/** `내 정보` 맨 아래에 적는 한 줄. 값이 하나도 없으면 빈 글자다. */
+export function listStat(): string {
+    const l = listLog;
+    if (!l.tap && !l.hold && !l.state) return '';
+    return `목록 탭${l.tap} 홀드${l.hold} 상태${l.state} far${l.far}`
+        + (l.last ? ` · ${l.last}` : '');
+}
+
 export function onListState(
     cb: (e: { atBottom: boolean; atTop: boolean; far: boolean }) => void,
 ): Promise<{ remove: () => Promise<void> }> {
-    return bridge.addListener('listState', cb);
+    return bridge.addListener('listState', e => {
+        listLog.state++;
+        if (e.far) listLog.far++;
+        cb(e);
+    });
 }
 
 /**
@@ -292,7 +339,11 @@ export function onListState(
 export function onListTap(
     cb: (e: { kind: string; id: string; to: string }) => void,
 ): Promise<{ remove: () => Promise<void> }> {
-    return bridge.addListener('listTap', cb);
+    return bridge.addListener('listTap', e => {
+        listLog.tap++;
+        listLog.last = e.kind;
+        cb(e);
+    });
 }
 
 /**
@@ -302,5 +353,9 @@ export function onListTap(
 export function onListHold(
     cb: (e: HoldAt) => void,
 ): Promise<{ remove: () => Promise<void> }> {
-    return bridge.addListener('listHold', cb);
+    return bridge.addListener('listHold', e => {
+        listLog.hold++;
+        listLog.last = 'hold';
+        cb(e);
+    });
 }

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
-import { listOn, setListOn } from '../lib/chatlist';
+import { listOn, listStat, setListOn } from '../lib/chatlist';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -568,6 +568,13 @@ export function Me() {
                 {kbStat().split('\n').filter(Boolean).map(line => (
                     <span key={line}><br />{line}</span>
                 ))}
+                {/* **앱 목록이 보낸 손짓을 센 값**(진단 · `lib/chatlist.ts`의
+                    `listLog` 주석). 여기는 손짓을 잡는 것이 앱이라 헤드리스로
+                    한 줄도 확인할 수 없어, 안 먹는다는 제보가 오면 이 줄
+                    하나로 갈린다 — 눌렀는데 `탭`이 안 늘면 **앱이 안 보내는
+                    것**이고, 느는데 화면이 안 움직이면 **웹이 안 받는 것**이다.
+                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
+                {listStat() && <span><br />{listStat()}</span>}
             </p>
         </div>
     );

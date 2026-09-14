@@ -2401,6 +2401,29 @@ export function Chat() {
         if (!listUp) return;
         void listSet({ hidden: overlayUp });
     }, [listUp, overlayUp]);
+
+    /**
+     * `최근 대화로` 줄. **앱 목록이 서 있으면 앱이 그린다.**
+     *
+     * 그 단추는 목록 **위에 떠 있는데**, 앱 목록은 웹 화면 위에 얹힌 앱
+     * 부품이라 **웹이 그리면 통째로 가려진다** — 네이티브 바에서 겪은
+     * 그 자리다(사용자 제보 — `최신대화로 버튼 안나옴`). 값은 웹이 그대로
+     * 주고 앱은 그리기와 누르기만 맡는다(`listTap('jump')`).
+     */
+    useEffect(() => {
+        if (!listUp) return;
+        const show = !windowed && showJump && !!lastMsg;
+        void listSet({
+            jump: show
+                ? {
+                    name: lastWho?.name ?? '',
+                    avatar: lastWho?.avatar_url ?? '',
+                    edge: edgeColor(lastWho?.gender) ?? '',
+                    text: lastMsg ? preview(lastMsg) : '',
+                }
+                : null,
+        });
+    }, [listUp, showJump, windowed, lastMsg, lastWho]);
     /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
     const [attend, setAttend] = useState<Record<string, number> | null>(null);
     const attendTried = useRef(false);
@@ -2944,6 +2967,11 @@ export function Chat() {
             }
             openMenu(m, new DOMRect(e.x, e.y, e.w, e.h), e.mine);
         },
+        /* 인용을 누르면 원본으로 뛴다(웹 목록과 같은 길 — `jumpTo`가
+           앱 목록까지 챙긴다). **못 찾으면 거기서 `지난 대화에 있습니다`가
+           뜬다** — 여기서 또 가릴 것이 없다. */
+        quote: (to: string) => { if (to) jumpTo(to); },
+        jumpLatest: () => jumpToLatest(),
     };
 
     const nc = useRef({
@@ -3132,6 +3160,8 @@ export function Chat() {
                 else if (e.kind === 'react' && e.to) void nc.current.toggleReact(e.id, e.to);
                 else if (e.kind === 'face') nc.current.face(e.id);
                 else if (e.kind === 'reply') nc.current.reply(e.id);
+                else if (e.kind === 'quote') nc.current.quote(e.to);
+                else if (e.kind === 'jump') nc.current.jumpLatest();
             });
             /* **창이 뜨는 규칙은 웹에만 있다**(`HoldAt`) — 앱은 누른
                말풍선의 자리만 알려 준다. 그 값이 곧 `getBoundingClientRect`와
@@ -3225,6 +3255,12 @@ export function Chat() {
                         ? `${who[quoted.user_id ?? '']?.name ?? '알 수 없음'}에게 댓글`
                         : '지난 대화에 댓글',
                     quoteText: quoted ? preview(quoted) : '원본을 찾지 못했습니다',
+                    /* **누르면 갈 곳을 함께 싣는다** — 이 값이 없으면 앱은
+                       어디로 뛸지 알 길이 아예 없어 인용이 통째로 안 눌린다
+                       (20판에서 실제로 그랬다 — 사용자 제보 `답장 인용
+                       원본이동안됨`). 원본이 아직 안 불러온 지난 묶음에
+                       있으면 비워 둔다(웹 목록에서도 안 움직인다). */
+                    quoteTo: quoted ? m.reply_to : undefined,
                 }
                 : {};
 
@@ -3555,7 +3591,9 @@ export function Chat() {
                 밀린 글이 많은 날에는 최근 대화까지 한참을 굴려야 했다.
                 `windowed`일 때는 안 띄운다 — 그때는 목록에 최근 대화가 아예
                 없어 굴려도 소용이 없고, 바로 위 `.chat-recent`가 그 몫이다. */}
-            {!windowed && showJump && lastMsg && (
+            {/* **앱 목록이 서 있으면 앱이 그린다** — 여기서 그려 봐야 앱
+                목록에 통째로 가린다(바로 위 효과 참고). */}
+            {!listUp && !windowed && showJump && lastMsg && (
                 <button className="chat-jump" onClick={jumpToLatest}
                         aria-label="최근 대화로 이동">
                     {/* 안내 줄(`system`)에는 얼굴도 이름도 없다 — 말풍선에서도

@@ -121,11 +121,21 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        웹에만 있다), 왼쪽으로 밀기·얼굴 누르기는 `listTap`으로 간다.
     ///        `listState`에 `far`가 붙어 `최근 대화로` 줄이 살아나고,
     ///        `listScrollTo`로 인용·검색·`여기까지 읽으셨습니다` 줄로 뛴다.
+    /// 21판 — 20판에서 **손짓이 반쯤 죽어 있던 것을 고쳤다**(사용자 제보 —
+    ///        `답장 동작안됨 · 프로필동작불 · 최신대화로 버튼 안나옴 ·
+    ///        답장 인용 원본이동안됨`). 셋이 갈렸다:
+    ///        ① **누르는 것을 셀 하나에서 받아 자리로 가른다** — 얼굴·사진·
+    ///           카드마다 달아 둔 탭이 목록 전체의 `키보드 내리기` 탭과
+    ///           겨루고 있었다.
+    ///        ② **인용에 갈 곳을 싣는다**(`quoteTo`) — 없으면 앱은 어디로
+    ///           뛸지 알 길이 아예 없어 눌러도 아무 일이 없다.
+    ///        ③ **`최근 대화로` 줄을 앱이 그린다**(`listSet({jump})`) —
+    ///           웹이 그리면 앱 목록에 통째로 가린다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 20
+    private static let version = 21
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -454,6 +464,15 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         if let skin = call.getObject("skin") {
             list.apply(skin: skin.mapValues { v in v as Any })
         }
+        /* `최근 대화로` 줄(21판). **웹이 값을 주고 앱이 그린다** — 그 단추는
+           목록 위에 떠 있는데 앱 목록이 웹 화면을 덮으므로 웹이 그리면
+           안 보인다. `null`이면 걷는다.
+           **`hasOption`으로 가른다** — 안 보낸 것과 `null`은 다른 뜻이다
+           (안 보냈으면 그대로 두어야 한다). */
+        if call.hasOption("jump") {
+            let j = call.getObject("jump")
+            list.apply(jump: j.map { $0.mapValues { v in v as Any } })
+        }
     }
 
     func chatListState(atBottom: Bool, atTop: Bool, far: Bool) {
@@ -462,8 +481,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
                         data: ["atBottom": atBottom, "atTop": atTop, "far": far])
     }
 
-    /// 사진이나 카드를 눌렀다 — **웹에 넘긴다**(19판). 사진을 크게 보는 것도
-    /// 어디로 가는지도 웹에 이미 길이 있고, 두 벌로 만들면 한쪽만 고치게 된다.
+    /// 목록에서 무엇인가를 눌렀다 — **웹에 넘긴다**(19판). 사진을 크게 보는
+    /// 것도 어디로 가는지도 웹에 이미 길이 있고, 두 벌로 만들면 한쪽만
+    /// 고치게 된다. 갈래는 `photo`·`card`·`react`·`face`·`reply`·`quote`·`jump`다.
     func chatListTap(kind: String, id: String, to: String?) {
         guard live else { return }
         notifyListeners("listTap", data: ["kind": kind, "id": id, "to": to ?? ""])

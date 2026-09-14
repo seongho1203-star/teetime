@@ -100,6 +100,9 @@ struct ChatRow {
     let quoteWho: String?
     /// 인용의 원문 **한 줄**. 웹이 이미 잘라서 준다(가린 글은 `가려진 메시지`).
     let quoteText: String?
+    /// 인용을 누르면 갈 **원본 글의 id**. 없으면 안 눌린다(아직 안 받아 온
+    /// 지난 묶음의 원본 — 웹 목록에서도 그 자리는 안 움직인다).
+    let quoteTo: String?
     /// 말풍선 아래 반응 알약. 비어 있으면 **줄 자체를 안 그린다**.
     let reacts: [ChatReact]
     /// 이 줄 **위에** `여기까지 읽으셨습니다`를 긋는가.
@@ -132,6 +135,7 @@ struct ChatRow {
         to = d["to"] as? String
         quoteWho = d["quoteWho"] as? String
         quoteText = d["quoteText"] as? String
+        quoteTo = d["quoteTo"] as? String
         mark = (d["mark"] as? Bool) ?? false
         reacts = ((d["reacts"] as? [[String: Any]]) ?? []).compactMap {
             guard let e = $0["emoji"] as? String else { return nil }
@@ -163,6 +167,12 @@ struct ChatSkin {
     /// 반응 알약에서 **내가 누른 것**의 테두리(분홍 `--brand`).
     /// 이 화면에서 분홍은 보내기 단추 몫이라, **칠하지 않고 테두리로만** 쓴다.
     var brand = UIColor(red: 0xe8 / 255, green: 0x4a / 255, blue: 0x7f / 255, alpha: 1)
+    /// `최근 대화로` 줄(웹의 `.chat-jump`). **분홍을 쓰지 않는다** — 흰 알약이다.
+    var jumpBg = UIColor.white
+    var jumpLine = UIColor(white: 0, alpha: 0.1)
+    var jumpDim = UIColor(red: 0x5b / 255, green: 0x64 / 255, blue: 0x55 / 255, alpha: 1)
+    var jumpH: CGFloat = 38
+    var jumpSize: CGFloat = 13
 
     /// 카톡을 픽셀로 재서 맞춘 값들(345px 화면 기준).
     var pad: CGFloat = 9          // 목록 좌우 여백
@@ -205,6 +215,7 @@ struct ChatSkin {
         c("chip", &chip); c("on", &on); c("unread", &unread)
         c("link", &link); c("card", &card)
         c("quoteRule", &quoteRule); c("brand", &brand)
+        c("jumpBg", &jumpBg); c("jumpLine", &jumpLine); c("jumpDim", &jumpDim)
         n("pad", &pad); n("avatar", &avatar); n("avatarGap", &avatarGap)
         n("radius", &radius); n("fontSize", &fontSize); n("lineHeight", &lineHeight)
         n("padH", &padH); n("padV", &padV); n("nameSize", &nameSize)
@@ -212,6 +223,7 @@ struct ChatSkin {
         n("photoW", &photoW); n("photoH", &photoH); n("photoRadius", &photoRadius)
         n("sticker", &sticker); n("bigSize", &bigSize)
         n("quoteSize", &quoteSize); n("quoteLine", &quoteLine); n("reactH", &reactH)
+        n("jumpH", &jumpH); n("jumpSize", &jumpSize)
     }
 }
 
@@ -238,6 +250,8 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     weak var listDelegate: ChatListDelegate?
 
     private let table = UITableView(frame: .zero, style: .plain)
+    /// `최근 대화로` 줄. 목록 위에 떠 있다 — 웹이 그리면 앱 목록에 가린다.
+    private let jumpBar = JumpBar()
     private var rows: [ChatRow] = []
     private var skin = ChatSkin()
     /// 줄 하나의 높이. `id|폭`으로 담아 두어 다시 재지 않는다.
@@ -292,6 +306,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tap.cancelsTouchesInView = false
         table.addGestureRecognizer(tap)
+
+        jumpBar.isHidden = true
+        jumpBar.addTarget(self, action: #selector(jumpTapped), for: .touchUpInside)
+        addSubview(jumpBar)
     }
 
     @objc private func tapped() { listDelegate?.chatListDismissKeyboard() }
@@ -313,6 +331,15 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
            자리에서 바로 할 수 있다 — 맨 아래를 보고 있었을 때만이다. */
         if before.height != bounds.height, lastAtBottom {
             scrollToBottom(animated: false)
+        }
+        /* `최근 대화로` 줄은 **목록 맨 아래에 떠 있다**(웹의 `.chat-jump`가
+           입력칸 바로 위에 뜨는 그 자리다 — 여기서는 목록 아랫변이 곧
+           바 윗변이라 같은 자리가 된다). 좌우 여백은 웹의 `--gap`(16)이다. */
+        if !jumpBar.isHidden {
+            let m: CGFloat = 16
+            jumpBar.frame = CGRect(x: m, y: bounds.height - skin.jumpH - 10,
+                                   width: max(0, bounds.width - m * 2),
+                                   height: skin.jumpH)
         }
     }
 
@@ -357,6 +384,35 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
             table.contentOffset.y = oldOffset + added
         }
         report()
+    }
+
+    /**
+     * `최근 대화로` 줄을 얹거나 걷는다(21판).
+     *
+     * **앱이 그리는 까닭은 하나다** — 이 단추는 목록 **위에 떠 있는데**
+     * 앱 목록은 웹 화면 위에 얹힌 앱 부품이라, 웹이 그리면 통째로 가려진다
+     * (사용자 제보 — `최신대화로 버튼 안나옴`). 네이티브 바에서 겪은
+     * 그 자리와 같다.
+     *
+     * **띄울지 말지는 웹이 정한다** — 여기서 또 재지 않는다(`far`는 이미
+     * 웹에 알려 주었고, `검색 중`처럼 웹만 아는 사정도 있다).
+     */
+    func apply(jump d: [String: Any]?) {
+        guard let d = d else {
+            jumpBar.isHidden = true
+            return
+        }
+        jumpBar.isHidden = false
+        jumpBar.show(name: d["name"] as? String ?? "",
+                     text: d["text"] as? String ?? "",
+                     avatar: d["avatar"] as? String,
+                     edge: ChatList.color(d["edge"] as? String),
+                     skin: skin)
+        setNeedsLayout()
+    }
+
+    @objc private func jumpTapped() {
+        listDelegate?.chatListTap(kind: "jump", id: "", to: nil)
     }
 
     func scrollToBottom(animated: Bool) {
@@ -722,9 +778,6 @@ final class BubbleCell: UITableViewCell {
         photoView.contentMode = .scaleAspectFill
         photoView.layer.masksToBounds = true
         photoView.layer.cornerCurve = .continuous
-        photoView.isUserInteractionEnabled = true
-        photoView.addGestureRecognizer(
-            UITapGestureRecognizer(target: self, action: #selector(tapPhoto)))
 
         capLabel.numberOfLines = 0
         capBubble.layer.cornerRadius = 11
@@ -734,9 +787,6 @@ final class BubbleCell: UITableViewCell {
         cardGo.numberOfLines = 1
         cardView.layer.cornerRadius = 12
         cardView.layer.cornerCurve = .continuous
-        cardView.isUserInteractionEnabled = true
-        cardView.addGestureRecognizer(
-            UITapGestureRecognizer(target: self, action: #selector(tapCard)))
 
         /* 인용(답장)은 **말풍선 안**에 든다 — 카톡과 같다. 머리말 · 원문
            한 줄 · 가는 선, 그 아래가 답장 글이다. 사진·이모티콘처럼 말풍선이
@@ -759,11 +809,16 @@ final class BubbleCell: UITableViewCell {
         cardView.addSubview(cardBody)
         cardView.addSubview(cardGo)
 
-        /* **얼굴을 누르면 그 사람 카드가 뜬다**(카톡과 같다). 100명 방에서
-           `83/신성호/광산구`만 보고는 누군지 떠올리기 어렵다. */
-        avatarView.isUserInteractionEnabled = true
-        avatarView.addGestureRecognizer(
-            UITapGestureRecognizer(target: self, action: #selector(tapFace)))
+        /* **누르는 것은 한 곳에서 받아 자리로 가른다**(21판).
+           예전에는 얼굴·사진·카드마다 제 탭 인식기를 달았는데, 실기기에서
+           **얼굴도 인용도 안 눌렸다**(사용자 제보 — `프로필동작불`).
+           목록 전체에 걸린 `키보드 내리기` 탭과 셀 안쪽 탭이 같은 터치를
+           두고 겨루는 자리라, 한 인식기로 모으면 그 겨룸이 아예 없어지고
+           **무엇을 눌렀는가의 규칙도 한 곳에 모인다.**
+           (`ReactChip`은 인식기가 아니라 `UIControl`이라 그대로 둔다.) */
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tap.delegate = self
+        contentView.addGestureRecognizer(tap)
 
         /* **길게 누르면 고르는 창이 뜬다**(PC의 오른쪽 클릭 자리).
            왼쪽으로 미는 것은 댓글이 이미 쓰고 있어 겹치면 안 되므로,
@@ -788,6 +843,14 @@ final class BubbleCell: UITableViewCell {
         guard let pan = g as? UIPanGestureRecognizer,
               pan.view === contentView else { return super.gestureRecognizerShouldBegin(g) }
         let v = pan.velocity(in: contentView)
+        /* **빠르기가 0에 가까우면 옮긴 거리로 본다.** 천천히 밀면 `velocity`가
+           둘 다 0이라 `abs(v.x) > abs(v.y)`가 거짓이 되어 **그 손짓이 통째로
+           막혔다**(사용자 제보 — `답장 동작안됨`). 웹에서는 세로로 그은 것만
+           브라우저에 넘겼지 가로를 이렇게 가리지 않았다. */
+        if abs(v.x) < 1, abs(v.y) < 1 {
+            let t = pan.translation(in: contentView)
+            return abs(t.x) > abs(t.y)
+        }
         return abs(v.x) > abs(v.y)
     }
 
@@ -804,9 +867,31 @@ final class BubbleCell: UITableViewCell {
         return true
     }
 
-    @objc private func tapFace() {
+    /**
+     * 누른 자리로 무엇을 눌렀는지 가른다. **차례가 곧 규칙이다** — 얼굴이
+     * 먼저고(가장 작다), 그다음 인용, 그림, 카드다.
+     *
+     * **누르는 자리는 그림보다 조금 넓다**(`slop`). 얼굴은 29px이라
+     * 그대로 두면 30px 아래인데(웹에서 `.chat-face`에 음수 여백으로 넓혀
+     * 둔 그 자리다), 여기서는 자리만 넓히므로 배치가 한 픽셀도 안 밀린다.
+     */
+    @objc private func tapped(_ g: UITapGestureRecognizer) {
         guard let r = row else { return }
-        onTap?("face", r.id, nil)
+        let p = g.location(in: contentView)
+        let slop: CGFloat = 6
+        let hits = { (v: UIView) in
+            !v.isHidden && v.frame.insetBy(dx: -slop, dy: -slop).contains(p)
+        }
+        if hits(avatarView) { onTap?("face", r.id, nil); return }
+        /* 인용을 누르면 원본으로 뛴다. **갈 곳을 모르면 안 누른다** —
+           아직 안 받아 온 지난 묶음의 원본이라 웹 목록에서도 안 움직인다. */
+        if hits(quoteBox), let to = r.quoteTo, !to.isEmpty {
+            onTap?("quote", r.id, to); return
+        }
+        if hits(photoView), r.kind == .photo, let u = r.image {
+            onTap?("photo", r.id, u); return
+        }
+        if hits(cardView), r.kind == .card { onTap?("card", r.id, r.to); return }
     }
 
     /**
@@ -838,16 +923,6 @@ final class BubbleCell: UITableViewCell {
         default:
             break
         }
-    }
-
-    @objc private func tapPhoto() {
-        guard let r = row, r.kind == .photo, let u = r.image else { return }
-        onTap?("photo", r.id, u)
-    }
-
-    @objc private func tapCard() {
-        guard let r = row, r.kind == .card else { return }
-        onTap?("card", r.id, r.to)
     }
 
     /**
@@ -1392,6 +1467,85 @@ final class ReactChip: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         label.frame = bounds
+    }
+}
+
+/**
+ * `최근 대화로` 줄(21판 · 웹의 `.chat-jump`를 그대로 옮긴 것이다).
+ *
+ * **앱이 그리는 까닭**: 이 단추는 목록 위에 떠 있는데 앱 목록은 웹 화면
+ * 위에 얹힌 앱 부품이라, 웹이 그리면 **통째로 가려진다**(사용자 제보 —
+ * `최신대화로 버튼 안나옴`). 네이티브 바에서 겪은 그 자리다.
+ *
+ * 얼굴 · 이름(굵게) · 한 줄 미리보기 · `↓` — **좌우로 펼친 한 줄**이다.
+ * 가운데 동그라미로 되돌리지 말 것: 마지막 말풍선을 덮는다.
+ * **분홍을 쓰지 않는다** — 이 화면에서 '지금 눌러야 할 것'은 보내기 하나다.
+ */
+final class JumpBar: UIControl {
+    private let face = AvatarView()
+    private let label = UILabel()
+    private let go = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 19
+        layer.cornerCurve = .continuous
+        layer.borderWidth = 1
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 8
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+        go.text = "↓"
+        go.font = .systemFont(ofSize: 15, weight: .bold)
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        for v in [face, label, go] { addSubview(v) }
+        /* 안쪽 것들은 터치를 안 받는다 — **줄 전체가 단추다.** */
+        for v in [face, label, go] as [UIView] { v.isUserInteractionEnabled = false }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show(name: String, text: String, avatar: String?, edge: UIColor?, skin: ChatSkin) {
+        backgroundColor = skin.jumpBg
+        layer.borderColor = skin.jumpLine.cgColor
+        go.textColor = skin.text
+        face.isHidden = name.isEmpty
+        if !face.isHidden { face.show(url: avatar, letter: name, edge: edge, size: 26) }
+        /* 이름은 **닉네임 그대로**다(`83/신성호/광산구`가 아니다) — 긴
+           이름표는 목록의 이름 자리 몫이고 이 줄은 문장에 가깝다. */
+        let line = NSMutableAttributedString()
+        if !name.isEmpty {
+            line.append(NSAttributedString(string: name + " ", attributes: [
+                .font: UIFont.systemFont(ofSize: skin.jumpSize, weight: .bold),
+                .foregroundColor: skin.text,
+            ]))
+        }
+        line.append(NSAttributedString(string: text, attributes: [
+            .font: UIFont.systemFont(ofSize: skin.jumpSize),
+            .foregroundColor: skin.jumpDim,
+        ]))
+        label.attributedText = line
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let pad: CGFloat = 12
+        var x = pad
+        if !face.isHidden {
+            face.frame = CGRect(x: x, y: (bounds.height - 26) / 2, width: 26, height: 26)
+            x += 26 + 6
+        }
+        let goW: CGFloat = 14
+        label.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - goW - pad - 6),
+                             height: bounds.height)
+        go.frame = CGRect(x: bounds.width - pad - goW, y: 0, width: goW, height: bounds.height)
+        go.textAlignment = .right
+    }
+
+    override var isHighlighted: Bool {
+        didSet { alpha = isHighlighted ? 0.7 : 1 }
     }
 }
 
