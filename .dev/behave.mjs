@@ -115,8 +115,18 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 
+/* **화면이 밀려 들어오는 동안에는 앞(또는 떠나는) 화면 사본이 함께 있다.**
+   찍어 둔 죽은 그림이라 눈에는 한 화면으로 보이지만, 글자로 찾으면 같은
+   것이 **둘로 잡힌다**(`다시 열기`가 실제로 그랬다 — strict mode violation).
+   `page.goto`가 해시만 바꾸면 문서를 새로 안 받고 **뒤로 가기로 잡혀**
+   그 사본이 깔린다. 그래서 **움직임이 끝날 때까지 기다린다.** */
+const settleScreen = (p) => p.waitForFunction(
+    () => !document.querySelector('.back-ghost, .exit-ghost, .exit-dim'),
+    null, { timeout: 4000 }).catch(() => {});
+
 const go = async (hash, wait = 500) => {
     await page.goto(BASE + hash, { waitUntil: 'networkidle' });
+    await settleScreen(page);
     await page.waitForTimeout(wait);
 };
 
@@ -2945,6 +2955,99 @@ console.log('\n── 대화는 들어갔다 나오는 화면이다 ──');
 
 }
 
+/* ── 화면이 통째로 밀려 들어오고 나간다 ──────────────────────────
+ *
+ * 사용자 제보 — `카톡과 비교하면 아직도 엄청빨라`. **빠르게 느껴지던 것은
+ * 시간이 아니라 거리였다**: 예전에는 40px(화면 폭의 1/10)만 움직여서,
+ * 아무리 천천히 밀어도 '살짝 들썩'으로만 보였다.
+ *
+ * **클래스 이름만 보면 초록으로 뜨는 자리라 값을 잰다** — 움직임이
+ * 0.35초뿐이라 밖에서 한 번 물어보면 거의 끝난 뒤의 값이 잡힌다.
+ * 프레임마다 훑어 **가장 많이 밀린 값**을 본다.
+ *
+ * 넷을 본다:
+ *  1. 들어갈 때 새 화면이 **화면 폭만큼** 밀려 들어오는가.
+ *  2. 그 뒤에 앞 화면이 깔리는가(`.back-ghost`).
+ *  3. 나올 때 **떠나는 화면**이 오른쪽으로 빠져나가는가(`.exit-ghost`).
+ *  4. 끝나면 **남는 것이 없는가** — 죽은 그림이 남으면 앱이 통째로
+ *     멈춘 것처럼 보인다.
+ */
+console.log('\n── 화면이 통째로 밀려 들어오고 나간다 ──');
+{
+    /** 프레임마다 훑어 가장 많이 밀린 값과 깔린 그림을 본다. */
+    const watch = (p, ms) => p.evaluate(async (ms) => {
+        const app = document.querySelector('.app');
+        let 화면 = 0, 뒤 = false, 떠남 = 0, on = true;
+        const tick = () => {
+            if (!on) return;
+            const kid = app?.firstElementChild;
+            if (kid) {
+                const x = new DOMMatrixReadOnly(getComputedStyle(kid).transform).e;
+                if (Math.abs(x) > 화면) 화면 = Math.abs(x);
+            }
+            if (document.querySelector('.back-ghost')) 뒤 = true;
+            const gx = document.querySelector('.exit-ghost');
+            if (gx) {
+                const x = new DOMMatrixReadOnly(getComputedStyle(gx).transform).e;
+                if (x > 떠남) 떠남 = x;
+            }
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        await new Promise(r => setTimeout(r, ms));
+        on = false;
+        return { 화면: Math.round(화면), 뒤, 떠남: Math.round(떠남) };
+    }, ms);
+
+    const 남은것 = (p) => p.evaluate(() => ({
+        그림: document.querySelectorAll('.back-ghost, .exit-ghost, .exit-dim').length,
+        표: document.documentElement.className,
+        자리: getComputedStyle(document.querySelector('.app > :first-child')).transform,
+    }));
+
+    await go('/#/rounds', 600);
+
+    /* 1·2. 라운드 목록 → 상세 (들어감) */
+    const inW = watch(page, 900);
+    await page.waitForTimeout(60);
+    await page.click('.round-card a, .round-card');
+    const got = await inW;
+    ok(got.화면 > 300, `들어갈 때 화면 폭만큼 밀려 들어온다 (가장 많이 ${got.화면}px)`);
+    ok(got.뒤, '그 뒤에 앞 화면이 깔린다');
+
+    await page.waitForTimeout(700);
+    const 뒤끝 = await 남은것(page);
+    ok(뒤끝.그림 === 0 && 뒤끝.자리 === 'none',
+       `들어간 뒤에 남는 그림이 없다 (${뒤끝.그림}장 · ${뒤끝.자리})`);
+
+    /* 3. 뒤로 (나감) */
+    const outW = watch(page, 900);
+    await page.waitForTimeout(60);
+    await page.evaluate(() => history.back());
+    const back = await outW;
+    ok(back.떠남 > 300, `나올 때 떠나는 화면이 오른쪽으로 빠져나간다 (${back.떠남}px)`);
+    ok(back.화면 > 40, `그 밑에서 앞 화면이 제자리로 돌아온다 (${back.화면}px에서)`);
+
+    /* 4. 끝나면 남는 것이 없다. */
+    await page.waitForTimeout(700);
+    const 끝 = await 남은것(page);
+    ok(끝.그림 === 0, `나온 뒤에 남는 그림이 없다 (${끝.그림}장)`);
+    ok(!끝.표.includes('screen-'), `표도 함께 걷힌다 (${끝.표 || '없음'})`);
+
+    /* **대화는 예외다** — 네이티브 바와 앱 목록이 웹뷰 위에 얹혀 있어
+       `transform`을 안 따라오므로, 화면 폭만큼 밀면 **찢어져 보인다.**
+       거기서는 예전 40px짜리가 그대로 돈다(`hasNative`). */
+    await go('/#/', 600);
+    const chat = watch(page, 900);
+    await page.waitForTimeout(60);
+    await page.click('.tabbar a:last-child');
+    const c = await chat;
+    ok(!c.뒤 && c.떠남 === 0,
+       `대화로 들어갈 때는 그림을 안 깐다 (뒤 ${c.뒤} · 떠남 ${c.떠남})`);
+    await page.waitForSelector('.chat-list', { timeout: 10000 });
+    await page.waitForTimeout(600);
+}
+
 /* ── 대화방에 들어갈 때와 나올 때 ────────────────────────────────
  *
  * 둘 다 사용자 제보로 잡은 자리다 — `우측에서 밀려오는게 아니고 화면이
@@ -2952,7 +3055,7 @@ console.log('\n── 대화는 들어갔다 나오는 화면이다 ──');
  * 안먹혀`.
  *
  *  1. **들어갈 때** — 대화는 `useAsync` 기억해 두기를 안 쓰므로 첫 그림이
- *     늘 스피너 하나뿐이고, 왕복이 길면 창(300ms)이 끝난 뒤에 내용이
+ *     늘 스피너 하나뿐이고, 왕복이 길면 창(350ms)이 끝난 뒤에 내용이
  *     들어앉아 **스피너만 미끄러지고 정작 대화는 툭 나타났다.**
  *     **왕복을 일부러 늦춰야 보인다** — 빠른 서버에서는 리액트가 같은 칸을
  *     다시 써서 돌고 있는 움직임이 내용을 그대로 싣고 간다.
@@ -3038,8 +3141,8 @@ console.log('\n── 대화방에 들어갈 때와 나올 때 ──');
         on = false;
         return { 봤나, 나타남, 밀림: Math.round(most) };
     });
-    ok(late.봤나 && late.나타남 > 300,
-       `대화가 창(300ms)이 끝난 뒤에 온다 (${late.나타남}ms)`);
+    ok(late.봤나 && late.나타남 > 350,
+       `대화가 창(350ms)이 끝난 뒤에 온다 (${late.나타남}ms)`);
     ok(late.밀림 > 20,
        `내용이 늦게 와도 그때 미끄러져 들어온다 (가장 많이 ${late.밀림}px)`);
 

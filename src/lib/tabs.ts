@@ -94,6 +94,15 @@ type Shot = { path: string; node: HTMLElement; scroll: number };
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
 
+/** **떠나는** 화면 그림(뒤로 갈 때 오른쪽으로 빠져나가는 그것).
+ *  위 `shots`는 **뒤에 깔리는 앞 화면**이라 서로 다른 것이다. */
+let exiting: Shot | null = null;
+/** 그 그림을 찍은 시각. */
+let exitAt = 0;
+/** 그 그림이 너무 오래된 것이면 안 쓴다 — 지난주에 찍힌 것이 오늘 화면을
+ *  덮으면 안 된다(알림의 `NAV_FRESH`와 같은 결이다). */
+const EXIT_FRESH = 700;
+
 /** 지금 화면(`.app`의 첫 자식)을 찾는다. */
 function pageEl(): HTMLElement | null {
     return document.querySelector<HTMLElement>('.app > :first-child');
@@ -125,6 +134,18 @@ function snap(toPath: string) {
     while (shots.length > MAX_SHOTS) shots.shift();
 }
 
+/** 지금 화면을 **떠나는 것**으로 찍어 둔다(위 `exiting`). */
+function snapExit(): void {
+    const el = pageEl();
+    exiting = el ? { path: routeOf(location.href), node: el.cloneNode(true) as HTMLElement,
+                     scroll: window.scrollY } : null;
+    exitAt = exiting ? Date.now() : 0;
+}
+/** 방금 찍은 떠나는 화면인가. */
+function exitFresh(): boolean {
+    return !!exiting && Date.now() - exitAt < EXIT_FRESH;
+}
+
 /* ── 남아 버린 앞 화면 그림을 걷는다 ──────────────────────────
  *
  * **깔아 둔 그림이 화면에 그대로 남는 일이 실제로 있었다**(사용자 제보 —
@@ -144,6 +165,14 @@ function snap(toPath: string) {
 const GHOST_MAX = 1500;
 /** 마지막으로 그림을 깐 시각. 0이면 깔린 것이 없다. */
 let ghostAt = 0;
+/** 이동이 걷힐 때마다 하나씩 오른다 — 아직 안 돈 `nextFrames`를 가린다. */
+let moveSeq = 0;
+
+/** 깔거나 얹는 그림 전부. **새로 만들면 여기에 더할 것** — 하나라도
+ *  빠지면 그것만 화면에 남아 앱이 죽은 것처럼 보인다. */
+const GHOSTS = '.back-ghost, .exit-ghost, .exit-dim';
+/** 화면을 옮기는 동안에만 붙는 표 전부. 위와 같은 이유로 한곳에 모아 둔다. */
+const MOVING = ['back-drag', 'back-ease', 'screen-push', 'screen-pop', 'screen-ease'];
 
 /** 끄는 동안에만 세로 굴리기를 막는다(아래 `block` 주석). */
 function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
@@ -155,11 +184,12 @@ function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
 function sweepGhosts(force = false): void {
     if (!force && ghostAt && Date.now() - ghostAt < GHOST_MAX) return;
     const root = document.documentElement;
-    const left = document.querySelectorAll('.back-ghost');
-    if (!left.length && !root.classList.contains('back-drag')
-                     && !root.classList.contains('back-ease')) return;
+    const left = document.querySelectorAll(GHOSTS);
+    if (!left.length && !MOVING.some(c => root.classList.contains(c))) return;
     for (const g of left) g.remove();
-    root.classList.remove('back-drag', 'back-ease');
+    root.classList.remove(...MOVING);
+    /* 걷었으면 아직 안 돈 `nextFrames`도 없던 일로 한다(위 `moveSeq`). */
+    moveSeq++;
     document.removeEventListener('touchmove', blockScroll);
     const el = pageEl();
     if (el) { el.style.transform = ''; el.style.transition = ''; }
@@ -189,8 +219,18 @@ function watchHistory() {
         } catch { /* 주소가 이상해도 넘어가는 것이 낫다 */ }
         return push(data as never, title, url);
     } as typeof history.pushState;
-    /* 뒤로 갔으면 그 그림은 다 쓴 것이다. */
-    window.addEventListener('popstate', () => { shots.pop(); });
+    window.addEventListener('popstate', () => {
+        /* **떠나는 화면은 바로 지금 찍어야 한다.** 리액트가 목적지를 그리고
+           나면 없어지는데, 뒤로 갈 때 오른쪽으로 빠져나가야 하는 것이
+           바로 그 화면이다(`runPop`).
+           **이 자리가 되는 까닭** — 우리 듣기는 이 파일을 불러오는 순간
+           붙고 라우터 것은 화면을 그리며 붙으므로 **우리가 먼저 돈다.**
+           그래서 여기서는 아직 떠나는 화면이 그대로 있다.
+           손가락으로 끌어 가는 참이면 이미 손을 따라 내보냈으므로 안 찍는다. */
+        if (!skipSlide) snapExit();
+        /* 뒤로 갔으면 그 그림은 다 쓴 것이다. */
+        shots.pop();
+    });
 }
 watchHistory();
 
@@ -236,6 +276,99 @@ function plainBack(): boolean {
         || document.documentElement.classList.contains('nc');
 }
 
+/**
+ * **뒤에 깔리는 앞 화면**을 만들어 body 맨 앞에 넣는다.
+ * 찍어 둔 것이 없으면 바탕만 깐다.
+ *
+ * 손가락으로 끌 때(`useBackSwipe`)와 눌러서 들어갈 때(`runPush`)가
+ * **같은 그림을 쓴다** — 두 벌로 두면 한쪽만 고치게 된다.
+ */
+function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElement } {
+    const g = document.createElement('div');
+    g.className = 'back-ghost';
+    if (shot) {
+        const c = shot.node.cloneNode(true) as HTMLElement;
+        /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
+           늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
+        if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
+        g.appendChild(c);
+    }
+    const dim = document.createElement('div');
+    dim.className = 'back-ghost-dim';
+    g.appendChild(dim);
+    document.body.insertBefore(g, document.body.firstChild);
+    ghostAt = Date.now();
+    return { g, dim };
+}
+
+/**
+ * 첫 자리를 한 번 그린 **뒤에** 끝자리로 옮긴다.
+ *
+ * **같은 프레임에 둘 다 적으면 브라우저가 처음과 끝을 하나로 합쳐
+ * 아무것도 안 움직인다.** 프레임을 두 번 건너는 것은 리액트가 방금
+ * 그린 화면이 한 번 자리를 잡게 두려는 것이다.
+ */
+function nextFrames(run: () => void): void {
+    const mine = moveSeq;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        /* **앞 것이 끝나기 전에 새 이동이 시작됐으면 그냥 돌아선다.**
+           안 그러면 이미 걷어 낸 자리에 끝자리와 `screen-ease`만 남는다 —
+           실제로 `표가 screen-ease 하나뿐`인 자국으로 나타났다. */
+        if (moveSeq !== mine) return;
+        run();
+    }));
+}
+
+/**
+ * **눌러서 들어갈 때** — 새 화면이 오른쪽 끝에서 통째로 들어오고,
+ * 앞 화면은 뒤에서 `PARALLAX`만큼 따라 나가며 어두워진다.
+ */
+function runPush(el: HTMLElement, shot: Shot | undefined): void {
+    const root = document.documentElement;
+    const W = window.innerWidth || 1;
+    const { g, dim } = layGhost(shot);
+    root.classList.add('screen-push');
+    el.style.transform = `translate3d(${W}px,0,0)`;
+    g.style.transform = 'translate3d(0,0,0)';
+    dim.style.opacity = '0';
+    nextFrames(() => {
+        root.classList.add('screen-ease');
+        el.style.transform = 'translate3d(0,0,0)';
+        g.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
+        dim.style.opacity = String(DIM);
+    });
+}
+
+/**
+ * **뒤로 갈 때** — 떠나는 화면이 위에 얹혀 오른쪽으로 빠져나가고,
+ * 그 밑에서 목적지가 `PARALLAX` 자리에서 제자리로 돌아오며 밝아진다.
+ * 손가락으로 끌어 뒤로 가는 것과 **같은 그림**이고, 손 대신 시간이 민다.
+ */
+function runPop(el: HTMLElement, shot: Shot): void {
+    const root = document.documentElement;
+    const W = window.innerWidth || 1;
+    const dim = document.createElement('div');
+    dim.className = 'exit-dim';
+    dim.style.opacity = String(DIM);
+    const gx = document.createElement('div');
+    gx.className = 'exit-ghost';
+    const c = shot.node.cloneNode(true) as HTMLElement;
+    if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
+    gx.appendChild(c);
+    document.body.appendChild(dim);
+    document.body.appendChild(gx);
+    ghostAt = Date.now();
+    root.classList.add('screen-pop');
+    el.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
+    gx.style.transform = 'translate3d(0,0,0)';
+    nextFrames(() => {
+        root.classList.add('screen-ease');
+        el.style.transform = 'translate3d(0,0,0)';
+        gx.style.transform = `translate3d(${W}px,0,0)`;
+        dim.style.opacity = '0';
+    });
+}
+
 export function useBackSwipe(): void {
     const nav = useNavigate();
     const { pathname } = useLocation();
@@ -258,25 +391,11 @@ export function useBackSwipe(): void {
             if (dim) dim.style.opacity = String(DIM * (1 - p));
         };
 
-        /** 앞 화면을 뒤에 깐다. 찍어 둔 것이 없으면 바탕만 깐다. */
+        /** 앞 화면을 뒤에 깐다(위 `layGhost` — 눌러서 들어갈 때와 같은 그림). */
         const build = () => {
-            const g = document.createElement('div');
-            g.className = 'back-ghost';
-            const shot = shots[shots.length - 1];
-            if (shot) {
-                const c = shot.node.cloneNode(true) as HTMLElement;
-                /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
-                   늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
-                if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
-                g.appendChild(c);
-            }
-            const d = document.createElement('div');
-            d.className = 'back-ghost-dim';
-            g.appendChild(d);
-            document.body.insertBefore(g, document.body.firstChild);
-            ghost = g;
-            dim = d;
-            ghostAt = Date.now();
+            const laid = layGhost(shots[shots.length - 1]);
+            ghost = laid.g;
+            dim = laid.dim;
         };
 
         /**
@@ -403,7 +522,15 @@ export function useBackSwipe(): void {
             document.removeEventListener('touchmove', onMove);
             document.removeEventListener('touchend', onEnd);
             document.removeEventListener('touchcancel', onCancel);
-            clean();
+            /* **끌던 것이 있을 때만 걷는다.** 그냥 걷으면 `clean()`이
+               지금 화면의 `transform`을 지우고 `ghostAt`을 0으로 되돌리는데,
+               상세에서 탭으로 **뒤로 가는 순간**이 바로 이 뒷정리가 도는
+               때라 — 방금 깔아 둔 '떠나는 화면'을 그 자리에서 날린다
+               (아래 `sweepGhosts()`도 `ghostAt`이 0이 되어 따라 걷는다).
+               **재서 잡은 자리다** — 떠나는 화면이 깔린 그 프레임에 지워져
+               뒤로 가기가 통째로 안 움직였다. 위 `start()`가 같은 잣대를
+               쓴다(`if (live || ghost)`). */
+            if (live || ghost) clean();
         };
     }, [onTab, nav]);
 
@@ -438,12 +565,28 @@ const SLIDE_WAIT = 3000;
 /** 자료를 기다리는 동안의 화면 — 이것뿐이면 아직 '내용'이 아니다. */
 const SPINNER = '.center-fill';
 /**
- * 한 번 미끄러지는 데 걸리는 시간. **`global.css`의 `screen-in`·`screen-back`과
- * 같은 값이어야 한다** — 한쪽만 고치면 앱 목록이 셈하는 '남은 시간'이
- * 어긋나 머리말과 말풍선 자리가 따로 끝난다(아래 `slideMark`).
- * 지금은 0.30초다(사용자가 고른 값 — `조금 느리게`).
+ * 화면이 한 번 밀려 들어오는 데 걸리는 시간. **`global.css`의
+ * `screen-in`·`screen-back`·`screen-ease` 셋과 같은 값이어야 한다** —
+ * 한쪽만 고치면 앱 목록이 셈하는 '남은 시간'이 어긋나 머리말과 말풍선
+ * 자리가 따로 끝난다(아래 `slideMark`).
+ * 아이폰의 그 전환과 같은 0.35초다.
  */
-const SCREEN_MS = 300;
+const SCREEN_MS = 350;
+
+/**
+ * **네이티브 부품이 얹히는 화면인가.**
+ *
+ * 거기서는 화면을 통째로 밀지 않는다 — 앱의 글칸 바와 대화 목록은 웹뷰
+ * **위에 따로 얹힌 앱 부품**이라 `transform`을 안 따라와, 웹만 화면 폭만큼
+ * 밀면 **찢어져 보인다**(`plainBack()`과 똑같은 까닭이다).
+ *
+ * **표(`html.nc`)가 아니라 경로로 가린다.** `nc`는 대화가 열리고 바가 선
+ * **뒤에** 붙어서, 들어가는 그 순간에는 아직 없다 — 그것으로 가리면
+ * 들어갈 때만 통째로 밀었다가 바가 서면서 찢어진다.
+ */
+function hasNative(path: string): boolean {
+    return path.startsWith('/chat');
+}
 
 /**
  * 마지막으로 화면을 미끄러뜨리기 시작한 때.
@@ -472,9 +615,10 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
     const prev = useRef(pathname);
 
     useLayoutEffect(() => {
-        const wasTab = TAB_PATHS.includes(prev.current);
+        const from = prev.current;
+        const wasTab = TAB_PATHS.includes(from);
         const isTab = TAB_PATHS.includes(pathname);
-        const same = prev.current === pathname;
+        const same = from === pathname;
         prev.current = pathname;
 
         const el = ref.current;
@@ -488,21 +632,56 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
 
         const cls = how === 'POP' ? 'slide-back'   // 뒤로 — 왼쪽에서 들어온다
                                   : 'slide-in';    // 들어감 — 오른쪽에서 들어온다
+
+        /* **화면을 통째로 밀 수 있는 자리인가**(아래 `hasNative`).
+           들어갈 때는 뒤에 깔 앞 화면이 있어야 하고(`snap`은 탭으로 가는
+           길을 안 찍는다), 뒤로 갈 때는 방금 찍어 둔 떠나는 화면이 있어야
+           한다. 없으면 예전 40px짜리로 물러난다 — **바탕만 깔고 밀면
+           빈 화면이 통째로 지나간다.** */
+        const leaving = how === 'POP' && exitFresh() ? exiting : null;
+        const entering = how !== 'POP' && !isTab ? shots[shots.length - 1] : undefined;
+        const full = !hasNative(from) && !hasNative(pathname)
+            && (leaving !== null || entering !== undefined);
+
+        let off = 0;
+        let moving = false;
         const run = () => {
+            window.clearTimeout(off);
+            /* 앞 것이 아직 돌고 있으면 먼저 걷는다 — 그림이 겹쳐 쌓인다. */
+            sweepGhosts(true);
             el.classList.remove('slide-in', 'slide-back');
-            void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
-            el.classList.add(cls);
             /* 앱 목록이 남은 시간만큼만 따라 들어온다(위 `slideMark`). */
             slideMark.at = Date.now();
-            return window.setTimeout(() => el.classList.remove(cls), 300);
+            moving = true;
+            /* **미는 것은 `.app`이 아니라 그 안의 화면이다.** `el`은 `.app`이고
+               40px짜리는 CSS가 `.app.slide-in > :first-child`로 한 단 들어가
+               움직인다 — 여기서 `el`을 그대로 밀면 아무것도 안 움직인다
+               (실제로 그렇게 짰다가 `가장 많이 밀린 값 0px`으로 잡았다). */
+            const scr = pageEl();
+            if (full && scr) {
+                if (leaving) runPop(scr, leaving); else runPush(scr, entering);
+                off = window.setTimeout(() => { moving = false; sweepGhosts(true); },
+                                        SCREEN_MS + 80);
+                return;
+            }
+            void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
+            el.classList.add(cls);
+            /* **`SCREEN_MS`보다 넉넉히 뒤에 걷는다.** 딱 맞춰 걷으면 끝나기
+               한 프레임 전에 클래스가 빠져 화면이 툭 튄다 — 시간을 늘릴 때
+               여기 숫자를 못박아 두면 그대로 걸린다(실제로 300으로 박혀
+               있었고 `SCREEN_MS`가 300이 되면서 딱 붙었다). */
+            off = window.setTimeout(() => { moving = false; el.classList.remove(cls); },
+                                    SCREEN_MS + 60);
         };
-        let off = run();
+        run();
 
         /* **아직 스피너뿐이면 내용이 올 때 한 번 더 민다**(위 주석).
            다만 **움직이는 도중에 왔으면 그대로 둔다** — 리액트가 같은 칸을
            다시 쓰므로 돌고 있는 움직임이 새 내용을 그대로 싣고 간다(재서
-           확인했다). 거기서 다시 돌리면 40px 뒤로 튄다. */
-        if (!el.firstElementChild?.matches(SPINNER)) return () => window.clearTimeout(off);
+           확인했다). 거기서 다시 돌리면 뒤로 튄다. */
+        if (!el.firstElementChild?.matches(SPINNER)) {
+            return () => window.clearTimeout(off);
+        }
 
         let give = 0;
         const mo = new MutationObserver(() => {
@@ -512,9 +691,8 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
                이 아래가 통째로 커지므로 **반드시 곧바로 끊는다.** */
             mo.disconnect();
             window.clearTimeout(give);
-            if (el.classList.contains(cls)) return;   // 아직 미끄러지는 중
-            window.clearTimeout(off);
-            off = run();
+            if (moving) return;   // 아직 미끄러지는 중
+            run();
         });
         mo.observe(el, { childList: true, subtree: true,
                          attributes: true, attributeFilter: ['class'] });

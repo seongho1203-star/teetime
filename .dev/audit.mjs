@@ -171,6 +171,14 @@ for (const [label, W, H] of sizes) {
 
     for (const [name, route] of ROUTES) {
         await page.goto(BASE + route, { waitUntil: 'networkidle' });
+        /* **화면이 밀려 들어오는 동안에는 앞 화면 사본이 함께 깔린다.**
+           그 사본은 옆으로 밀려 있어, 그대로 재면 **화면 밖으로 삐져나온
+           것으로 잡힌다**(실제로 105군데가 그렇게 떴다). 해시만 바꾸는
+           이동은 문서를 새로 안 받으므로 여기도 그 길을 탄다.
+           움직임이 끝날 때까지 기다렸다 잰다. */
+        await page.waitForFunction(
+            () => !document.querySelector('.back-ghost, .exit-ghost, .exit-dim'),
+            null, { timeout: 4000 }).catch(() => {});
         await page.waitForTimeout(350);
         const r = await page.evaluate(CHECK, W);
         const doc = await page.evaluate(() => [

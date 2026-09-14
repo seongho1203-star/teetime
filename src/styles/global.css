@@ -76,9 +76,75 @@ h1, h2, h3, h4, p { margin: 0; }
 /* **시간은 `lib/tabs.ts`의 `SCREEN_MS`와 같아야 한다** — 앱 목록
    (`ChatList.slideIn`)이 그 값으로 **남은 시간**을 셈해 따라 들어온다.
    한쪽만 고치면 머리말과 말풍선 자리가 따로 끝나 두 단계로 보인다.
-   지금은 0.30초다(사용자가 고른 값 — `조금 느리게`). */
-.app.slide-in   > :first-child { animation: screen-in 300ms cubic-bezier(.32, .72, 0, 1); }
-.app.slide-back > :first-child { animation: screen-back 300ms cubic-bezier(.32, .72, 0, 1); }
+   지금은 0.35초다(아이폰의 그 전환과 같은 시간).
+
+   **이 40px짜리는 이제 예비 길이다** — 대화처럼 네이티브 부품이 얹히는
+   화면과, 앞 화면을 못 찍은 자리에서만 쓴다. 보통은 아래 `screen-push`가
+   화면을 **통째로** 밀어 넣는다. */
+.app.slide-in   > :first-child { animation: screen-in 350ms cubic-bezier(.32, .72, 0, 1); }
+.app.slide-back > :first-child { animation: screen-back 350ms cubic-bezier(.32, .72, 0, 1); }
+
+/* ── 화면이 통째로 밀려 들어오고 나간다 ─────────────────────────
+   아이폰(과 카톡)의 그 전환이다(사용자 제보 — `카톡과 비교하면 아직도
+   엄청빨라`).
+
+   **빠르게 느껴지던 것은 시간이 아니라 거리였다** — 40px은 화면 폭의
+   1/10이라 아무리 천천히 밀어도 '살짝 들썩'으로만 보인다. 카톡은 새
+   화면이 **오른쪽 끝에서 통째로** 들어오고 앞 화면이 뒤에서 1/4만큼
+   따라 나가며 어두워진다.
+
+   **손가락으로 끌어 뒤로 가는 그 장치를 그대로 물려 쓴다** — `.back-ghost`와
+   `PARALLAX`·`DIM`이 이미 그것이다(`lib/tabs.ts`). 자리 셈은 거기서 하고
+   여기서는 **층과 생김새만** 정한다. 새로 만들지 말 것.
+
+   **층을 갈라 두는 것이 한 쌍이다.** 들어올 때는 새 화면이 위(2)·앞
+   화면이 아래(1)이고, 나갈 때는 반대로 **떠나는 화면이 맨 위**다.
+   나갈 때 `.exit-ghost`가 탭바(800)보다 위여야 한다 — 안 그러면 목적지의
+   탭바가 **아직 빠져나가는 중인 화면 위에** 그대로 그려진다. */
+html.screen-push .app > :first-child,
+html.screen-pop  .app > :first-child {
+    position: relative;
+    background: var(--bg);
+    will-change: transform;
+}
+html.screen-push .app > :first-child {
+    z-index: 2;
+    box-shadow: -10px 0 26px rgba(0, 0, 0, 0.20);
+}
+html.screen-pop .app > :first-child { z-index: 1; }
+
+/* 뒤로 갈 때 **위로 얹혀 오른쪽으로 빠져나가는** 떠나는 화면.
+   찍어 둔 죽은 그림이라 손짓을 안 받는다(`.back-ghost`와 같다). */
+.exit-ghost {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: -10px 0 26px rgba(0, 0, 0, 0.20);
+    pointer-events: none;
+    will-change: transform;
+}
+/* 그 밑에서 목적지를 덮는 얇은 막 — 들어올 때의 `.back-ghost-dim` 몫이다. */
+.exit-dim {
+    position: fixed;
+    inset: 0;
+    z-index: 899;
+    background: #000;
+    pointer-events: none;
+}
+
+/* **시간은 위 `screen-in`과 같아야 한다**(`SCREEN_MS`). */
+html.screen-ease .app > :first-child,
+html.screen-ease .back-ghost,
+html.screen-ease .back-ghost-dim,
+html.screen-ease .exit-ghost,
+html.screen-ease .exit-dim {
+    transition: transform 350ms cubic-bezier(.32, .72, 0, 1),
+                opacity 350ms linear;
+}
 
 /* ── 손가락을 따라 뒤로 가기 ────────────────────────────────────
    아이폰의 그 손짓이다(사용자 요청). 자리 셈은 `lib/tabs.ts`가 하고
