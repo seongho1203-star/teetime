@@ -349,8 +349,9 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      * 들어올 때 오른쪽에서 미끄러져 들어온다(25판 · 웹의 `screen-in`).
      *
      * **남은 시간만큼만 움직인다**(`ms` — 웹의 `slideLeft()`). 앱 목록은
-     * 웹 화면이 그려진 **뒤에** 서므로 늘 한두 프레임 늦는데, 240ms를 제
-     * 시간 그대로 돌면 머리말보다 늦게 끝나 **두 단계로 보인다.**
+     * 웹 화면이 그려진 **뒤에** 서므로 늘 한두 프레임 늦는데, 제 시간
+     * (웹의 `SCREEN_MS`)을 그대로 돌면 머리말보다 늦게 끝나 **두 단계로
+     * 보인다.**
      * 끝을 맞추는 것이 눈에 걸리는 전부라 시작이 조금 어긋나는 것은 둔다.
      *
      * 값(40px · `cubic-bezier(.32,.72,0,1)`)은 `global.css`의 `screen-in`

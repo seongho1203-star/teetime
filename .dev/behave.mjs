@@ -3014,7 +3014,7 @@ console.log('\n── 대화방에 들어갈 때와 나올 때 ──');
     await cp.waitForSelector('.tabbar', { timeout: 20000 });
     await cp.waitForTimeout(600);
     /* 1. 내용이 늦게 와도 그때 미끄러져 들어오는가.
-       **한 번 재서는 안 된다** — 움직임이 0.24초뿐이라 밖에서 물어보면
+       **한 번 재서는 안 된다** — 움직임이 0.30초뿐이라 밖에서 물어보면
        거의 끝난 뒤의 값이 잡힌다(실제로 3px이 나왔다). 프레임마다 훑어
        **대화가 첫 자식인 동안 가장 많이 밀린 값**을 본다. */
     const late = await cp.evaluate(async () => {

@@ -73,8 +73,12 @@ h1, h2, h3, h4, p { margin: 0; }
     from { transform: translate3d(-40px, 0, 0); opacity: 0; }
     to   { transform: none; opacity: 1; }
 }
-.app.slide-in   > :first-child { animation: screen-in 240ms cubic-bezier(.32, .72, 0, 1); }
-.app.slide-back > :first-child { animation: screen-back 240ms cubic-bezier(.32, .72, 0, 1); }
+/* **시간은 `lib/tabs.ts`의 `SCREEN_MS`와 같아야 한다** — 앱 목록
+   (`ChatList.slideIn`)이 그 값으로 **남은 시간**을 셈해 따라 들어온다.
+   한쪽만 고치면 머리말과 말풍선 자리가 따로 끝나 두 단계로 보인다.
+   지금은 0.30초다(사용자가 고른 값 — `조금 느리게`). */
+.app.slide-in   > :first-child { animation: screen-in 300ms cubic-bezier(.32, .72, 0, 1); }
+.app.slide-back > :first-child { animation: screen-back 300ms cubic-bezier(.32, .72, 0, 1); }
 
 /* ── 손가락을 따라 뒤로 가기 ────────────────────────────────────
    아이폰의 그 손짓이다(사용자 요청). 자리 셈은 `lib/tabs.ts`가 하고

@@ -437,8 +437,13 @@ export function useBackSwipe(): void {
 const SLIDE_WAIT = 3000;
 /** 자료를 기다리는 동안의 화면 — 이것뿐이면 아직 '내용'이 아니다. */
 const SPINNER = '.center-fill';
-/** 한 번 미끄러지는 데 걸리는 시간. `global.css`의 `screen-in`과 같은 값이다. */
-const SCREEN_MS = 240;
+/**
+ * 한 번 미끄러지는 데 걸리는 시간. **`global.css`의 `screen-in`·`screen-back`과
+ * 같은 값이어야 한다** — 한쪽만 고치면 앱 목록이 셈하는 '남은 시간'이
+ * 어긋나 머리말과 말풍선 자리가 따로 끝난다(아래 `slideMark`).
+ * 지금은 0.30초다(사용자가 고른 값 — `조금 느리게`).
+ */
+const SCREEN_MS = 300;
 
 /**
  * 마지막으로 화면을 미끄러뜨리기 시작한 때.
