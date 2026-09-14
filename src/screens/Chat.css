@@ -1995,3 +1995,12 @@ html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }
    이긴다(특이도가 같다). */
 html.nc2.kb-follow body .chat-input { padding-bottom: var(--composer, 60px); }
 
+
+/* **앱이 목록을 그리는 동안**(17판 · `ios/App/App/ChatList.swift`) 웹 목록은
+   감춰만 둔다. **`display: none`으로 지우지 말 것** — 자리가 없어지면
+   `--chat-h` 셈과, 앱 목록의 윗변을 정하는 `listTop`이 함께 어긋난다
+   (댓글 칸에서 쓴 그 수와 같다). 손짓도 앱 목록이 받아야 하므로 막는다. */
+.chat-list.nc-list {
+    visibility: hidden;
+    pointer-events: none;
+}

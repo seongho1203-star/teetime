@@ -40,7 +40,8 @@ import Capacitor
  * (`inputAccessoryView`)과 새 판의 여백 셈을 가른다(`html.nc2`).
  */
 @objc(NativeComposerPlugin)
-public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, ComposerBarDelegate {
+public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, ComposerBarDelegate,
+                                   ChatListDelegate {
 
     public let identifier = "NativeComposerPlugin"
     public let jsName = "NativeComposer"
@@ -58,7 +59,11 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "pickPhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "savePhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "settled", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "settled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listAttach", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listRows", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listSet", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listDetach", returnType: CAPPluginReturnPromise)
     ]
 
     /// 이 판의 번호. 바를 세우는 방식이 바뀌면 올린다(웹이 `html.nc2`로 가른다).
@@ -97,11 +102,15 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        `setKb`의 `same` 갈래). 그 알림은 시간이 0이라 프레임 따라가기가
     ///        바가 옮기기도 전에 끝났고, 옮긴 뒤에는 아무도 안 알려 목록
     ///        아래에 옛 키보드 높이만큼 밝은 띠가 남았다.
+    /// 17판 — **대화 목록을 앱이 그린다**(`ChatList.swift` · `listAttach`·
+    ///        `listRows`·`listSet`·`listDetach`). 줄은 웹이 만들어 넘기고
+    ///        앱은 그리기와 굴리기만 한다 — 자세한 것은 그 파일 머리말에 있다.
+    ///        **기본은 꺼짐이다**(웹의 `teetime:nc-list` 스위치).
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 16
+    private static let version = 17
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -317,6 +326,104 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             self.slider.ack(dy: dy)
             call.resolve()
         }
+    }
+
+    // ── 대화 목록 (17판) ──────────────────────────────────
+    //
+    // **줄은 웹이 만들고 앱은 그리기만 한다.** 까닭과 규칙은
+    // `ChatList.swift` 머리말에 있다 — 여기는 다리일 뿐이다.
+    //
+    // **아래를 바 윗변에 묶는 것이 이 짜임의 전부다.** 그래야 키보드가
+    // 오르내릴 때 iOS가 `keyboardLayoutGuide`로 바를 옮기는 그 한 움직임에
+    // 목록도 함께 실린다 — 프레임마다 다리를 건너 높이를 다시 적던 일
+    // (`kbFrame`)이 이 화면에서는 필요 없어진다.
+
+    private var list: ChatList?
+    /// 목록 윗변을 어디에 둘지(머리말·방 공지 아래). 웹이 pt로 알려 준다.
+    private var listTopC: NSLayoutConstraint?
+
+    /**
+     * 목록을 세운다. **바가 먼저 서 있어야 한다** — 아래를 그 윗변에 묶기
+     * 때문이다. 없으면 거절하고, 웹은 제 목록을 그대로 쓴다(되물러남).
+     */
+    @objc func listAttach(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let root = self.bridge?.viewController?.view else {
+                call.reject("no view"); return
+            }
+            guard let bar = self.bar, bar.superview === root else {
+                call.reject("no bar"); return
+            }
+            let list = self.list ?? ChatList(frame: root.bounds)
+            list.listDelegate = self
+            self.list = list
+
+            if list.superview !== root {
+                list.removeFromSuperview()
+                list.translatesAutoresizingMaskIntoConstraints = false
+                /* **바보다 뒤에 깔린다.** 바는 목록 위에 얹히는 것이라
+                   순서가 뒤집히면 입력칸이 말풍선에 가린다. */
+                root.insertSubview(list, belowSubview: bar)
+                let top = list.topAnchor.constraint(equalTo: root.topAnchor)
+                self.listTopC = top
+                NSLayoutConstraint.activate([
+                    list.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                    list.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                    top,
+                    list.bottomAnchor.constraint(equalTo: bar.topAnchor),
+                ])
+            }
+            self.applyList(call, on: list)
+            root.layoutIfNeeded()
+            call.resolve(["ok": true])
+        }
+    }
+
+    /// 줄을 갈아 끼운다. `stickBottom`이면 맨 아래를 보고 있었을 때 따라간다.
+    @objc func listRows(_ call: CAPPluginCall) {
+        /* `JSValue`를 `Any`로 풀어 넘긴다 — `ChatList`는 Capacitor를 모르는
+           파일이라(그래야 그 안의 규칙을 눈으로 읽을 수 있다) 값만 받는다. */
+        let raw = (call.getArray("rows", JSObject.self) ?? [])
+            .map { $0.mapValues { v in v as Any } }
+        let stick = call.getBool("stickBottom") ?? true
+        DispatchQueue.main.async {
+            guard let list = self.list else { call.resolve(["ok": false]); return }
+            list.apply(rows: raw.compactMap { ChatRow($0) }, stickBottom: stick)
+            call.resolve(["ok": true, "n": list.rowCount])
+        }
+    }
+
+    /// 값만 고친다 — 보낸 칸만 바뀐다(`setState`와 같은 결이다).
+    @objc func listSet(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let list = self.list else { call.resolve(); return }
+            self.applyList(call, on: list)
+            if call.getBool("toBottom") == true { list.scrollToBottom(animated: false) }
+            call.resolve()
+        }
+    }
+
+    @objc func listDetach(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.list?.removeFromSuperview()
+            self.listTopC = nil
+            /* 바와 같은 까닭으로 **버리지는 않는다** — 탭을 오갈 때마다
+               표를 새로 만들면 그만큼 늦어진다. */
+            call.resolve()
+        }
+    }
+
+    private func applyList(_ call: CAPPluginCall, on list: ChatList) {
+        if let v = call.getDouble("top") { listTopC?.constant = CGFloat(v) }
+        if let v = call.getBool("hidden") { list.isHidden = v }
+        if let skin = call.getObject("skin") {
+            list.apply(skin: skin.mapValues { v in v as Any })
+        }
+    }
+
+    func chatListState(atBottom: Bool, atTop: Bool) {
+        guard live else { return }
+        notifyListeners("listState", data: ["atBottom": atBottom, "atTop": atTop])
     }
 
     // ── 사진 (8판) ───────────────────────────────────────

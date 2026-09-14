@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
 import { useAsync, unwrap, useRefreshOnShow, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatChatDay, formatStamp, formatTime, kstDate, kstMinute } from '../lib/format';
+import { formatChatDay, formatStamp, formatTime, kstDate } from '../lib/format';
 import { FIND_AT, REACTIONS, ROLE_LABEL, ROLE_TAG, personLabel,
          type Gender, type Message, type MessageReaction,
          type Person, type Room } from '../lib/types';
@@ -22,6 +22,10 @@ import {
     NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbSnap, kbTick, kbWork,
     ncLog, pickNativePhoto,
 } from '../lib/composer';
+import {
+    canNativeList, chatListSkin, dayChip, edgeColor, isNewDay, listAttach, listDetach,
+    listRows, listSet, onListState, sameBlock, type ListRow,
+} from '../lib/chatlist';
 
 /**
  * 네이티브 바가 마지막으로 알려 온 높이 — **화면을 나갔다 와도 남는다.**
@@ -236,6 +240,9 @@ export function Chat() {
      * `useCallback`으로 붙박아 둔 함수들이 의존성 없이 읽으려고 있다.
      */
     const [nativeBar, setNativeBar] = useState(false);
+    /** **앱 목록이 실제로 섰는가**(17판). 이게 참일 때만 웹 목록을 감춘다 —
+        안 서면 예전 그대로다(바의 `watchdog`과 같은 결이다). */
+    const [listUp, setListUp] = useState(false);
     const ncOn = useRef(false);
     /** 네이티브 바가 마지막으로 알려 준 제 높이. **`--composer`를 다시 적을
         때 쓴다** — 그 값을 지우는 곳이 따로 있어서다(아래 `write()` 주석). */
@@ -2863,12 +2870,12 @@ export function Chat() {
         있으면 옛 값을 보고 돈다. */
     const nc = useRef({
         send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-        photo,
+        photo, loadMore,
     });
     useEffect(() => {
         nc.current = {
             send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-            photo,
+            photo, loadMore,
         };
     });
 
@@ -3001,6 +3008,111 @@ export function Chat() {
         /* `settleList`는 `useCallback([])`이라 안 바뀐다 — 여기에 적어도
            바를 다시 세우는 일은 없다. */
     }, [settleList]);
+
+    /* ── 대화 목록을 앱이 그린다(17판) ─────────────────────────
+     *
+     * **줄만 만들어 넘긴다.** 누가 보냈는지 · 이름을 붙일지 · 시각을 적을지는
+     * 여기서 이미 셈해 두었고, 앱은 그것을 그리고 굴리기만 한다
+     * (`ios/App/App/ChatList.swift` 머리말 참고).
+     *
+     * **기본은 꺼짐이다**(`내 정보`의 `대화 목록을 앱이 그리기` 스위치).
+     * 여기는 헤드리스로 한 줄도 확인할 수 없는 자리라 14판 `ListSlider`와
+     * 같은 잣대를 쓴다 — 매일 쓰는 화면을 짐작으로 갈아 끼우지 않는다.
+     *
+     * **앱 목록이 실제로 선 뒤에만 웹 목록을 감춘다**(`listUp`). 안 서면
+     * 예전 그대로다 — 바가 안 설 때 되돌리는 것(`watchdog`)과 같은 결이다.
+     */
+    useEffect(() => {
+        if (!nativeBar || !canNativeList()) return;
+        let dead = false;
+        let drop: (() => void) | null = null;
+        void (async () => {
+            const ok = await listAttach({
+                top: Math.round(listRef.current?.getBoundingClientRect().top ?? 0),
+                skin: chatListSkin(listRef.current),
+            });
+            if (dead || !ok) return;
+            const h = await onListState(e => {
+                /* 굴린 자리는 이제 앱이 안다 — 우리 `atBottom`도 그 값을 따른다
+                   (새 글이 왔을 때 따라 내릴지를 가르는 값이다). */
+                atBottom.current = e.atBottom;
+                if (e.atTop) void nc.current.loadMore();
+            });
+            if (dead) { void h.remove(); return; }
+            drop = () => { void h.remove(); };
+            setListUp(true);
+        })();
+        return () => {
+            dead = true;
+            drop?.();
+            setListUp(false);
+            void listDetach();
+        };
+    }, [nativeBar]);
+
+    /**
+     * 앱에 넘길 줄 목록. **묶는 규칙은 웹 목록이 쓰는 것과 같은 함수다**
+     * (`lib/chatlist.ts`의 `sameBlock`·`isNewDay`).
+     *
+     * **아직 못 그리는 것은 `other`로 넘긴다** — 사진·이모티콘·인용·가린 글.
+     * 자리는 그대로 잡고 `사진`처럼 무슨 줄인지만 적는다(`preview`와 같은
+     * 말이라 인용에서 보던 것과 어긋나지 않는다). 그리는 판을 늘릴 때
+     * 여기부터 고친다.
+     */
+    const listData = useMemo<ListRow[]>(() => {
+        if (!listUp) return [];
+        const who = byId(data?.people ?? []);
+        return messages.map((m, i) => {
+            const prev = messages[i - 1];
+            const next = messages[i + 1];
+            const newDay = isNewDay(prev, m);
+            const grouped = !newDay && sameBlock(prev, m);
+            const showTime = !sameBlock(m, next);
+            const mine = m.user_id === me;
+            const p = who[m.user_id ?? ''];
+            /* 말풍선 하나로 끝나는 줄만 `text`다 — 나머지는 아직 자리만 잡는다. */
+            const plain = !m.image_url && !m.hidden_at && !m.reply_to;
+            const head = !m.system && !mine && !grouped;
+            return {
+                id: m.id,
+                kind: m.system ? 'system' : plain ? 'text' : 'other',
+                mine,
+                name: head ? (personLabel(p) || '알 수 없음') : undefined,
+                avatar: head ? (p?.avatar_url ?? undefined) : undefined,
+                edge: head ? edgeColor(p?.gender) : undefined,
+                body: m.system || plain ? m.body : preview(m),
+                time: !m.system && showTime ? formatTime(m.created_at) : undefined,
+                unread: m.system ? 0 : (unreadBy[m.id] ?? 0),
+                date: newDay ? dayChip(m) : undefined,
+                note: plain ? undefined : (preview(m) || '사진'),
+            };
+        });
+    }, [listUp, messages, unreadBy, data?.people, me]);
+
+    useEffect(() => {
+        if (!listUp) return;
+        void listRows(listData, true);
+    }, [listUp, listData]);
+
+    /**
+     * 목록이 시작하는 자리를 알려 준다 — 앱 목록의 윗변이 그 자리에 선다.
+     * **방 공지가 붙었다 떨어지면 그만큼 움직이므로** 다시 재서 알린다
+     * (감춰 둔 웹 목록이 자리는 그대로 차지하고 있어 그 값이 맞는다).
+     */
+    useEffect(() => {
+        if (!listUp) return;
+        const el = listRef.current;
+        if (!el) return;
+        const tell = () => { void listSet({ top: Math.round(el.getBoundingClientRect().top) }); };
+        tell();
+        const ro = new ResizeObserver(tell);
+        ro.observe(el);
+        window.addEventListener('resize', tell);
+        return () => {
+            ro.disconnect();
+            window.removeEventListener('resize', tell);
+        };
+    }, [listUp]);
 
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {
@@ -3179,7 +3291,11 @@ export function Chat() {
                 </div>
             )}
 
-            <div className="chat-list" ref={listRef} onScroll={onScroll} onClick={onPhotoTap}>
+            {/* **앱 목록이 섰으면 감추기만 한다** — `display: none`으로 지우지
+                말 것: 자리가 없어지면 `--chat-h` 셈과 `listTop`이 함께 어긋난다
+                (댓글 칸에서 쓴 그 수와 같다). */}
+            <div className={`chat-list${listUp ? ' nc-list' : ''}`}
+                 ref={listRef} onScroll={onScroll} onClick={onPhotoTap}>
                 {hasMore && (
                     <button className="btn ghost sm chat-more" onClick={loadMore} disabled={loadingMore}>
                         {loadingMore ? '불러오는 중…' : '지난 대화 더 보기'}
@@ -3191,13 +3307,10 @@ export function Chat() {
                 {messages.map((m, i) => {
                     const prev = messages[i - 1];
                     const next = messages[i + 1];
-                    const newDay = !prev || kstDate(prev.created_at) !== kstDate(m.created_at);
-                    // 카톡이 대화를 묶는 단위는 **같은 사람 · 같은 분**이다.
-                    // 5분으로 묶어 봤는데 9시 09분과 9시 10분 글이 한 덩어리가
-                    // 되어, 카톡이라면 이름이 다시 붙을 자리가 비어 보였다.
-                    const sameBlock = (a?: Message, b?: Message) =>
-                        !!a && !!b && a.user_id === b.user_id
-                        && kstMinute(a.created_at) === kstMinute(b.created_at);
+                    /* 묶는 규칙은 `lib/chatlist.ts`에 있다 — **그리는 곳이
+                       둘이 되었으므로**(웹 목록 · 앱 목록) 규칙까지 둘이 되면
+                       언젠가 어긋난다. */
+                    const newDay = isNewDay(prev, m);
                     const grouped = !newDay && sameBlock(prev, m);
                     // **시각은 덩어리의 마지막 줄에만 적는다.** 카톡이 그렇다 —
                     // 줄마다 붙이면 같은 시각이 서너 번 되풀이돼 지저분하다.

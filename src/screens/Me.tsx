@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
+import { listOn, setListOn } from '../lib/chatlist';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -170,6 +171,9 @@ export function Me() {
        **토스트로만 알리지 말 것** — 몇 초 뒤 사라져 사진으로 못 찍는다. */
     const [step, setStep] = useState('');
     const [why, setWhy] = useState('');
+
+    /** 대화 목록을 앱이 그릴지(17판 시험 스위치). 값은 이 기기에만 남는다. */
+    const [ncList, setNcList] = useState(listOn());
 
     useEffect(() => {
         pushState().then(async s => {
@@ -493,6 +497,37 @@ export function Me() {
                     {/* 소리 시험 줄은 걷어냈다(사용자 요청). 소리 자체는
                         그대로 나고, 잠금 푸는 일은 `lib/sound.ts`가 첫 손짓에서
                         알아서 한다 — 이 단추가 있어야 도는 것이 아니었다. */}
+                </div>
+            )}
+
+            {/* **시험 스위치 — 대화 목록을 앱이 그린다**(17판).
+                `docs/네이티브로-바꾸기.md`의 B로 가는 첫 걸음이고, **여기는
+                헤드리스로 한 줄도 확인할 수 없는 자리**라 기본을 꺼짐으로 두고
+                폰에서 켜 보게 한다(14판 `ListSlider`와 같은 잣대다).
+
+                **스위치가 화면에 있어야 하는 까닭**은 저장 열쇠(`teetime:nc-list`)
+                를 폰에서 손으로 적을 길이 없기 때문이다 — `nc-slide`를 그렇게
+                두었다가 사용자가 켜 볼 수가 없었다.
+
+                아직 **말풍선만 그린다** — 사진·이모티콘·인용·반응은 `사진`처럼
+                무슨 줄인지만 적히고, `지난 대화 더 보기`는 맨 위에 닿으면
+                저절로 받아 온다. 어긋나면 스위치를 도로 내리면 된다. */}
+            {!editing && IS_NATIVE && (
+                <div className="card">
+                    <div className="section-title">시험 중</div>
+                    <div className="switch-row">
+                        <div className="grow">
+                            <div className="switch-label">대화 목록을 앱이 그리기</div>
+                            <div className="switch-desc">
+                                {ncList
+                                    ? '켜짐 — 대화를 나갔다 들어와야 바뀝니다. 아직 사진·이모티콘은 글자로만 보입니다'
+                                    : '꺼짐 — 지금까지처럼 웹 화면이 그립니다'}
+                            </div>
+                        </div>
+                        <Switch label="대화 목록을 앱이 그리기"
+                                on={ncList}
+                                onChange={v => { setListOn(v); setNcList(v); }} />
+                    </div>
                 </div>
             )}
 
