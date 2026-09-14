@@ -57,9 +57,13 @@ export function setListOn(on: boolean): void {
  * 번호를 올려 두면 **17판을 든 폰은 웹만 밀어도 그날로 웹 목록으로
  * 돌아오고**(앱 한 바퀴는 30분이다), 18판을 받으면 저절로 앱 목록으로
  * 돌아온다 — 12판 `canPickNative()`에서 쓴 그 수다.
+ *
+ * **지금은 19판이다** — 사진·이모티콘·눌리는 카드(2판)와 인용·반응 알약·
+ * `여기까지 읽으셨습니다` 줄(3판)까지 앱이 그린다. 18판을 든 폰은 그것을
+ * 못 그려 `사진`이라고만 적히므로, 같은 수로 웹 목록으로 되돌린다.
  */
 export function canNativeList(): boolean {
-    return ncLog.ready === true && ncLog.v >= 18 && listOn();
+    return ncLog.ready === true && ncLog.v >= 19 && listOn();
 }
 
 /* ── 묶는 규칙 (웹 목록과 앱 목록이 같이 본다) ─────────────── */
@@ -83,8 +87,12 @@ export function isNewDay(prev: Message | undefined, m: Message): boolean {
 
 export type ListRow = {
     id: string;
-    /** `text` 말풍선 · `system` 가운데 안내 줄 · `other` 아직 앱이 못 그리는 것. */
-    kind: 'text' | 'system' | 'other';
+    /**
+     * `text` 말풍선 · `system` 가운데 안내 줄 · `photo` 사진 · `sticker`
+     * 이모티콘 · `card` 눌러서 들어가는 안내 카드 · `other` 아직 앱이
+     * 못 그리는 것(자리만 잡고 무슨 줄인지만 적는다).
+     */
+    kind: 'text' | 'system' | 'photo' | 'sticker' | 'card' | 'other';
     mine?: boolean;
     /** 이름표(`83/신성호/광산구`). **없으면 안 그린다** — 덩어리의 둘째 줄부터다. */
     name?: string;
@@ -99,6 +107,37 @@ export type ListRow = {
     date?: string;
     /** 아직 못 그리는 줄에 적을 말(`사진`·`이모티콘`). */
     note?: string;
+    /**
+     * 사진·이모티콘의 **그림 주소**. 이모티콘은 글에 `sticker:<id>`로 남고
+     * 주소를 짓는 규칙(`stickerSrc`)은 웹에만 있으므로 **여기서 만들어 준다** —
+     * 앱이 그 규칙을 또 들고 있으면 형식을 바꿀 때 한쪽만 고치게 된다.
+     */
+    image?: string;
+    /** 사진·이모티콘과 **함께 보낸 글**(그림 아래 한 줄 · 웹의 `.chat-cap`). */
+    cap?: string;
+    /** 이모지만 보낸 글 — 말풍선을 벗기고 크게 그린다(`lib/emoji.ts`). */
+    big?: boolean;
+    /** 눌리는 카드의 아랫줄(`라운드 보러 가기 ›`). */
+    go?: string;
+    /** 그 카드가 가는 곳(`/rounds/r1`). */
+    to?: string;
+    /**
+     * 인용(답장)의 머리말 — `박승수에게 댓글`. **닉네임 그대로다**
+     * (`83/신성호/광산구`가 아니다 — 문장에 가까운 줄이다).
+     */
+    quoteWho?: string;
+    /**
+     * 인용의 원문 **한 줄**. `preview()`를 거친 값이라 **가린 글은
+     * `가려진 메시지`로 이미 바뀌어 있다** — 앱에 원문을 넘기면 그리로 샌다.
+     */
+    quoteText?: string;
+    /**
+     * 말풍선 아래 반응 알약. **차례는 먼저 달린 순서다**(`countReacts`) —
+     * 개수순으로 세우면 새 반응이 들어올 때마다 칩이 자리를 바꾼다.
+     */
+    reacts?: { emoji: string; n: number; mine: boolean }[];
+    /** 이 줄 **위에** `여기까지 읽으셨습니다`를 긋는가. */
+    mark?: boolean;
 };
 
 /** 날짜 칸 글자. 웹 목록의 `.chat-day`와 같은 함수를 쓴다. */
@@ -137,9 +176,26 @@ export function chatListSkin(el: HTMLElement | null): Record<string, unknown> {
         chip: read(list, '--chat-chip', 'rgba(255,255,255,0.17)'),
         on: read(list, '--chat-on', 'rgba(255,255,255,0.95)'),
         unread: read(list, '--chat-unread', '#ffdf47'),
+        /* 카드의 `보러 가기 ›`. **분홍(`--brand`)을 쓰지 말 것** — 그건
+           '지금 눌러야 할 것' 자리이고 이건 알려 주는 값이다. */
+        link: read(root, '--grass', '#4c8c2f'),
+        card: read(root, '--surface', '#ffffff'),
+        /* 인용 안의 가는 선. **`--line`을 쓰지 말 것** — 흰 말풍선에만 맞는
+           값이라 내 노란 말풍선 위에서는 안 보인다(웹에서 겪은 그 자리다). */
+        quoteRule: 'rgba(0,0,0,0.1)',
+        /* 내가 누른 반응 알약의 **테두리만** 분홍이다 — 칠하지 말 것.
+           이 화면에서 '지금 눌러야 할 것'은 보내기 단추 하나다. */
+        brand: read(root, '--brand', '#e8497f'),
         pad: 9, avatar: 29, avatarGap: 7, radius: 11,
         fontSize: 15, lineHeight: 18, padH: 11, padV: 8.5,
         nameSize: 13.5, stampSize: 10, maxRatio: 0.684,
+        /* 사진 상자·이모티콘 크기는 `Chat.css`의 `.chat-image`·`.chat-sticker`와
+           같은 값이다 — **한쪽만 고치지 말 것.** */
+        photoW: 240, photoH: 300, photoRadius: 15,
+        sticker: 118, bigSize: 40,
+        /* 인용 글자는 **말풍선보다 한 톤 낮춘다**(웹의 `.chat-quote`).
+           알약은 **30px 아래로 내리지 말 것** — 누를 자리다. */
+        quoteSize: 13, quoteLine: 18, reactH: 30,
     };
 }
 
@@ -165,6 +221,10 @@ type Bridge = {
     addListener(
         n: 'listState',
         cb: (e: { atBottom: boolean; atTop: boolean }) => void,
+    ): Promise<{ remove: () => Promise<void> }>;
+    addListener(
+        n: 'listTap',
+        cb: (e: { kind: string; id: string; to: string }) => void,
     ): Promise<{ remove: () => Promise<void> }>;
 };
 
@@ -196,4 +256,14 @@ export function onListState(
     cb: (e: { atBottom: boolean; atTop: boolean }) => void,
 ): Promise<{ remove: () => Promise<void> }> {
     return bridge.addListener('listState', cb);
+}
+
+/**
+ * 목록에서 무엇인가를 눌렀다 — 사진(크게 보기)이나 카드(그 화면으로).
+ * **하는 일은 웹이 정한다** — 앱은 무엇을 눌렀는지만 알려 준다.
+ */
+export function onListTap(
+    cb: (e: { kind: string; id: string; to: string }) => void,
+): Promise<{ remove: () => Promise<void> }> {
+    return bridge.addListener('listTap', cb);
 }

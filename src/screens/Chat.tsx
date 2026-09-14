@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
          type Dispatch, type SetStateAction, type SyntheticEvent } from 'react';
 import { supabase } from '../lib/supabase';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAsync, unwrap, useRefreshOnShow, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatChatDay, formatStamp, formatTime, kstDate } from '../lib/format';
@@ -24,7 +24,7 @@ import {
 } from '../lib/composer';
 import {
     canNativeList, chatListSkin, dayChip, edgeColor, isNewDay, listAttach, listDetach,
-    listRows, listSet, onListState, sameBlock, type ListRow,
+    listRows, listSet, onListState, onListTap, sameBlock, type ListRow,
 } from '../lib/chatlist';
 
 /**
@@ -643,6 +643,9 @@ export function Chat() {
      * `Bubble`이 `memo`라 새 함수를 넘기면 쉰 개가 다시 그려진다.
      */
     const [zoom, setZoom] = useState<string | null>(null);
+    /* 앱 목록에서 카드를 눌렀을 때 옮겨 갈 길이다(19판). 웹 목록은
+       `<Link>`로 가지만 앱 목록에는 링크가 없어 여기서 옮긴다. */
+    const nav = useNavigate();
     /* 저장·공유가 도는 동안 단추를 잠근다. **저장은 끝나기까지 몇 초가
        걸리는데 그동안 아무 말이 없어**, 안 된 줄 알고 또 눌러 **같은
        사진이 여러 장 저장됐다**(사용자 제보). 토스트를 위로 올린 것과
@@ -2870,12 +2873,12 @@ export function Chat() {
         있으면 옛 값을 보고 돈다. */
     const nc = useRef({
         send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-        photo, loadMore,
+        photo, loadMore, nav, toggleReact,
     });
     useEffect(() => {
         nc.current = {
             send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-            photo, loadMore,
+            photo, loadMore, nav, toggleReact,
         };
     });
 
@@ -3038,8 +3041,16 @@ export function Chat() {
                 atBottom.current = e.atBottom;
                 if (e.atTop) void nc.current.loadMore();
             });
-            if (dead) { void h.remove(); return; }
-            drop = () => { void h.remove(); };
+            /* **누르면 하는 일은 웹이 정한다**(19판) — 앱은 무엇을 눌렀는지만
+               알려 준다. 사진 크게 보기도 카드가 가는 곳도 이미 여기 길이
+               있고, 두 벌로 만들면 한쪽만 고치게 된다. */
+            const t = await onListTap(e => {
+                if (e.kind === 'photo' && e.to) setZoom(e.to);
+                else if (e.kind === 'card' && e.to) nc.current.nav(e.to);
+                else if (e.kind === 'react' && e.to) void nc.current.toggleReact(e.id, e.to);
+            });
+            if (dead) { void h.remove(); void t.remove(); return; }
+            drop = () => { void h.remove(); void t.remove(); };
             setListUp(true);
         })();
         return () => {
@@ -3054,14 +3065,23 @@ export function Chat() {
      * 앱에 넘길 줄 목록. **묶는 규칙은 웹 목록이 쓰는 것과 같은 함수다**
      * (`lib/chatlist.ts`의 `sameBlock`·`isNewDay`).
      *
-     * **아직 못 그리는 것은 `other`로 넘긴다** — 사진·이모티콘·인용·가린 글.
+     * **그림 주소도 여기서 짓는다**(`stickerSrc`) — 글에 남는 값은
+     * `sticker:<id>`이고 주소 짓는 규칙은 웹에만 있다. 앱이 그 규칙을 또
+     * 들고 있으면 형식을 바꿀 때 한쪽만 고치게 된다.
+     *
+     * **아직 못 그리는 것은 `other`로 넘긴다** — 지금은 가린 글뿐이다.
      * 자리는 그대로 잡고 `사진`처럼 무슨 줄인지만 적는다(`preview`와 같은
-     * 말이라 인용에서 보던 것과 어긋나지 않는다). 그리는 판을 늘릴 때
-     * 여기부터 고친다.
+     * 말이라 인용에서 보던 것과 어긋나지 않는다).
+     *
+     * **인용·반응·`여기까지 읽으셨습니다` 줄도 여기서 만든다**(3판).
+     * 무엇을 적을지는 웹 목록이 쓰는 값 그대로다 — `preview()`(가린 글은
+     * `가려진 메시지`로 이미 바뀐다) · `countReacts()`(먼저 달린 순서) ·
+     * `unreadFrom`(줄 자리는 한 번 정하고 안 바꾼다). **두 벌로 셈하지 말 것.**
      */
     const listData = useMemo<ListRow[]>(() => {
         if (!listUp) return [];
         const who = byId(data?.people ?? []);
+        const byMid = new Map(messages.map(m => [m.id, m]));
         return messages.map((m, i) => {
             const prev = messages[i - 1];
             const next = messages[i + 1];
@@ -3070,24 +3090,83 @@ export function Chat() {
             const showTime = !sameBlock(m, next);
             const mine = m.user_id === me;
             const p = who[m.user_id ?? ''];
-            /* 말풍선 하나로 끝나는 줄만 `text`다 — 나머지는 아직 자리만 잡는다. */
-            const plain = !m.image_url && !m.hidden_at && !m.reply_to;
-            const head = !m.system && !mine && !grouped;
-            return {
-                id: m.id,
-                kind: m.system ? 'system' : plain ? 'text' : 'other',
-                mine,
+            const date = newDay ? dayChip(m) : undefined;
+
+            /* **안내 줄 가운데 갈 곳이 있는 것은 눌리는 카드다**(웹의
+               `LinkCard`와 같은 다섯 자리). 갈 곳이 없으면 가운데 한 줄이다. */
+            if (m.system) {
+                const card = m.round_id
+                    ? { to: `/rounds/${m.round_id}`, go: '라운드 보러 가기 ›' }
+                    : m.poll_id
+                        ? { to: `/polls/${m.poll_id}`, go: '투표 보러 가기 ›' }
+                        : m.post_id
+                            ? { to: `/board/${m.post_id}`, go: '공지 보러 가기 ›' }
+                            : null;
+                /* 안내 줄에도 `여기까지 읽으셨습니다`는 그어야 한다 —
+                   그 줄이 곧 안 읽은 것의 첫 줄일 수 있다. */
+                const mark = m.id === unreadFrom;
+                return card
+                    ? { id: m.id, kind: 'card', body: m.body, date, mark, ...card }
+                    : { id: m.id, kind: 'system', body: m.body, date, mark };
+            }
+
+            const head = !mine && !grouped;
+            const head3 = {
                 name: head ? (personLabel(p) || '알 수 없음') : undefined,
                 avatar: head ? (p?.avatar_url ?? undefined) : undefined,
                 edge: head ? edgeColor(p?.gender) : undefined,
-                body: m.system || plain ? m.body : preview(m),
-                time: !m.system && showTime ? formatTime(m.created_at) : undefined,
-                unread: m.system ? 0 : (unreadBy[m.id] ?? 0),
-                date: newDay ? dayChip(m) : undefined,
+            };
+            const rows = countReacts(reacts[m.id] ?? [], me);
+            const stamp = {
+                time: showTime ? formatTime(m.created_at) : undefined,
+                unread: unreadBy[m.id] ?? 0,
+                date,
+                mark: m.id === unreadFrom,
+                reacts: rows.length
+                    ? rows.map(([emoji, n, mineOn]) => ({ emoji, n, mine: mineOn }))
+                    : undefined,
+            };
+
+            /* 인용(답장). **가린 글에는 안 붙인다** — 덮어 둔 것이 그리로
+               샌다(웹의 `hasQuote`와 같은 잣대다). 원본이 아직 안 불러온
+               지난 묶음에 있으면 `지난 대화에 댓글`이 된다. */
+            const quoted = m.reply_to ? byMid.get(m.reply_to) : undefined;
+            const quote = !m.hidden_at && m.reply_to
+                ? {
+                    quoteWho: quoted
+                        ? `${who[quoted.user_id ?? '']?.name ?? '알 수 없음'}에게 댓글`
+                        : '지난 대화에 댓글',
+                    quoteText: quoted ? preview(quoted) : '원본을 찾지 못했습니다',
+                }
+                : {};
+
+            /* 가린 글은 아직 앱이 못 그린다 — 그림이 있어도 `other`로 넘겨
+               무슨 줄인지만 적는다(덮어 둔 것이 새면 안 된다). */
+            const plain = !m.hidden_at;
+            if (plain && m.image_url) {
+                const mark = stickerRef(m.image_url);
+                const sticker = isSticker(m.image_url);
+                return {
+                    id: m.id, kind: sticker ? 'sticker' : 'photo', mine,
+                    ...head3, ...stamp, ...quote,
+                    body: '',
+                    image: sticker ? stickerSrc(mark) : m.image_url,
+                    cap: m.body || undefined,
+                };
+            }
+            return {
+                id: m.id,
+                kind: plain ? 'text' : 'other',
+                mine,
+                ...head3, ...stamp, ...quote,
+                body: plain ? m.body : preview(m),
+                /* **인용이 붙으면 이모지만 보낸 글이라도 말풍선을 안 벗긴다** —
+                   벗기면 머리말과 가는 선이 허공에 뜬다(웹과 같은 규칙이다). */
+                big: plain && !m.reply_to ? emojiOnly(m.body) : false,
                 note: plain ? undefined : (preview(m) || '사진'),
             };
         });
-    }, [listUp, messages, unreadBy, data?.people, me]);
+    }, [listUp, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
 
     useEffect(() => {
         if (!listUp) return;

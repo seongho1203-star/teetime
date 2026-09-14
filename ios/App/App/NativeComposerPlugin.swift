@@ -110,11 +110,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        내리는 두 길(아래로 끌기 · 목록 누르기)이 둘 다 웹 목록에
     ///        걸려 있어, 17판에서 앱 목록이 그 위를 덮자 **키보드를 내릴
     ///        길이 통째로 없어졌다**(사용자 제보).
+    /// 19판 — 앱 목록이 **사진·이모티콘·눌리는 카드**(2판)와 **인용(답장)·
+    ///        반응 알약·`여기까지 읽으셨습니다` 줄**(3판)까지 그린다.
+    ///        누른 것은 `listTap`으로 웹에 넘긴다(`photo`·`card`·`react`) —
+    ///        크게 보기도 어디로 가는지도 웹에 이미 있는 길이라, 두 벌로
+    ///        만들면 한쪽만 고치게 된다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 18
+    private static let version = 19
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -428,6 +433,13 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     func chatListState(atBottom: Bool, atTop: Bool) {
         guard live else { return }
         notifyListeners("listState", data: ["atBottom": atBottom, "atTop": atTop])
+    }
+
+    /// 사진이나 카드를 눌렀다 — **웹에 넘긴다**(19판). 사진을 크게 보는 것도
+    /// 어디로 가는지도 웹에 이미 길이 있고, 두 벌로 만들면 한쪽만 고치게 된다.
+    func chatListTap(kind: String, id: String, to: String?) {
+        guard live else { return }
+        notifyListeners("listTap", data: ["kind": kind, "id": id, "to": to ?? ""])
     }
 
     /// 목록을 아래로 끌었거나 눌렀다 — 키보드를 내린다(18판).
