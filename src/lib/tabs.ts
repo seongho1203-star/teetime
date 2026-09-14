@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { listOn } from './chatlist';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -574,18 +575,26 @@ const SPINNER = '.center-fill';
 const SCREEN_MS = 350;
 
 /**
- * **네이티브 부품이 얹히는 화면인가.**
+ * **앱이 그리는 것이 있어 통째로 못 미는 화면인가.**
  *
- * 거기서는 화면을 통째로 밀지 않는다 — 앱의 글칸 바와 대화 목록은 웹뷰
- * **위에 따로 얹힌 앱 부품**이라 `transform`을 안 따라와, 웹만 화면 폭만큼
- * 밀면 **찢어져 보인다**(`plainBack()`과 똑같은 까닭이다).
+ * 웹뷰 **위에 따로 얹힌 앱 부품**은 `transform`을 안 따라와, 웹만 화면
+ * 폭만큼 밀면 **찢어져 보인다**(`plainBack()`과 똑같은 까닭이다).
+ *
+ * **지금 걸리는 것은 대화 목록 하나뿐이다**(`teetime:nc-list`를 켜 둔 판).
+ * `ChatList.slideIn`이 40px으로 못박혀 있어 웹만 390px을 밀면 말풍선
+ * 자리만 안 따라온다 — 그 스위치가 켜져 있으면 예전 40px짜리로 물러난다.
+ *
+ * **입력칸 바는 여기 안 든다** — `Chat.tsx`가 **전환이 끝난 뒤에** 세우기
+ * 때문이다(`slideLeft()`만큼 기다린다). 나올 때는 화면이 접히며 바가 먼저
+ * 걷힌다.
  *
  * **표(`html.nc`)가 아니라 경로로 가린다.** `nc`는 대화가 열리고 바가 선
  * **뒤에** 붙어서, 들어가는 그 순간에는 아직 없다 — 그것으로 가리면
- * 들어갈 때만 통째로 밀었다가 바가 서면서 찢어진다.
+ * 들어갈 때만 통째로 밀었다가 바가 서면서 찢어진다(`owns6()`의 그 함정).
+ * 스위치(`listOn()`)는 **누르기 전부터 정해져 있는 값**이라 그 틈이 없다.
  */
 function hasNative(path: string): boolean {
-    return path.startsWith('/chat');
+    return path.startsWith('/chat') && listOn();
 }
 
 /**

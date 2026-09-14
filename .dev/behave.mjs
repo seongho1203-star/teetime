@@ -2925,8 +2925,15 @@ console.log('\n── 대화는 들어갔다 나오는 화면이다 ──');
     await go('/#/', 700);
     await page.click('.tabbar a:last-child');
     await page.waitForTimeout(120);
-    const slid = await page.evaluate(() => document.querySelector('.app').className);
-    ok(slid.includes('slide-in'), `오른쪽에서 미끄러져 들어온다 (${slid})`);
+    /* **대화도 이제 통째로 밀려 들어온다**(위 칸 참고). 그때는 표가
+       `.app`이 아니라 **뿌리**에 붙으므로 둘 다 본다 — 앱이 목록을 그리는
+       판에서는 예전 40px짜리(`slide-in`)로 물러난다. */
+    const slid = await page.evaluate(() => ({
+        app: document.querySelector('.app').className,
+        뿌리: document.documentElement.className,
+    }));
+    ok(slid.뿌리.includes('screen-push') || slid.app.includes('slide-in'),
+       `오른쪽에서 미끄러져 들어온다 (${slid.뿌리 || slid.app || '없음'})`);
 
     await page.waitForSelector('.chat-list', { timeout: 10000 });
     await page.waitForTimeout(600);
@@ -3034,18 +3041,22 @@ console.log('\n── 화면이 통째로 밀려 들어오고 나간다 ──')
     ok(끝.그림 === 0, `나온 뒤에 남는 그림이 없다 (${끝.그림}장)`);
     ok(!끝.표.includes('screen-'), `표도 함께 걷힌다 (${끝.표 || '없음'})`);
 
-    /* **대화는 예외다** — 네이티브 바와 앱 목록이 웹뷰 위에 얹혀 있어
-       `transform`을 안 따라오므로, 화면 폭만큼 밀면 **찢어져 보인다.**
-       거기서는 예전 40px짜리가 그대로 돈다(`hasNative`). */
+    /* **대화도 통째로 밀린다**(사용자 요청 — `카톡처럼`).
+       예전에는 빼 두었는데, 걸리는 것은 **앱이 목록을 그리는 판** 하나뿐이라
+       (`ChatList.slideIn`이 40px으로 못박혀 있다) 그 스위치를 켠 때만
+       물러나게 좁혔다(`hasNative` → `listOn()`). 입력칸 바는 `Chat.tsx`가
+       **전환이 끝난 뒤에** 세우므로 안 걸린다. */
     await go('/#/', 600);
-    const chat = watch(page, 900);
+    const chat = watch(page, 1200);
     await page.waitForTimeout(60);
     await page.click('.tabbar a:last-child');
     const c = await chat;
-    ok(!c.뒤 && c.떠남 === 0,
-       `대화로 들어갈 때는 그림을 안 깐다 (뒤 ${c.뒤} · 떠남 ${c.떠남})`);
+    ok(c.화면 > 300, `대화도 화면 폭만큼 밀려 들어온다 (가장 많이 ${c.화면}px)`);
+    ok(c.뒤, '그 뒤에 앞 화면이 깔린다');
     await page.waitForSelector('.chat-list', { timeout: 10000 });
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(700);
+    const 대화끝 = await 남은것(page);
+    ok(대화끝.그림 === 0, `대화에 들어간 뒤에도 남는 그림이 없다 (${대화끝.그림}장)`);
 }
 
 /* ── 대화방에 들어갈 때와 나올 때 ────────────────────────────────

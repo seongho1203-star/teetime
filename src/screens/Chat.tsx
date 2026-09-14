@@ -3113,6 +3113,17 @@ export function Chat() {
             if (dead) { hs.forEach(h => { void h.remove(); }); return; }
             drops = hs.map(h => () => { void h.remove(); });
 
+            /* **화면이 밀려 들어오는 동안에는 바를 안 세운다.**
+               대화도 다른 화면처럼 **화면 폭만큼** 밀려 들어오는데(사용자
+               요청 — `카톡처럼`), 바는 웹뷰 **위에 얹힌 앱 부품**이라
+               `transform`을 안 따라온다 — 도중에 서면 **아직 미끄러지는
+               화면 위에 입력칸만 제자리에 붙어 찢어져 보인다.**
+               끝나고 세우면 그 틈이 아예 없다(`slideLeft()`는 안 움직이는
+               참이면 0이라 평소에는 그냥 지나간다). */
+            const left = slideLeft();
+            if (left > 0) await new Promise(r => setTimeout(r, left + 40));
+            if (dead) return;
+
             await hush(NativeComposer.attach(composerSkin({
                 showIcon: STICKERS.length > 0,
                 hintText: '메시지',
