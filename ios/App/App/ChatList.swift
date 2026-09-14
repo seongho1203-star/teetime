@@ -651,7 +651,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
  * 말풍선 한 줄. **Auto Layout을 안 쓴다** — 쉰 줄이 굴러가는 자리라
  * 자리를 직접 잡는 편이 싸고, 값도 우리가 이미 재 두었다.
  */
-final class BubbleCell: UITableViewCell, UIGestureRecognizerDelegate {
+/* `UITableViewCell`이 이미 `UIGestureRecognizerDelegate`를 따른다 — 여기
+   또 적으면 `redundant conformance`로 컴파일이 멈추고, 그래서 아래 두
+   손잡이도 **`override`여야 한다.** */
+final class BubbleCell: UITableViewCell {
 
     private let dateChip = PadLabel()
     private let nameLabel = UILabel()
@@ -790,8 +793,8 @@ final class BubbleCell: UITableViewCell, UIGestureRecognizerDelegate {
 
     /// **반응 알약 위에서는 길게 눌러도 창이 안 뜬다** — 누르는 자리가 이미
     /// 임자가 있는 곳이다(웹의 `taken`과 같은 결이다).
-    func gestureRecognizer(_ g: UIGestureRecognizer,
-                           shouldReceive touch: UITouch) -> Bool {
+    override func gestureRecognizer(_ g: UIGestureRecognizer,
+                                    shouldReceive touch: UITouch) -> Bool {
         guard g is UILongPressGestureRecognizer else { return true }
         var v = touch.view
         while let cur = v, cur !== contentView {
