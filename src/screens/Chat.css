@@ -2111,6 +2111,17 @@ html.nc2 body.kb-open .chat-input { padding-bottom: var(--composer, 60px); }
    이긴다(특이도가 같다). */
 html.nc2.kb-follow body .chat-input { padding-bottom: var(--composer, 60px); }
 
+/* **서랍은 탭바 자리로 내려가지 않는다 — 거기에 네이티브 바가 서 있다.**
+   웹에서 서랍의 아래 여백이 음수인 것은 `.chat-input`이 비워 둔 탭바 자리를
+   도로 덮어 화면 끝까지 닿게 하려는 것인데(`.sticker-tray`), 앱에서는 그
+   자리가 곧 바다 — 그대로 두면 서랍 아래쪽이 **바 뒤로 들어가** 그만큼
+   안 보인다(390×844에서 재니 68px, 홈 인디케이터가 있는 폰에서는 102px).
+   게다가 그 음수 여백이 `.chat-input`의 높이를 깎으므로, 앱이 목록을 그릴
+   때 웹이 알려 주는 `lift`(바 위에 그린 높이 · `Chat.tsx`)도 **그만큼 덜
+   잡혀** 서랍 윗줄(묶음 탭)이 앱 목록에 덮인다.
+   여백을 0으로 두면 서랍 아랫변이 곧 바 윗변이고 `lift`도 제 높이로 잡힌다. */
+html.nc .sticker-tray { margin-bottom: 0; }
+
 
 /* **앱이 목록을 그리는 동안**(17판 · `ios/App/App/ChatList.swift`) 웹 목록은
    감춰만 둔다. **`display: none`으로 지우지 말 것** — 자리가 없어지면
