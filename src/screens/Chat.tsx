@@ -26,7 +26,7 @@ import {
 } from '../lib/composer';
 import {
     GROUPED_TOP, ROW_TOP, canNativeList, chatListSkin, dayChip, edgeColor, isNewDay,
-    listAttach, listDetach, listRows, listScrollTo, listSet, onListHold, onListState,
+    listAttach, listDetach, listOn, listRows, listScrollTo, listSet, onListHold, onListState,
     onListTap, sameBlock, type ListRow,
 } from '../lib/chatlist';
 
@@ -3119,8 +3119,13 @@ export function Chat() {
                `transform`을 안 따라온다 — 도중에 서면 **아직 미끄러지는
                화면 위에 입력칸만 제자리에 붙어 찢어져 보인다.**
                끝나고 세우면 그 틈이 아예 없다(`slideLeft()`는 안 움직이는
-               참이면 0이라 평소에는 그냥 지나간다). */
-            const left = slideLeft();
+               참이면 0이라 평소에는 그냥 지나간다).
+               **앱 목록을 켜 두었으면 안 기다린다**(`listOn()` — `hasNative()`와
+               같은 잣대다). 그때 대화는 통째로 안 밀리고 40px만 들썩이므로
+               기다려서 얻는 것이 없는데, **그 0.5초 동안 흰 웹 입력칸이
+               그대로 보였다**(사용자 제보 — `채팅들어가면 흰색배경 칸이
+               올라왔다 사라져`). 네이티브 바가 덮기 전의 그 칸이다. */
+            const left = listOn() ? 0 : slideLeft();
             if (left > 0) await new Promise(r => setTimeout(r, left + 40));
             if (dead) return;
 
