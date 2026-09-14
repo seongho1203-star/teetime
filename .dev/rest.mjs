@@ -90,9 +90,10 @@ export function handleRest(tables, url, req) {
     for (const [key, raw] of url.searchParams) {
         if (['select', 'order', 'limit', 'offset'].includes(key)) continue;
         const [op, value] = raw.split(/\.(.*)/s);
-        /* `not.is.null`처럼 앞에 `not.`이 붙어 오는 것을 푼다 — 방 공지가
-           `.not('pinned_at','is',null)`로 물어본다. 안 풀면 아무 조건도
-           안 걸린 것이 되어 **아무 글이나 공지로 뜬다.** */
+        /* `not.is.null`처럼 앞에 `not.`이 붙어 오는 것을 푼다. 안 풀면
+           **아무 조건도 안 걸린 것이 되어 모든 줄이 그대로 돌아온다** —
+           걸러 달라고 한 조회가 안 걸러지는 것이라, 화면이 엉뚱한 줄을
+           집는데도 검사는 초록으로 뜬다(없앤 방 공지가 그 자리였다). */
         rows = rows.filter(r => (op === 'not'
             ? !test(...value.split(/\.(.*)/s), r[key])
             : test(op, value, r[key])));
@@ -104,7 +105,8 @@ export function handleRest(tables, url, req) {
                 case 'neq': return String(v) !== value;
                 /* **`is null`은 칸이 없는 행도 맞아야 한다.** 진짜 DB에는 칸이
                    늘 있고 값이 null인데, 여기 고정 자료에는 키 자체가 없다 —
-                   안 맞춰 주면 `not.is.null`이 **모든 글을 공지로** 만든다. */
+                   안 맞춰 주면 `not.is.null`이 **모든 줄을 걸러 낸 것으로**
+                   만든다(거꾸로 `is.null`은 아무것도 안 맞는다). */
                 case 'is':  return value === 'null' ? v == null : String(v) === value;
                 /* **빈 값은 견주는 것에 하나도 안 걸린다** — SQL이 그렇다
                    (`null < x`도 `null >= x`도 참이 아니다). 안 막으면

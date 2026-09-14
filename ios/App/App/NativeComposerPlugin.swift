@@ -59,6 +59,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "pickPhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "savePhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shareText", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shareImage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listAttach", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listRows", returnType: CAPPluginReturnPromise),
@@ -190,10 +192,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        **바꿔치기 자체를 없앴다** — 창이 앱 것이면 앱 목록을 감출
     ///        이유가 없다. 무엇이 뜨는지는 그대로 웹이 정한다.
     ///
+    /// 28판 — **`공유`와 `캡쳐`를 앱이 맡는다**(`shareText`·`shareImage`).
+    ///        27판에서 창이 앱 것이 되면서 **웹의 `navigator.share`가 통째로
+    ///        막혔다** — 그것은 *사람이 누른 그 손짓 안에서만* 열리는데,
+    ///        앱 창에서 고른 것은 다리를 건너와 그 손짓이 없다. 내려받기로
+    ///        물러나 봐야 앱 안에서는 `<a download>`가 아무 일도 안 한다.
+    ///        그래서 **눌러도 아무 일이 없었다**(사용자 제보 — `캡쳐가 안되네`).
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 27
+    private static let version = 28
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -896,17 +905,61 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// 폰이 띄워 주는 공유창에 넘긴다.
     @objc func sharePhoto(_ call: CAPPluginCall) {
         fetch(call) { img in
-            guard let vc = self.bridge?.viewController else { call.resolve(["ok": false]); return }
-            let av = UIActivityViewController(activityItems: [img], applicationActivities: nil)
-            if let pop = av.popoverPresentationController {
-                pop.sourceView = vc.view
-                pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.maxY - 1,
-                                        width: 1, height: 1)
-                pop.permittedArrowDirections = []
-            }
-            vc.present(av, animated: true)
-            call.resolve(["ok": true])
+            call.resolve(["ok": self.present(items: [img])])
         }
+    }
+
+    /**
+     * **글을 공유창에 넘긴다**(28판 · 말풍선 창의 `공유`).
+     *
+     * 웹의 `navigator.share`로는 안 된다 — 그것은 **사람이 누른 그 손짓
+     * 안에서만** 열리는데, 27판부터 창이 앱 것이라 고른 값이 다리를
+     * 건너온다(그 손짓이 없다). 여기서는 앱이 직접 띄우므로 그 제약이 없다.
+     */
+    @objc func shareText(_ call: CAPPluginCall) {
+        var items: [Any] = []
+        if let t = call.getString("text"), !t.isEmpty { items.append(t) }
+        /* **주소는 글과 따로 담는다** — 한 글자로 이어 붙이면 카톡 같은
+           앱이 링크로 안 알아본다. */
+        if let s = call.getString("url"), let u = URL(string: s) { items.append(u) }
+        guard !items.isEmpty else { call.resolve(["ok": false]); return }
+        call.resolve(["ok": present(items: items)])
+    }
+
+    /**
+     * **그림 한 장을 공유창에 넘긴다**(28판 · 말풍선 창의 `캡쳐`).
+     *
+     * 웹이 만든 PNG를 base64로 받는다 — `URLSession`은 `data:`도 `blob:`도
+     * 못 읽으므로 위 `fetch`로는 이 길이 아예 없다.
+     *
+     * **파일로 만들어 넘긴다.** `UIImage`를 그대로 넘기면 공유창이 제
+     * 이름을 붙이는데, 파일로 주면 `kkakkung-0908-214305.png`가 그대로
+     * 간다(웹에서 내려받을 때와 같은 이름이다).
+     */
+    @objc func shareImage(_ call: CAPPluginCall) {
+        guard let b64 = call.getString("data"),
+              let data = Data(base64Encoded: b64) else {
+            call.resolve(["ok": false]); return
+        }
+        let name = call.getString("name") ?? "kkakkung.png"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do { try data.write(to: url) } catch { call.resolve(["ok": false]); return }
+        call.resolve(["ok": present(items: [url])])
+    }
+
+    /// 공유창을 띄운다. 아이패드에서 붙일 자리가 없으면 그대로 죽으므로
+    /// 화면 아래 가운데에 붙여 둔다(`sharePhoto`가 쓰던 그 자리다).
+    private func present(items: [Any]) -> Bool {
+        guard let vc = bridge?.viewController else { return false }
+        let av = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let pop = av.popoverPresentationController {
+            pop.sourceView = vc.view
+            pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.maxY - 1,
+                                    width: 1, height: 1)
+            pop.permittedArrowDirections = []
+        }
+        vc.present(av, animated: true)
+        return true
     }
 
     // ── 값 옮겨 담기 ─────────────────────────────────────

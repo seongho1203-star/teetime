@@ -1083,6 +1083,14 @@ ok(!menuOther.includes('삭제'), '남의 글에는 삭제가 안 나온다 — 
 await page.click('.chat-menu-item:text-is("가리기")');
 await page.waitForTimeout(300);
 ok(await page.$('.confirm-box') !== null, '가리기를 고르면 한 번 더 묻는다');
+/* **확인창이 떠 있다는 표가 뿌리에 선다**(`html.confirm-up` · `lib/overlay.ts`).
+   앱에서 대화 목록과 입력칸은 웹뷰 **위에 얹힌 앱 부품**이라 이 창이 그
+   뒤에 통째로 깔린다 — `가리기`·`삭제`가 **눌러도 아무 일이 없어 보이던**
+   자리가 그것이다(사용자 제보). 대화 화면이 이 값을 `overlayUp`에 얹어
+   앱 부품을 물린다. **헤드리스에 앱 부품은 없지만 표가 서는지는 그대로
+   잡힌다** — 그 줄을 빼면 여기가 빨갛게 뜬다. */
+ok(await page.evaluate(() => document.documentElement.classList.contains('confirm-up')),
+   '확인창이 뜨면 앱 부품을 물리라는 표가 선다 — 안 그러면 창이 그 뒤에 깔린다');
 await page.click('.confirm-actions .btn:not(.ghost)');
 await page.waitForTimeout(400);
 const patched = writes.filter(([w]) => w === 'messages PATCH').map(([, v]) => v);
@@ -1090,6 +1098,29 @@ ok(patched.length === before + 1 && !!patched.at(-1)?.hidden_at,
    `가리기를 누르면 hidden_at을 세워 보낸다 (실제 ${JSON.stringify(patched.at(-1))})`);
 ok((await page.textContent('[data-mid="m5"]') ?? '').includes('운영진이 가린 메시지입니다'),
    '가리면 그 자리에서 바로 덮인다 — 다시 들어와 볼 일이 없다');
+ok(!await page.evaluate(() => document.documentElement.classList.contains('confirm-up')),
+   '닫으면 그 표가 걷힌다 — 남겨 두면 입력칸이 영영 안 돌아온다');
+
+/* **토스트는 앱이 목록을 그리는 동안 머리말 자리로 올라간다**
+   (`html.nc-list` · `components/Toast.css`). 화면 아래는 앱 목록과
+   네이티브 바가 덮는 자리라 거기 두면 `복사했습니다`·`캡쳐가 안 됩니다`가
+   **한 줄도 안 보인다** — 웹의 `z-index`로는 앱 부품을 못 덮는다.
+   **헤드리스에는 그 부품이 없으므로 표만 손으로 붙여 규칙을 본다**
+   (댓글 바의 `nc-typing`에서 쓴 그 수다). */
+const toastY = await page.evaluate(() => {
+    const el = document.querySelector('.toast-stack');
+    if (!el) return null;
+    const y = () => el.getBoundingClientRect().top;
+    const off = y();
+    document.documentElement.classList.add('nc-list');
+    const on = y();
+    document.documentElement.classList.remove('nc-list');
+    return { off: Math.round(off), on: Math.round(on), h: window.innerHeight };
+});
+/* **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜬다** — 실제 자리를 잰다.
+   평소에는 화면 아래(탭바 위)이고, 표가 붙으면 머리말 자리로 올라간다. */
+ok(toastY !== null && toastY.off > toastY.h / 2 && toastY.on < 60,
+   `앱이 목록을 그리면 토스트가 머리말 자리로 올라간다 (실제 ${JSON.stringify(toastY)})`);
 
 /* 이미 가린 글은 **푸는 쪽**이 나온다. 지운 것이 아니므로 되돌릴 수 있다. */
 await page.click('[data-mid="m17"] .chat-bubble', { button: 'right' });
@@ -1730,72 +1761,24 @@ await dragSheet(200, 520);                      // 320px — 넉넉히 넘긴다
 await page.waitForTimeout(500);
 ok(await page.$('.profile-full') === null, '아래로 내리면 사라진다');
 
-/* ── 6-1-1-3-1-9. 방 공지 ───────────────────────────────────────
+/* ── 6-1-1-3-1-9. 방 공지는 없앴다 ─────────────────────────────
  *
- * 카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것이다. 모임
- * 규칙·계좌·집합 장소가 하루 백 마디에 밀려 사라지지 않게 한다.
+ * **사용자 요청으로 걷어냈다**(`채팅방 공지는 삭제해 줘`) — 되살리지 말 것.
+ * DB 칸(`messages.pinned_at`·`pinned_by`)만 기록으로 남아 있고 화면은
+ * 더는 읽지도 쓰지도 않는다.
  *
- * **머리말과 대화 사이에 있어야 한다** — 대화 목록 안에 넣으면 굴릴 때
- * 함께 올라가 사라져서, 늘 보이라고 붙박은 뜻이 없어진다.
+ * **없어진 것을 재는 칸이다.** 지운 코드가 되돌아오면 여기서 빨갛게 뜬다.
  */
-console.log('\n── 방 공지 ──');
+console.log('\n── 방 공지는 없앴다 ──');
 await go('/#/chat', 1200);
-const pinText = await page.textContent('.chat-pin-text').catch(() => null);
-ok(pinText?.includes('카풀'), `붙박아 둔 글이 맨 위에 뜬다 (실제 ${pinText})`);
-/* 공지 줄이 **목록 밖에** 있어야 굴려도 안 사라진다. */
-ok(await page.$('.chat-list .chat-pin') === null,
-   '대화 목록 안이 아니라 그 위에 있다 — 굴려도 안 사라진다');
-/* 접힌 한 줄이 기본이다. 긴 공지를 펴 놓고 시작하면 대화가 그만큼 가려진다. */
-ok(await page.$('.chat-pin.open') === null, '기본은 접힌 한 줄이다');
-await page.click('.chat-pin-main');
-await page.waitForTimeout(250);
-ok(await page.$('.chat-pin.open') !== null, '누르면 펴진다');
-const footText = await page.textContent('.chat-pin-foot');
-ok(footText?.includes('님이 올림'), `누가 올렸는지 적는다 (실제 ${footText?.trim()})`);
-ok(footText?.includes('대화에서 보기'), '그 말이 오간 자리로 가는 길이 있다');
-
-/* **누가 올리고 내릴 수 있는가가 규칙의 전부다** — 운영진만이다.
-   고정 자료의 나(ME)는 앱관리자라 창에 그 줄이 있어야 한다. */
-await page.click('.chat-pin-main');            // 도로 접는다
-await page.waitForTimeout(200);
-const bubble = await page.$('[data-mid="m1"] .chat-bubble');
-await bubble.click({ button: 'right' });
+ok(await page.$('.chat-pin') === null, '대화 맨 위에 공지 줄이 없다');
+const noPin = await page.$('[data-mid="m1"] .chat-bubble');
+await noPin.click({ button: 'right' });
 await page.waitForTimeout(300);
-const menu = await page.textContent('.chat-menu');
-ok(menu?.includes('공지로 올리기'), '운영진에게는 창에 `공지로 올리기`가 있다');
-/* 이미 공지인 글에서는 말이 뒤집힌다 — 같은 자리에서 내릴 수 있어야 한다. */
+const pinMenu = await page.textContent('.chat-menu');
+ok(!pinMenu?.includes('공지로 올리기') && !pinMenu?.includes('공지 내리기'),
+   `창에도 공지 줄이 없다 (실제 ${JSON.stringify(pinMenu)})`);
 await shutHold(page);
-const pinned = await page.$('[data-mid="m4"] .chat-bubble');
-await pinned.click({ button: 'right' });
-await page.waitForTimeout(300);
-ok((await page.textContent('.chat-menu'))?.includes('공지 내리기'),
-   '이미 공지인 글에서는 `공지 내리기`로 뒤집힌다');
-/* **가린 글은 공지로 못 올린다** — 덮어 둔 내용이 맨 위로 샌다. */
-await shutHold(page);
-const hidden = await page.$('[data-mid="m17"] .chat-bubble');
-await hidden.click({ button: 'right' });
-await page.waitForTimeout(300);
-ok(!(await page.textContent('.chat-menu'))?.includes('공지로 올리기'),
-   '가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다');
-await shutHold(page);
-
-/* **✕는 내 화면에서만 치운다**(카톡과 같다. 사용자 요청).
-   운영진의 `공지 내리기`와 하는 일이 다르다 — 이건 이 기기에만 남고,
-   새 공지가 올라오면 다시 뜬다. 새로고침해도 닫힌 채여야 한다. */
-await page.click('.chat-pin-x');
-await page.waitForTimeout(250);
-ok(await page.$('.chat-pin') === null, '✕를 누르면 공지가 내 화면에서 치워진다');
-ok((await page.evaluate(() => localStorage.getItem('teetime:pin-x')))?.startsWith('m4@'),
-   '닫아 둔 것은 이 기기에 남는다 — 남의 화면에서 내리는 것이 아니다');
-/* **문서를 새로 열어야 한다** — `#`만 바뀌는 이동은 화면을 새로 안 만들어서
-   state가 그대로 살아 있고, 그러면 저장을 안 했어도 통과해 버린다. */
-await page.reload({ waitUntil: 'networkidle' });
-await page.waitForTimeout(1200);
-ok(await page.$('.chat-pin') === null, '새로고침해도 닫힌 채로 있다');
-await page.evaluate(() => localStorage.removeItem('teetime:pin-x'));
-await page.reload({ waitUntil: 'networkidle' });
-await page.waitForTimeout(1200);
-ok(await page.$('.chat-pin') !== null, '표시를 지우면 다시 뜬다 — 새 공지가 그렇게 돌아온다');
 
 /* ── 6-1-1-3-1-10. 말풍선 반응 (카톡의 `😄 2`) ──────────────────
  *
@@ -2448,10 +2431,13 @@ await oldCtx.route('**/rest/v1/**', async route => {
     }
     const q = new URL(route.request().url()).searchParams;
     const sel = q.get('select') ?? '';
-    /* **고르는 칸만 보면 안 된다 — 거르는 칸도 400이다.** 방 공지는
-       `select('*')`로 받으면서 `pinned_at`으로 거르는데, 여기서 안 걸러
-       주면 그 길을 아예 안 타서 시험이 통과해도 실제로는 대화 화면이
-       통째로 안 열린다(진짜 PostgREST는 없는 칸이면 어디에 있든 400이다). */
+    /* **고르는 칸만 보면 안 된다 — 거르는 칸도 400이다.**
+       `select('*')`로 받으면서 없는 칸으로 거르는 조회가 있으면, 여기서
+       안 걸러 주면 그 길을 아예 안 타서 **시험은 통과하는데 실기기에서는
+       화면이 통째로 안 열린다**(진짜 PostgREST는 없는 칸이면 고르든
+       거르든 400이다). 없앤 `방 공지`가 그 길을 만들었던 자리다 —
+       `pinned_at`을 목록에 남겨 둔 것은 **아무 조회도 그 칸을 다시 묻지
+       않는지** 여기서 함께 붙들어 두려는 것이다. */
     const asked = new Set([...sel.split(/[\s,()]+/), ...q.keys()]);
     const gone = (GONE_COLS[t] ?? []).find(c => asked.has(c));
     if (gone) {

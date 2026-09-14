@@ -15,7 +15,7 @@
 /** 창에 세울 수 있는 그림들. `.chat-menu-item`의 오른쪽 자리다. */
 export type HoldIconName =
     | 'copy' | 'pick' | 'reply' | 'share' | 'capture'
-    | 'hide' | 'notice' | 'trash';
+    | 'hide' | 'trash';
 
 const PATHS: Record<HoldIconName, React.ReactNode> = {
     // 복사 — 겹친 종이 두 장.
@@ -49,11 +49,6 @@ const PATHS: Record<HoldIconName, React.ReactNode> = {
         <path d="M4 12s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z" />
         <circle cx="12" cy="12" r="2.5" />
         <path d="M4.5 19.5 19.5 4.5" />
-    </>,
-    // 공지 — 확성기.
-    notice: <>
-        <path d="M4 10v4a1 1 0 0 0 1 1h3l6 4V5L8 9H5a1 1 0 0 0-1 1Z" />
-        <path d="M17.5 9.5a3.5 3.5 0 0 1 0 5" />
     </>,
     // 삭제 — 휴지통.
     trash: <>

@@ -2207,7 +2207,6 @@ final class HoldRow: UIControl {
         "share": "square.and.arrow.up",
         "capture": "camera",
         "hide": "eye.slash",
-        "notice": "megaphone",
         "trash": "trash",
     ]
 

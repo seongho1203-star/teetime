@@ -12,6 +12,7 @@ import { FIND_AT, REACTIONS, ROLE_LABEL, ROLE_TAG, personLabel,
 import { Avatar } from '../components/Avatar';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
+import { useConfirmUp } from '../lib/overlay';
 import { readableError } from '../lib/errors';
 import { httpsUrl, shrinkImage } from '../lib/image';
 import { lastSeen, markSeen, NEVER } from '../lib/unread';
@@ -21,8 +22,8 @@ import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import { slideLeft } from '../lib/tabs';
 import {
-    NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbSnap, kbTick, kbWork,
-    ncLog, pickNativePhoto,
+    NativeComposer, canNativeShare, canPickNative, canSlide, composerReady, composerSkin, hush,
+    kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeImage, shareNativeText,
 } from '../lib/composer';
 import {
     GROUPED_TOP, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
@@ -131,10 +132,6 @@ function dropReact(set: ReactSet, r: Partial<MessageReaction>) {
     });
 }
 
-/** ✕로 닫아 둔 공지를 **이 기기에** 적어 두는 열쇠.
- *  **소문자 `teetime:` 그대로 둘 것** — 저장 열쇠는 앱 이름이 바뀌어도
- *  안 바꾼다(바꾸면 닫아 둔 것이 도로 뜬다). */
-const PIN_X_KEY = 'teetime:pin-x';
 /* ── 곧 볼 그림을 미리 받아 두는 몫 (아래 `미리 받아 두기` 참고) ── */
 /** 사진 몇 장까지. **함부로 늘리지 말 것** — 사진은 Supabase에서 오고 무료
  *  통신량이 월 5GB다(위 '지난 것은 받지 않는다'). 한 번 받으면 1년 동안
@@ -381,14 +378,6 @@ export function Chat() {
                 payload => {
                     const row = payload.new as Message;
                     setMessages(prev => prev.map(m => (m.id === row.id ? row : m)));
-                    /* **방 공지도 여기서 따라온다 — 다시 물어보지 않는다.**
-                       붙박는 것이 곧 가장 늦게 붙박은 줄이 되는 일이라,
-                       들어온 줄만 보면 답이 나온다. 내린 줄은 그것이 지금
-                       공지일 때만 치운다(남의 옛 글이 내려간 것일 수 있다).
-                       칸이 없는 저장소에서는 `undefined`라 아래로 가는데,
-                       거기서는 공지가 애초에 없어 아무 일도 안 일어난다. */
-                    if (row.pinned_at) setPin(row);
-                    else setPin(prev => (prev && prev.id === row.id ? null : prev));
                 })
             .on('postgres_changes',
                 { event: 'DELETE', schema: 'public', table: 'messages' },
@@ -396,8 +385,6 @@ export function Chat() {
                     const gone = payload.old as { id?: string };
                     if (!gone.id) return;
                     setMessages(prev => prev.filter(m => m.id !== gone.id));
-                    // 공지로 올려 둔 글을 쓴 사람이 지우면 그 줄도 함께 걷는다.
-                    setPin(prev => (prev && prev.id === gone.id ? null : prev));
                 })
             .subscribe();
         return () => { supabase.removeChannel(channel); };
@@ -2403,8 +2390,15 @@ export function Chat() {
     /* **앱이 그린 창은 여기 안 든다**(27판의 `native`). 그 창은 우리가
        `root`에 얹은 앱 부품이라 바와 목록을 제가 덮는다 — 감췄다가는
        입력칸 자리에 **흰 웹 글칸이 드러나고**, 목록까지 감추면 없애려던
-       그 바꿔치기가 그대로 돌아온다. */
-    const overlayUp = !!zoom || !!card || pickText !== null || !!(menuFor && !menuFor.native);
+       그 바꿔치기가 그대로 돌아온다.
+
+       **확인창(`Confirm`)도 여기 든다**(`useConfirmUp`). 그것도 웹이 그리는
+       창이라 앱 목록 뒤에 통째로 깔려, `가리기`·`삭제`가 **눌러도 아무 일이
+       없는 것처럼** 보였다(사용자 제보 — `가리기가 안되네`). 어디서 뜨든
+       같은 자리이므로 창마다 챙기지 않고 **떠 있다는 사실 하나로** 받는다. */
+    const confirmUp = useConfirmUp();
+    const overlayUp = confirmUp
+        || !!zoom || !!card || pickText !== null || !!(menuFor && !menuFor.native);
     useEffect(() => {
         if (!ncOn.current || ncLog.v < 7) return;
         /* **감추는 것을 먼저, 키보드 내리기를 그다음에.** 앱은 부르는 차례대로
@@ -2431,6 +2425,26 @@ export function Chat() {
     useEffect(() => {
         if (!listUp) return;
         void listSet({ hidden: listCovered });
+    }, [listUp, listCovered]);
+
+    /**
+     * **앱 목록이 화면을 덮고 있다는 표를 뿌리에 붙인다**(`html.nc-list`).
+     *
+     * 토스트가 그것 때문에 **한 줄도 안 보였다.** `.toast-stack`은 화면
+     * 아래에 붙는데(`bottom`), 그 자리는 앱 목록과 네이티브 바가 덮고 있는
+     * 자리다 — 웹의 `z-index`로는 앱 부품을 못 덮으므로 `복사했습니다` ·
+     * `캡쳐가 안 됩니다` 같은 말이 통째로 증발했다. 그래서 대화 화면에서만
+     * **머리말 자리로 올려** 띄운다(`components/Toast.css`) — 앱 목록의
+     * 윗변(`listTop`)이 머리말 아래라 **거기만이 웹이 그릴 수 있는 자리다.**
+     *
+     * **`.chat-list`의 `.nc-list`와 다른 표다** — 그쪽은 웹 목록을 감추는
+     * 것이고 이것은 '앱이 화면을 덮고 있다'는 사실이다. 뿌리에 있어야
+     * 토스트처럼 화면 아무 데나 붙는 것이 읽을 수 있다.
+     */
+    useEffect(() => {
+        const on = listUp && !listCovered;
+        document.documentElement.classList.toggle('nc-list', on);
+        return () => document.documentElement.classList.remove('nc-list');
     }, [listUp, listCovered]);
 
     /**
@@ -2537,93 +2551,6 @@ export function Chat() {
         growDraft();
     };
 
-    /* ── 방 공지 ────────────────────────────────────────────────
-     *
-     * **카톡 오픈톡에서 말풍선을 길게 눌러 맨 위에 붙박는 그것이다.**
-     * 모임 규칙·계좌·집합 장소처럼 늘 보여야 하는 한 줄이 하루 백 마디에
-     * 밀려 사라지지 않게 한다. **공지 탭(`posts`)과는 다르다** — 그쪽은
-     * 읽고 지나가는 글이고, 이건 대화 위에 붙박여 있는 쪽지다.
-     *
-     * **한 방에 하나다.** `pinned_at`이 가장 늦은 줄 하나만 읽으므로 새로
-     * 등록하면 앞엣것이 저절로 물러난다 — 지우는 일이 따로 없다.
-     */
-    const [pin, setPin] = useState<Message | null>(null);
-    /** 펼쳐 놓았는가. 기본은 접힌 한 줄이다 — 긴 공지가 대화를 덮으면 안 된다. */
-    const [pinOpen, setPinOpen] = useState(false);
-    /**
-     * **✕로 닫아 둔 공지**(카톡과 같다. 사용자 요청).
-     *
-     * **이 기기에만 남는다** — 내 눈에서 치우는 일이지 남의 화면에서
-     * 내리는 일이 아니다. 정말 내리는 것은 운영진의 `공지 내리기`이고,
-     * 그건 DB를 고쳐 모두에게서 사라진다. 둘을 섞지 말 것.
-     *
-     * **열쇠에 `pinned_at`을 함께 넣는다** — 같은 글을 내렸다 다시
-     * 올리면 새 공지로 보고 다시 띄워야 한다(id만 보면 영영 숨는다).
-     */
-    const [pinX, setPinX] = useState<string | null>(null);
-    const pinKey = pin ? `${pin.id}@${pin.pinned_at ?? ''}` : '';
-    useEffect(() => {
-        if (!pinKey) return;
-        try { setPinX(localStorage.getItem(PIN_X_KEY)); } catch { /* 비공개 모드 */ }
-    }, [pinKey]);
-    const closePin = useCallback(() => {
-        setPinOpen(false);
-        setPinX(pinKey);
-        try { localStorage.setItem(PIN_X_KEY, pinKey); } catch { /* 저장이 막혀도 화면은 돈다 */ }
-    }, [pinKey]);
-    const pinShown = pin && pinX !== pinKey;
-
-    /**
-     * 붙박아 둔 글 한 줄을 받아 온다.
-     *
-     * **오류를 그냥 삼킨다.** `pinned_at` 칸이 아직 없는 저장소에서 400이
-     * 나는데, 그걸 던지면 **대화 화면이 통째로 안 열린다** — 앱은 푸시하면
-     * 몇 분 뒤 올라가지만 스키마는 사람이 손으로 붙여넣으므로 그 사이가 있다.
-     * 못 받으면 공지 줄만 안 뜨고 대화는 멀쩡하다.
-     */
-    const loadPin = useCallback(async (rid: string) => {
-        const { data: row, error: err } = await supabase
-            .from('messages').select('*').eq('room_id', rid)
-            .not('pinned_at', 'is', null)
-            .order('pinned_at', { ascending: false }).limit(1).maybeSingle();
-        if (err) return;                      // 칸이 없는 저장소 — 조용히 넘긴다
-        setPin((row as Message) ?? null);
-    }, []);
-
-    useEffect(() => { if (roomId) loadPin(roomId); }, [roomId, loadPin]);
-
-    /**
-     * 공지로 올리거나 내린다. **운영진만** 부른다.
-     *
-     * 정책을 새로 안 만들었다 — `messages_admin`이 이미 `for all`이고
-     * 회원에게는 update 정책이 아예 없다. 화면이 감추는 것과 DB가 막는 것이
-     * 같은 잣대다.
-     */
-    const askPin = useCallback(async (m: Message) => {
-        const on = !m.pinned_at;
-        const already = pin && pin.id !== m.id;
-        const ok = await confirm({
-            title: on ? '이 메시지를 공지로 올릴까요?' : '공지를 내릴까요?',
-            detail: on
-                ? <>대화 맨 위에 붙어 모두에게 늘 보입니다.
-                   {already && <> 지금 올라와 있는 공지는 <b>내려갑니다.</b></>}</>
-                : '대화 맨 위의 공지 줄이 없어집니다. 글은 그대로 남습니다.',
-            confirmLabel: on ? '공지로 올리기' : '공지 내리기',
-        });
-        if (!ok) return;
-        const patch = on
-            ? { pinned_at: new Date().toISOString(), pinned_by: me }
-            : { pinned_at: null, pinned_by: null };
-        const { error: err } = await supabase.from('messages').update(patch).eq('id', m.id);
-        if (err) { toast(readableError(err)); return; }
-        /* **앞엣것을 손으로 안 내린다.** 가장 늦게 붙박은 줄 하나만 읽으므로
-           새로 올리면 그것이 저절로 공지가 된다 — 쓰기를 두 번 하면 그 사이에
-           공지가 없는 순간이 생기고, 실패했을 때 되돌릴 것도 둘이 된다. */
-        setPinOpen(false);
-        if (roomId) await loadPin(roomId);
-        toast(on ? '공지로 올렸습니다.' : '공지를 내렸습니다.');
-    }, [confirm, loadPin, me, pin, roomId, toast]);
-
     /**
      * 글을 복사한다.
      *
@@ -2649,7 +2576,12 @@ export function Chat() {
     const shareMessage = async (m: Message) => {
         const text = m.body.trim() || preview(m);
         const url = m.image_url && !isSticker(m.image_url) ? m.image_url : undefined;
-        if (await shareText(text, url)) return;
+        /* **앱에서는 앱이 띄운다**(28판). 웹의 `navigator.share`는 *누른 그
+           손짓 안에서만* 열리는데, 27판부터 창이 앱 것이라 고른 값이 다리를
+           건너와 그 손짓이 없다 — 그래서 **눌러도 아무 일이 없었다.** */
+        if (canNativeShare()) {
+            if (await shareNativeText(text, url)) return;
+        } else if (await shareText(text, url)) return;
         copyText(url ? `${text}\n${url}` : text);
     };
 
@@ -2680,7 +2612,10 @@ export function Chat() {
         if (listUp) list.style.visibility = 'visible';
         let how: Awaited<ReturnType<typeof captureNode>>;
         try {
-            how = await captureNode(el);
+            /* **앱에서는 앱이 공유창을 띄운다**(28판 · `공유`와 같은 까닭이다).
+               웹의 길은 손짓이 없어 거절당하고, 내려받기도 앱 안에서는
+               아무 일을 안 한다 — 그래서 눌러도 조용했다. */
+            how = await captureNode(el, canNativeShare() ? shareNativeImage : undefined);
         } finally {
             if (listUp) list.style.visibility = was;
         }
@@ -3015,7 +2950,7 @@ export function Chat() {
      * 길게 누른 창에 설 줄 목록 — **웹 창과 앱 창이 같이 쓴다**(27판).
      *
      * **누구에게 무엇이 붙는지가 이 창의 규칙 전부다** — 앞 다섯(복사 ·
-     * 선택 복사 · 댓글 · 공유 · 캡쳐)은 누구나, `가리기`·`공지로 올리기`는
+     * 선택 복사 · 댓글 · 공유 · 캡쳐)은 누구나, `가리기`는
      * **운영진**(사용자 요청 — `가리기는 운영진만 할수있도록`), `삭제`는
      * **쓴 사람**(제 글에만)이다. 가린 글에는 복사·선택 복사·댓글과 반응
      * 알약을 안 붙인다 — 덮어 둔 내용이 그리로 샌다.
@@ -3044,13 +2979,6 @@ export function Chat() {
         if (isAdmin) {
             out.push({ name: 'hide', label: hidden ? '가리기 풀기' : '가리기', icon: 'hide' });
         }
-        if (isAdmin && !hidden) {
-            out.push({
-                name: 'pin',
-                label: m.pinned_at ? '공지 내리기' : '공지로 올리기',
-                icon: 'notice',
-            });
-        }
         /* **삭제는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라 남의 글에는
            안 붙인다 — 운영진에게는 가리기가 있다. */
         if (m.user_id === me) {
@@ -3068,7 +2996,6 @@ export function Chat() {
             case 'share': void shareMessage(m); break;
             case 'capture': void captureMessage(m); break;
             case 'hide': void askHide(m); break;
-            case 'pin': void askPin(m); break;
             case 'trash': void askDelete(m); break;
         }
     };
@@ -3691,54 +3618,6 @@ export function Chat() {
                     </>
                 )}
             </div>
-
-            {/* **방 공지** — 카톡 오픈톡에서 맨 위에 붙박여 있는 그 줄이다.
-                모임 규칙·계좌·집합 장소가 하루 백 마디에 안 밀린다.
-
-                **기본은 접힌 한 줄이다.** 긴 공지를 펴 놓고 시작하면 대화가
-                그만큼 가려진다 — 누르면 펴지고 다시 누르면 접힌다. */}
-            {pinShown && !searchOn && (
-                <div className="chat-pin-wrap">
-                    <div className={`chat-pin${pinOpen ? ' open' : ''}`}>
-                        <div className="chat-pin-row">
-                            <button className="chat-pin-main" onClick={() => setPinOpen(v => !v)}
-                                    aria-expanded={pinOpen}>
-                                <span className="chat-pin-mark" aria-hidden="true">📢</span>
-                                <span className="chat-pin-text">{preview(pin) || '메시지'}</span>
-                                <span className="chat-pin-caret" aria-hidden="true">
-                                    {pinOpen ? '⌃' : '⌄'}
-                                </span>
-                            </button>
-                            {/* **✕는 내 화면에서만 치운다.** 남의 화면에서
-                                내리는 것은 아래의 `공지 내리기`(운영진)다 —
-                                생김새가 비슷하니 하는 일을 헷갈리지 말 것. */}
-                            <button className="chat-pin-x" onClick={closePin}
-                                    aria-label="공지 닫기">✕</button>
-                        </div>
-                        {/* 펼쳤을 때만 나오는 줄. **누가 올렸는지 적는다** — 물어볼
-                            데가 있어야 한다. `대화에서 보기`는 그 말이 오간 자리로
-                            데려간다(앞뒤 이야기가 곧 공지의 뜻인 때가 많다). */}
-                        {pinOpen && (
-                            <div className="chat-pin-foot">
-                                <span className="chat-pin-by">
-                                    {names[pin.pinned_by ?? '']?.name
-                                        ? `${names[pin.pinned_by ?? ''].name}님이 올림`
-                                        : '운영진이 올림'}
-                                </span>
-                                <button className="chat-pin-act"
-                                        onClick={() => { setPinOpen(false); jumpTo(pin.id); }}>
-                                    대화에서 보기
-                                </button>
-                                {isAdmin && (
-                                    <button className="chat-pin-act" onClick={() => askPin(pin)}>
-                                        공지 내리기
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {/* 찾은 글 목록. **대화 위를 통째로 덮는다** — 반쯤 걸치면 어느
                 줄이 결과이고 어느 줄이 대화인지 헷갈린다. */}

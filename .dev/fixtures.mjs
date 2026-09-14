@@ -225,10 +225,10 @@ export const messages = [
     { id: 'm1', room_id: 'room1', user_id: uid(2), body: '이번 주 무등산 날씨 어떤가요?', created_at: iso(-1, 20, 10) },
     { id: 'm2', room_id: 'room1', user_id: uid(3), body: '예보 보니까 맑다고 하네요 ☀️', created_at: iso(-1, 20, 12) },
     { id: 'm3', room_id: 'room1', user_id: uid(1), body: '좋습니다. 6시 30분 동광주 IC 앞에서 봬요', created_at: iso(0, 8, 5) },
-    /* **방 공지로 붙박아 둔 글**(카톡 오픈톡의 그것). 대화 맨 위에 한 줄로
-       뜬다 — `.dev/behave.mjs`가 이 줄로 공지 칸을 확인한다.
-       **m3에 두지 말 것** — 그 줄은 `지우기` 칸이 지워 버려, 뒤에 오는
-       공지 칸이 찾을 때는 화면에 없다(실제로 한 번 그렇게 걸렸다). */
+    /* **없앤 `방 공지`의 자취가 붙어 있는 줄이다**(사용자 요청으로 걷어냈다).
+       칸은 DB에 기록으로 남아 있으므로 여기서도 그대로 두었다 —
+       `.dev/behave.mjs`의 `방 공지는 없앴다` 칸이 **이 값이 있는데도 화면에
+       아무것도 안 뜨는지**를 본다. 빼면 그 검사가 헛돈다. */
     { id: 'm4', room_id: 'room1', user_id: uid(1), body: '카풀 필요하신 분 있으면 알려 주세요',
       pinned_at: iso(0, 8, 7), pinned_by: uid(1), created_at: iso(0, 8, 6) },
     /* **일부러 긴 글이다** — 여기에 답장하면 인용이 한 줄로 잘리는데(`nowrap`),

@@ -92,9 +92,13 @@ export function setListOn(on: boolean): void {
  * 덮으므로 그동안 웹 목록으로 **바꿔치기**를 했고, 두 목록은 글꼴이 달라
  * 아래로 갈수록 어긋났다(사용자 제보 · 사진 — `팝업이 있을때와 없을때
  * 프로필이나 말풍선 위치가 틀어져`). 줄 간격을 맞춰도 그대로였다.
+ *
+ * **27판은 `공유`·`캡쳐`가 눌러도 아무 일이 없었다** — 창이 앱 것이 되면서
+ * 고른 값이 다리를 건너와 **웹의 `navigator.share`가 통째로 막혔다**(그것은
+ * 사람이 누른 그 손짓 안에서만 열린다). 28판이 그 둘을 앱에게 맡겼다.
  */
 export function canNativeList(): boolean {
-    return ncLog.ready === true && ncLog.v >= 27 && listOn();
+    return ncLog.ready === true && ncLog.v >= 28 && listOn();
 }
 
 /* ── 묶는 규칙 (웹 목록과 앱 목록이 같이 본다) ─────────────── */

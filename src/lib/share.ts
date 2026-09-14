@@ -40,7 +40,20 @@ export type CaptureResult = 'shared' | 'saved' | 'fail';
  * - **밀어서 답장 화살표는 뺀다**(`.chat-reply-btn`). 화면에서는 안 보이는데
  *   그림에는 그대로 찍힌다.
  */
-export async function captureNode(el: HTMLElement): Promise<CaptureResult> {
+export async function captureNode(
+    el: HTMLElement,
+    /**
+     * **앱이 있으면 그림을 넘겨 준다**(28판). base64 PNG와 파일 이름을 받아
+     * 공유창을 띄웠으면 `true`.
+     *
+     * 왜 이 손잡이가 있는가 — 아래 `navigator.share`는 **사람이 누른 그
+     * 손짓 안에서만** 열리는데, 앱에서 길게 누른 창은 앱 것이라 고른 값이
+     * 다리를 건너온다(그 손짓이 없다). 내려받기로 물러나 봐야 앱 안에서는
+     * `<a download>`가 아무 일도 안 한다 — **그래서 캡쳐가 눌러도 아무 일이
+     * 없었다.** 웹과 옛 앱은 이 손잡이 없이 예전 길을 그대로 탄다.
+     */
+    hand?: (data: string, name: string) => Promise<boolean>,
+): Promise<CaptureResult> {
     let blob: Blob | null = null;
     try {
         const { toBlob } = await import('html-to-image');
@@ -71,6 +84,13 @@ export async function captureNode(el: HTMLElement): Promise<CaptureResult> {
        그러면 여러 장 찍었을 때 서로 덮어쓴다. 화면에 보이는 글이 아니라
        파일 이름이므로 `kkakkung.wav`처럼 영문 그대로 둔다. */
     const file = new File([blob], `kkakkung-${stamp()}.png`, { type: 'image/png' });
+
+    /* **앱이 있으면 앱에게 넘긴다**(28판). 웹의 공유창은 손짓이 없으면
+       거절당하므로, 앱에서는 여기까지가 웹이 할 일이다. */
+    if (hand) {
+        const data = await toBase64(blob);
+        return data && await hand(data, file.name) ? 'shared' : 'fail';
+    }
 
     /* **공유창이 먼저다.** 거기서 `이미지 저장`을 고르면 사진첩으로 들어가고,
        카톡으로 바로 보낼 수도 있다 — 내려받기보다 쓸모가 많다. */
@@ -139,4 +159,19 @@ export async function sharePhotoFile(url: string): Promise<boolean> {
         // 사용자가 창을 닫은 것도 여기로 온다 — 실패와 구분할 길이 없다.
         return false;
     }
+}
+
+/**
+ * `Blob`을 base64로 바꾼다(앞의 `data:image/png;base64,`는 뗀다).
+ *
+ * **`FileReader`를 쓴다** — 큰 그림을 `String.fromCharCode`로 한 글자씩
+ * 옮기면 인자가 수십만 개가 되어 그 자리에서 죽는다.
+ */
+async function toBase64(blob: Blob): Promise<string> {
+    return new Promise(resolve => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] ?? '');
+        fr.onerror = () => resolve('');
+        fr.readAsDataURL(blob);
+    });
 }

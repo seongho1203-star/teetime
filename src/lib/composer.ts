@@ -44,6 +44,10 @@ type Native = {
     savePhoto(o: { url: string }): Promise<{ ok: boolean }>;
     /** 폰이 띄워 주는 공유창에 넘긴다(8판부터). */
     sharePhoto(o: { url: string }): Promise<{ ok: boolean }>;
+    /** 글을 공유창에 넘긴다(28판부터). 아래 `canNativeShare()`를 볼 것. */
+    shareText(o: { text?: string; url?: string }): Promise<{ ok: boolean }>;
+    /** 캡쳐한 PNG(base64)를 공유창에 넘긴다(28판부터). */
+    shareImage(o: { data: string; name?: string }): Promise<{ ok: boolean }>;
     addListener(n: 'change', cb: (e: { text: string; sel: number }) => void): Promise<Handle>;
     addListener(n: 'send', cb: (e: { text: string }) => void): Promise<Handle>;
     addListener(n: 'action', cb: (e: { name: ComposerAction }) => void): Promise<Handle>;
@@ -445,4 +449,38 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
 /** 던지는 것을 삼킨다. **글칸 하나 때문에 화면이 죽으면 안 된다.** */
 export async function hush(p: Promise<unknown>): Promise<void> {
     try { await p; } catch { /* 없는 판에서는 그냥 지나간다 */ }
+}
+
+/* ── 공유 · 캡쳐를 앱이 맡는다 (28판) ───────────────────────────
+ *
+ * **웹의 `navigator.share`는 27판부터 통째로 막혔다.** 그것은 *사람이
+ * 누른 그 손짓 안에서만* 열리는데, 길게 누른 창이 앱 것이 되면서 고른
+ * 값이 **다리를 건너와** 그 손짓이 없다 — iOS가 거절하고, 내려받기로
+ * 물러나 봐야 앱 안에서는 `<a download>`가 아무 일도 안 한다.
+ * 그래서 `공유`·`캡쳐`가 **눌러도 아무 일이 없었다**(사용자 제보).
+ *
+ * **웹과 옛 앱은 그대로 `lib/share.ts`로 간다** — 거기서는 누른 것이
+ * 곧 그 손짓이라 예전처럼 열린다. 판 번호로 갈래를 고르므로 새 앱을
+ * 깐 사람은 저절로 좋은 길로 돌아온다(`canPickNative()`와 같은 수다).
+ */
+
+/** 앱에게 공유창을 맡길 수 있는가. false면 부르는 쪽이 웹으로 물러난다. */
+export function canNativeShare(): boolean {
+    return ncLog.ready === true && ncLog.v >= 28;
+}
+
+/** 글(과 주소)을 앱의 공유창에 넘긴다. `canNativeShare()`가 참일 때만. */
+export async function shareNativeText(text: string, url?: string): Promise<boolean> {
+    try {
+        const r = await NativeComposer.shareText(url ? { text, url } : { text });
+        return !!r?.ok;
+    } catch { return false; }
+}
+
+/** 캡쳐한 PNG를 앱의 공유창에 넘긴다. `canNativeShare()`가 참일 때만. */
+export async function shareNativeImage(data: string, name: string): Promise<boolean> {
+    try {
+        const r = await NativeComposer.shareImage({ data, name });
+        return !!r?.ok;
+    } catch { return false; }
 }

@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { setConfirmUp } from '../lib/overlay';
 import './Confirm.css';
 
 /**
@@ -31,6 +32,20 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         setAsk(null);
         setResolver(null);
     };
+
+    /**
+     * **떠 있다는 사실을 밖에 알린다**(`lib/overlay.ts`).
+     *
+     * 앱에서 대화 목록과 입력칸은 웹뷰 **위에 얹힌 앱 부품**이라 이 창이
+     * 그 뒤에 통째로 깔린다 — `가리기`·`삭제`가 눌러도 아무 일이 없어
+     * 보이던 자리가 그것이다. **여기서 직접 감추지는 않는다**: 감췄다
+     * 도로 내보이는 일의 주인이 둘이 되면, 사진을 크게 본 채로 뜬 창을
+     * 닫을 때 그 위로 입력칸이 도로 올라온다.
+     */
+    useEffect(() => {
+        setConfirmUp(!!ask);
+        return () => setConfirmUp(false);
+    }, [ask]);
 
     return (
         <ConfirmContext.Provider value={confirm}>
