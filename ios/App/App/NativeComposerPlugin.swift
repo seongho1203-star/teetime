@@ -147,10 +147,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        ③ **밀어서 댓글이 표의 굴리기에 막혀 있었다** — 두 손짓이
     ///           나란히 안 서서, 먼저 선 표가 우리 것을 눌렀다.
     ///
+    /// 23판 — **웹이 바 위에 그리는 것을 목록이 가리지 않는다**(`lift`).
+    ///        바가 맡는 것은 한 줄뿐이라 **인용(답장)·언급 목록·이모티콘
+    ///        미리보기·서랍은 그대로 웹이 그 위에 그리는데**, 앱 목록의
+    ///        아랫변이 바 윗변에 딱 붙어 있어 넷이 통째로 뒤에 깔렸다 —
+    ///        `@언급 안됨` · `이모티콘 안나옴`(서랍) · `답장 안걸림`(인용)이
+    ///        **셋 다 이 한 자리였다**(사용자 제보). 웹이 그 높이를 재서
+    ///        `listSet({lift})`로 알려 주고 앱이 그만큼 비운다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 22
+    private static let version = 23
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -381,6 +389,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     private var list: ChatList?
     /// 목록 윗변을 어디에 둘지(머리말·방 공지 아래). 웹이 pt로 알려 준다.
     private var listTopC: NSLayoutConstraint?
+    /**
+     * 목록 아랫변 — **바 윗변에서 `lift`만큼 더 올라온다**(23판).
+     *
+     * 바가 맡는 것은 한 줄뿐이라 **인용(답장)·언급 목록·이모티콘 미리보기·
+     * 서랍은 그대로 웹이 바 위에 그린다.** 그런데 앱 목록은 웹 화면 **위에
+     * 얹힌 앱 부품**이라, 아랫변을 바 윗변에 딱 붙여 두면 그 넷이 통째로
+     * 목록 뒤에 깔려 **아예 안 보인다**(사용자 제보 — `@언급 안됨` ·
+     * `이모티콘 안나옴` · `답장 안걸림`. 셋 다 한 자리였다).
+     * 그래서 웹이 그 높이를 재서 알려 주고(`listSet({lift})`) 그만큼 비운다.
+     */
+    private var listBotC: NSLayoutConstraint?
 
     /**
      * 목록을 세운다. **바가 먼저 서 있어야 한다** — 아래를 그 윗변에 묶기
@@ -405,12 +424,14 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
                    순서가 뒤집히면 입력칸이 말풍선에 가린다. */
                 root.insertSubview(list, belowSubview: bar)
                 let top = list.topAnchor.constraint(equalTo: root.topAnchor)
+                let bot = list.bottomAnchor.constraint(equalTo: bar.topAnchor)
                 self.listTopC = top
+                self.listBotC = bot
                 NSLayoutConstraint.activate([
                     list.leadingAnchor.constraint(equalTo: root.leadingAnchor),
                     list.trailingAnchor.constraint(equalTo: root.trailingAnchor),
                     top,
-                    list.bottomAnchor.constraint(equalTo: bar.topAnchor),
+                    bot,
                 ])
             }
             self.applyList(call, on: list)
@@ -467,6 +488,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         DispatchQueue.main.async {
             self.list?.removeFromSuperview()
             self.listTopC = nil
+            self.listBotC = nil
             /* 바와 같은 까닭으로 **버리지는 않는다** — 탭을 오갈 때마다
                표를 새로 만들면 그만큼 늦어진다. */
             call.resolve()
@@ -475,6 +497,24 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     private func applyList(_ call: CAPPluginCall, on list: ChatList) {
         if let v = call.getDouble("top") { listTopC?.constant = CGFloat(v) }
+        /* 웹이 바 위에 그리는 것(인용·언급 목록·이모티콘 미리보기·서랍)의
+           높이다. 그만큼 목록 아랫변을 올려 **가리지 않게** 한다.
+           **맨 아래를 보고 있었으면 따라 내린다** — 서랍이 열리면 목록이
+           300px쯤 짧아지는데, 그냥 두면 읽던 글이 그만큼 아래로 밀려 나가
+           안 보인다(웹 목록이 `서랍을 열면 맨 아래로 붙인다`로 푸는 그 자리다).
+           **자리를 바꾸기 전에 집어 둔다** — 바꾸고 나서 보면 늘 거짓이다. */
+        if let v = call.getDouble("lift") {
+            let lift = -CGFloat(max(0, v))
+            if listBotC?.constant != lift {
+                let wasBottom = list.atBottom()
+                listBotC?.constant = lift
+                if wasBottom {
+                    /* 제약이 바깥(바)에 걸려 있어 **윗자리에서** 다시 잰다. */
+                    list.superview?.layoutIfNeeded()
+                    list.scrollToBottom(animated: false)
+                }
+            }
+        }
         if let v = call.getBool("hidden") { list.isHidden = v }
         if let skin = call.getObject("skin") {
             list.apply(skin: skin.mapValues { v in v as Any })

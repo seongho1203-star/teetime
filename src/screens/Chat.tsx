@@ -2397,11 +2397,16 @@ export function Chat() {
      * 덮는다** — 네이티브 바에서 겪은 그 자리와 똑같다(사진을 크게 봤는데
      * 그 위로 입력칸이 그대로 보였다). 감추는 동안에는 **웹 목록을 도로
      * 내보여** 창 뒤가 휑하지 않게 한다(`.nc-list`를 떼는 것이 그 일이다).
+     *
+     * **바를 감추는 `overlayUp`보다 넓다**(`listCovered`) — 서랍(☰)과 검색
+     * 결과는 **목록 자리를 통째로 덮는 웹 창**이라 앱 목록이 그대로 가린다.
+     * 바는 그때 물러날 이유가 없으므로 둘을 갈라 둔다.
      */
+    const listCovered = overlayUp || peopleOn || searchOn;
     useEffect(() => {
         if (!listUp) return;
-        void listSet({ hidden: overlayUp });
-    }, [listUp, overlayUp]);
+        void listSet({ hidden: listCovered });
+    }, [listUp, listCovered]);
 
     /**
      * `최근 대화로` 줄. **앱 목록이 서 있으면 앱이 그린다.**
@@ -2467,14 +2472,28 @@ export function Chat() {
         loadAttend();
     }, [loadAttend]);
 
-    /** 카드에서 `@언급하기`를 누르면 입력칸에 `@이름 `을 넣고 자판을 올린다. */
+    /**
+     * 프로필에서 `@언급하기`를 누르면 입력칸에 `@이름 `을 넣고 자판을 올린다.
+     *
+     * **감춘 네이티브 바는 초점을 못 받는다 — 그래서 내보내는 일을 여기서
+     * 먼저 한다**(사용자 제보 — `@언급 안됨`). 전체화면 프로필이 떠 있는
+     * 동안 `overlayUp`이 바를 감춰 두는데, `setCard(null)`은 state라 그
+     * 효과가 **이 함수가 끝난 뒤에야** 돌아 `hidden: false`가 늦게 간다.
+     * 그러면 글자는 들어가는데 자판이 안 올라와 **아무 일도 안 한 것처럼
+     * 보인다.** 내보내는 것과 초점을 `setState` 한 번에 실어 보내면 앱이
+     * `apply` → `grabFocus` 차례를 지켜 준다(댓글 바가 쓰는 그 길이다).
+     */
     const mentionFromCard = (p: Person) => {
         setCard(null);
         setPeopleOn(false);
         const was = draftValue();
         const head = was && !was.endsWith(' ') ? `${was} ` : was;
         setDraft(`${head}@${p.name} `);
-        focusDraft();
+        if (ncOn.current && ncLog.v >= 7) {
+            void hush(NativeComposer.setState({ hidden: false, focus: true }));
+        } else {
+            focusDraft();
+        }
         growDraft();
     };
 
@@ -3316,7 +3335,30 @@ export function Chat() {
         if (!listUp || loading) return;
         const el = listRef.current;
         if (!el) return;
-        const tell = () => { void listSet({ top: Math.round(el.getBoundingClientRect().top) }); };
+        /**
+         * **바 위에 웹이 그리는 것의 높이**(`lift`) — 인용(답장) · 언급 목록 ·
+         * 이모티콘 미리보기 · 서랍이다. 바가 맡는 것은 한 줄뿐이라 그 넷은
+         * 그대로 웹이 그리는데, **앱 목록은 웹 화면 위에 얹힌 앱 부품이라**
+         * 아랫변을 바 윗변에 붙여 두면 넷이 통째로 뒤에 깔려 **아예 안 보인다**
+         * (사용자 제보 — `@언급 안됨` · `이모티콘 안나옴` · `답장 안걸림`이
+         * 셋 다 이 한 자리였다). 그만큼 목록을 올려 비운다.
+         *
+         * `.chat-input`은 네이티브 바를 쓰는 동안 **위 여백과 테두리가 0**이고
+         * 아래 여백이 곧 바가 가리는 자리라(`html.nc .chat-input`), **높이에서
+         * 아래 여백을 빼면** 그것이 웹이 그린 몫이다.
+         */
+        const lift = () => {
+            const box = barRef.current;
+            if (!box) return 0;
+            const pad = parseFloat(getComputedStyle(box).paddingBottom) || 0;
+            return Math.max(0, Math.round(box.getBoundingClientRect().height - pad));
+        };
+        const tell = () => {
+            void listSet({
+                top: Math.round(el.getBoundingClientRect().top),
+                lift: lift(),
+            });
+        };
         /* **색도 여기서 한 번 더 보낸다.** `listAttach`가 도는 순간에는
            불러오는 중이라 `.chat-list`가 아직 없을 수 있고, 그때 읽으면
            대화 팔레트가 아니라 예비값이 간다(색 토큰은 `:root`가 아니라
@@ -3325,6 +3367,10 @@ export function Chat() {
         tell();
         const ro = new ResizeObserver(tell);
         ro.observe(el);
+        /* 입력칸도 함께 본다 — 인용·언급 목록·서랍이 뜨고 지는 자리다.
+           (목록이 `flex: 1`이라 대개 같이 움직이지만, 여기만 바뀌는
+           판이 있으면 `lift`가 옛 값으로 굳는다.) */
+        if (barRef.current) ro.observe(barRef.current);
         window.addEventListener('resize', tell);
         return () => {
             ro.disconnect();
@@ -3512,7 +3558,7 @@ export function Chat() {
             {/* **앱 목록이 섰으면 감추기만 한다** — `display: none`으로 지우지
                 말 것: 자리가 없어지면 `--chat-h` 셈과 `listTop`이 함께 어긋난다
                 (댓글 칸에서 쓴 그 수와 같다). */}
-            <div className={`chat-list${listUp && !overlayUp ? ' nc-list' : ''}`}
+            <div className={`chat-list${listUp && !listCovered ? ' nc-list' : ''}`}
                  ref={listRef} onScroll={onScroll} onClick={onPhotoTap}>
                 {hasMore && (
                     <button className="btn ghost sm chat-more" onClick={loadMore} disabled={loadingMore}>
