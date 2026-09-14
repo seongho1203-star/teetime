@@ -437,6 +437,29 @@ export function useBackSwipe(): void {
 const SLIDE_WAIT = 3000;
 /** 자료를 기다리는 동안의 화면 — 이것뿐이면 아직 '내용'이 아니다. */
 const SPINNER = '.center-fill';
+/** 한 번 미끄러지는 데 걸리는 시간. `global.css`의 `screen-in`과 같은 값이다. */
+const SCREEN_MS = 240;
+
+/**
+ * 마지막으로 화면을 미끄러뜨리기 시작한 때.
+ *
+ * **앱 목록(`ChatList.swift`)이 이 값을 보고 따라 들어온다.** 그 목록은
+ * 웹뷰 **위에 얹힌 앱 부품**이라 웹의 `transform`을 안 따라오는데, 대화는
+ * 그 목록이 화면의 거의 전부라 **머리말만 밀려 들어오고 말풍선 자리는
+ * 그냥 나타났다**(사용자 제보 — `채팅창은 밀려서 들어오는 게 아니고 그냥
+ * 바로 나타나`).
+ *
+ * **남은 시간만큼만 움직이게 하는 것이 이 값이 있는 까닭이다.** 앱 목록은
+ * 웹 화면이 그려진 **뒤에** 서므로 늘 한두 프레임 늦는데, 40px을 제 시간
+ * 그대로 돌면 머리말보다 늦게 끝나 두 단계로 보인다.
+ */
+export const slideMark = { at: 0 };
+
+/** 지금 도는 화면 움직임이 얼마나 남았나(ms). 안 돌고 있으면 0이다. */
+export function slideLeft(): number {
+    if (!slideMark.at) return 0;
+    return Math.max(0, SCREEN_MS - (Date.now() - slideMark.at));
+}
 
 export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
     const { pathname } = useLocation();
@@ -464,6 +487,8 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
             el.classList.remove('slide-in', 'slide-back');
             void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
             el.classList.add(cls);
+            /* 앱 목록이 남은 시간만큼만 따라 들어온다(위 `slideMark`). */
+            slideMark.at = Date.now();
             return window.setTimeout(() => el.classList.remove(cls), 300);
         };
         let off = run();

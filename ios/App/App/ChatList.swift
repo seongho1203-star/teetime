@@ -235,7 +235,7 @@ protocol ChatListDelegate: AnyObject {
     /// 키보드를 내려 달라 — 목록을 아래로 끌었거나 목록을 눌렀다.
     func chatListDismissKeyboard()
     /// 무엇인가를 눌렀다 — 사진(크게 보기) · 카드(그 화면으로) · 반응 알약 ·
-    /// 얼굴(프로필 카드) · 왼쪽으로 밀기(댓글).
+    /// 얼굴(프로필 카드) · 왼쪽으로 밀기(댓글) · **오른쪽으로 밀기(뒤로)**.
     /// **앱이 스스로 하지 않고 웹에 넘긴다** — 하는 일이 전부 웹에 이미 있는
     /// 길이고, 두 벌로 만들면 한쪽만 고치게 된다.
     func chatListTap(kind: String, id: String, to: String?)
@@ -272,6 +272,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private var lastFar = false
     /// 아래로 이만큼 끌면 키보드를 내린다(웹의 `dy > 40`과 같은 값).
     private let dragToHide: CGFloat = 40
+    /// 오른쪽으로 이만큼 밀면 뒤로 간다(웹 `plainBack`의 `PLAIN_TAKE`와 같은 값).
+    private let backAt: CGFloat = 60
+    /// 그 손짓의 문지기 — **오른쪽으로 그은 것만** 받는다(`BackGuard` 참고).
+    private let backGuard = BackGuard()
 
     /// 끌기 시작한 자리. 아래로 끌었는지를 이것으로 잰다.
     private var dragFrom: CGFloat = 0
@@ -308,12 +312,64 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         tap.cancelsTouchesInView = false
         table.addGestureRecognizer(tap)
 
+        /* **오른쪽으로 밀면 뒤로 간다**(25판).
+           웹 목록에 있던 그 손짓인데(`useBackSwipe`), 앱 목록은 웹뷰 **위에
+           얹힌 앱 부품**이라 그 자리의 터치가 웹에 아예 안 닿는다 — 그래서
+           **머리말에서는 밀리는데 말풍선 자리에서만 안 먹었다**(사용자 제보
+           — `상단에 돋보기 있는 그 라인을 잡고 우측으로 밀면 되돌리기가
+           되는데 채팅창 잡고 오른쪽으로 밀면 되돌아가기가 안 돼`).
+           **끌리는 것 없이 곧바로 간다** — 웹의 `plainBack()`과 같은 잣대다
+           (네이티브 부품이 웹의 `transform`을 안 따라와 찢어져 보인다).
+           `cancelsTouchesInView`를 끄는 것은 위 탭과 같은 까닭이다. */
+        let back = UIPanGestureRecognizer(target: self, action: #selector(backPan))
+        back.delegate = backGuard
+        back.cancelsTouchesInView = false
+        table.addGestureRecognizer(back)
+
         jumpBar.isHidden = true
         jumpBar.addTarget(self, action: #selector(jumpTapped), for: .touchUpInside)
         addSubview(jumpBar)
     }
 
     @objc private func tapped() { listDelegate?.chatListDismissKeyboard() }
+
+    /**
+     * 오른쪽으로 밀어 뒤로 가기(25판). **하는 일은 웹이 정한다** — 앱은
+     * `back`을 눌렀다고만 알리고, 어디로 갈지는 `goBack()`이 이미 안다
+     * (히스토리가 비었으면 홈으로 간다).
+     */
+    @objc private func backPan(_ g: UIPanGestureRecognizer) {
+        guard g.state == .ended else { return }
+        let t = g.translation(in: self)
+        guard t.x >= backAt, t.x > abs(t.y) else { return }
+        listDelegate?.chatListTap(kind: "back", id: "", to: nil)
+    }
+
+    /**
+     * 들어올 때 오른쪽에서 미끄러져 들어온다(25판 · 웹의 `screen-in`).
+     *
+     * **남은 시간만큼만 움직인다**(`ms` — 웹의 `slideLeft()`). 앱 목록은
+     * 웹 화면이 그려진 **뒤에** 서므로 늘 한두 프레임 늦는데, 240ms를 제
+     * 시간 그대로 돌면 머리말보다 늦게 끝나 **두 단계로 보인다.**
+     * 끝을 맞추는 것이 눈에 걸리는 전부라 시작이 조금 어긋나는 것은 둔다.
+     *
+     * 값(40px · `cubic-bezier(.32,.72,0,1)`)은 `global.css`의 `screen-in`
+     * 그대로다 — **한쪽만 고치지 말 것.**
+     */
+    func slideIn(ms: Double) {
+        guard ms >= 40 else { return }
+        transform = CGAffineTransform(translationX: 40, y: 0)
+        alpha = 0
+        let curve = UICubicTimingParameters(
+            controlPoint1: CGPoint(x: 0.32, y: 0.72),
+            controlPoint2: CGPoint(x: 0, y: 1))
+        let a = UIViewPropertyAnimator(duration: ms / 1000, timingParameters: curve)
+        a.addAnimations { self.transform = .identity; self.alpha = 1 }
+        /* 어떤 까닭으로 끊겨도 제자리에 놓는다 — 반쯤 밀린 채로 굳으면
+           목록이 통째로 어긋난 것처럼 보인다. */
+        a.addCompletion { _ in self.transform = .identity; self.alpha = 1 }
+        a.startAnimation()
+    }
 
     required init?(coder: NSCoder) { fatalError() }
 
@@ -741,6 +797,35 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
  *
  * **손잡이를 새로 더할 때도 여기에 둘 것.**
  */
+/**
+ * **오른쪽으로 밀어 뒤로 가기**의 문지기(25판).
+ *
+ * `SwipeGuard`와 갈래가 하나 다르다 — **오른쪽으로 그은 것만** 받는다.
+ * 밀어서 댓글은 왼쪽(`dx < 0`)뿐이라 **방향으로 갈려 안 부딪힌다**
+ * (웹에서 `.chat-row`를 `taken()`에서 뺀 그 규칙 그대로다).
+ *
+ * 빠르기가 0에 가까우면 옮긴 거리로 보는 것도 같다 — 천천히 밀면
+ * `velocity`가 둘 다 0이라 그 손짓이 통째로 막힌다(21판에서 겪은 자리).
+ */
+final class BackGuard: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let pan = g as? UIPanGestureRecognizer else { return true }
+        let v = pan.velocity(in: pan.view)
+        if abs(v.x) < 1, abs(v.y) < 1 {
+            let t = pan.translation(in: pan.view)
+            return t.x > 0 && t.x > abs(t.y)
+        }
+        return v.x > 0 && v.x > abs(v.y)
+    }
+
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        return true
+    }
+}
+
 final class SwipeGuard: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let pan = g as? UIPanGestureRecognizer else { return true }

@@ -162,10 +162,19 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        **23판은 그 길이 아예 없으므로 웹이 앱 목록을 안 쓴다**
     ///        (`canNativeList`) — 웹 목록으로 물러나면 그날로 풀린다.
     ///
+    ///   - 25판 — **오른쪽으로 밀면 뒤로 가고, 들어올 때 미끄러져 들어온다.**
+    ///        둘 다 웹 목록에 있던 것인데 앱 목록은 웹뷰 **위에 얹힌 앱
+    ///        부품**이라 손짓이 웹에 안 닿고 웹의 `transform`도 안 따라온다 —
+    ///        그래서 **머리말만 밀리고 말풍선 자리는 둘 다 안 됐다**(사용자
+    ///        제보 — `채팅창 잡고 오른쪽으로 밀면 되돌아가기가 안 돼` ·
+    ///        `채팅창은 밀려서 들어오는 게 아니고 그냥 바로 나타나`).
+    ///        `backPan`(웹의 `plainBack`과 같은 60px)과 `slideIn`(웹이 알려
+    ///        주는 **남은 시간**만큼)이 그 몫이다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 24
+    private static let version = 25
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -443,6 +452,11 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             }
             self.applyList(call, on: list)
             root.layoutIfNeeded()
+            /* **들어올 때 미끄러져 들어온다**(25판). 웹이 *남은* 시간을
+               알려 주므로(`slideLeft()`) 머리말과 **같이 끝난다** — 앱
+               목록은 웹 화면이 그려진 뒤에 서서 늘 한두 프레임 늦는다.
+               값이 0이면(들어오는 참이 아니면) 아무 일도 안 한다. */
+            if let ms = call.getDouble("slide") { list.slideIn(ms: ms) }
             call.resolve(["ok": true])
         }
     }

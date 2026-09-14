@@ -19,6 +19,7 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
+import { slideLeft } from '../lib/tabs';
 import {
     NativeComposer, canPickNative, canSlide, composerReady, composerSkin, hush, kbMark, kbSnap, kbTick, kbWork,
     ncLog, pickNativePhoto,
@@ -3014,6 +3015,10 @@ export function Chat() {
            뜬다** — 여기서 또 가릴 것이 없다. */
         quote: (to: string) => { if (to) jumpTo(to); },
         jumpLatest: () => jumpToLatest(),
+        /* 오른쪽으로 밀어 나가기(25판). **앱 목록 자리의 손짓은 웹에 아예
+           안 닿으므로**(웹뷰 위에 얹힌 앱 부품이다) 앱이 잡아 넘겨 준다 —
+           `←`와 완전히 같은 길이라 히스토리가 비었으면 홈으로 간다. */
+        back: () => goBack(),
     };
 
     const nc = useRef({
@@ -3185,6 +3190,11 @@ export function Chat() {
             const ok = await listAttach({
                 top: Math.round(listRef.current?.getBoundingClientRect().top ?? 0),
                 skin: chatListSkin(listRef.current),
+                /* **들어올 때 같이 미끄러져 들어온다**(25판). 앱 목록은 웹
+                   화면이 그려진 뒤에 서므로 **남은 시간**을 넘겨 머리말과
+                   같이 끝나게 한다 — 제 시간을 다 쓰면 늦게 끝나 두 단계로
+                   보인다. 들어오는 참이 아니면 0이라 아무 일도 안 한다. */
+                slide: slideLeft(),
             });
             if (dead || !ok) return;
             const h = await onListState(e => {
@@ -3211,6 +3221,7 @@ export function Chat() {
                 else if (e.kind === 'reply') nc.current.reply(e.id);
                 else if (e.kind === 'quote') nc.current.quote(e.to);
                 else if (e.kind === 'jump') nc.current.jumpLatest();
+                else if (e.kind === 'back') nc.current.back();
             });
             /* **창이 뜨는 규칙은 웹에만 있다**(`HoldAt`) — 앱은 누른
                말풍선의 자리만 알려 준다. 그 값이 곧 `getBoundingClientRect`와
