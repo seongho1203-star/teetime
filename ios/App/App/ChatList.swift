@@ -216,14 +216,19 @@ struct ChatSkin {
 }
 
 protocol ChatListDelegate: AnyObject {
-    /// 맨 아래에 있는가 · 맨 위에 닿았는가(지난 대화를 더 받아야 한다).
-    func chatListState(atBottom: Bool, atTop: Bool)
+    /// 맨 아래에 있는가 · 맨 위에 닿았는가(지난 대화를 더 받아야 한다) ·
+    /// `최근 대화로` 줄을 띄울 만큼 멀어졌는가.
+    func chatListState(atBottom: Bool, atTop: Bool, far: Bool)
     /// 키보드를 내려 달라 — 목록을 아래로 끌었거나 목록을 눌렀다.
     func chatListDismissKeyboard()
-    /// 무엇인가를 눌렀다 — 사진(크게 보기)이나 카드(그 화면으로 가기).
-    /// **앱이 스스로 하지 않고 웹에 넘긴다** — 사진 크게 보기도 어디로 가는지도
-    /// 웹에 이미 있는 길이고, 두 벌로 만들면 한쪽만 고치게 된다.
+    /// 무엇인가를 눌렀다 — 사진(크게 보기) · 카드(그 화면으로) · 반응 알약 ·
+    /// 얼굴(프로필 카드) · 왼쪽으로 밀기(댓글).
+    /// **앱이 스스로 하지 않고 웹에 넘긴다** — 하는 일이 전부 웹에 이미 있는
+    /// 길이고, 두 벌로 만들면 한쪽만 고치게 된다.
     func chatListTap(kind: String, id: String, to: String?)
+    /// 말풍선을 길게 눌렀다 — **누른 자리에** 고르는 창이 떠야 하므로
+    /// 말풍선의 자리를 **창(화면) 좌표로** 함께 넘긴다.
+    func chatListHold(id: String, mine: Bool, rect: CGRect)
 }
 
 // MARK: - 목록
@@ -246,6 +251,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private let bottomSlack: CGFloat = 80
     /// 위에서 이만큼 안이면 지난 대화를 더 받아 온다.
     private let topSlack: CGFloat = 400
+    /// 맨 아래에서 이만큼 멀어지면 `최근 대화로` 줄이 뜬다(웹의 `JUMP_AT`).
+    /// **`bottomSlack`과 벌려 놓는다** — 붙어 있으면 바닥 언저리에서 깜빡인다.
+    private let jumpAt: CGFloat = 240
+    private var lastFar = false
     /// 아래로 이만큼 끌면 키보드를 내린다(웹의 `dy > 40`과 같은 값).
     private let dragToHide: CGFloat = 40
 
@@ -364,6 +373,38 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     var rowCount: Int { return rows.count }
+
+    /**
+     * 그 글로 뛴다 — 인용을 누르거나 검색 결과를 골랐을 때다(5판).
+     *
+     * **못 찾으면 거짓을 돌려준다.** 지난 묶음에 있어 아직 안 받아 온 글이라,
+     * 웹이 `지난 대화에 있습니다`로 알려 준다(웹 목록과 같은 잣대다).
+     *
+     * `place`는 `center`(인용·검색) 또는 `top`(`여기까지 읽으셨습니다` 줄 —
+     * **마지막으로 읽은 글이 한 줄 보이게** 위에서 조금 내려 둔다).
+     */
+    func scrollTo(id: String, place: String, flash: Bool) -> Bool {
+        guard let at = rows.firstIndex(where: { $0.id == id }) else { return false }
+        let ip = IndexPath(row: at, section: 0)
+        /* **부드럽게 굴리지 않는다** — 300개까지 받아 둔 목록을 훑어
+           내려가는 일이라 느린 폰에서 그대로 끊긴다(웹의 `jumpToLatest`와
+           같은 잣대다). 게다가 `top`은 굴린 뒤에 자리를 한 번 더 고치므로
+           움직이는 중이면 그 값이 어긋난다. */
+        table.scrollToRow(at: ip, at: place == "top" ? .top : .middle, animated: false)
+        if place == "top" {
+            /* 웹이 `위에서 100px`에 두는 그 자리다 — 줄 바로 위에 지난 글이
+               한 줄 비쳐야 거기서부터 읽어 내려갈 수 있다. */
+            table.contentOffset.y = max(0, table.contentOffset.y - 100)
+        }
+        lastAtBottom = atBottom()
+        guard flash else { return true }
+        /* 굴러가는 동안에는 그 줄이 아직 안 만들어졌을 수 있다 — 한 박자
+           뒤에 찾는다. 못 찾아도 뛰는 것 자체는 이미 됐으므로 그냥 넘어간다. */
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            (self?.table.cellForRow(at: ip) as? BubbleCell)?.flash()
+        }
+        return true
+    }
 
     // MARK: 재기
 
@@ -529,6 +570,9 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         cell.onTap = { [weak self] kind, id, to in
             self?.listDelegate?.chatListTap(kind: kind, id: id, to: to)
         }
+        cell.onHold = { [weak self] id, rect, mine in
+            self?.listDelegate?.chatListHold(id: id, mine: mine, rect: rect)
+        }
         return cell
     }
 
@@ -556,10 +600,22 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private func report() {
         let bottom = atBottom()
         let top = table.contentOffset.y < topSlack && rows.count > 0
-        if bottom == lastAtBottom && !(top && !toldTop) { return }
+        /* **`최근 대화로` 화살표는 뒤집힐 때만 알린다**(웹의 `jumpShown`과
+           같은 잣대다) — 굴릴 때마다 웹에 알리면 그때마다 화면이 다시
+           그려져 긴 대화에서 그대로 끊긴다. */
+        let far = below() > jumpAt
+        if bottom == lastAtBottom && far == lastFar && !(top && !toldTop) { return }
         lastAtBottom = bottom
+        lastFar = far
         if top { toldTop = true }
-        listDelegate?.chatListState(atBottom: bottom, atTop: top)
+        listDelegate?.chatListState(atBottom: bottom, atTop: top, far: far)
+    }
+
+    /// 맨 아래에서 얼마나 떨어져 있나.
+    private func below() -> CGFloat {
+        let max = table.contentSize.height - table.bounds.height
+            + table.adjustedContentInset.bottom
+        return max - table.contentOffset.y
     }
 
     // MARK: 도우미
@@ -595,7 +651,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
  * 말풍선 한 줄. **Auto Layout을 안 쓴다** — 쉰 줄이 굴러가는 자리라
  * 자리를 직접 잡는 편이 싸고, 값도 우리가 이미 재 두었다.
  */
-final class BubbleCell: UITableViewCell {
+final class BubbleCell: UITableViewCell, UIGestureRecognizerDelegate {
 
     private let dateChip = PadLabel()
     private let nameLabel = UILabel()
@@ -629,8 +685,19 @@ final class BubbleCell: UITableViewCell {
 
     /// 사진의 진짜 크기를 알게 되면 알린다 — 목록이 그 줄만 다시 잰다.
     var onPhotoSize: ((String, CGSize) -> Void)?
-    /// 눌렸다(`photo`·`card`).
+    /// 눌렸다(`photo`·`card`·`react`·`face`·`reply`).
     var onTap: ((String, String, String?) -> Void)?
+    /// 길게 눌렀다 — 말풍선 자리를 **창 좌표로** 함께 넘긴다.
+    var onHold: ((String, CGRect, Bool) -> Void)?
+
+    /// 웹의 `HOLD_MS`(500)와 같은 값이다 — **한쪽만 고치지 말 것.**
+    private let holdFor: TimeInterval = 0.5
+    /// 왼쪽으로 이만큼 밀면 댓글이 걸린다(웹의 `SWIPE_TRIGGER`).
+    private let swipeAt: CGFloat = 55
+    /// 아무리 밀어도 여기까지만 따라간다(웹의 `SWIPE_MAX`).
+    private let swipeMax: CGFloat = 72
+    /// 길게 누르기가 이미 걸렸으면 손을 뗄 때 댓글을 안 건다(웹과 같다).
+    private var held = false
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -688,9 +755,87 @@ final class BubbleCell: UITableViewCell {
         capBubble.addSubview(capLabel)
         cardView.addSubview(cardBody)
         cardView.addSubview(cardGo)
+
+        /* **얼굴을 누르면 그 사람 카드가 뜬다**(카톡과 같다). 100명 방에서
+           `83/신성호/광산구`만 보고는 누군지 떠올리기 어렵다. */
+        avatarView.isUserInteractionEnabled = true
+        avatarView.addGestureRecognizer(
+            UITapGestureRecognizer(target: self, action: #selector(tapFace)))
+
+        /* **길게 누르면 고르는 창이 뜬다**(PC의 오른쪽 클릭 자리).
+           왼쪽으로 미는 것은 댓글이 이미 쓰고 있어 겹치면 안 되므로,
+           조금이라도 움직이면 취소된다(`allowableMovement` 기본값 10). */
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(heldDown))
+        hold.minimumPressDuration = holdFor
+        hold.delegate = self
+        contentView.addGestureRecognizer(hold)
+
+        /* **왼쪽으로 밀면 댓글이 걸린다**(카톡과 같은 손짓).
+           세로로 굴리는 것과 안 부딪히게 `shouldBegin`에서 **가로로 그은
+           것만** 받는다 — 웹에서 `touch-action: pan-y`가 하던 일이다. */
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(swiped))
+        pan.delegate = self
+        contentView.addGestureRecognizer(pan)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// 세로로 그은 것은 표에 넘긴다 — 가로로 그은 것만 우리가 받는다.
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let pan = g as? UIPanGestureRecognizer,
+              pan.view === contentView else { return super.gestureRecognizerShouldBegin(g) }
+        let v = pan.velocity(in: contentView)
+        return abs(v.x) > abs(v.y)
+    }
+
+    /// **반응 알약 위에서는 길게 눌러도 창이 안 뜬다** — 누르는 자리가 이미
+    /// 임자가 있는 곳이다(웹의 `taken`과 같은 결이다).
+    func gestureRecognizer(_ g: UIGestureRecognizer,
+                           shouldReceive touch: UITouch) -> Bool {
+        guard g is UILongPressGestureRecognizer else { return true }
+        var v = touch.view
+        while let cur = v, cur !== contentView {
+            if cur is ReactChip { return false }
+            v = cur.superview
+        }
+        return true
+    }
+
+    @objc private func tapFace() {
+        guard let r = row else { return }
+        onTap?("face", r.id, nil)
+    }
+
+    /**
+     * 길게 누른 자리. **줄 전체가 아니라 말풍선(또는 그림)을 넘긴다** —
+     * 줄은 화면 폭을 다 쓰므로 그걸 넘기면 내 글에서도 창이 왼쪽에 뜬다
+     * (웹의 `anchor()`와 같은 잣대다).
+     */
+    @objc private func heldDown(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began, let r = row else { return }
+        held = true
+        let target: UIView = !bubble.isHidden ? bubble
+            : (!photoView.isHidden ? photoView : (!cardView.isHidden ? cardView : contentView))
+        onHold?(r.id, target.convert(target.bounds, to: nil), r.mine)
+    }
+
+    @objc private func swiped(_ g: UIPanGestureRecognizer) {
+        guard let r = row else { return }
+        switch g.state {
+        case .began:
+            held = false
+        case .changed:
+            let dx = max(-swipeMax, min(0, g.translation(in: contentView).x))
+            contentView.transform = CGAffineTransform(translationX: dx, y: 0)
+        case .ended, .cancelled, .failed:
+            let dx = max(-swipeMax, min(0, g.translation(in: contentView).x))
+            let hit = !held && g.state == .ended && dx <= -swipeAt
+            UIView.animate(withDuration: 0.16) { self.contentView.transform = .identity }
+            if hit { onTap?("reply", r.id, nil) }
+        default:
+            break
+        }
+    }
 
     @objc private func tapPhoto() {
         guard let r = row, r.kind == .photo, let u = r.image else { return }
@@ -702,9 +847,38 @@ final class BubbleCell: UITableViewCell {
         onTap?("card", r.id, r.to)
     }
 
+    /**
+     * 뛰어온 줄을 잠깐 깜빡인다(웹의 `.flash` — 1.3초 노란 바탕).
+     * **어느 글로 왔는지 알려 주는 것이 전부라** 색만 오간다.
+     */
+    func flash() {
+        let glow = UIView(frame: contentView.bounds)
+        glow.backgroundColor = UIColor(red: 1, green: 0xdf / 255, blue: 0x47 / 255, alpha: 0)
+        glow.layer.cornerRadius = 12
+        glow.isUserInteractionEnabled = false
+        contentView.insertSubview(glow, at: 0)
+        UIView.animate(withDuration: 0.32, animations: { glow.alpha = 1
+            glow.backgroundColor = UIColor(red: 1, green: 0xdf / 255,
+                                           blue: 0x47 / 255, alpha: 0.3)
+        }, completion: { _ in
+            UIView.animate(withDuration: 0.98, animations: { glow.alpha = 0 },
+                           completion: { _ in glow.removeFromSuperview() })
+        })
+    }
+
+    /// 줄을 다시 쓸 때 밀다 만 자리를 되돌린다 — 안 그러면 엉뚱한 줄이
+    /// 왼쪽으로 밀려 있는 채로 그려진다.
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        contentView.transform = .identity
+        held = false
+    }
+
     func fill(_ r: ChatRow, skin s: ChatSkin, maxBubble mb: CGFloat,
               textW tw: CGFloat, font: UIFont, photo pb: CGSize, card cw: CGFloat) {
         row = r
+        held = false
+        contentView.transform = .identity
         skin = s
         maxBubble = mb
         textW = tw

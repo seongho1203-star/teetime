@@ -63,6 +63,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "listAttach", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listRows", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listSet", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listScrollTo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listDetach", returnType: CAPPluginReturnPromise)
     ]
 
@@ -115,11 +116,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        누른 것은 `listTap`으로 웹에 넘긴다(`photo`·`card`·`react`) —
     ///        크게 보기도 어디로 가는지도 웹에 이미 있는 길이라, 두 벌로
     ///        만들면 한쪽만 고치게 된다.
+    /// 20판 — **손짓**(4판)과 **굴리기 얽힘**(5판). 길게 누르기는 누른
+    ///        말풍선의 자리까지 실어 보내고(`listHold` — 창이 뜨는 규칙은
+    ///        웹에만 있다), 왼쪽으로 밀기·얼굴 누르기는 `listTap`으로 간다.
+    ///        `listState`에 `far`가 붙어 `최근 대화로` 줄이 살아나고,
+    ///        `listScrollTo`로 인용·검색·`여기까지 읽으셨습니다` 줄로 뛴다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 19
+    private static let version = 20
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -412,6 +418,26 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }
     }
 
+    /**
+     * 그 글로 뛴다(5판) — 인용을 눌렀을 때 · 검색 결과를 골랐을 때 ·
+     * `여기까지 읽으셨습니다` 줄로 내려놓을 때.
+     *
+     * **못 찾으면 `ok: false`로 답한다** — 지난 묶음에 있어 아직 안 받아 온
+     * 글이라, 웹이 `지난 대화에 있습니다`로 알린다(웹 목록과 같은 잣대다).
+     */
+    @objc func listScrollTo(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let list = self.list, let id = call.getString("id") else {
+                call.resolve(["ok": false])
+                return
+            }
+            let ok = list.scrollTo(id: id,
+                                   place: call.getString("place") ?? "center",
+                                   flash: call.getBool("flash") ?? false)
+            call.resolve(["ok": ok])
+        }
+    }
+
     @objc func listDetach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.list?.removeFromSuperview()
@@ -430,9 +456,10 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }
     }
 
-    func chatListState(atBottom: Bool, atTop: Bool) {
+    func chatListState(atBottom: Bool, atTop: Bool, far: Bool) {
         guard live else { return }
-        notifyListeners("listState", data: ["atBottom": atBottom, "atTop": atTop])
+        notifyListeners("listState",
+                        data: ["atBottom": atBottom, "atTop": atTop, "far": far])
     }
 
     /// 사진이나 카드를 눌렀다 — **웹에 넘긴다**(19판). 사진을 크게 보는 것도
@@ -440,6 +467,20 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     func chatListTap(kind: String, id: String, to: String?) {
         guard live else { return }
         notifyListeners("listTap", data: ["kind": kind, "id": id, "to": to ?? ""])
+    }
+
+    /**
+     * 말풍선을 길게 눌렀다 — **누른 자리에** 고르는 창이 떠야 하므로
+     * 말풍선 자리를 창 좌표로 함께 보낸다. 웹은 그 값을 `DOMRect`로
+     * 되돌려 `HoldAt`에 그대로 넘긴다 — **창이 뜨는 규칙은 웹에만 있다.**
+     */
+    func chatListHold(id: String, mine: Bool, rect: CGRect) {
+        guard live else { return }
+        notifyListeners("listHold", data: [
+            "id": id, "mine": mine,
+            "x": Double(rect.minX), "y": Double(rect.minY),
+            "w": Double(rect.width), "h": Double(rect.height),
+        ])
     }
 
     /// 목록을 아래로 끌었거나 눌렀다 — 키보드를 내린다(18판).

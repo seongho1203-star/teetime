@@ -58,12 +58,13 @@ export function setListOn(on: boolean): void {
  * 돌아오고**(앱 한 바퀴는 30분이다), 18판을 받으면 저절로 앱 목록으로
  * 돌아온다 — 12판 `canPickNative()`에서 쓴 그 수다.
  *
- * **지금은 19판이다** — 사진·이모티콘·눌리는 카드(2판)와 인용·반응 알약·
- * `여기까지 읽으셨습니다` 줄(3판)까지 앱이 그린다. 18판을 든 폰은 그것을
- * 못 그려 `사진`이라고만 적히므로, 같은 수로 웹 목록으로 되돌린다.
+ * **지금은 20판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
+ * `여기까지 읽으셨습니다` 줄(3판) · 손짓(4판) · 굴리기 얽힘(5판)까지
+ * 앱이 맡는다. 그 아래 판을 든 폰은 못 그리거나(사진이 글자로 보인다)
+ * 못 움직여서(길게 눌러도 창이 안 뜬다), **같은 수로 웹 목록으로 되돌린다.**
  */
 export function canNativeList(): boolean {
-    return ncLog.ready === true && ncLog.v >= 19 && listOn();
+    return ncLog.ready === true && ncLog.v >= 20 && listOn();
 }
 
 /* ── 묶는 규칙 (웹 목록과 앱 목록이 같이 본다) ─────────────── */
@@ -217,16 +218,24 @@ type Bridge = {
     listAttach(o: Record<string, unknown>): Promise<{ ok?: boolean }>;
     listRows(o: { rows: ListRow[]; stickBottom: boolean }): Promise<{ ok?: boolean; n?: number }>;
     listSet(o: Record<string, unknown>): Promise<void>;
+    listScrollTo(o: { id: string; place?: string; flash?: boolean }): Promise<{ ok?: boolean }>;
     listDetach(): Promise<void>;
     addListener(
         n: 'listState',
-        cb: (e: { atBottom: boolean; atTop: boolean }) => void,
+        cb: (e: { atBottom: boolean; atTop: boolean; far: boolean }) => void,
     ): Promise<{ remove: () => Promise<void> }>;
     addListener(
         n: 'listTap',
         cb: (e: { kind: string; id: string; to: string }) => void,
     ): Promise<{ remove: () => Promise<void> }>;
+    addListener(
+        n: 'listHold',
+        cb: (e: HoldAt) => void,
+    ): Promise<{ remove: () => Promise<void> }>;
 };
+
+/** 길게 누른 말풍선의 자리 — **창(화면) 좌표다**(웹의 `getBoundingClientRect`와 같은 자). */
+export type HoldAt = { id: string; mine: boolean; x: number; y: number; w: number; h: number };
 
 const bridge = NativeComposer as unknown as Bridge;
 
@@ -252,8 +261,26 @@ export async function listDetach(): Promise<void> {
     await hush(bridge.listDetach());
 }
 
+/**
+ * 그 글로 뛴다 — 인용을 눌렀을 때 · 검색 결과를 골랐을 때 ·
+ * `여기까지 읽으셨습니다` 줄로 내려놓을 때.
+ *
+ * **못 찾으면 거짓이다**(아직 안 받아 온 지난 묶음의 글) — 그때 무엇을
+ * 알릴지는 웹이 정한다(`지난 대화에 있습니다. 위로 올려 주세요.`).
+ */
+export async function listScrollTo(
+    id: string, place: 'center' | 'top' = 'center', flash = false,
+): Promise<boolean> {
+    try {
+        const r = await bridge.listScrollTo({ id, place, flash });
+        return r?.ok === true;
+    } catch {
+        return false;
+    }
+}
+
 export function onListState(
-    cb: (e: { atBottom: boolean; atTop: boolean }) => void,
+    cb: (e: { atBottom: boolean; atTop: boolean; far: boolean }) => void,
 ): Promise<{ remove: () => Promise<void> }> {
     return bridge.addListener('listState', cb);
 }
@@ -266,4 +293,14 @@ export function onListTap(
     cb: (e: { kind: string; id: string; to: string }) => void,
 ): Promise<{ remove: () => Promise<void> }> {
     return bridge.addListener('listTap', cb);
+}
+
+/**
+ * 말풍선을 길게 눌렀다. **창이 뜨는 규칙은 웹에만 있다**(`HoldAt` 조각) —
+ * 앱은 누른 말풍선의 자리만 알려 준다.
+ */
+export function onListHold(
+    cb: (e: HoldAt) => void,
+): Promise<{ remove: () => Promise<void> }> {
+    return bridge.addListener('listHold', cb);
 }

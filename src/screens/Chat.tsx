@@ -24,7 +24,8 @@ import {
 } from '../lib/composer';
 import {
     canNativeList, chatListSkin, dayChip, edgeColor, isNewDay, listAttach, listDetach,
-    listRows, listSet, onListState, onListTap, sameBlock, type ListRow,
+    listRows, listScrollTo, listSet, onListHold, onListState, onListTap, sameBlock,
+    type ListRow,
 } from '../lib/chatlist';
 
 /**
@@ -243,6 +244,10 @@ export function Chat() {
     /** **앱 목록이 실제로 섰는가**(17판). 이게 참일 때만 웹 목록을 감춘다 —
         안 서면 예전 그대로다(바의 `watchdog`과 같은 결이다). */
     const [listUp, setListUp] = useState(false);
+    /* **`jumpTo`는 `useCallback`이라 그 안에서 읽는 state는 처음 값에 굳는다**
+       (말풍선이 `memo`라 붙박아 둔 값이다 — `windowedRef`와 같은 수다). */
+    const listUpRef = useRef(false);
+    listUpRef.current = listUp;
     const ncOn = useRef(false);
     /** 네이티브 바가 마지막으로 알려 준 제 높이. **`--composer`를 다시 적을
         때 쓴다** — 그 값을 지우는 곳이 따로 있어서다(아래 `write()` 주석). */
@@ -808,6 +813,15 @@ export function Chat() {
     useLayoutEffect(() => {
         const el = listRef.current;
         if (!unreadFrom || unreadDone.current || !el) return;
+        /* **앱 목록이 서 있으면 거기로 옮겨 달라고 한다**(5판). 감춰 둔 웹
+           목록을 굴려 봐야 보이는 것은 앱 목록이다 — 그쪽이 못 찾으면
+           (아직 안 받아 온 지난 묶음) 그냥 넘어간다. */
+        if (listUp) {
+            unreadDone.current = true;
+            atBottom.current = false;
+            void listScrollTo(unreadFrom, 'top');
+            return;
+        }
         const line = el.querySelector<HTMLElement>('.chat-unread');
         if (!line) return;
         unreadDone.current = true;
@@ -815,7 +829,7 @@ export function Chat() {
         /* 줄 위로 한 뼘 남겨 둔다 — 마지막으로 읽은 글이 한 줄 보여야
            '여기서부터'가 어디인지 눈에 들어온다. */
         el.scrollTop = line.offsetTop - 100;
-    }, [unreadFrom, messages]);
+    }, [unreadFrom, messages, listUp]);
 
     // 이 화면을 보고 있으면 안 읽음이 쌓이지 않는다. 새 글이 들어올 때마다
     // 다시 남겨 두어야 탭바의 빨간 숫자가 곧바로 사라진다.
@@ -1919,11 +1933,14 @@ export function Chat() {
     /** 최근 대화로 한 번에 내려간다. **부드럽게 굴리지 않는다** — 300개까지
      *  받아 둔 목록을 훑어 내려가는 일이라 느린 폰에서 그대로 끊긴다. */
     const jumpToLatest = useCallback(() => {
-        const el = listRef.current;
-        if (!el) return;
         atBottom.current = true;
         jumpShown.current = false;
         setShowJump(false);
+        /* 앱 목록이 서 있으면 그쪽에 내려 달라고 한다(5판) — 감춰 둔 웹
+           목록을 굴려 봐야 보이는 것은 앱 목록이다. */
+        if (listUpRef.current) { void listSet({ toBottom: true }); return; }
+        const el = listRef.current;
+        if (!el) return;
         el.scrollTop = el.scrollHeight;
         listH.current = el.scrollHeight;
     }, []);
@@ -2145,6 +2162,16 @@ export function Chat() {
 
     /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
     const jumpTo = useCallback((id: string) => {
+        /* **앱 목록이 서 있으면 거기로 뛴다**(5판) — 감춰 둔 웹 목록을
+           굴려 봐야 보이는 것은 앱 목록이다. 못 찾았다는 답은 웹 목록과
+           같은 뜻이라(아직 안 받아 온 지난 묶음) 같은 말로 알린다. */
+        if (listUpRef.current) {
+            atBottom.current = false;
+            void listScrollTo(id, 'center', true).then(ok => {
+                if (!ok) toast('지난 대화에 있습니다. 위로 올려 주세요.');
+            });
+            return;
+        }
         const el = listRef.current?.querySelector<HTMLElement>(`[data-mid="${id}"]`);
         if (!el) { toast('지난 대화에 있습니다. 위로 올려 주세요.'); return; }
         atBottom.current = false;
@@ -2361,6 +2388,19 @@ export function Chat() {
         void hush(NativeComposer.setState({ hidden: overlayUp }));
         if (overlayUp) void hush(NativeComposer.blur());
     }, [overlayUp]);
+
+    /**
+     * **덮는 창이 뜨면 앱 목록도 감춘다**(4판).
+     *
+     * 앱 목록은 웹 화면 **위에 얹힌 앱 부품**이라 **웹의 `z-index`로는 못
+     * 덮는다** — 네이티브 바에서 겪은 그 자리와 똑같다(사진을 크게 봤는데
+     * 그 위로 입력칸이 그대로 보였다). 감추는 동안에는 **웹 목록을 도로
+     * 내보여** 창 뒤가 휑하지 않게 한다(`.nc-list`를 떼는 것이 그 일이다).
+     */
+    useEffect(() => {
+        if (!listUp) return;
+        void listSet({ hidden: overlayUp });
+    }, [listUp, overlayUp]);
     /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
     const [attend, setAttend] = useState<Record<string, number> | null>(null);
     const attendTried = useRef(false);
@@ -2871,14 +2911,49 @@ export function Chat() {
     /** 바가 알려 올 때 부를 것들. **늘 최신 함수를 가리키게 해 둔다** —
         붙이는 일은 화면이 열릴 때 한 번뿐이라, 그때의 함수를 그대로 들고
         있으면 옛 값을 보고 돈다. */
+    /**
+     * 앱 목록에서 온 손짓을 웹의 일로 옮긴다(4판).
+     *
+     * **글은 id로 되찾는다** — 앱은 무엇을 눌렀는지만 알려 주고, 그 글로
+     * 무엇을 할지는 여기 이미 있는 길(`openCard`·`startReply`·`openMenu`)이
+     * 그대로 맡는다. 두 벌로 만들면 한쪽만 고치게 된다.
+     */
+    const fromList = {
+        face: (id: string) => {
+            const m = messages.find(x => x.id === id);
+            const p = m ? names[m.user_id ?? ''] : undefined;
+            if (p) openCard(p);
+        },
+        reply: (id: string) => {
+            const m = messages.find(x => x.id === id);
+            if (m) startReply(m);
+        },
+        hold: (e: { id: string; mine: boolean; x: number; y: number; w: number; h: number }) => {
+            const m = messages.find(x => x.id === e.id);
+            if (!m) return;
+            /* **창이 뜨는 동안에는 웹 목록이 뒤에 깔린다**(앱 목록을 감추므로).
+               그 둘이 다른 자리를 보고 있으면 **어느 글을 누른 것인지가
+               사라져** 옅은 바탕(0.30)으로 덮어 둔 뜻이 없어진다.
+               감춰 둔 목록도 자리는 그대로 잡혀 있으므로(`visibility: hidden`)
+               **누른 글을 앱이 알려 준 자리에 맞춰** 굴려 둔다. */
+            const list = listRef.current;
+            const el = list?.querySelector<HTMLElement>(`[data-mid="${CSS.escape(m.id)}"]`);
+            if (list && el) {
+                const now = el.getBoundingClientRect().top - list.getBoundingClientRect().top;
+                list.scrollTop += now - (e.y - list.getBoundingClientRect().top);
+            }
+            openMenu(m, new DOMRect(e.x, e.y, e.w, e.h), e.mine);
+        },
+    };
+
     const nc = useRef({
         send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-        photo, loadMore, nav, toggleReact,
+        photo, loadMore, nav, toggleReact, ...fromList,
     });
     useEffect(() => {
         nc.current = {
             send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-            photo, loadMore, nav, toggleReact,
+            photo, loadMore, nav, toggleReact, ...fromList,
         };
     });
 
@@ -3039,6 +3114,13 @@ export function Chat() {
                 /* 굴린 자리는 이제 앱이 안다 — 우리 `atBottom`도 그 값을 따른다
                    (새 글이 왔을 때 따라 내릴지를 가르는 값이다). */
                 atBottom.current = e.atBottom;
+                /* `최근 대화로` 줄. **뒤집힐 때만 알려 오므로**(앱 쪽
+                   `report`) 여기서 또 거를 것이 없다 — 굴릴 때마다 state를
+                   건드리면 긴 대화에서 그대로 끊긴다. */
+                if (e.far !== jumpShown.current) {
+                    jumpShown.current = e.far;
+                    setShowJump(e.far);
+                }
                 if (e.atTop) void nc.current.loadMore();
             });
             /* **누르면 하는 일은 웹이 정한다**(19판) — 앱은 무엇을 눌렀는지만
@@ -3048,9 +3130,15 @@ export function Chat() {
                 if (e.kind === 'photo' && e.to) setZoom(e.to);
                 else if (e.kind === 'card' && e.to) nc.current.nav(e.to);
                 else if (e.kind === 'react' && e.to) void nc.current.toggleReact(e.id, e.to);
+                else if (e.kind === 'face') nc.current.face(e.id);
+                else if (e.kind === 'reply') nc.current.reply(e.id);
             });
-            if (dead) { void h.remove(); void t.remove(); return; }
-            drop = () => { void h.remove(); void t.remove(); };
+            /* **창이 뜨는 규칙은 웹에만 있다**(`HoldAt`) — 앱은 누른
+               말풍선의 자리만 알려 준다. 그 값이 곧 `getBoundingClientRect`와
+               같은 창 좌표라 그대로 `DOMRect`로 되돌려 쓴다. */
+            const d = await onListHold(e => nc.current.hold(e));
+            if (dead) { void h.remove(); void t.remove(); void d.remove(); return; }
+            drop = () => { void h.remove(); void t.remove(); void d.remove(); };
             setListUp(true);
         })();
         return () => {
@@ -3382,7 +3470,7 @@ export function Chat() {
             {/* **앱 목록이 섰으면 감추기만 한다** — `display: none`으로 지우지
                 말 것: 자리가 없어지면 `--chat-h` 셈과 `listTop`이 함께 어긋난다
                 (댓글 칸에서 쓴 그 수와 같다). */}
-            <div className={`chat-list${listUp ? ' nc-list' : ''}`}
+            <div className={`chat-list${listUp && !overlayUp ? ' nc-list' : ''}`}
                  ref={listRef} onScroll={onScroll} onClick={onPhotoTap}>
                 {hasMore && (
                     <button className="btn ghost sm chat-more" onClick={loadMore} disabled={loadingMore}>
