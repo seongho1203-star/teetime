@@ -3100,10 +3100,19 @@ export function Chat() {
      * (감춰 둔 웹 목록이 자리는 그대로 차지하고 있어 그 값이 맞는다).
      */
     useEffect(() => {
-        if (!listUp) return;
+        /* **`loading`을 함께 본다** — 불러오는 동안에는 스피너만 있어
+           `.chat-list`가 없다. 빈 배열로 두면 그때 한 번 돌고 말아 목록이
+           생겨도 영영 안 재는데, 아래로 끌어 키보드를 내리는 기능이 예전에
+           꼭 그렇게 죽어 있었다. */
+        if (!listUp || loading) return;
         const el = listRef.current;
         if (!el) return;
         const tell = () => { void listSet({ top: Math.round(el.getBoundingClientRect().top) }); };
+        /* **색도 여기서 한 번 더 보낸다.** `listAttach`가 도는 순간에는
+           불러오는 중이라 `.chat-list`가 아직 없을 수 있고, 그때 읽으면
+           대화 팔레트가 아니라 예비값이 간다(색 토큰은 `:root`가 아니라
+           그 칸에 달려 있다). */
+        void listSet({ skin: chatListSkin(el) });
         tell();
         const ro = new ResizeObserver(tell);
         ro.observe(el);
@@ -3112,7 +3121,7 @@ export function Chat() {
             ro.disconnect();
             window.removeEventListener('resize', tell);
         };
-    }, [listUp]);
+    }, [listUp, loading]);
 
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {
