@@ -2942,6 +2942,124 @@ console.log('\n── 대화는 들어갔다 나오는 화면이다 ──');
     }));
     ok(out.길 === '#/', `\`←\`를 누르면 앞 화면으로 돌아간다 (${out.길})`);
     ok(out.탭바, '나오면 탭바가 돌아온다');
+
+}
+
+/* ── 대화방에 들어갈 때와 나올 때 ────────────────────────────────
+ *
+ * 둘 다 사용자 제보로 잡은 자리다 — `우측에서 밀려오는게 아니고 화면이
+ * 그냥 뜨고 화살표로 뒤로가기는되는데 손으로 우측으로 밀어도 뒤로가기가
+ * 안먹혀`.
+ *
+ *  1. **들어갈 때** — 대화는 `useAsync` 기억해 두기를 안 쓰므로 첫 그림이
+ *     늘 스피너 하나뿐이고, 왕복이 길면 창(300ms)이 끝난 뒤에 내용이
+ *     들어앉아 **스피너만 미끄러지고 정작 대화는 툭 나타났다.**
+ *     **왕복을 일부러 늦춰야 보인다** — 빠른 서버에서는 리액트가 같은 칸을
+ *     다시 써서 돌고 있는 움직임이 내용을 그대로 싣고 간다.
+ *  2. **나올 때** — `taken()`이 `.chat-row`에서 시작한 손짓을 통째로
+ *     넘기고 있었는데 그 줄이 목록을 덮고 있어 **손짓이 시작조차 못 했다.**
+ *     답장(왼쪽)과 뒤로 가기(오른쪽)는 방향이 달라 안 부딪힌다.
+ *
+ * **`hasTouch`인 창이 따로 필요하고**, 늦추는 규칙도 여기에만 건다(본 창에
+ * 걸었다가 화면을 옮기는 순간 `Route is already handled!`로 죽었다).
+ */
+console.log('\n── 대화방에 들어갈 때와 나올 때 ──');
+{
+    const cCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR',
+        timezoneId: 'Asia/Seoul', hasTouch: true, isMobile: true });
+    await cCtx.route('**/rest/v1/**', restRoute(tables));
+    /* **나중에 건 규칙을 먼저 본다** — 방 조회만 늦춰 스피너를 만든다.
+       **`messages`를 늦춰서는 안 된다** — `loading`은 `rooms`와 명단으로
+       정해지므로 대화 글을 아무리 늦춰도 화면은 51ms에 떠서 **고치기 전
+       코드도 초록으로 뜬다**(실제로 그렇게 두었다가 잡았다). */
+    await cCtx.route('**/rest/v1/rooms**', async route => {
+        await new Promise(r => setTimeout(r, 500));
+        return route.fallback();
+    });
+    await stubOutside(cCtx);
+    await cCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const cp = await cCtx.newPage();
+
+    /* **말풍선 줄 위에서 시작해야 뜻이 있다** — `taken()`은 누른 자리에서
+       위로 훑어 올라가므로, 목표가 `.chat-row` 안이 아니면 헛돈다. */
+    const swipe = (dx, dy = 0) => cp.evaluate(([dx, dy]) => {
+        const row = document.querySelector('.chat-row');
+        if (!row) return '말풍선을 못 찾았다';
+        const b = row.getBoundingClientRect();
+        const x0 = Math.round(b.left + 6), y0 = Math.round(b.top + b.height / 2);
+        const fire = (type, x, y) => {
+            const t = new Touch({ identifier: 1, target: row, clientX: x, clientY: y,
+                                  pageX: x, pageY: y });
+            row.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+                touches: type === 'touchend' ? [] : [t],
+                targetTouches: type === 'touchend' ? [] : [t],
+                changedTouches: [t] }));
+        };
+        fire('touchstart', x0, y0);
+        return new Promise(done => {
+            let i = 0;
+            const step = () => {
+                i++;
+                fire('touchmove', x0 + dx * i / 8, y0 + dy * i / 8);
+                if (i < 8) return void setTimeout(step, 24);
+                fire('touchend', x0 + dx, y0 + dy);
+                done('ok');
+            };
+            setTimeout(step, 24);
+        });
+    }, [dx, dy]);
+
+    await cp.goto(`${BASE}/#/`);
+    await cp.waitForSelector('.tabbar', { timeout: 20000 });
+    await cp.waitForTimeout(600);
+    /* 1. 내용이 늦게 와도 그때 미끄러져 들어오는가.
+       **한 번 재서는 안 된다** — 움직임이 0.24초뿐이라 밖에서 물어보면
+       거의 끝난 뒤의 값이 잡힌다(실제로 3px이 나왔다). 프레임마다 훑어
+       **대화가 첫 자식인 동안 가장 많이 밀린 값**을 본다. */
+    const late = await cp.evaluate(async () => {
+        const app = document.querySelector('.app');
+        const t0 = performance.now();
+        let most = 0, 봤나 = false, 나타남 = 0, on = true;
+        const tick = () => {
+            if (!on) return;
+            const kid = app.firstElementChild;
+            if (kid?.classList.contains('chat')) {
+                if (!봤나) 나타남 = Math.round(performance.now() - t0);
+                봤나 = true;
+                const x = new DOMMatrixReadOnly(getComputedStyle(kid).transform).e;
+                if (Math.abs(x) > most) most = Math.abs(x);
+            }
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        document.querySelector('.tabbar a:last-child').click();
+        await new Promise(r => setTimeout(r, 1800));
+        on = false;
+        return { 봤나, 나타남, 밀림: Math.round(most) };
+    });
+    ok(late.봤나 && late.나타남 > 300,
+       `대화가 창(300ms)이 끝난 뒤에 온다 (${late.나타남}ms)`);
+    ok(late.밀림 > 20,
+       `내용이 늦게 와도 그때 미끄러져 들어온다 (가장 많이 ${late.밀림}px)`);
+
+    /* 2. 말풍선 위에서 오른쪽으로 밀면 나오는가. */
+    await cp.waitForSelector('.chat-row', { timeout: 10000 });
+    await cp.waitForTimeout(700);
+    ok((await cp.evaluate(() => location.hash)) === '#/chat', '대화방에 들어와 있다');
+
+    /* 세로로 그은 것은 굴리는 손짓이라 안 걸려야 한다. */
+    await swipe(10, 90);
+    await cp.waitForTimeout(500);
+    ok((await cp.evaluate(() => location.hash)) === '#/chat',
+       '세로로 굴리는 것으로는 안 나간다');
+
+    await swipe(300);
+    await cp.waitForTimeout(900);
+    const back = await cp.evaluate(() => location.hash);
+    ok(back === '#/', `말풍선 위에서 오른쪽으로 밀면 나온다 (${back})`);
+
+    await cCtx.close();
 }
 
 /* ── 15. 사진을 줄여서 올리는가 ───────────────────────────────────

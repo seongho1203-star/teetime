@@ -22,7 +22,6 @@ import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
  *
  * 가로로 미는 손짓이 이미 임자가 있는 자리가 여럿이라, **그 위에서
  * 시작한 손짓은 통째로 넘긴다**(`taken`):
- *   - `.chat-row`  — 왼쪽으로 밀어 **답장**을 건다(대화 화면).
  *   - 글칸·고르는 칸 — 글자를 고르거나 값을 미는 자리다.
  *   - **가로로 굴러가는 것** — 이모티콘 서랍의 탭 줄, 종류 가리개 등.
  *     클래스로 적어 두면 새로 만든 곳을 빠뜨리므로 **실제로 넘치는지**를 본다.
@@ -42,12 +41,23 @@ import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
  */
 export const TAB_PATHS = ['/', '/board', '/rounds', '/polls'];
 
-/** 손짓이 이미 임자가 있는 자리에서 시작했는가. */
+/**
+ * 손짓이 이미 임자가 있는 자리에서 시작했는가.
+ *
+ * **`.chat-row`는 여기 없다.** 한동안 넣어 두었는데, 그 줄이 대화 목록을
+ * 통째로 덮고 있어 **대화방에서는 뒤로 가기 손짓이 아예 시작조차 못 했다**
+ * (사용자 제보 — `손으로 우측으로 밀어도 뒤로가기가 안먹혀`). 대화가
+ * 탭이던 때는 어차피 뒤로 갈 데가 없어 티가 안 났다.
+ *
+ * **둘은 방향이 달라 안 부딪힌다** — 답장은 **왼쪽으로** 그은 것만 걸리고
+ * (`Bubble`의 `onTouchMove`가 `dx < 0`을 본다) 뒤로 가기는 **오른쪽으로**
+ * 그어야 깨어난다(`gx >= WAKE`). 길게 누르기도 8px만 움직이면 스스로
+ * 취소되므로 남는 자리가 없다. **되돌리지 말 것.**
+ */
 function taken(from: EventTarget | null): boolean {
     let el = from instanceof Element ? from : null;
     while (el && el !== document.body) {
         if (el.matches('input, textarea, select, [contenteditable]'
-                     + ', .chat-row'          /* 왼쪽으로 밀어 답장 */
                      + ', .chat-menu, .sheet, .modal'  /* 덮는 창 */
                      + ', .photo-zoom'        /* 크게 본 사진 — 벌리고 끄는 자리 */
                      + ', .profile-full'      /* 전체화면 프로필 — 아래로 내려 닫는 자리 */
@@ -415,7 +425,19 @@ export function useBackSwipe(): void {
  * 화면을 통째로 감싸는 칸을 새로 만들지 않았다 — `.app`이 flex 기둥이라
  * 사이에 무엇을 끼우면 `.page`의 `flex: 1`이 어긋난다. 대신 `.app`에
  * 방향을 적어 두고 **첫 자식**(=지금 화면)만 CSS가 움직인다.
+ *
+ * **아직 스피너뿐인 화면이면 내용이 온 뒤에 한 번 더 미끄러뜨린다**(아래
+ * `SLIDE_WAIT`). 자료를 물어보는 화면은 첫 그림이 `.page.center-fill`
+ * 하나뿐이라, 왕복이 길면 **스피너만 미끄러지고 정작 내용은 툭 나타난다** —
+ * 헤드리스로 재서 잡은 자리다(왕복 350ms에서 창 300ms이 끝난 **399ms**에
+ * 대화가 들어앉았다. 사용자 제보 — `우측에서 밀려오는게 아니고 화면이
+ * 그냥 뜨고`).
  */
+/** 스피너가 내용으로 바뀌기를 이만큼까지 기다린다. */
+const SLIDE_WAIT = 3000;
+/** 자료를 기다리는 동안의 화면 — 이것뿐이면 아직 '내용'이 아니다. */
+const SPINNER = '.center-fill';
+
 export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
     const { pathname } = useLocation();
     const how = useNavigationType();      // PUSH(들어감) · POP(뒤로) · REPLACE
@@ -438,10 +460,36 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
 
         const cls = how === 'POP' ? 'slide-back'   // 뒤로 — 왼쪽에서 들어온다
                                   : 'slide-in';    // 들어감 — 오른쪽에서 들어온다
-        el.classList.remove('slide-in', 'slide-back');
-        void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
-        el.classList.add(cls);
-        const off = window.setTimeout(() => el.classList.remove(cls), 300);
-        return () => window.clearTimeout(off);
+        const run = () => {
+            el.classList.remove('slide-in', 'slide-back');
+            void el.offsetWidth;   // 같은 방향으로 잇따라 옮길 때 다시 돌게 한다
+            el.classList.add(cls);
+            return window.setTimeout(() => el.classList.remove(cls), 300);
+        };
+        let off = run();
+
+        /* **아직 스피너뿐이면 내용이 올 때 한 번 더 민다**(위 주석).
+           다만 **움직이는 도중에 왔으면 그대로 둔다** — 리액트가 같은 칸을
+           다시 쓰므로 돌고 있는 움직임이 새 내용을 그대로 싣고 간다(재서
+           확인했다). 거기서 다시 돌리면 40px 뒤로 튄다. */
+        if (!el.firstElementChild?.matches(SPINNER)) return () => window.clearTimeout(off);
+
+        let give = 0;
+        const mo = new MutationObserver(() => {
+            const kid = el.firstElementChild;
+            if (!kid || kid.matches(SPINNER)) return;
+            /* 내용이 왔다 — 관찰은 여기서 끝낸다. 대화가 그려진 뒤로는
+               이 아래가 통째로 커지므로 **반드시 곧바로 끊는다.** */
+            mo.disconnect();
+            window.clearTimeout(give);
+            if (el.classList.contains(cls)) return;   // 아직 미끄러지는 중
+            window.clearTimeout(off);
+            off = run();
+        });
+        mo.observe(el, { childList: true, subtree: true,
+                         attributes: true, attributeFilter: ['class'] });
+        give = window.setTimeout(() => mo.disconnect(), SLIDE_WAIT);
+
+        return () => { window.clearTimeout(off); window.clearTimeout(give); mo.disconnect(); };
     }, [pathname, how, ref]);
 }
