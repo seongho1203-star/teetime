@@ -3293,13 +3293,22 @@ export function Chat() {
                무슨 줄인지만 적는다(덮어 둔 것이 새면 안 된다). */
             const plain = !m.hidden_at;
             if (plain && m.image_url) {
-                const mark = stickerRef(m.image_url);
+                /* **`image_url`이 이미 `sticker:<id>`다 — `stickerRef()`를 또
+                   거치지 말 것.** 그러면 `sticker:sticker:<id>`가 되어
+                   `stickerSrc()`가 `./stickers/sticker:<id>.png`를 내놓는다.
+                   없는 파일이라 앱 목록에서 **그림만 안 들어간 118px 빈
+                   자리**가 되고(자리는 잡히니 고장으로도 안 보인다),
+                   게다가 `sticker:mv…`는 `mv`로 시작하지 않아 **움직이는
+                   것까지 `.png`로** 찾는다. 웹 말풍선은 `image_url`을 그대로
+                   넘겨 왔다(`<StickerImg mark={message.image_url!} />`) —
+                   앱 목록만 어긋나 있었다(사용자 제보 — `이모티콘 안나옴`).
+                   `stickerRef()`는 **맨 id**를 받는 함수다. */
                 const sticker = isSticker(m.image_url);
                 return {
                     id: m.id, kind: sticker ? 'sticker' : 'photo', mine,
                     ...head3, ...stamp, ...quote,
                     body: '',
-                    image: sticker ? stickerSrc(mark) : m.image_url,
+                    image: sticker ? stickerSrc(m.image_url) : m.image_url,
                     cap: m.body || undefined,
                 };
             }

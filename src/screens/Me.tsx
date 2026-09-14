@@ -520,7 +520,7 @@ export function Me() {
                             <div className="switch-label">대화 목록을 앱이 그리기</div>
                             <div className="switch-desc">
                                 {ncList
-                                    ? '켜짐 — 대화를 나갔다 들어와야 바뀝니다. 아직 사진·이모티콘은 글자로만 보입니다'
+                                    ? '켜짐 — 대화를 나갔다 들어와야 바뀝니다. 앱이 옛 판이면 저절로 예전 화면으로 돌아갑니다'
                                     : '꺼짐 — 지금까지처럼 웹 화면이 그립니다'}
                             </div>
                         </div>

@@ -733,6 +733,13 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
  *    `shouldBegin`까지 가지도 못했다. **길게 누르기와 누르기가 멀쩡했던
  *    것이 갈라 준 단서다** — 움직이지 않는 손짓이라 그 겨룸이 없다.
  *    가로로 그은 것만 받으므로(1번) 나란히 서도 표가 세로로 안 밀린다.
+ *
+ * **누르기도 이 문지기를 쓴다**(24판). 셀의 탭과 목록의 `키보드 내리기`
+ * 탭이 같은 터치를 두고 겨뤄 **깊이 있는 셀 쪽이 목록 것을 막았다** —
+ * 2번과 완전히 같은 자리다(막는 쪽이 굴리기가 아니라 탭일 뿐이다).
+ * 1번은 탭에 아무 말도 안 한다(`pan`이 아니면 그냥 참이다).
+ *
+ * **손잡이를 새로 더할 때도 여기에 둘 것.**
  */
 final class SwipeGuard: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
@@ -800,7 +807,7 @@ final class BubbleCell: UITableViewCell {
     private let swipeMax: CGFloat = 72
     /// 길게 누르기가 이미 걸렸으면 손을 뗄 때 댓글을 안 건다(웹과 같다).
     private var held = false
-    /// 밀기 손짓의 문지기 — **셀이 아니라 따로 둔다**(`SwipeGuard` 참고).
+    /// 밀기·누르기 손짓의 문지기 — **셀이 아니라 따로 둔다**(`SwipeGuard` 참고).
     private let guardian = SwipeGuard()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -860,9 +867,24 @@ final class BubbleCell: UITableViewCell {
            목록 전체에 걸린 `키보드 내리기` 탭과 셀 안쪽 탭이 같은 터치를
            두고 겨루는 자리라, 한 인식기로 모으면 그 겨룸이 아예 없어지고
            **무엇을 눌렀는가의 규칙도 한 곳에 모인다.**
-           (`ReactChip`은 인식기가 아니라 `UIControl`이라 그대로 둔다.) */
+           (`ReactChip`은 인식기가 아니라 `UIControl`이라 그대로 둔다.)
+
+           **그 겨룸이 한 자리 남아 있었다 — 목록의 `키보드 내리기` 탭이다**
+           (24판 · 사용자 제보 — `채팅창을 터치하면 키보드가 내려가지않아`).
+           둘 다 탭이라 **깊이 있는 쪽(셀)이 먼저 알아채 목록 것을 막는다** —
+           `cancelsTouchesInView`는 손짓끼리의 그 막음과 아무 상관이 없다.
+           게다가 이 손잡이는 **누른 자리에 아무것도 없으면 조용히 돌아서므로**
+           (이모티콘 줄이 그렇다) 눌러도 정말 아무 일이 안 일어났다 —
+           진단 줄의 `탭0`이 그 자국이다.
+           그래서 **`SwipeGuard`를 달아 나란히 서게 한다**(그 안의
+           `shouldRecognizeSimultaneouslyWith`가 참이다) — 밀기가 표의 굴리기와
+           나란히 서는 것과 같은 수이고, **규칙은 셀이 아니라 거기에 둔다.**
+           길게 누르기·밀기와는 애초에 안 겹친다(0.5초를 붙들거나 움직이면
+           탭이 먼저 실패한다). 얼굴·사진을 눌러도 키보드가 함께 내려가는데
+           **웹 목록에서도 그랬다** — 아이폰이 웹 화면을 누르는 순간 초점을
+           도로 가져갔다. */
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-        tap.delegate = self
+        tap.delegate = guardian
         contentView.addGestureRecognizer(tap)
 
         /* **길게 누르면 고르는 창이 뜬다**(PC의 오른쪽 클릭 자리).
