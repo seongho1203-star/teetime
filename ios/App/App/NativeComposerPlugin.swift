@@ -132,10 +132,25 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        ③ **`최근 대화로` 줄을 앱이 그린다**(`listSet({jump})`) —
     ///           웹이 그리면 앱 목록에 통째로 가린다.
     ///
+    /// 22판 — **그림과 `최근 대화로` 줄, 그리고 밀어서 댓글**(사용자 제보 —
+    ///        `최신대화로 와도 저 버튼이 안사라져. 그리고 답장기능이 안돼`
+    ///        · 사진에서 **말풍선 자리가 통째로 비어 있었다**). 셋이 갈렸다:
+    ///        ① **이모티콘은 인터넷에서 안 온다** — `dist`에 담겨 앱 번들
+    ///           (`public/stickers/…`)에 들어 있고 주소도 상대 경로라
+    ///           `URLSession`으로는 한 장도 못 받았다. 우리 대화방은
+    ///           대부분이 이모티콘이라 화면이 통째로 빈 것처럼 보였다.
+    ///           이제 `ImageStore`가 번들에서 읽고 **움직이는 것은 돌린다**
+    ///           (`loop=3` — 웹에서 굽는 값과 같다).
+    ///        ② **`jump: null`은 앱에 안 닿는다** — Capacitor의 `hasOption`이
+    ///           `null`을 `안 보냄`으로 보아(`!(value is NSNull)`) 그 줄이
+    ///           영영 안 걷혔다. 이제 `show: false`로 걷는다.
+    ///        ③ **밀어서 댓글이 표의 굴리기에 막혀 있었다** — 두 손짓이
+    ///           나란히 안 서서, 먼저 선 표가 우리 것을 눌렀다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 21
+    private static let version = 22
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -466,12 +481,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }
         /* `최근 대화로` 줄(21판). **웹이 값을 주고 앱이 그린다** — 그 단추는
            목록 위에 떠 있는데 앱 목록이 웹 화면을 덮으므로 웹이 그리면
-           안 보인다. `null`이면 걷는다.
-           **`hasOption`으로 가른다** — 안 보낸 것과 `null`은 다른 뜻이다
-           (안 보냈으면 그대로 두어야 한다). */
-        if call.hasOption("jump") {
-            let j = call.getObject("jump")
-            list.apply(jump: j.map { $0.mapValues { v in v as Any } })
+           안 보인다.
+           **걷을 때도 `null`이 아니라 `show: false`를 보낸다**(22판).
+           Capacitor의 `hasOption`은 **`null`을 `안 보냄`으로 본다**
+           (`CAPPluginCall.swift` — `return !(value is NSNull)`). 그래서
+           `{jump: null}`이 통째로 무시돼 **줄이 영영 안 걷혔다**(사용자
+           제보 — `최신대화로 와도 저 버튼이 안사라져`).
+           **웹에서 `null`을 보내 무엇을 끄는 길로 가지 말 것** — 여기뿐
+           아니라 앞으로 만들 칸에도 그대로 걸린다. */
+        if let j = call.getObject("jump") {
+            let d = j.mapValues { v in v as Any }
+            list.apply(jump: (d["show"] as? Bool) == false ? nil : d)
         }
     }
 

@@ -1,3 +1,4 @@
+import ImageIO
 import UIKit
 
 /*
@@ -710,6 +711,48 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
 /* `UITableViewCell`이 이미 `UIGestureRecognizerDelegate`를 따른다 — 여기
    또 적으면 `redundant conformance`로 컴파일이 멈추고, 그래서 아래 두
    손잡이도 **`override`여야 한다.** */
+/**
+ * **밀어서 댓글**(왼쪽으로 미는 손짓)의 문지기.
+ *
+ * **셀에 안 두고 따로 둔다.** `UITableViewCell`이 이미
+ * `UIGestureRecognizerDelegate`를 따르고 있어 **어느 손잡이에 `override`가
+ * 필요한지가 판마다 갈리는데**, 여기는 맥이 없어 빌드로만 확인되는 자리다
+ * (실제로 한 번 `redundant conformance`로 죽었다). 따로 두면 그 물음이
+ * 아예 없어지고, 규칙도 한 곳에 모인다.
+ *
+ * 하는 일이 둘이다:
+ *
+ * 1. **가로로 그은 것만 받는다** — 웹에서 `touch-action: pan-y`가 하던
+ *    일이다. **빠르기가 0에 가까우면 옮긴 거리로 본다**: 천천히 밀면
+ *    `velocity`가 둘 다 0이라 `abs(v.x) > abs(v.y)`가 거짓이 되어
+ *    **그 손짓이 통째로 막혔다**(사용자 제보 — `답장 동작안됨`).
+ * 2. **표가 굴리는 손짓과 나란히 선다**(22판). 이것이 없어 **밀어서
+ *    댓글이 통째로 죽어 있었다**(사용자 제보 — `답장기능이 안돼`).
+ *    손가락이 조금만 움직여도 **표의 굴리기 손짓이 먼저 알아채는데**,
+ *    두 손짓은 기본적으로 나란히 안 서므로 먼저 선 쪽이 우리 것을 막아
+ *    `shouldBegin`까지 가지도 못했다. **길게 누르기와 누르기가 멀쩡했던
+ *    것이 갈라 준 단서다** — 움직이지 않는 손짓이라 그 겨룸이 없다.
+ *    가로로 그은 것만 받으므로(1번) 나란히 서도 표가 세로로 안 밀린다.
+ */
+final class SwipeGuard: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let pan = g as? UIPanGestureRecognizer else { return true }
+        let v = pan.velocity(in: pan.view)
+        if abs(v.x) < 1, abs(v.y) < 1 {
+            let t = pan.translation(in: pan.view)
+            return abs(t.x) > abs(t.y)
+        }
+        return abs(v.x) > abs(v.y)
+    }
+
+    func gestureRecognizer(
+        _ g: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        return true
+    }
+}
+
 final class BubbleCell: UITableViewCell {
 
     private let dateChip = PadLabel()
@@ -757,6 +800,8 @@ final class BubbleCell: UITableViewCell {
     private let swipeMax: CGFloat = 72
     /// 길게 누르기가 이미 걸렸으면 손을 뗄 때 댓글을 안 건다(웹과 같다).
     private var held = false
+    /// 밀기 손짓의 문지기 — **셀이 아니라 따로 둔다**(`SwipeGuard` 참고).
+    private let guardian = SwipeGuard()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -829,30 +874,14 @@ final class BubbleCell: UITableViewCell {
         contentView.addGestureRecognizer(hold)
 
         /* **왼쪽으로 밀면 댓글이 걸린다**(카톡과 같은 손짓).
-           세로로 굴리는 것과 안 부딪히게 `shouldBegin`에서 **가로로 그은
-           것만** 받는다 — 웹에서 `touch-action: pan-y`가 하던 일이다. */
+           세로로 굴리는 것과 안 부딪히게 **가로로 그은 것만** 받고, 표가
+           굴리는 손짓과 **나란히 선다**(`SwipeGuard`). */
         let pan = UIPanGestureRecognizer(target: self, action: #selector(swiped))
-        pan.delegate = self
+        pan.delegate = guardian
         contentView.addGestureRecognizer(pan)
     }
 
     required init?(coder: NSCoder) { fatalError() }
-
-    /// 세로로 그은 것은 표에 넘긴다 — 가로로 그은 것만 우리가 받는다.
-    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        guard let pan = g as? UIPanGestureRecognizer,
-              pan.view === contentView else { return super.gestureRecognizerShouldBegin(g) }
-        let v = pan.velocity(in: contentView)
-        /* **빠르기가 0에 가까우면 옮긴 거리로 본다.** 천천히 밀면 `velocity`가
-           둘 다 0이라 `abs(v.x) > abs(v.y)`가 거짓이 되어 **그 손짓이 통째로
-           막혔다**(사용자 제보 — `답장 동작안됨`). 웹에서는 세로로 그은 것만
-           브라우저에 넘겼지 가로를 이렇게 가리지 않았다. */
-        if abs(v.x) < 1, abs(v.y) < 1 {
-            let t = pan.translation(in: contentView)
-            return abs(t.x) > abs(t.y)
-        }
-        return abs(v.x) > abs(v.y)
-    }
 
     /// **반응 알약 위에서는 길게 눌러도 창이 안 뜬다** — 누르는 자리가 이미
     /// 임자가 있는 곳이다(웹의 `taken`과 같은 결이다).
@@ -907,16 +936,19 @@ final class BubbleCell: UITableViewCell {
         onHold?(r.id, target.convert(target.bounds, to: nil), r.mine)
     }
 
+    /* **옮긴 거리는 우리가 안 움직이는 칸에서 잰다**(`self` — 셀 자체).
+       `contentView`는 지금 우리가 밀고 있는 칸이라, 재는 자를 그 위에
+       올려 두면 안 된다. */
     @objc private func swiped(_ g: UIPanGestureRecognizer) {
         guard let r = row else { return }
         switch g.state {
         case .began:
             held = false
         case .changed:
-            let dx = max(-swipeMax, min(0, g.translation(in: contentView).x))
+            let dx = max(-swipeMax, min(0, g.translation(in: self).x))
             contentView.transform = CGAffineTransform(translationX: dx, y: 0)
         case .ended, .cancelled, .failed:
-            let dx = max(-swipeMax, min(0, g.translation(in: contentView).x))
+            let dx = max(-swipeMax, min(0, g.translation(in: self).x))
             let hit = !held && g.state == .ended && dx <= -swipeAt
             UIView.animate(withDuration: 0.16) { self.contentView.transform = .identity }
             if hit { onTap?("reply", r.id, nil) }
@@ -950,6 +982,10 @@ final class BubbleCell: UITableViewCell {
         super.prepareForReuse()
         contentView.transform = .identity
         held = false
+        /* 움직이는 이모티콘을 세워 둔다 — 안 세우면 다른 줄에 실려 간 칸이
+           옛 그림을 계속 돌린다(그리기 비용이 그만큼 남는다). */
+        ImageStore.put(nil, into: photoView)
+        photoToken = nil
     }
 
     func fill(_ r: ChatRow, skin s: ChatSkin, maxBubble mb: CGFloat,
@@ -1096,15 +1132,15 @@ final class BubbleCell: UITableViewCell {
             /* 이모티콘은 **잘리면 안 된다**(그림 하나가 곧 말이다) —
                사진만 채워서 자른다. */
             photoView.contentMode = r.kind == .sticker ? .scaleAspectFit : .scaleAspectFill
-            photoView.image = nil
+            ImageStore.put(nil, into: photoView)
             let mine = UUID()
             photoToken = mine
             let isPhoto = r.kind == .photo
             if let u = r.image, !u.isEmpty {
-                ImageStore.shared.load(u) { [weak self] img in
+                ImageStore.shared.load(u) { [weak self] shot in
                     guard let self, self.photoToken == mine else { return }
-                    self.photoView.image = img
-                    if isPhoto, let img = img { self.onPhotoSize?(u, img.size) }
+                    ImageStore.put(shot, into: self.photoView)
+                    if isPhoto, let f = shot?.first { self.onPhotoSize?(u, f.size) }
                 }
             }
             if !capBubble.isHidden {
@@ -1590,8 +1626,8 @@ final class AvatarView: UIView {
         guard let url = url, !url.isEmpty else { return }
         let mine = UUID()
         token = mine
-        ImageStore.shared.load(url) { [weak self] img in
-            guard let self, self.token == mine, let img = img else { return }
+        ImageStore.shared.load(url) { [weak self] shot in
+            guard let self, self.token == mine, let img = shot?.first else { return }
             self.image.image = img
             self.image.isHidden = false
         }
@@ -1605,7 +1641,36 @@ final class AvatarView: UIView {
 }
 
 /**
+ * 그림 한 장. **정지면 `frames`가 하나**이고, 움직이는 것이면 여럿이다 —
+ * 이모티콘의 `.webp`가 그렇다(12장 · `loop=3`).
+ */
+final class Shot {
+    let frames: [UIImage]
+    let duration: TimeInterval
+    init(frames: [UIImage], duration: TimeInterval) {
+        self.frames = frames
+        self.duration = duration
+    }
+    var first: UIImage? { return frames.first }
+    var moving: Bool { return frames.count > 1 }
+    /// 담아 둘 때의 무게(바이트 어림) — `NSCache`가 이걸 보고 버린다.
+    var cost: Int {
+        guard let f = frames.first else { return 1 }
+        return Int(f.size.width * f.size.height * 4) * frames.count
+    }
+}
+
+/**
  * 그림을 한 번만 받아 담아 둔다.
+ *
+ * **받아 오는 곳이 둘이다 — 앱 안과 인터넷.**
+ * 이모티콘은 회원이 올린 것이 아니라 **앱에 딸린 붙박이**라 `dist`에 담겨
+ * 번들(`public/stickers/…`)에 들어 있고, 웹이 주는 주소도 상대 경로다
+ * (`stickerSrc()` — `import.meta.env.BASE_URL`이 `./`다). 그래서
+ * **`URLSession`으로는 한 장도 못 받아** 이모티콘 자리가 통째로 비어 있었다
+ * (사용자 제보 · 사진 — 시각과 안 읽은 수만 떠 있었다). 우리 대화방은
+ * 대부분이 이모티콘이라 화면이 통째로 빈 것처럼 보인다.
+ * **주소가 `http(s)`가 아니면 번들에서 읽는다**(사진만 인터넷에서 온다).
  *
  * **주소를 `https`로 올려 받는다** — 카카오 프사가 `http://k.kakaocdn.net/…`
  * 으로 저장돼 있는데, 앱에서는 iOS가 http를 통째로 막아 그림만 조용히
@@ -1614,24 +1679,117 @@ final class AvatarView: UIView {
  */
 final class ImageStore {
     static let shared = ImageStore()
-    private let cache = NSCache<NSString, UIImage>()
-    private var waiting: [String: [(UIImage?) -> Void]] = [:]
+    private let cache = NSCache<NSString, Shot>()
+    private var waiting: [String: [(Shot?) -> Void]] = [:]
 
-    func load(_ raw: String, done: @escaping (UIImage?) -> Void) {
+    init() {
+        /* 움직이는 이모티콘은 푼 프레임이 한 장에 3MB쯤이라(256px × 12장)
+           개수로 막으면 안 되고 **무게로 막아야 한다.** */
+        cache.totalCostLimit = 48 * 1024 * 1024
+    }
+
+    func load(_ raw: String, done: @escaping (Shot?) -> Void) {
         var s = raw
         if s.hasPrefix("http://") { s = "https://" + s.dropFirst("http://".count) }
         if let hit = cache.object(forKey: s as NSString) { done(hit); return }
-        guard let url = URL(string: s) else { done(nil); return }
         if waiting[s] != nil { waiting[s]?.append(done); return }
         waiting[s] = [done]
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            let img = data.flatMap { UIImage(data: $0) }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let img = img { self.cache.setObject(img, forKey: s as NSString) }
-                let all = self.waiting.removeValue(forKey: s) ?? []
-                all.forEach { $0(img) }
+        bytes(s) { [weak self] data in
+            guard let self else { return }
+            let shot = data.flatMap { ImageStore.decode($0) }
+            if let shot = shot { self.cache.setObject(shot, forKey: s as NSString,
+                                                      cost: shot.cost) }
+            let all = self.waiting.removeValue(forKey: s) ?? []
+            all.forEach { $0(shot) }
+        }
+    }
+
+    /// 앱 안에서 읽거나 인터넷에서 받아 온다. 답은 늘 **메인에서** 준다.
+    private func bytes(_ s: String, done: @escaping (Data?) -> Void) {
+        if let local = ImageStore.inApp(s) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let d = try? Data(contentsOf: local)
+                DispatchQueue.main.async { done(d) }
             }
+            return
+        }
+        guard let url = URL(string: s), url.scheme == "https" else { done(nil); return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            DispatchQueue.main.async { done(data) }
         }.resume()
+    }
+
+    /**
+     * 앱 번들 안의 자리. 웹이 주는 주소가 `./stickers/x.png`처럼 **상대**
+     * 이거나 `capacitor://localhost/stickers/x.png`이면 여기로 온다.
+     *
+     * **없으면 `nil`이다** — 그때는 인터넷 쪽으로 간다(사진이 그렇다).
+     */
+    static func inApp(_ s: String) -> URL? {
+        if s.hasPrefix("http://") || s.hasPrefix("https://") { return nil }
+        var p = s
+        if let u = URL(string: s), u.scheme != nil { p = u.path }
+        while p.hasPrefix("./") { p.removeFirst(2) }
+        while p.hasPrefix("/") { p.removeFirst() }
+        guard !p.isEmpty, let base = Bundle.main.resourceURL else { return nil }
+        let f = base.appendingPathComponent("public").appendingPathComponent(p)
+        return FileManager.default.fileExists(atPath: f.path) ? f : nil
+    }
+
+    /**
+     * 푼다. **여러 장이면 움직이는 것이다** — 이모티콘의 `.webp`가 그렇다
+     * (ImageIO가 iOS 14부터 webp를 읽는다. 우리 최소 판이 14다).
+     */
+    private static func decode(_ d: Data) -> Shot? {
+        guard let src = CGImageSourceCreateWithData(d as CFData, nil) else {
+            return UIImage(data: d).map { Shot(frames: [$0], duration: 0) }
+        }
+        let n = CGImageSourceGetCount(src)
+        if n <= 1 {
+            return UIImage(data: d).map { Shot(frames: [$0], duration: 0) }
+        }
+        var frames: [UIImage] = []
+        var total: TimeInterval = 0
+        for i in 0..<n {
+            guard let cg = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+            frames.append(UIImage(cgImage: cg))
+            total += delay(src, i)
+        }
+        guard !frames.isEmpty else { return nil }
+        /* 못 읽으면 12fps로 본다 — 우리가 굽는 값이다(`lib/stickers.ts` 머리말). */
+        return Shot(frames: frames,
+                    duration: total > 0 ? total : Double(frames.count) / 12)
+    }
+
+    /// 한 장이 머무는 시간. **키 이름을 글자로 찾는다** — `{WebP}`·`{GIF}`·
+    /// `{APNG}`가 판마다 `@available`이 갈려서, 글자로 보면 한 줄로 끝난다.
+    private static func delay(_ src: CGImageSource, _ i: Int) -> TimeInterval {
+        let props = CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [String: Any]
+        for key in ["{WebP}", "{GIF}", "{APNG}"] {
+            guard let d = props?[key] as? [String: Any] else { continue }
+            if let v = d["UnclampedDelayTime"] as? Double, v > 0 { return v }
+            if let v = d["DelayTime"] as? Double, v > 0 { return v }
+        }
+        return 0
+    }
+
+    /**
+     * 그림칸에 앉힌다. **움직이는 것은 세 번만 돈다**(웹에서 굽는 `loop=3`과
+     * 같은 값이다) — 늘 켜져 있는 그리기 비용이 화면을 끊기게 한다는 그
+     * 규칙이 여기에도 걸린다. 한 사람이 열 장 보내면 그게 열 개다.
+     */
+    static func put(_ shot: Shot?, into iv: UIImageView) {
+        iv.stopAnimating()
+        iv.animationImages = nil
+        iv.image = shot?.first
+        guard let s = shot, s.moving else { return }
+        /* 다 돌고 나면 `image`가 보인다 — **마지막 장에서 멈춘다**(웹의
+           `loop=3`이 그렇다. 첫 장으로 되돌아가면 글자가 없는 그림에서
+           멈추는 판이 있다). */
+        iv.image = s.frames.last
+        iv.animationImages = s.frames
+        iv.animationDuration = s.duration
+        iv.animationRepeatCount = 3
+        iv.startAnimating()
     }
 }

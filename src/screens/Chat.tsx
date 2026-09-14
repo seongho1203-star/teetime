@@ -2409,19 +2409,24 @@ export function Chat() {
      * 부품이라 **웹이 그리면 통째로 가려진다** — 네이티브 바에서 겪은
      * 그 자리다(사용자 제보 — `최신대화로 버튼 안나옴`). 값은 웹이 그대로
      * 주고 앱은 그리기와 누르기만 맡는다(`listTap('jump')`).
+     *
+     * **걷을 때도 `null`을 보내지 말 것 — `show: false`다.** Capacitor의
+     * `hasOption`이 **`null`을 `안 보냄`으로 보아**(`!(value is NSNull)`)
+     * `{jump: null}`이 통째로 무시됐고, 그래서 **줄이 영영 안 걷혔다**
+     * (사용자 제보 — `최신대화로 와도 저 버튼이 안사라져`).
+     * 앞으로 만들 칸에도 그대로 걸리는 함정이다.
      */
     useEffect(() => {
         if (!listUp) return;
         const show = !windowed && showJump && !!lastMsg;
         void listSet({
-            jump: show
-                ? {
-                    name: lastWho?.name ?? '',
-                    avatar: lastWho?.avatar_url ?? '',
-                    edge: edgeColor(lastWho?.gender) ?? '',
-                    text: lastMsg ? preview(lastMsg) : '',
-                }
-                : null,
+            jump: {
+                show,
+                name: lastWho?.name ?? '',
+                avatar: lastWho?.avatar_url ?? '',
+                edge: edgeColor(lastWho?.gender) ?? '',
+                text: lastMsg ? preview(lastMsg) : '',
+            },
         });
     }, [listUp, showJump, windowed, lastMsg, lastWho]);
     /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
