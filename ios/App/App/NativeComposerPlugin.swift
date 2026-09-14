@@ -106,11 +106,15 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        `listRows`·`listSet`·`listDetach`). 줄은 웹이 만들어 넘기고
     ///        앱은 그리기와 굴리기만 한다 — 자세한 것은 그 파일 머리말에 있다.
     ///        **기본은 꺼짐이다**(웹의 `teetime:nc-list` 스위치).
+    /// 18판 — **앱 목록에서도 키보드를 내린다**(`chatListDismissKeyboard`).
+    ///        내리는 두 길(아래로 끌기 · 목록 누르기)이 둘 다 웹 목록에
+    ///        걸려 있어, 17판에서 앱 목록이 그 위를 덮자 **키보드를 내릴
+    ///        길이 통째로 없어졌다**(사용자 제보).
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 17
+    private static let version = 18
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -424,6 +428,15 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     func chatListState(atBottom: Bool, atTop: Bool) {
         guard live else { return }
         notifyListeners("listState", data: ["atBottom": atBottom, "atTop": atTop])
+    }
+
+    /// 목록을 아래로 끌었거나 눌렀다 — 키보드를 내린다(18판).
+    /// **웹에 물어보고 오지 않는다.** 손짓과 키보드가 한 박자로 움직여야 해서,
+    /// 다리를 한 번 건너갔다 오면 그만큼 늦는다. 하는 일은 `blur`와 같다.
+    func chatListDismissKeyboard() {
+        guard live else { return }
+        release()
+        _ = bar?.textView.resignFirstResponder()
     }
 
     // ── 사진 (8판) ───────────────────────────────────────

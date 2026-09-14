@@ -142,6 +142,8 @@ struct ChatSkin {
 protocol ChatListDelegate: AnyObject {
     /// 맨 아래에 있는가 · 맨 위에 닿았는가(지난 대화를 더 받아야 한다).
     func chatListState(atBottom: Bool, atTop: Bool)
+    /// 키보드를 내려 달라 — 목록을 아래로 끌었거나 목록을 눌렀다.
+    func chatListDismissKeyboard()
 }
 
 // MARK: - 목록
@@ -162,6 +164,13 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private let bottomSlack: CGFloat = 80
     /// 위에서 이만큼 안이면 지난 대화를 더 받아 온다.
     private let topSlack: CGFloat = 400
+    /// 아래로 이만큼 끌면 키보드를 내린다(웹의 `dy > 40`과 같은 값).
+    private let dragToHide: CGFloat = 40
+
+    /// 끌기 시작한 자리. 아래로 끌었는지를 이것으로 잰다.
+    private var dragFrom: CGFloat = 0
+    /// 한 번 끄는 동안 키보드는 한 번만 내린다.
+    private var dragHid = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -180,7 +189,21 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         table.contentInsetAdjustmentBehavior = .never
         addSubview(table)
         backgroundColor = skin.bg
+        /* **목록을 누르면 키보드가 내려간다**(18판).
+           웹 목록에 있던 그 길인데, 웹에서는 **누르는 것을 우리가 안 맡고
+           있었다** — 아이폰은 웹 화면을 누르는 순간 first responder를 도로
+           가져가므로 키보드가 저절로 내려갔다. 앱 목록은 웹뷰 **위에 얹힌
+           앱 부품**이라 그 손짓이 웹뷰에 아예 안 닿아, 옮기고 나니
+           **키보드를 내릴 길이 통째로 없어졌다**(사용자 제보 —
+           `키보드가 내려가지않아 … 둘 다 안돼`).
+           **`cancelsTouchesInView`를 끄는 것이 한 쌍이다** — 안 끄면 나중에
+           말풍선을 누르는 일(길게 누르기·인용으로 뛰기)을 이것이 먹는다. */
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tap.cancelsTouchesInView = false
+        table.addGestureRecognizer(tap)
     }
+
+    @objc private func tapped() { listDelegate?.chatListDismissKeyboard() }
 
     required init?(coder: NSCoder) { fatalError() }
 
@@ -334,7 +357,24 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
 
     // MARK: 굴리기
 
-    func scrollViewDidScroll(_ sv: UIScrollView) { report() }
+    func scrollViewDidScroll(_ sv: UIScrollView) {
+        /* **아래로 끌면 키보드가 함께 내려간다** — 카톡이 그렇다.
+           `keyboardDismissMode = .onDrag`으로 하지 말 것: 그것은 **어느
+           쪽으로 끌든** 내리므로, 옛 글을 읽으려고 위로 훑을 때마다 키보드가
+           사라진다. 웹 목록이 쓰던 잣대(`dy > 40`, 아래로)를 그대로 옮긴다 —
+           손가락이 내려가면 `contentOffset`은 줄어든다.
+           한 번 끄는 동안 한 번만 부른다(`dragHid`). */
+        if sv.isDragging, !dragHid, dragFrom - sv.contentOffset.y > dragToHide {
+            dragHid = true
+            listDelegate?.chatListDismissKeyboard()
+        }
+        report()
+    }
+
+    func scrollViewWillBeginDragging(_ sv: UIScrollView) {
+        dragFrom = sv.contentOffset.y
+        dragHid = false
+    }
 
     private func report() {
         let bottom = atBottom()
