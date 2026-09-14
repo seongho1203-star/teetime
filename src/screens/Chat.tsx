@@ -25,9 +25,10 @@ import {
     ncLog, pickNativePhoto,
 } from '../lib/composer';
 import {
-    GROUPED_TOP, ROW_TOP, canNativeList, chatListSkin, dayChip, edgeColor, isNewDay,
-    listAttach, listDetach, listOn, listRows, listScrollTo, listSet, onListHold, onListState,
-    onListTap, sameBlock, type ListRow,
+    GROUPED_TOP, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
+    isNewDay, listAttach, listDetach, listMenu, listOn, listRows, listScrollTo, listSet,
+    onListHold, onListMenuPick, onListState, onListTap, sameBlock,
+    type HoldItem, type ListRow,
 } from '../lib/chatlist';
 
 /**
@@ -2329,7 +2330,9 @@ export function Chat() {
      * 뜨면 그 줄이 통째로 필요 없어진다(카톡도 머리말이 없다).
      * `mine`은 어느 쪽에 붙일지다 — 내 글은 오른쪽, 남의 글은 왼쪽.
      */
-    const [menuFor, setMenuFor] = useState<{ m: Message; at: DOMRect; mine: boolean } | null>(null);
+    const [menuFor, setMenuFor] = useState<
+        { m: Message; at: DOMRect; mine: boolean; native?: boolean } | null
+    >(null);
     /** `선택 복사`로 연 글. 글자를 끌어서 고를 수 있게 펼쳐 놓는 창이다. */
     const [pickText, setPickText] = useState<string | null>(null);
     /* **`memo`로 감싼 말풍선에 넘기는 값이라 붙박아 둔다.** 매번 새 함수를
@@ -2397,7 +2400,11 @@ export function Chat() {
      * **감출 수 있는 것은 7판부터다.** 옛 앱에서는 그대로 보이는데, 거기서
      * 바를 떼었다 다시 붙이는 길로 가면 글칸이 통째로 안 뜨는 위험이 더 크다.
      */
-    const overlayUp = !!zoom || !!card || pickText !== null || !!menuFor;
+    /* **앱이 그린 창은 여기 안 든다**(27판의 `native`). 그 창은 우리가
+       `root`에 얹은 앱 부품이라 바와 목록을 제가 덮는다 — 감췄다가는
+       입력칸 자리에 **흰 웹 글칸이 드러나고**, 목록까지 감추면 없애려던
+       그 바꿔치기가 그대로 돌아온다. */
+    const overlayUp = !!zoom || !!card || pickText !== null || !!(menuFor && !menuFor.native);
     useEffect(() => {
         if (!ncOn.current || ncLog.v < 7) return;
         /* **감추는 것을 먼저, 키보드 내리기를 그다음에.** 앱은 부르는 차례대로
@@ -2425,6 +2432,21 @@ export function Chat() {
         if (!listUp) return;
         void listSet({ hidden: listCovered });
     }, [listUp, listCovered]);
+
+    /**
+     * **앱이 그린 창은 웹이 닫을 때도 함께 걷는다**(27판).
+     *
+     * 고른 그 자리에서는 앱이 스스로 닫으므로 대개 할 일이 없는데, 웹이
+     * 먼저 닫는 판이 있다 — 방을 옮기거나 창이 떠 있는 채로 화면이 다시
+     * 그려질 때다. 안 걷으면 **앱 창만 덩그러니 남아** 화면이 잠긴 것처럼
+     * 보인다(화면을 떠날 때는 `listDetach`가 함께 걷는다).
+     */
+    const nativeMenuUp = useRef(false);
+    useEffect(() => {
+        const up = !!menuFor?.native;
+        if (nativeMenuUp.current && !up) void closeListMenu();
+        nativeMenuUp.current = up;
+    }, [menuFor]);
 
     /**
      * `최근 대화로` 줄. **앱 목록이 서 있으면 앱이 그린다.**
@@ -2974,6 +2996,68 @@ export function Chat() {
      * 올라가므로 그 사이가 늘 생긴다.
      */
 
+    /**
+     * 길게 누른 창에 설 줄 목록 — **웹 창과 앱 창이 같이 쓴다**(27판).
+     *
+     * **누구에게 무엇이 붙는지가 이 창의 규칙 전부다** — 앞 다섯(복사 ·
+     * 선택 복사 · 댓글 · 공유 · 캡쳐)은 누구나, `가리기`·`공지로 올리기`는
+     * **운영진**(사용자 요청 — `가리기는 운영진만 할수있도록`), `삭제`는
+     * **쓴 사람**(제 글에만)이다. 가린 글에는 복사·선택 복사·댓글과 반응
+     * 알약을 안 붙인다 — 덮어 둔 내용이 그리로 샌다.
+     *
+     * **차례는 사용자가 정해 준 그대로다.** 바꾸지 말 것.
+     *
+     * 27판부터 **창을 앱이 그리므로**(`listMenu`) 이 목록을 실어 보낸다 —
+     * 앱에서 다시 셈하면 같은 규칙이 두 곳이 되어 언젠가 어긋난다.
+     * 웹으로 열었을 때와 옛 앱에서는 아래 JSX가 같은 목록으로 그린다.
+     */
+    const holdItems = (m: Message): HoldItem[] => {
+        const hidden = !!m.hidden_at;
+        const hasText = !!m.body.trim();
+        const out: HoldItem[] = [];
+        /* **복사가 맨 위다** — 가장 자주 누르는 자리이면서 아무것도 안
+           바꾸는 일이다. 글이 없는 글(사진·이모티콘만)에는 안 붙인다. */
+        if (hasText && !hidden) out.push({ name: 'copy', label: '복사', icon: 'copy' });
+        /* **선택 복사** — 말풍선에는 `user-select: none`이 걸려 있어 글의
+           일부만 가져갈 길이 아예 없다. 그 손해를 되돌리는 자리다. */
+        if (hasText && !hidden) out.push({ name: 'pick', label: '선택 복사', icon: 'pick' });
+        /* **`댓글`은 왼쪽으로 밀면 걸리는 그 답장과 같은 일이다**(사용자가
+           정한 이름이다 — `댓글이 답장기능과 같은거고`). */
+        if (!hidden) out.push({ name: 'reply', label: '댓글', icon: 'reply' });
+        out.push({ name: 'share', label: '공유', icon: 'share' });
+        out.push({ name: 'capture', label: '캡쳐', icon: 'capture' });
+        if (isAdmin) {
+            out.push({ name: 'hide', label: hidden ? '가리기 풀기' : '가리기', icon: 'hide' });
+        }
+        if (isAdmin && !hidden) {
+            out.push({
+                name: 'pin',
+                label: m.pinned_at ? '공지 내리기' : '공지로 올리기',
+                icon: 'notice',
+            });
+        }
+        /* **삭제는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라 남의 글에는
+           안 붙인다 — 운영진에게는 가리기가 있다. */
+        if (m.user_id === me) {
+            out.push({ name: 'trash', label: '삭제', icon: 'trash', danger: true });
+        }
+        return out;
+    };
+
+    /** 창에서 줄 하나를 골랐다. **웹 창과 앱 창이 같이 쓰는 한 곳이다.** */
+    const runHoldItem = (m: Message, name: string) => {
+        switch (name) {
+            case 'copy': copyText(m.body); break;
+            case 'pick': setPickText(m.body); break;
+            case 'reply': startReply(m); break;
+            case 'share': void shareMessage(m); break;
+            case 'capture': void captureMessage(m); break;
+            case 'hide': void askHide(m); break;
+            case 'pin': void askPin(m); break;
+            case 'trash': void askDelete(m); break;
+        }
+    };
+
     /** 바가 알려 올 때 부를 것들. **늘 최신 함수를 가리키게 해 둔다** —
         붙이는 일은 화면이 열릴 때 한 번뿐이라, 그때의 함수를 그대로 들고
         있으면 옛 값을 보고 돈다. */
@@ -2997,18 +3081,39 @@ export function Chat() {
         hold: (e: { id: string; mine: boolean; x: number; y: number; w: number; h: number }) => {
             const m = messages.find(x => x.id === e.id);
             if (!m) return;
-            /* **창이 뜨는 동안에는 웹 목록이 뒤에 깔린다**(앱 목록을 감추므로).
-               그 둘이 다른 자리를 보고 있으면 **어느 글을 누른 것인지가
-               사라져** 옅은 바탕(0.30)으로 덮어 둔 뜻이 없어진다.
-               감춰 둔 목록도 자리는 그대로 잡혀 있으므로(`visibility: hidden`)
-               **누른 글을 앱이 알려 준 자리에 맞춰** 굴려 둔다. */
-            const list = listRef.current;
-            const el = list?.querySelector<HTMLElement>(`[data-mid="${CSS.escape(m.id)}"]`);
-            if (list && el) {
-                const now = el.getBoundingClientRect().top - list.getBoundingClientRect().top;
-                list.scrollTop += now - (e.y - list.getBoundingClientRect().top);
-            }
-            openMenu(m, new DOMRect(e.x, e.y, e.w, e.h), e.mine);
+            /* **27판부터는 창도 앱이 그린다.**
+               26판까지는 웹이 그렸는데, 웹 창은 앱 목록을 못 덮으므로 그동안
+               **앱 목록을 감추고 웹 목록을 도로 내보이는 바꿔치기**를 했다.
+               두 목록은 **글꼴이 달라**(앱은 폰 기본 글꼴, 웹은 Pretendard)
+               줄 높이와 줄 바뀌는 자리가 어긋나고 아래로 갈수록 쌓여서,
+               창이 뜨는 순간 말풍선과 얼굴이 통째로 움찔했다(사용자 제보 ·
+               사진). **줄 간격을 맞춰도(26판) 그대로였다** — 값을 하나씩
+               맞추는 길로는 끝이 없어 바꿔치기 자체를 없앤 것이다.
+               **무엇이 뜨는지는 그대로 웹이 정한다**(`holdItems`). */
+            const items = holdItems(m);
+            if (!items.length) return;
+            setMenuFor({ m, at: new DOMRect(e.x, e.y, e.w, e.h), mine: e.mine, native: true });
+            void listMenu({
+                at: { x: e.x, y: e.y, w: e.w, h: e.h },
+                mine: e.mine,
+                items,
+                /* 가린 글에는 알약을 안 붙인다 — 덮어 둔 글에 좋다고 누를
+                   일이 없다(복사·댓글을 안 붙이는 것과 같은 잣대다). */
+                reacts: m.hidden_at ? [] : [...REACTIONS],
+                skin: chatListSkin(listRef.current),
+            });
+        },
+        /**
+         * 앱 창에서 무엇인가를 골랐다(27판).
+         * **하는 일은 웹이 정한다** — 줄은 `runHoldItem`, 알약은 `toggleReact`로
+         * 가고 둘 다 웹 창이 쓰던 그 길 그대로다.
+         */
+        menuPick: (e: { kind: string; name: string }) => {
+            const held = menuFor?.m;
+            setMenuFor(null);
+            if (!held || e.kind === 'close') return;
+            if (e.kind === 'react') { void toggleReact(held.id, e.name); return; }
+            runHoldItem(held, e.name);
         },
         /* 인용을 누르면 원본으로 뛴다(웹 목록과 같은 길 — `jumpTo`가
            앱 목록까지 챙긴다). **못 찾으면 거기서 `지난 대화에 있습니다`가
@@ -3239,12 +3344,17 @@ export function Chat() {
                 else if (e.kind === 'jump') nc.current.jumpLatest();
                 else if (e.kind === 'back') nc.current.back();
             });
-            /* **창이 뜨는 규칙은 웹에만 있다**(`HoldAt`) — 앱은 누른
-               말풍선의 자리만 알려 준다. 그 값이 곧 `getBoundingClientRect`와
-               같은 창 좌표라 그대로 `DOMRect`로 되돌려 쓴다. */
+            /* **27판부터 창도 앱이 그린다** — 앱은 누른 말풍선의 자리를
+               알려 주고(`listHold`), 웹은 줄 목록을 실어 보내며
+               (`listMenu`), 고른 것이 `listMenuPick`으로 돌아온다.
+               그 자리 값은 곧 `getBoundingClientRect`와 같은 창 좌표다. */
             const d = await onListHold(e => nc.current.hold(e));
-            if (dead) { void h.remove(); void t.remove(); void d.remove(); return; }
-            drop = () => { void h.remove(); void t.remove(); void d.remove(); };
+            const p = await onListMenuPick(e => nc.current.menuPick(e));
+            const off = () => {
+                void h.remove(); void t.remove(); void d.remove(); void p.remove();
+            };
+            if (dead) { off(); return; }
+            drop = off;
             setListUp(true);
         })();
         return () => {
@@ -4011,7 +4121,7 @@ export function Chat() {
                     onClose={() => setCard(null)} />
             )}
 
-            {menuFor && (() => {
+            {menuFor && !menuFor.native && (() => {
                 /* 창을 그리는 동안 `menuFor`가 바뀔 일은 없지만, 아래 콜백들이
                    전부 이 값을 붙들도록 한 번만 꺼내 둔다. */
                 const m = menuFor.m;
@@ -4019,71 +4129,24 @@ export function Chat() {
                 /** 고르면 창부터 닫고 그 일을 한다 — 둘이 겹쳐 보이면 안 된다. */
                 const pick = (go: () => void) => () => { shut(); go(); };
                 const hidden = !!m.hidden_at;
-                const hasText = !!m.body.trim();
                 return (
                     <div className="chat-menu-back soft" onClick={shut}>
                         <HoldAt at={menuFor.at} mine={menuFor.mine}>
+                            {/* **줄 목록은 `holdItems()`가 정한다 — 앱 창과
+                                같이 쓰는 한 곳이다**(27판). 누구에게 무엇이
+                                붙는지가 여기 한 벌로 있어야, 웹에서 보는 창과
+                                앱에서 보는 창이 어긋날 자리가 없다.
+                                **미리보기 머리말이 없다**(카톡과 같다) —
+                                누른 말풍선 옆에 뜨므로 어느 글인지가 자리로
+                                이미 말해진다. */}
                             <div className="chat-menu" onClick={e => e.stopPropagation()}>
-                                {/* **미리보기 머리말이 없다**(카톡과 같다).
-                                    누른 말풍선 옆에 뜨므로 어느 글인지가
-                                    자리로 이미 말해진다 — 화면 아래에서
-                                    올라오던 때만 필요했던 줄이다. */}
-                                {/* **복사가 맨 위다** — 가장 자주 누르는 자리이면서
-                                    아무것도 안 바꾸는 일이다. 글이 없는 글
-                                    (사진·이모티콘만)에는 안 붙인다. */}
-                                {hasText && !hidden && (
-                                    <button className="chat-menu-item" onClick={pick(() => copyText(m.body))}>
-                                        복사<HoldIcon name="copy" />
+                                {holdItems(m).map(it => (
+                                    <button key={it.name}
+                                            className={`chat-menu-item${it.danger ? ' danger' : ''}`}
+                                            onClick={pick(() => runHoldItem(m, it.name))}>
+                                        {it.label}<HoldIcon name={it.icon} />
                                     </button>
-                                )}
-                                {/* **선택 복사** — 글의 일부만 가져가는 자리다.
-                                    가리거나 지울 수 있는 글에는 `user-select: none`이
-                                    걸려 있어(길게 누르기를 iOS의 글자 고르기가
-                                    덮지 않게) **말풍선에서는 끌어서 고를 수가
-                                    없다.** 그 손해를 여기서 되돌린다. */}
-                                {hasText && !hidden && (
-                                    <button className="chat-menu-item" onClick={pick(() => setPickText(m.body))}>
-                                        선택 복사<HoldIcon name="pick" />
-                                    </button>
-                                )}
-                                {/* **`댓글`은 왼쪽으로 밀면 걸리는 그것과 같은 일이다**
-                                    (사용자가 정한 이름이다 — `댓글이 답장기능과
-                                    같은거고`). 인용해서 답하는 자리다.
-                                    미는 손짓은 아는 사람만 쓰므로 여기에도 둔다. */}
-                                {!hidden && (
-                                    <button className="chat-menu-item" onClick={pick(() => startReply(m))}>
-                                        댓글<HoldIcon name="reply" />
-                                    </button>
-                                )}
-                                <button className="chat-menu-item" onClick={pick(() => void shareMessage(m))}>
-                                    공유<HoldIcon name="share" />
-                                </button>
-                                <button className="chat-menu-item" onClick={pick(() => void captureMessage(m))}>
-                                    캡쳐<HoldIcon name="capture" />
-                                </button>
-                                {/* 가리기는 **운영진만** 한다(사용자 요청).
-                                    되돌릴 수 있어 남의 글에도 쓴다. */}
-                                {isAdmin && (
-                                    <button className="chat-menu-item" onClick={pick(() => askHide(m))}>
-                                        {hidden ? '가리기 풀기' : '가리기'}<HoldIcon name="hide" />
-                                    </button>
-                                )}
-                                {/* **공지로 올리는 것도 운영진 몫이다**(카톡 오픈톡과 같다).
-                                    대화 맨 위에 붙박여 모두에게 늘 보이는 자리라,
-                                    아무나 올리면 그 자리가 곧 의미를 잃는다.
-                                    가린 글에는 안 붙인다 — 덮어 둔 내용이 맨 위로 샌다. */}
-                                {isAdmin && !hidden && (
-                                    <button className="chat-menu-item" onClick={pick(() => askPin(m))}>
-                                        {m.pinned_at ? '공지 내리기' : '공지로 올리기'}<HoldIcon name="notice" />
-                                    </button>
-                                )}
-                                {/* **삭제는 쓴 사람 몫이다.** 되돌릴 수 없는 일이라
-                                    남의 글에는 안 붙인다 — 운영진에게는 가리기가 있다. */}
-                                {m.user_id === me && (
-                                    <button className="chat-menu-item danger" onClick={pick(() => askDelete(m))}>
-                                        삭제<HoldIcon name="trash" />
-                                    </button>
-                                )}
+                                ))}
                             </div>
                             {/* **반응은 창 아래에 알약으로 따로 선다**(사용자 요청 —
                                 `이모티콘도 카톡처럼 하단에 넣어줘`). 카톡의 그것도

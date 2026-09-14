@@ -64,6 +64,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "listRows", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listSet", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listScrollTo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listMenu", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listDetach", returnType: CAPPluginReturnPromise)
     ]
 
@@ -180,10 +181,19 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        말풍선 위치가 틀어져`). 날짜 칸도 웹과 같이 `16 + 칩 + 10`으로
     ///        맞췄다(예전 `6 + 칩 + 8`).
     ///
+    ///   - 27판 — **길게 누른 창까지 앱이 그린다**(`listMenu`·`HoldMenu`).
+    ///        26판으로 줄 간격을 맞췄는데도 **증상이 그대로였다**(사용자
+    ///        제보 — `최신버전이고 증상이 똑같아`). 남은 것은 **글꼴**이다:
+    ///        앱은 폰 기본 글꼴, 웹은 Pretendard라 줄 높이와 줄 바뀌는
+    ///        자리가 달라 **여러 줄짜리 말풍선마다 조금씩 어긋나고 아래로
+    ///        갈수록 쌓인다.** 값을 하나씩 맞추는 길로는 끝이 없어서,
+    ///        **바꿔치기 자체를 없앴다** — 창이 앱 것이면 앱 목록을 감출
+    ///        이유가 없다. 무엇이 뜨는지는 그대로 웹이 정한다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 26
+    private static let version = 27
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -412,6 +422,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     // (`kbFrame`)이 이 화면에서는 필요 없어진다.
 
     private var list: ChatList?
+    /**
+     * 길게 누른 창(27판). **목록이 아니라 `root`에 얹혀 바보다 위에 있다** —
+     * 옅은 바탕이 머리말과 입력칸까지 덮어야 웹에서 보던 것과 같아진다.
+     * 바·목록과 같은 까닭으로 **버리지 않는다**(다시 만들면 그만큼 늦다).
+     */
+    private var menu: HoldMenu?
     /// 목록 윗변을 어디에 둘지(머리말·방 공지 아래). 웹이 pt로 알려 준다.
     private var listTopC: NSLayoutConstraint?
     /**
@@ -514,8 +530,79 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         }
     }
 
+    /**
+     * 길게 누른 창을 띄우고 걷는다(27판).
+     *
+     * **무엇이 뜨는지는 웹이 정한다** — `items`(줄 목록)와 `reacts`(알약)를
+     * 그대로 받아 그린다. 누구에게 무엇이 붙는지는 `Chat.tsx`에 한 벌로
+     * 있고, 여기서 다시 셈하면 **같은 규칙이 두 곳이 되어 언젠가 어긋난다.**
+     *
+     * **창은 목록이 아니라 `root`에 얹는다 — 바보다 위다.** 옅은 바탕이
+     * 머리말과 입력칸까지 덮어야 웹에서 보던 것과 같아지기 때문이다
+     * (웹의 `.chat-menu-back`이 화면 전체를 덮는 그 자리다).
+     *
+     * **걷을 때도 `null`을 보내지 말 것 — `show: false`다**(22판에서
+     * `jump`로 겪은 그 함정이다. `hasOption`이 `null`을 `안 보냄`으로 본다).
+     */
+    @objc func listMenu(_ call: CAPPluginCall) {
+        let show = call.getBool("show") ?? true
+        let raw = (call.getArray("items", JSObject.self) ?? [])
+            .map { $0.mapValues { v in v as Any } }
+        let reacts = (call.getArray("reacts", String.self) ?? [])
+        let mine = call.getBool("mine") ?? false
+        /* `JSValue`를 `Any`로 풀어 읽는다 — `listRows`가 줄을 넘길 때
+           쓰는 그 길과 같다(`ChatList`는 Capacitor를 모르는 파일이다). */
+        let at = call.getObject("at")?.mapValues { v in v as Any }
+        let skin = call.getObject("skin")?.mapValues { v in v as Any }
+        DispatchQueue.main.async {
+            guard show, let root = self.bridge?.viewController?.view else {
+                self.menu?.hide()
+                call.resolve(["ok": false])
+                return
+            }
+            let m = self.menu ?? HoldMenu(frame: root.bounds)
+            self.menu = m
+            m.onPick = { [weak self] kind, name in
+                self?.menu?.hide()
+                self?.chatMenuPick(kind: kind, name: name)
+            }
+            if m.superview !== root {
+                m.removeFromSuperview()
+                m.translatesAutoresizingMaskIntoConstraints = false
+                root.addSubview(m)
+                NSLayoutConstraint.activate([
+                    m.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                    m.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                    m.topAnchor.constraint(equalTo: root.topAnchor),
+                    m.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+                ])
+            }
+            /* **늘 맨 위로 올린다** — 바나 목록을 나중에 붙이면 그것들이
+               위로 올라와 창을 덮는다. */
+            root.bringSubviewToFront(m)
+            if let s = skin { m.apply(skin: s) }
+            /* **제 크기를 잡은 뒤에 띄운다** — 창 자리를 재는 셈이 제 칸
+               안에서 도는데, 방금 붙인 판에서는 아직 제약이 안 먹었다
+               (`listAttach`가 `layoutIfNeeded()`를 부르는 그 자리와 같다). */
+            root.layoutIfNeeded()
+            let num = { (k: String) -> CGFloat in CGFloat((at?[k] as? Double) ?? 0) }
+            let rect = CGRect(x: num("x"), y: num("y"), width: num("w"), height: num("h"))
+            m.show(at: rect, mine: mine,
+                   items: raw.compactMap { HoldMenu.Item($0) }, reacts: reacts)
+            call.resolve(["ok": true])
+        }
+    }
+
+    /// 창에서 무엇인가를 골랐다 — **하는 일은 웹이 정한다.**
+    /// 갈래는 `item`(줄) · `react`(알약) · `close`(바탕을 눌러 닫음)다.
+    private func chatMenuPick(kind: String, name: String) {
+        guard live else { return }
+        notifyListeners("listMenuPick", data: ["kind": kind, "name": name])
+    }
+
     @objc func listDetach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.menu?.hide()
             self.list?.removeFromSuperview()
             self.listTopC = nil
             self.listBotC = nil

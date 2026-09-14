@@ -1,6 +1,9 @@
 import { formatChatDay, kstDate, kstMinute } from './format';
 import { NativeComposer, hush, ncLog } from './composer';
 import type { Message } from './types';
+/* 그림 이름은 **웹 창이 쓰는 그것 그대로다**(27판) — 앱은 같은 이름을
+   제 그림으로 옮겨 그린다. 타입만 가져오므로 묶음에는 안 실린다. */
+import type { HoldIconName } from '../components/HoldIcons';
 
 /*
  * **대화 목록을 앱이 그리게 하는 쪽**(17판 · `ios/App/App/ChatList.swift`).
@@ -58,12 +61,13 @@ export function setListOn(on: boolean): void {
  * 돌아오고**(앱 한 바퀴는 30분이다), 18판을 받으면 저절로 앱 목록으로
  * 돌아온다 — 12판 `canPickNative()`에서 쓴 그 수다.
  *
- * **지금은 26판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
+ * **지금은 27판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
  * `여기까지 읽으셨습니다` 줄(3판) · 손짓(4판) · 굴리기 얽힘(5판)까지
  * 앱이 맡고, **웹이 바 위에 그리는 것을 가리지 않으며**(23판의 `lift`)
  * **눌러서 키보드를 내릴 수 있고**(24판), **오른쪽으로 밀면 나가고 들어올
- * 때 미끄러져 들어오며**(25판), **줄 위 자리를 웹이 알려 준다**(26판의
- * `top` — 25판까지는 모든 줄에 4px을 박아 두어 웹과 6px씩 어긋났다).
+ * 때 미끄러져 들어오며**(25판), **줄 위 자리를 웹이 알려 주고**(26판의
+ * `top` — 25판까지는 모든 줄에 4px을 박아 두어 웹과 6px씩 어긋났다),
+ * **길게 누른 창까지 앱이 그린다**(27판 — 그래야 바꿔치기가 없어진다).
  * 그 아래 판을 든 폰은 못 그리거나(사진이 글자로 보인다) 못 움직여서
  * (길게 눌러도 창이 안 뜬다), **같은 수로 웹 목록으로 되돌린다.**
  *
@@ -83,9 +87,14 @@ export function setListOn(on: boolean): void {
  * 탭을 막았다 — 사용자 제보 `채팅창을 터치하면 키보드가 내려가지않아`).
  * 수를 올려 두면 그 판을 든 폰은 **웹만 밀어도 그날로** 웹 목록으로
  * 돌아오고, 새 앱을 받으면 저절로 앱 목록으로 돌아온다.
+ *
+ * **26판은 길게 누르면 자리가 틀어졌다** — 창은 웹 것인데 앱 목록을 못
+ * 덮으므로 그동안 웹 목록으로 **바꿔치기**를 했고, 두 목록은 글꼴이 달라
+ * 아래로 갈수록 어긋났다(사용자 제보 · 사진 — `팝업이 있을때와 없을때
+ * 프로필이나 말풍선 위치가 틀어져`). 줄 간격을 맞춰도 그대로였다.
  */
 export function canNativeList(): boolean {
-    return ncLog.ready === true && ncLog.v >= 26 && listOn();
+    return ncLog.ready === true && ncLog.v >= 27 && listOn();
 }
 
 /* ── 묶는 규칙 (웹 목록과 앱 목록이 같이 본다) ─────────────── */
@@ -252,6 +261,9 @@ export function chatListSkin(el: HTMLElement | null): Record<string, unknown> {
         jumpLine: read(root, '--line', 'rgba(0,0,0,0.1)'),
         jumpDim: read(root, '--text-dim', '#5b6455'),
         jumpH: 38, jumpSize: 13,
+        /* 길게 누른 창의 `삭제` 줄(27판 · 웹의 `.chat-menu-item.danger`).
+           되돌릴 수 없는 일이라 그 줄만 색으로 갈라 둔다. */
+        danger: read(root, '--danger', '#d13c3c'),
     };
 }
 
@@ -274,6 +286,7 @@ type Bridge = {
     listRows(o: { rows: ListRow[]; stickBottom: boolean }): Promise<{ ok?: boolean; n?: number }>;
     listSet(o: Record<string, unknown>): Promise<void>;
     listScrollTo(o: { id: string; place?: string; flash?: boolean }): Promise<{ ok?: boolean }>;
+    listMenu(o: Record<string, unknown>): Promise<{ ok?: boolean }>;
     listDetach(): Promise<void>;
     addListener(
         n: 'listState',
@@ -287,6 +300,24 @@ type Bridge = {
         n: 'listHold',
         cb: (e: HoldAt) => void,
     ): Promise<{ remove: () => Promise<void> }>;
+    addListener(
+        n: 'listMenuPick',
+        cb: (e: { kind: string; name: string }) => void,
+    ): Promise<{ remove: () => Promise<void> }>;
+};
+
+/**
+ * 길게 누른 창에 설 줄 하나(27판).
+ *
+ * **글자도 갈래 이름도 웹이 정한다** — 누구에게 무엇이 붙는지는
+ * `Chat.tsx`의 `holdItems()`에 한 벌로 있고, 앱은 그리기와 누르기만 맡는다.
+ * `icon`은 웹의 `HoldIcon`과 같은 이름이고 앱이 제 그림으로 옮겨 그린다.
+ */
+export type HoldItem = {
+    name: string;
+    label: string;
+    icon: HoldIconName;
+    danger?: boolean;
 };
 
 /** 길게 누른 말풍선의 자리 — **창(화면) 좌표다**(웹의 `getBoundingClientRect`와 같은 자). */
@@ -314,6 +345,44 @@ export async function listSet(o: Record<string, unknown>): Promise<void> {
 
 export async function listDetach(): Promise<void> {
     await hush(bridge.listDetach());
+}
+
+/**
+ * 길게 누른 창을 띄운다(27판) — **앱이 그린다.**
+ *
+ * 26판까지는 웹이 그렸는데, 웹 창은 앱 목록을 못 덮으므로(웹의 `z-index`로는
+ * 앱 부품을 못 덮는다) 그동안 **앱 목록을 감추고 웹 목록을 도로 내보이는
+ * 바꿔치기**를 했다. 두 목록은 **글꼴이 달라**(앱은 폰 기본 글꼴, 웹은
+ * Pretendard) 줄 높이와 줄 바뀌는 자리가 조금씩 어긋나고 아래로 갈수록
+ * 쌓여서, 창이 뜨는 순간 말풍선과 얼굴이 움찔했다. 앱이 그리면 **바꿔치기
+ * 자체가 없어진다.**
+ *
+ * **무엇이 뜨는지는 그대로 웹이 정한다** — 줄 목록과 알약을 실어 보낸다.
+ */
+export async function listMenu(o: {
+    at: { x: number; y: number; w: number; h: number };
+    mine: boolean;
+    items: HoldItem[];
+    reacts: string[];
+    skin: Record<string, unknown>;
+}): Promise<boolean> {
+    try {
+        const r = await bridge.listMenu({ show: true, ...o });
+        return r?.ok === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * 창을 걷는다.
+ *
+ * **`null`을 보내 끄는 길로 가지 말 것 — `show: false`다.** Capacitor의
+ * `hasOption`은 `null`을 `안 보냄`으로 보아(`!(value is NSNull)`) 그런
+ * 값은 통째로 무시된다 — `최근 대화로` 줄이 영영 안 걷히던 그 함정이다.
+ */
+export async function closeListMenu(): Promise<void> {
+    await hush(bridge.listMenu({ show: false }));
 }
 
 /**
@@ -389,6 +458,21 @@ export function onListHold(
     return bridge.addListener('listHold', e => {
         listLog.hold++;
         listLog.last = 'hold';
+        cb(e);
+    });
+}
+
+/**
+ * 길게 누른 창에서 무엇인가를 골랐다(27판).
+ * **하는 일은 웹이 정한다** — 앱은 무엇을 골랐는지만 알려 준다.
+ * 갈래는 `item`(줄) · `react`(알약) · `close`(바탕을 눌러 닫음)다.
+ */
+export function onListMenuPick(
+    cb: (e: { kind: string; name: string }) => void,
+): Promise<{ remove: () => Promise<void> }> {
+    return bridge.addListener('listMenuPick', e => {
+        listLog.tap++;
+        listLog.last = `창:${e.kind}`;
         cb(e);
     });
 }

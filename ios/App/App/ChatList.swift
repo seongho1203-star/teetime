@@ -187,6 +187,9 @@ struct ChatSkin {
     var jumpDim = UIColor(red: 0x5b / 255, green: 0x64 / 255, blue: 0x55 / 255, alpha: 1)
     var jumpH: CGFloat = 38
     var jumpSize: CGFloat = 13
+    /// 길게 누른 창의 `삭제` 줄(27판 · 웹의 `--danger`). 되돌릴 수 없는
+    /// 일이라 그 줄만 색으로 갈라 둔다 — **분홍이 아니다.**
+    var danger = UIColor(red: 0xd1 / 255, green: 0x3c / 255, blue: 0x3c / 255, alpha: 1)
 
     /// 카톡을 픽셀로 재서 맞춘 값들(345px 화면 기준).
     var pad: CGFloat = 9          // 목록 좌우 여백
@@ -230,6 +233,7 @@ struct ChatSkin {
         c("link", &link); c("card", &card)
         c("quoteRule", &quoteRule); c("brand", &brand)
         c("jumpBg", &jumpBg); c("jumpLine", &jumpLine); c("jumpDim", &jumpDim)
+        c("danger", &danger)
         n("pad", &pad); n("avatar", &avatar); n("avatarGap", &avatarGap)
         n("radius", &radius); n("fontSize", &fontSize); n("lineHeight", &lineHeight)
         n("padH", &padH); n("padV", &padV); n("nameSize", &nameSize)
@@ -1925,5 +1929,360 @@ final class ImageStore {
         iv.animationDuration = s.duration
         iv.animationRepeatCount = 3
         iv.startAnimating()
+    }
+}
+
+// MARK: - 길게 누르면 뜨는 창 (27판)
+
+/**
+ * 말풍선을 길게 눌렀을 때 뜨는 창 — **앱이 그린다.**
+ *
+ * 26판까지는 **웹이 그렸다.** 그런데 웹 창은 앱 목록을 못 덮으므로(웹의
+ * `z-index`로는 앱 부품을 못 덮는다) 창이 뜨는 동안 **앱 목록을 감추고 웹
+ * 목록을 도로 내보이는 바꿔치기**를 했는데, 두 목록은 **글꼴이 달라**
+ * (앱은 폰 기본 글꼴, 웹은 Pretendard) 줄 높이와 줄 바뀌는 자리가 조금씩
+ * 어긋나고 **아래로 갈수록 쌓인다** — 그래서 창이 뜨는 순간 말풍선과
+ * 얼굴이 통째로 움찔했다(사용자 제보 · 사진 — `팝업이 있을때와 없을때
+ * 프로필이나 말풍선 위치가 틀어져`). 줄 간격을 맞춰도(26판) 그대로였다.
+ *
+ * **앱이 그리면 바꿔치기 자체가 없어진다** — 그것이 이 판의 전부다.
+ *
+ * **무엇이 뜨는지는 그대로 웹이 정한다**(`listMenu`의 `items`) — 누구에게
+ * 무엇이 붙는지(복사·선택 복사·댓글·공유·캡쳐 + 운영진의 가리기·공지로
+ * 올리기 + 쓴 사람의 삭제)는 `Chat.tsx`에 한 벌로 있고, **앱은 그리기와
+ * 누르기만** 맡는다. 두 벌로 만들면 한쪽만 고치게 된다.
+ *
+ * **자리 셈은 웹의 `HoldAt`을 그대로 옮긴 것이다** — 가로는 말풍선의
+ * 가까운 쪽에 붙이고(내 글은 오른쪽 끝), 세로는 아래를 먼저 보고 안
+ * 들어가면 위로 넘긴다. 가장자리에서 8px은 띄운다. **한쪽만 고치지 말 것.**
+ */
+final class HoldMenu: UIView {
+
+    /// 창에 설 줄 하나. **글자도 갈래 이름도 웹이 준다.**
+    struct Item {
+        let name: String
+        let label: String
+        let icon: String
+        let danger: Bool
+
+        init?(_ d: [String: Any]) {
+            guard let n = d["name"] as? String, let l = d["label"] as? String else { return nil }
+            name = n
+            label = l
+            icon = (d["icon"] as? String) ?? ""
+            danger = (d["danger"] as? Bool) ?? false
+        }
+    }
+
+    /// 고른 것 — `item`(줄) · `react`(알약) · `close`(바탕을 누름).
+    var onPick: ((String, String) -> Void)?
+
+    /* **카톡 화면을 픽셀로 재서 맞춘 값이고 웹의 `.chat-menu`와 같다.**
+       눈대중으로 고치지 말 것 — 고칠 일이 생기면 `Chat.css`와 함께 고친다.
+       한 줄 40px · 알약 40px은 **30px 아래로 내리지 말 것**(누를 자리다). */
+    private let cardW: CGFloat = 300
+    private let itemH: CGFloat = 40
+    private let cardRadius: CGFloat = 14
+    private let pill: CGFloat = 40
+    private let pillPadH: CGFloat = 6
+    private let pillPadV: CGFloat = 4
+    /// 카드와 알약 줄 사이(웹 `.chat-hold`의 `gap: 8px`).
+    private let gap: CGFloat = 8
+    /// 화면 가장자리에서 띄울 만큼(웹 `HoldAt`의 `M`).
+    private let edge: CGFloat = 8
+    /// 말풍선과의 사이(웹 `HoldAt`의 `GAP`).
+    private let near: CGFloat = 6
+
+    private let dim = UIView()
+    /* **묶는 칸을 두지 않는다**(웹의 `.chat-hold`에 해당하는 것).
+       카드와 알약을 감싸는 칸을 하나 두면 **그 사이 8px을 눌렀을 때 그
+       칸이 손짓을 먹어** 아무 일도 안 일어난다 — 웹에서는 그 자리를 누르면
+       바탕까지 올라가 창이 닫힌다. 자리는 셈해서 각자에게 주면 되므로
+       칸이 있을 까닭이 없다. */
+    /// 카드 — **그림자만** 맡는다(자르면 그림자가 안 보인다).
+    private let card = UIView()
+    /// 그 안 — **자르기만** 맡고 줄이 여기 든다.
+    private let cardBody = UIView()
+    private let pills = UIView()
+
+    private var skin = ChatSkin()
+    private var items: [Item] = []
+    private var reacts: [String] = []
+    private var rows: [HoldRow] = []
+    private var pillBtns: [HoldPill] = []
+    /// 누른 말풍선의 자리 — **창 좌표다**(`listHold`가 보내는 그 값).
+    private var at: CGRect = .zero
+    private var mine = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        /* **옅게 덮는다**(웹의 `.chat-menu-back.soft`, 0.30) — 짙게 가리면
+           어느 글을 누른 것인지가 사라진다. */
+        dim.backgroundColor = UIColor(red: 4 / 255, green: 8 / 255, blue: 16 / 255, alpha: 0.30)
+        addSubview(dim)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dimTapped))
+        dim.addGestureRecognizer(tap)
+
+        /* **선 없이 그림자만 있다**(카톡의 그 카드와 같다).
+           **한 겹으로는 안 된다** — 자르는 것(`clipsToBounds`)과 그림자는
+           같은 레이어에서 서로를 지운다(자르면 그림자가 안 보이고, 안 자르면
+           눌린 줄의 네모난 칠이 둥근 모서리 밖으로 삐져나온다). 그래서
+           **바깥은 그림자만, 안쪽은 자르기만** 맡는다. */
+        card.layer.cornerRadius = cardRadius
+        card.layer.cornerCurve = .continuous
+        cardBody.layer.cornerRadius = cardRadius
+        cardBody.layer.cornerCurve = .continuous
+        cardBody.clipsToBounds = true
+        card.addSubview(cardBody)
+        /* 알약 줄은 안 자른다 — 눌린 표시가 동그라미라 제 알약 안에서
+           끝나므로 넘칠 것이 없다. */
+        pills.layer.cornerCurve = .continuous
+        addSubview(card)
+        addSubview(pills)
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func dimTapped() { onPick?("close", "") }
+
+    /* **색도 웹이 준다**(`chatListSkin()` — 목록과 같은 한 벌이다).
+       네이티브 쪽 값은 예비값일 뿐이다: 앱은 한 바퀴가 30분인데 웹은 밀면
+       바로 올라가므로, 어긋난 것을 고치는 길이 웹에 있어야 한다. */
+    func apply(skin d: [String: Any]) {
+        skin.apply(d)
+        cardBody.backgroundColor = skin.card
+        pills.backgroundColor = skin.card
+        for r in rows { r.paint(skin: skin) }
+        for p in pillBtns { p.paint(skin: skin) }
+        setNeedsLayout()
+    }
+
+    /**
+     * 창을 띄운다. **줄이 하나도 없으면 안 띄운다** — 빈 카드가 뜨면
+     * 고장으로 보인다.
+     */
+    func show(at rect: CGRect, mine m: Bool, items list: [Item], reacts r: [String]) {
+        guard !list.isEmpty else { hide(); return }
+        at = rect
+        mine = m
+        items = list
+        reacts = r
+
+        for v in rows { v.removeFromSuperview() }
+        rows = list.enumerated().map { i, it in
+            let row = HoldRow(item: it, line: i > 0)
+            row.paint(skin: skin)
+            row.addTarget(self, action: #selector(rowTapped(_:)), for: .touchUpInside)
+            cardBody.addSubview(row)
+            return row
+        }
+        for v in pillBtns { v.removeFromSuperview() }
+        pillBtns = r.map { e in
+            let b = HoldPill(emoji: e)
+            b.paint(skin: skin)
+            b.addTarget(self, action: #selector(pillTapped(_:)), for: .touchUpInside)
+            pills.addSubview(b)
+            return b
+        }
+        pills.isHidden = r.isEmpty
+        pills.layer.cornerRadius = (pill + pillPadV * 2) / 2
+
+        isHidden = false
+        setNeedsLayout()
+        layoutIfNeeded()
+        /* 나타나는 연출은 짧게 한 번만(웹의 `chat-hold-in 0.14s`).
+           `transform`과 `opacity`만 움직인다 — 그것이 이 앱의 규칙이다. */
+        dim.alpha = 0
+        for v in [card, pills] {
+            v.alpha = 0
+            v.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+        }
+        UIView.animate(withDuration: 0.14, delay: 0, options: [.curveEaseOut]) {
+            self.dim.alpha = 1
+            for v in [self.card, self.pills] {
+                v.alpha = 1
+                v.transform = .identity
+            }
+        }
+    }
+
+    func hide() {
+        isHidden = true
+        /* 반쯤 줄어든 채로 굳으면 다음에 띄울 때 그대로 보인다. */
+        for v in [card, pills] { v.transform = .identity }
+    }
+
+    @objc private func rowTapped(_ r: HoldRow) { onPick?("item", r.name) }
+    @objc private func pillTapped(_ p: HoldPill) { onPick?("react", p.emoji) }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        dim.frame = bounds
+        guard !items.isEmpty else { return }
+
+        /* **누른 자리는 창 좌표로 왔다** — 우리 칸으로 옮겨 쓴다. */
+        let a = convert(at, from: nil)
+        let w = min(cardW, bounds.width - edge * 2)
+        let cardH = itemH * CGFloat(items.count)
+        let pillsW = reacts.isEmpty ? 0 : pillPadH * 2 + pill * CGFloat(reacts.count)
+        let pillsH = reacts.isEmpty ? 0 : pill + pillPadV * 2
+        let gw = max(w, pillsW)
+        let h = cardH + (reacts.isEmpty ? 0 : gap + pillsH)
+
+        /* 가로는 **말풍선의 가까운 쪽**에 붙인다(내 글은 오른쪽 끝).
+           누른 자리에서 눈이 안 움직인다. */
+        var left = mine ? a.maxX - gw : a.minX
+        left = max(edge, min(left, bounds.width - gw - edge))
+        /* 세로는 **아래를 먼저 보고, 안 들어가면 위로 넘긴다.**
+           `bounds`가 곧 보이는 높이다 — 키보드가 올라오면 `resize: 'native'`가
+           웹뷰를 그만큼 줄여 주므로 따로 잴 것이 없다(웹은 그 자리에서
+           `visualViewport`를 봐야 했다). */
+        var top = a.maxY + near
+        if top + h > bounds.height - edge { top = a.minY - near - h }
+        top = max(edge, min(top, max(edge, bounds.height - h - edge)))
+
+        /* 카드와 알약도 묶음 안에서 **가까운 쪽으로 붙는다**(웹 `.chat-hold`의
+           `align-items: flex-start` / `.mine`의 `flex-end`). 둘이 폭이 달라
+           넓은 쪽(`gw`)을 기준으로 민다. */
+        place(card, CGRect(x: left + (mine ? gw - w : 0), y: top, width: w, height: cardH))
+        cardBody.frame = card.bounds
+        for (i, r) in rows.enumerated() {
+            r.frame = CGRect(x: 0, y: itemH * CGFloat(i), width: w, height: itemH)
+        }
+        if !reacts.isEmpty {
+            place(pills, CGRect(x: left + (mine ? gw - pillsW : 0), y: top + cardH + gap,
+                                width: pillsW, height: pillsH))
+            for (i, b) in pillBtns.enumerated() {
+                b.frame = CGRect(x: pillPadH + pill * CGFloat(i), y: pillPadV,
+                                 width: pill, height: pill)
+            }
+        }
+        shade(card, radius: cardRadius)
+        shade(pills, radius: pills.layer.cornerRadius)
+    }
+
+    /**
+     * 자리를 준다 — **`frame`이 아니라 `bounds`와 `center`로.**
+     *
+     * 나타나는 연출이 `transform`으로 도는데(`scale(0.94)`), 그 동안 무엇이
+     * 다시 배치되면(키보드가 오르내리는 판이 그렇다) **`frame`은 그 셋에서
+     * 거꾸로 셈한 값이라 창이 어긋난 자리로 튄다.** `bounds`·`center`는
+     * `transform`과 서로 안 얽힌다.
+     */
+    private func place(_ v: UIView, _ r: CGRect) {
+        v.bounds = CGRect(origin: .zero, size: r.size)
+        v.center = CGPoint(x: r.midX, y: r.midY)
+    }
+
+    /// 웹의 `box-shadow: 0 6px 24px rgba(0,0,0,0.2)`와 같은 값.
+    private func shade(_ v: UIView, radius: CGFloat) {
+        v.layer.shadowColor = UIColor.black.cgColor
+        v.layer.shadowOpacity = 0.2
+        v.layer.shadowRadius = 12
+        v.layer.shadowOffset = CGSize(width: 0, height: 6)
+        v.layer.shadowPath = UIBezierPath(roundedRect: v.bounds, cornerRadius: radius).cgPath
+    }
+}
+
+/**
+ * 창의 한 줄. **글자는 왼쪽, 그림은 오른쪽이다**(카톡과 같다).
+ *
+ * **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다(투표 결과
+ * 카드의 `🗳`에서 겪었다). 웹은 선 SVG를 그리고(`HoldIcons.tsx`) 여기서는
+ * 폰에 늘 있는 SF Symbol로 같은 뜻을 그린다 — **이름은 웹이 정한 그대로다.**
+ */
+final class HoldRow: UIControl {
+    let name: String
+    private let title = UILabel()
+    private let mark = UIImageView()
+    private let rule = UIView()
+    private let danger: Bool
+
+    /// 웹의 `HoldIcon`과 같은 이름 → 폰에 있는 그림. 모르는 이름은 안 그린다.
+    private static let symbols: [String: String] = [
+        "copy": "doc.on.doc",
+        "pick": "text.cursor",
+        "reply": "arrowshape.turn.up.left",
+        "share": "square.and.arrow.up",
+        "capture": "camera",
+        "hide": "eye.slash",
+        "notice": "megaphone",
+        "trash": "trash",
+    ]
+
+    init(item: HoldMenu.Item, line: Bool) {
+        name = item.name
+        danger = item.danger
+        super.init(frame: .zero)
+        title.text = item.label
+        title.font = .systemFont(ofSize: 15, weight: .medium)
+        mark.contentMode = .scaleAspectFit
+        if let s = HoldRow.symbols[item.icon] {
+            mark.image = UIImage(systemName: s)
+        }
+        rule.isHidden = !line
+        for v in [title, mark, rule] as [UIView] {
+            v.isUserInteractionEnabled = false
+            addSubview(v)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /* 그림은 글자색을 따라간다 — `삭제` 줄에서는 저절로 빨강이 되고,
+       평소에는 한 톤 낮춰 글자가 먼저 읽히게 한다(웹과 같은 규칙이다). */
+    func paint(skin s: ChatSkin) {
+        title.textColor = danger ? s.danger : s.text
+        mark.tintColor = danger ? s.danger : s.jumpDim
+        rule.backgroundColor = s.jumpLine
+        backgroundColor = .clear
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let pad: CGFloat = 16
+        let ic: CGFloat = 20
+        rule.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
+        mark.frame = CGRect(x: bounds.width - pad - ic, y: (bounds.height - ic) / 2,
+                            width: ic, height: ic)
+        title.frame = CGRect(x: pad, y: 0,
+                             width: max(0, bounds.width - pad * 2 - ic - 12),
+                             height: bounds.height)
+    }
+
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? UIColor(white: 0, alpha: 0.06) : .clear }
+    }
+}
+
+/// 반응 알약 하나. **칠은 안 깐다**(카톡도 그림글자만 있다).
+final class HoldPill: UIControl {
+    let emoji: String
+    private let label = UILabel()
+
+    init(emoji e: String) {
+        emoji = e
+        super.init(frame: .zero)
+        label.text = e
+        label.font = .systemFont(ofSize: 24)
+        label.textAlignment = .center
+        label.isUserInteractionEnabled = false
+        addSubview(label)
+        accessibilityLabel = "\(e) 반응"
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func paint(skin _: ChatSkin) { backgroundColor = .clear }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds
+        layer.cornerRadius = bounds.height / 2
+    }
+
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? UIColor(white: 0, alpha: 0.06) : .clear }
     }
 }
