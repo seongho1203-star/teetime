@@ -76,13 +76,14 @@ h1, h2, h3, h4, p { margin: 0; }
 /* **시간은 `lib/tabs.ts`의 `SCREEN_MS`와 같아야 한다** — 앱 목록
    (`ChatList.slideIn`)이 그 값으로 **남은 시간**을 셈해 따라 들어온다.
    한쪽만 고치면 머리말과 말풍선 자리가 따로 끝나 두 단계로 보인다.
-   지금은 0.35초다(아이폰의 그 전환과 같은 시간).
+   **지금은 0.50초다**(사용자가 고른 값 — `0.5초로 느리게해줘`).
+   아이폰·카톡은 0.35초인데 그보다 한 뜸 느긋한 쪽을 골랐다.
 
-   **이 40px짜리는 이제 예비 길이다** — 대화처럼 네이티브 부품이 얹히는
-   화면과, 앞 화면을 못 찍은 자리에서만 쓴다. 보통은 아래 `screen-push`가
+   **이 40px짜리는 이제 예비 길이다** — 앱이 대화 목록을 그리는 판과,
+   앞 화면을 못 찍은 자리에서만 쓴다. 보통은 아래 `screen-push`가
    화면을 **통째로** 밀어 넣는다. */
-.app.slide-in   > :first-child { animation: screen-in 350ms cubic-bezier(.32, .72, 0, 1); }
-.app.slide-back > :first-child { animation: screen-back 350ms cubic-bezier(.32, .72, 0, 1); }
+.app.slide-in   > :first-child { animation: screen-in 500ms cubic-bezier(.32, .72, 0, 1); }
+.app.slide-back > :first-child { animation: screen-back 500ms cubic-bezier(.32, .72, 0, 1); }
 
 /* ── 화면이 통째로 밀려 들어오고 나간다 ─────────────────────────
    아이폰(과 카톡)의 그 전환이다(사용자 제보 — `카톡과 비교하면 아직도
@@ -142,8 +143,8 @@ html.screen-ease .back-ghost,
 html.screen-ease .back-ghost-dim,
 html.screen-ease .exit-ghost,
 html.screen-ease .exit-dim {
-    transition: transform 350ms cubic-bezier(.32, .72, 0, 1),
-                opacity 350ms linear;
+    transition: transform 500ms cubic-bezier(.32, .72, 0, 1),
+                opacity 500ms linear;
 }
 
 /* ── 손가락을 따라 뒤로 가기 ────────────────────────────────────
