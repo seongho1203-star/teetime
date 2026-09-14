@@ -3913,6 +3913,18 @@ GitHub Pages가 그대로 내주므로 주소가 곧
   - **앱 아이콘에 알파가 있으면 애플이 업로드를 거절한다.** `public/icon-512`을
     흰 바탕에 눌러 붙여 넣었다(첫 화면 그림도 같이). 아이콘을 바꾸면
     **여기까지 여섯 자리**가 된다(웹 넷 + 인라인 하나 + iOS).
+  - **가장 낮은 iOS는 15.0이다 — 내리지 말 것.** 까닭이 둘이다.
+    ① 애플이 올릴 때마다 경고를 보낸다 — `MinimumOSVersion too low …
+    Starting in Spring 2027, all iOS apps must have a MinimumOSVersion of
+    15.0 or later`. ② **우리 코드가 이미 iOS 15를 쓴다** —
+    `ComposerBar`가 바를 키보드에 묶는 `keyboardLayoutGuide`가 15부터다.
+    14.0으로 두어도 빌드는 초록이었지만, 그건 아이폰 14 기기에서만
+    조용히 어긋날 자리를 남겨 둔 것이었다.
+    **다섯 자리가 한 벌이다** — `project.pbxproj`의
+    `IPHONEOS_DEPLOYMENT_TARGET` 넷과 `Podfile`의 `platform :ios`.
+    한 곳만 고치면 Pod과 앱이 갈려 빌드에서 경고가 쏟아진다.
+    (사용자가 `난 ios27쓰고있어`로 정한 자리다 — iOS 14를 쓰는 회원이
+    없는 것을 확인하고 올렸다.)
 - **아카이브는 서명 없이 만들고, 올릴 때 서명한다.** 워크플로에서 제일
   헤맨 자리이고, 까닭은 하나다 — **Xcode의 자동 서명은 아카이브할 때 늘
   개발용 프로비저닝을 받으러 가는데, 개발용은 기기를 미리 등록해 둬야
