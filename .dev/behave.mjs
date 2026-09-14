@@ -1197,6 +1197,32 @@ await go('/#/chat', 1200);
     ok(v.칸최대 === '87%', `말풍선 칸 87% — 78%면 한 글자가 넘어간다 (실제 ${v.칸최대})`);
     ok(v.아바타 === 29, `아바타 29px — 카톡 29.1 (실제 ${v.아바타})`);
     ok(v.한줄 > 34 && v.한줄 < 36, `한 줄 말풍선 35px — 실기기에서 잰 카톡 35.0 (실제 ${v.한줄})`);
+
+    /* **줄 위 자리는 앱 목록도 같이 쓴다.** 웹이 `top`으로 넘겨 주는 값이
+       `lib/chatlist.ts`의 `ROW_TOP`·`GROUPED_TOP`인데, `Chat.css`가 딴
+       값으로 흘러가면 **길게 누르는 창이 뜰 때**(앱 목록을 감추고 웹
+       목록으로 바꿔치기한다) 줄이 통째로 틀어진다 — 사용자 제보 · 사진
+       두 장(`팝업이 있을때와 없을때 프로필이나 말풍선 위치가 틀어져`).
+       앱이 모든 줄에 4px을 박아 두어 줄마다 6px씩 밀렸던 자리다. */
+    /* **고정 자료에 그런 줄이 있는지에 기대지 말 것** — 같은 사람이 같은
+       분에 잇따라 보낸 줄이 없으면 그 칸이 늘 초록으로 뜬다. 규칙 자체를
+       재려고 빈 칸을 잠깐 붙였다 뗀다. */
+    const gap = await page.evaluate(() => {
+        const list = document.querySelector('.chat-list');
+        const mk = (cls) => {
+            const d = document.createElement('div');
+            d.className = cls;
+            list.appendChild(d);
+            const v = getComputedStyle(d).marginTop;
+            d.remove();
+            return v;
+        };
+        return { 보통: mk('chat-row'), 잇따라: mk('chat-row grouped') };
+    });
+    ok(gap.보통 === '10px',
+       `줄 위 자리 10px — 앱 목록의 \`top\`과 같은 값 (실제 ${gap.보통})`);
+    ok(gap.잇따라 === '2px',
+       `같은 사람이 잇따라 보낸 줄은 2px (실제 ${gap.잇따라})`);
 }
 
 /* ── 6-1-1-3-1-11-2. 말풍선 꼬리 ──────────────────────────────

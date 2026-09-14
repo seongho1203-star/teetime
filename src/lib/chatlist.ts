@@ -58,11 +58,12 @@ export function setListOn(on: boolean): void {
  * 돌아오고**(앱 한 바퀴는 30분이다), 18판을 받으면 저절로 앱 목록으로
  * 돌아온다 — 12판 `canPickNative()`에서 쓴 그 수다.
  *
- * **지금은 25판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
+ * **지금은 26판이다** — 사진·이모티콘·눌리는 카드(2판) · 인용·반응 알약·
  * `여기까지 읽으셨습니다` 줄(3판) · 손짓(4판) · 굴리기 얽힘(5판)까지
  * 앱이 맡고, **웹이 바 위에 그리는 것을 가리지 않으며**(23판의 `lift`)
  * **눌러서 키보드를 내릴 수 있고**(24판), **오른쪽으로 밀면 나가고 들어올
- * 때 미끄러져 들어온다**(25판).
+ * 때 미끄러져 들어오며**(25판), **줄 위 자리를 웹이 알려 준다**(26판의
+ * `top` — 25판까지는 모든 줄에 4px을 박아 두어 웹과 6px씩 어긋났다).
  * 그 아래 판을 든 폰은 못 그리거나(사진이 글자로 보인다) 못 움직여서
  * (길게 눌러도 창이 안 뜬다), **같은 수로 웹 목록으로 되돌린다.**
  *
@@ -84,7 +85,7 @@ export function setListOn(on: boolean): void {
  * 돌아오고, 새 앱을 받으면 저절로 앱 목록으로 돌아온다.
  */
 export function canNativeList(): boolean {
-    return ncLog.ready === true && ncLog.v >= 25 && listOn();
+    return ncLog.ready === true && ncLog.v >= 26 && listOn();
 }
 
 /* ── 묶는 규칙 (웹 목록과 앱 목록이 같이 본다) ─────────────── */
@@ -167,7 +168,24 @@ export type ListRow = {
     reacts?: { emoji: string; n: number; mine: boolean }[];
     /** 이 줄 **위에** `여기까지 읽으셨습니다`를 긋는가. */
     mark?: boolean;
+    /**
+     * 이 줄 **위에 띄울 자리**(px). 웹 목록의 `margin-top`과 같은 값이다 —
+     * `.chat-row` **10px**, 같은 사람이 잇따라 보낸 줄(`.grouped`) **2px**,
+     * 안내 줄·카드(`.chat-notice`·`.chat-result`) **10px**.
+     *
+     * **앱이 셈하게 두지 말 것.** 예전에는 앱이 모든 줄에 4px을 박아 두어
+     * 줄마다 6px씩 어긋났고, **아래로 갈수록 쌓였다** — 길게 누르는 창이
+     * 뜨면 앱 목록을 감추고 웹 목록으로 바꿔치기하는데 그때 그 어긋남이
+     * 통째로 드러난다(사용자 제보 · 사진 두 장 — `팝업이 있을때와 없을때
+     * 프로필이나 말풍선 위치가 틀어져`).
+     */
+    top?: number;
 };
+
+/** 줄 위에 띄울 자리 — `Chat.css`의 `.chat-row`와 같은 값이다. */
+export const ROW_TOP = 10;
+/** 같은 사람이 같은 분에 잇따라 보낸 줄(`.chat-row.grouped`). */
+export const GROUPED_TOP = 2;
 
 /** 날짜 칸 글자. 웹 목록의 `.chat-day`와 같은 함수를 쓴다. */
 export function dayChip(m: Message): string {

@@ -25,9 +25,9 @@ import {
     ncLog, pickNativePhoto,
 } from '../lib/composer';
 import {
-    canNativeList, chatListSkin, dayChip, edgeColor, isNewDay, listAttach, listDetach,
-    listRows, listScrollTo, listSet, onListHold, onListState, onListTap, sameBlock,
-    type ListRow,
+    GROUPED_TOP, ROW_TOP, canNativeList, chatListSkin, dayChip, edgeColor, isNewDay,
+    listAttach, listDetach, listRows, listScrollTo, listSet, onListHold, onListState,
+    onListTap, sameBlock, type ListRow,
 } from '../lib/chatlist';
 
 /**
@@ -3294,9 +3294,13 @@ export function Chat() {
                 /* 안내 줄에도 `여기까지 읽으셨습니다`는 그어야 한다 —
                    그 줄이 곧 안 읽은 것의 첫 줄일 수 있다. */
                 const mark = m.id === unreadFrom;
+                /* 안내 줄·카드는 웹에서 `margin: 10px auto 2px`이다
+                   (`.chat-notice`·`.chat-result`) — 줄 위 자리는 늘 10px. */
                 return card
-                    ? { id: m.id, kind: 'card', body: m.body, date, mark, ...card }
-                    : { id: m.id, kind: 'system', body: m.body, date, mark };
+                    ? { id: m.id, kind: 'card', body: m.body, date, mark,
+                        top: ROW_TOP, ...card }
+                    : { id: m.id, kind: 'system', body: m.body, date, mark,
+                        top: ROW_TOP };
             }
 
             const head = !mine && !grouped;
@@ -3307,6 +3311,12 @@ export function Chat() {
             };
             const rows = countReacts(reacts[m.id] ?? [], me);
             const stamp = {
+                /* **줄 위 자리를 웹이 정해서 넘긴다**(`.chat-row`의
+                   `margin-top`). 앱이 셈하면 규칙이 두 곳이 되어 어긋난다 —
+                   실제로 앱은 모든 줄에 4px을 박아 두어 줄마다 6px씩
+                   밀렸다(사용자 제보 · 사진 — `팝업이 있을때와 없을때
+                   프로필이나 말풍선 위치가 틀어져`). */
+                top: grouped ? GROUPED_TOP : ROW_TOP,
                 time: showTime ? formatTime(m.created_at) : undefined,
                 unread: unreadBy[m.id] ?? 0,
                 date,

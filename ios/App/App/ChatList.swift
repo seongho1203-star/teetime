@@ -108,6 +108,17 @@ struct ChatRow {
     let reacts: [ChatReact]
     /// 이 줄 **위에** `여기까지 읽으셨습니다`를 긋는가.
     let mark: Bool
+    /**
+     * 이 줄 **위에 띄울 자리**(웹의 `.chat-row`의 `margin-top`).
+     *
+     * **웹이 알려 주는 값이다 — 여기서 셈하지 말 것.** 예전에는 모든 줄에
+     * 4px을 박아 두었는데 웹은 **다른 사람 사이 10px · 같은 사람 잇따라
+     * 2px**이라, 줄마다 6px씩 어긋나 **아래로 갈수록 쌓였다.** 길게 누르는
+     * 창이 뜨면 앱 목록을 감추고 웹 목록으로 바꿔치기하는데 그때 그
+     * 어긋남이 통째로 드러난다(사용자 제보 · 사진 두 장 — `팝업이 있을때와
+     * 없을때 프로필이나 말풍선 위치가 틀어져`).
+     */
+    let top: CGFloat
 
     init?(_ d: [String: Any]) {
         guard let id = d["id"] as? String else { return nil }
@@ -138,6 +149,8 @@ struct ChatRow {
         quoteText = d["quoteText"] as? String
         quoteTo = d["quoteTo"] as? String
         mark = (d["mark"] as? Bool) ?? false
+        /* 못 받았으면 예전처럼 군다 — 옛 웹이 붙은 판에서 줄이 겹치면 안 된다. */
+        top = CGFloat((d["top"] as? Double) ?? 4)
         reacts = ((d["reacts"] as? [[String: Any]]) ?? []).compactMap {
             guard let e = $0["emoji"] as? String else { return nil }
             return ChatReact(emoji: e, n: ($0["n"] as? Int) ?? 0,
@@ -622,19 +635,31 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private func height(_ row: ChatRow) -> CGFloat {
         let key = "\(row.id)|\(Int(bounds.width))"
         if let h = heights[key] { return h }
-        var h: CGFloat = 0
-        if row.date != nil { h += 34 }                   // 날짜 칸 + 사이
+        /* **줄 위 자리는 웹이 알려 준다**(`row.top` — 10 또는 2). 예전에는
+           맨 아래에 `4`를 박아 두었는데 그것이 곧 어긋남의 정체였다. */
+        var h: CGFloat = row.top
+        /* 날짜 칸 — 웹의 `.chat-day`는 `margin: 16px auto 10px`이고 칩이
+           20px쯤이다(예전 34는 6 + 칩 + 8이라 12px 모자랐다). */
+        if row.date != nil { h += 46 }
         if row.mark { h += 30 }                          // `여기까지 읽으셨습니다`
         if !row.reacts.isEmpty { h += skin.reactH + 3 }
         switch row.kind {
         case .system:
+            /* 칩이 제 안여백(위아래 5)을 들고 있으므로 **글자 + 10**이고,
+               웹의 `.chat-notice`는 아래 여백이 2px다. 위 여백은 이제
+               `row.top`이 든다(예전 18 = 10 + 8).
+               **배치도 `y`에서 바로 시작해야 한다** — 거기서 `+4`를 더하면
+               그만큼 칸 밖으로 넘친다. */
             h += measure(row.body, width: bounds.width - skin.pad * 4,
-                         size: skin.stampSize + 2).height + 18
+                         size: skin.stampSize + 2).height + 12
         case .card:
             let w = cardWidth() - 24
             h += measure(row.body, width: w, size: skin.fontSize - 1).height
             h += measure(row.go ?? "", width: w, size: skin.fontSize - 2).height
-            h += 30                                       // 안여백 + 줄 사이
+            /* 카드가 제 안여백(`bh + gh + 22`)을 들고 있고 웹의
+               `.chat-result`는 아래 여백이 2px다. 위 여백은 `row.top`이
+               든다(예전 30 = 10 + 20). */
+            h += 24
         case .photo, .sticker:
             if row.name != nil { h += skin.nameSize + 5 }
             h += quoteHeight(row, above: true)
@@ -643,7 +668,6 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
                 h += measure(c, width: textWidth(), size: skin.fontSize).height
                     + skin.padV * 2 + 2
             }
-            h += 4
         case .text, .other:
             if row.name != nil { h += skin.nameSize + 5 }
             h += quoteHeight(row, above: false)
@@ -657,7 +681,6 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
                 let t = measure(body, width: textWidth(), size: skin.fontSize)
                 h += t.height + skin.padV * 2
             }
-            h += 4                                        // 줄 사이
         }
         heights[key] = h
         return h
@@ -1305,13 +1328,16 @@ final class BubbleCell: UITableViewCell {
         super.layoutSubviews()
         guard let r = row else { return }
         let w = contentView.bounds.width
-        var y: CGFloat = 0
+        /* **높이 셈(`height`)과 같은 자리에서 시작해야 한다** — 한쪽만
+           고치면 줄이 제 칸 밖으로 밀려 나간다. */
+        var y: CGFloat = r.top
 
         if !dateChip.isHidden {
             let size = dateChip.intrinsicContentSize
-            dateChip.frame = CGRect(x: (w - size.width) / 2, y: 6,
+            /* 웹의 `.chat-day`는 `margin: 16px auto 10px`이다. */
+            dateChip.frame = CGRect(x: (w - size.width) / 2, y: y + 16,
                                     width: size.width, height: size.height)
-            y = dateChip.frame.maxY + 8
+            y = dateChip.frame.maxY + 10
         }
 
         if !markView.isHidden {
@@ -1323,7 +1349,7 @@ final class BubbleCell: UITableViewCell {
             let maxW = w - skin.pad * 4
             let size = sysChip.sizeThatFits(CGSize(width: maxW, height: .greatestFiniteMagnitude))
             let cw = min(maxW, size.width)
-            sysChip.frame = CGRect(x: (w - cw) / 2, y: y + 4, width: cw, height: size.height)
+            sysChip.frame = CGRect(x: (w - cw) / 2, y: y, width: cw, height: size.height)
             return
         }
 
@@ -1333,7 +1359,7 @@ final class BubbleCell: UITableViewCell {
                 CGSize(width: inner, height: .greatestFiniteMagnitude)).height)
             let gh = ceil(cardGo.sizeThatFits(
                 CGSize(width: inner, height: .greatestFiniteMagnitude)).height)
-            cardView.frame = CGRect(x: (w - cardW) / 2, y: y + 4,
+            cardView.frame = CGRect(x: (w - cardW) / 2, y: y,
                                     width: cardW, height: bh + gh + 22)
             cardBody.frame = CGRect(x: 12, y: 10, width: inner, height: bh)
             cardGo.frame = CGRect(x: 12, y: bh + 12, width: inner, height: gh)
