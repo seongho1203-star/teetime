@@ -40,8 +40,9 @@ function taken(from: EventTarget | null): boolean {
     while (el && el !== document.body) {
         if (el.matches('input, textarea, select, [contenteditable]'
                      + ', .chat-row'          /* 왼쪽으로 밀어 답장 */
-                     + ', .chat-menu, .chat-card, .sheet, .modal'  /* 덮는 창 */
+                     + ', .chat-menu, .sheet, .modal'  /* 덮는 창 */
                      + ', .photo-zoom'        /* 크게 본 사진 — 벌리고 끄는 자리 */
+                     + ', .profile-full'      /* 전체화면 프로필 — 아래로 내려 닫는 자리 */
                      + ', .sticker-tray, .chat-hits'  /* 위에 얹힌 판 */
         )) return true;
         // 가로로 굴러갈 수 있는 줄이면 그쪽이 임자다.

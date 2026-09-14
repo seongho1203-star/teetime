@@ -1605,29 +1605,74 @@ ok(await page.evaluate(() => {
 await page.click('.photo-zoom-x');
 await page.waitForTimeout(300);
 
-/* 줄을 누르면 그 사람 카드가 뜬다. */
+/* 줄을 누르면 그 사람 프로필이 **전체화면**으로 뜬다(사용자 요청 —
+   카톡처럼). 예전에는 아래에서 올라오는 작은 카드였다. */
 await page.click('.chat-person');
 await page.waitForTimeout(400);
-const cardText = await page.textContent('.chat-card');
-ok(!!cardText, '줄을 누르면 프로필 카드가 뜬다');
+const cardText = await page.textContent('.profile-full');
+ok(!!cardText, '줄을 누르면 프로필이 뜬다');
 ok(/올해 \d+회/.test(cardText ?? ''),
    `참석 횟수를 적는다 (실제 ${(cardText ?? '').match(/올해 \d+회/)?.[0]})`);
 /* **전화번호·차량번호는 여기 안 적는다** — 회원 명단 하나에서
    운영진에게만 보이기로 정해 둔 값이다. */
 ok(!/010-|\d{2,3}[가-힣]\d{4}/.test(cardText ?? ''),
-   '전화번호·차량번호는 카드에 안 적는다 — 회원 명단 몫이다');
-await page.click('.chat-card .chat-menu-item.ghost');
-await page.waitForTimeout(250);
+   '전화번호·차량번호는 프로필에 안 적는다 — 회원 명단 몫이다');
+/* **화면을 통째로 덮는다.** 클래스만 보면 작은 카드로 되돌아가도 초록으로
+   뜨므로 **실제로 차지하는 자리**를 잰다(가운데를 눌렀을 때 잡히는 것까지). */
+ok(await page.evaluate(() => {
+    const el = document.querySelector('.profile-full-sheet');
+    if (!el) return false;
+    const b = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    return b.width >= innerWidth - 1 && b.height >= innerHeight - 1
+        && !!hit?.closest('.profile-full');
+}), '프로필이 화면을 통째로 덮는다');
+await page.click('.profile-full-x');
+await page.waitForTimeout(300);
+ok(await page.$('.profile-full') === null, '✕를 누르면 닫힌다');
 
-/* **말풍선 옆 얼굴을 눌러도 같은 카드가 뜬다**(카톡과 같다). */
+/* **말풍선 옆 얼굴을 눌러도 같은 화면이 뜬다**(카톡과 같다). */
 await page.click('.chat-search-x');            // 목록을 닫는다
 await page.waitForTimeout(300);
 ok(await page.$('.chat-face') !== null, '말풍선 옆 얼굴이 눌리는 곳이다');
 await page.click('.chat-face');
 await page.waitForTimeout(400);
-ok(await page.$('.chat-card') !== null, '얼굴을 누르면 그 사람 카드가 뜬다');
-/* 카드의 `@언급하기`를 누르면 입력칸에 `@이름 `이 들어간다. */
-const hasMention = await page.$('.chat-card .btn.ghost');
+ok(await page.$('.profile-full') !== null, '얼굴을 누르면 그 사람 프로필이 뜬다');
+
+/* **아래로 내리면 사라진다**(사용자 요청 — 뒤로 가기 손짓과 같은 결).
+   **조금 내린 것은 제자리로 돌아와야 한다** — 안 그러면 굴리려다
+   닫히는 것처럼 느껴진다. 손짓을 잡는 것이 우리 코드라 헤드리스로 잡힌다. */
+const dragSheet = (from, to) => page.evaluate(async ([y0, y1]) => {
+    const el = document.querySelector('.profile-full');
+    const mk = (x, y) => new Touch({ identifier: 1, target: el,
+        clientX: x, clientY: y, pageX: x, pageY: y });
+    const fire = (type, x, y) => el.dispatchEvent(new TouchEvent(type, {
+        bubbles: true, cancelable: true,
+        touches: type === 'touchend' ? [] : [mk(x, y)],
+        targetTouches: type === 'touchend' ? [] : [mk(x, y)],
+        changedTouches: [mk(x, y)] }));
+    /* **시간을 두고 흘려야 한다** — 한 프레임에 몰아 던지면 어떤 거리든
+       빠르기가 무한이 되어 **튕김으로 읽힌다**(실제로 40px에서 닫혔다).
+       손가락은 240ms에 걸쳐 움직이므로 그만큼 나눠 준다. */
+    fire('touchstart', 180, y0);
+    const step = (y1 - y0) / 8;
+    for (let i = 1; i <= 8; i++) {
+        await new Promise(r => setTimeout(r, 30));
+        fire('touchmove', 180, y0 + step * i);
+    }
+    fire('touchend', 180, y1);
+}, [from, to]);
+
+await dragSheet(300, 340);                      // 40px — 안 닫힐 만큼
+await page.waitForTimeout(400);
+ok(await page.$('.profile-full') !== null, '조금 내린 것으로는 안 닫힌다');
+ok(await page.evaluate(() => {
+    const el = document.querySelector('.profile-full-sheet');
+    return !el || new DOMMatrixReadOnly(getComputedStyle(el).transform).f < 1;
+}), '놓으면 제자리로 돌아온다');
+
+/* 프로필의 `@언급하기`를 누르면 입력칸에 `@이름 `이 들어간다. */
+const hasMention = await page.$('.profile-full-btn');
 if (hasMention) {
     await hasMention.click();
     await page.waitForTimeout(300);
@@ -1635,10 +1680,19 @@ if (hasMention) {
     ok(draft.startsWith('@') && draft.endsWith(' '),
        `@언급하기를 누르면 입력칸에 이름이 들어간다 (실제 ${JSON.stringify(draft)})`);
     await page.$eval('.chat-input .textarea', el => { el.value = ''; });
-} else {
-    await page.click('.chat-card .chat-menu-item.ghost');
+} else if (await page.$('.profile-full-x')) {
+    await page.click('.profile-full-x');
 }
 await page.waitForTimeout(250);
+
+/* 멀리 내리면 닫힌다 — 위에서 닫아 버렸으면 한 번 더 연다. */
+if (await page.$('.profile-full') === null) {
+    await page.click('.chat-face');
+    await page.waitForTimeout(400);
+}
+await dragSheet(200, 520);                      // 320px — 넉넉히 넘긴다
+await page.waitForTimeout(500);
+ok(await page.$('.profile-full') === null, '아래로 내리면 사라진다');
 
 /* ── 6-1-1-3-1-9. 방 공지 ───────────────────────────────────────
  *
@@ -2187,7 +2241,7 @@ ok(!/올해 \d+회/.test(aRows),
    `일반회원 명단에는 참석 횟수가 없다 (실제 ${JSON.stringify(aRows.match(/올해 \d+회/)?.[0] ?? '없음')})`);
 ok(!aRpc.includes('attendance_counts'), '일반회원은 그 조회를 아예 안 보낸다');
 
-/* **대화의 프로필 카드도 같은 잣대다** — 한쪽만 고치면 명단에서 감춰 놓고
+/* **대화의 프로필 화면도 같은 잣대다** — 한쪽만 고치면 명단에서 감춰 놓고
    대화에서 그대로 보여 준다. */
 await aPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
 await aPage.waitForTimeout(1200);
@@ -2195,9 +2249,9 @@ await aPage.click('.chat-who-btn');
 await aPage.waitForTimeout(400);
 await aPage.click('.chat-person');
 await aPage.waitForTimeout(400);
-const aCard = (await aPage.textContent('.chat-card')) ?? '';
+const aCard = (await aPage.textContent('.profile-full')) ?? '';
 ok(!!aCard && !/올해 \d+회/.test(aCard),
-   `대화 프로필 카드에도 안 적는다 (실제 ${JSON.stringify(aCard.slice(0, 40))})`);
+   `대화 프로필 화면에도 안 적는다 (실제 ${JSON.stringify(aCard.slice(0, 40))})`);
 await aCtx.close();
 
 /* ── 6-4-1. 회원 명단 차례 고르기 ───────────────────────────────

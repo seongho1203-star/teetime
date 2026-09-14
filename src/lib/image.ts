@@ -40,6 +40,26 @@ const MAX_EDGE = 2560;
 const QUALITY = 0.82;
 
 /**
+ * 그림 주소를 `https`로 올린다.
+ *
+ * **카카오가 주는 프사 주소는 `http://k.kakaocdn.net/…`이다** — `https`가
+ * 아니다. 웹에서는 문서가 `https`라 **브라우저가 알아서 올려 받아 줘서**
+ * (mixed content auto-upgrade) 여태 그냥 떴다. **앱에서는 문서가
+ * `capacitor://localhost`라 그 올림이 없고**, iOS는 http 통신을 통째로
+ * 막으므로(App Transport Security) 그림만 조용히 실패한다 — **앱으로
+ * 옮기자마자 얼굴이 다 글자로 바뀐 것이 이것이다**(사용자 제보).
+ *
+ * **그릴 때 고친다. DB를 고치지 말 것** — 이미 `http://`로 저장된 행이
+ * 회원 수만큼 있어서, 넣는 자리만 고치면 그 뒤로 들어오는 사람만 맞는다.
+ *
+ * **얼굴(`Avatar`)과 전체화면 프로필(`ProfileFull`)이 같이 쓴다** —
+ * 한쪽에만 두면 그 화면에서만 사진이 글자로 바뀐다.
+ */
+export function httpsUrl(u: string) {
+    return u.startsWith('http://') ? `https://${u.slice(7)}` : u;
+}
+
+/**
  * `maxEdge`를 넘기면 그 크기로 줄인다. 프로필 사진은 아바타로만 쓰여
  * 큰 것이 의미가 없다 — 400px이면 충분하고 그만큼 빨리 올라간다.
  */

@@ -1,27 +1,12 @@
 import { useState } from 'react';
 import type { Gender } from '../lib/types';
-
 /**
- * 그림 주소를 `https`로 올린다.
- *
- * **카카오가 주는 프사 주소는 `http://k.kakaocdn.net/…`이다** — `https`가
- * 아니다. 웹에서는 문서가 `https`라 **브라우저가 알아서 `https`로 올려
- * 받아 줘서**(mixed content auto-upgrade) 여태 그냥 떴다.
- * **앱에서는 문서가 `capacitor://localhost`라 그 올림이 없고**, iOS는
- * http 통신을 통째로 막으므로(App Transport Security) 그림만 조용히
- * 실패해 `onError`로 넘어갔다 — **앱으로 옮기자마자 얼굴이 글자로 바뀐
- * 것이 이것이다**(사용자 제보). 같은 주소를 `https`로 부르면 그대로 온다.
- *
- * **그릴 때 고친다. DB를 고치지 말 것** — 이미 `http://`로 저장된 행이
- * 회원 수만큼 있어서, 넣는 자리(가입 트리거·`createPending`)만 고치면
- * 그 뒤로 들어오는 사람만 맞고 지금 계신 분들은 그대로 글자다.
- *
- * 올렸는데도 안 받아지면 예전처럼 `onError`가 글자로 되돌리므로,
- * `https`가 없는 주소였더라도 잃는 것이 없다.
+ * **주소를 `https`로 올리는 일은 `lib/image.ts`에 한 벌로 있다**
+ * (`httpsUrl`). 전체화면 프로필(`ProfileFull`)도 같은 것을 쓰므로,
+ * 여기에 다시 만들지 말 것 — 한쪽만 고치면 그 화면에서만 사진이
+ * 글자로 바뀐다. 올렸는데도 안 받아지면 `onError`가 글자로 되돌린다.
  */
-function https(u: string) {
-    return u.startsWith('http://') ? `https://${u.slice(7)}` : u;
-}
+import { httpsUrl } from '../lib/image';
 
 /**
  * 프로필 사진. 없거나 못 불러오면 이름의 마지막 두 글자를 보여 준다
@@ -57,7 +42,7 @@ export function Avatar({
     const initials = label ? label.slice(-2) : '?';
     const alt = gender ? `${label} (${gender === 'm' ? '남' : '여'})` : label;
 
-    const src = url ? https(url) : null;
+    const src = url ? httpsUrl(url) : null;
     if (src && src !== bad) {
         return (
             <img
