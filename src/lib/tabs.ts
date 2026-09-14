@@ -29,10 +29,18 @@ import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
  *   - 화면을 덮는 창 — 길게 누른 창·프로필 카드·확인창.
  */
 
-/** 탭바와 **같은 순서여야 한다**(`components/TabBar.tsx`). 한쪽만 고치지 말 것.
- *  여기서는 **'이 화면이 탭인가'를 가리는 데만** 쓴다 — 탭 화면에서는
- *  뒤로 갈 데가 없으므로 미는 손짓을 안 받는다. */
-export const TAB_PATHS = ['/', '/board', '/rounds', '/polls', '/chat'];
+/**
+ * **'이 화면이 탭인가'를 가리는 데만 쓴다** — 탭 화면에서는 뒤로 갈 데가
+ * 없으므로 미는 손짓도 안 받고 미끄러져 들어오지도 않는다.
+ *
+ * **`/chat`은 여기 없다**(사용자 요청 — `채팅에서 탭바없애고 오른쪽에서
+ * 왼쪽으로 채팅화면이 나오고 뒤로가기처럼 나올수있게해줘`). 탭바에는
+ * 그대로 `대화`가 있지만 그건 **들어가는 문**일 뿐이고, 들어간 뒤로는
+ * 카톡의 대화방처럼 **뒤로 나오는 화면**이다 — 탭바가 감춰지고(`TabBar`),
+ * 오른쪽에서 미끄러져 들어오며(`useScreenSlide`), `←`와 미는 손짓으로
+ * 나온다. 그래서 **탭바의 다섯 줄과 이 목록은 이제 개수가 다르다.**
+ */
+export const TAB_PATHS = ['/', '/board', '/rounds', '/polls'];
 
 /** 손짓이 이미 임자가 있는 자리에서 시작했는가. */
 function taken(from: EventTarget | null): boolean {
@@ -195,6 +203,28 @@ const SLOPE = 1.2;
 /** 앞 화면이 뒤에서 따라 나오는 몫(아이폰의 그 어긋남). */
 const PARALLAX = 0.25;
 const DIM = 0.18;
+/** **끌리는 것 없이** 갈 때의 잣대. 손끝만 스친 것으로 넘어가지 않게
+ *  한다(끌기 쪽의 `TAKE`는 화면을 실제로 밀어 보며 정하는 값이라 더 크다). */
+const PLAIN_TAKE = 60;
+
+/**
+ * 이 손짓을 **끌리는 것 없이** 처리할 것인가.
+ *
+ *  1. 움직임을 줄여 달라고 해 둔 기기.
+ *  2. **네이티브 부품이 화면에 얹혀 있을 때**(`html.nc` — 앱의 글칸 바와,
+ *     켜 두었다면 대화 목록). 그것들은 웹뷰 **위에 따로 얹힌 앱 부품**이라
+ *     우리가 `transform`으로 화면을 밀어도 **따라오지 않는다** — 위쪽 절반만
+ *     손을 따라가고 입력칸은 제자리에 남아 **찢어져 보인다.**
+ *     (웹의 `z-index`로 앱 부품을 못 덮는 그 자리와 같은 까닭이다.)
+ *
+ * **손짓이 시작될 때마다 본다.** `nc`는 대화가 열리고 바가 선 **뒤에**
+ * 붙으므로, 효과가 걸리는 순간에 잡아 두면 늘 거짓이다
+ * (`owns6()`에서 겪은 그 함정이다 — 판 번호를 값으로 잡지 말 것).
+ */
+function plainBack(): boolean {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        || document.documentElement.classList.contains('nc');
+}
 
 export function useBackSwipe(): void {
     const nav = useNavigate();
@@ -204,12 +234,9 @@ export function useBackSwipe(): void {
     useEffect(() => {
         // 탭 화면에서는 뒤로 갈 데가 없다.
         if (onTab) return;
-        /* 움직임을 줄여 달라고 해 둔 기기에서는 끌리는 것 없이 곧바로
-           간다 — 아래 효과가 그 몫을 맡는다. */
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
         let x0 = 0, y0 = 0, dx = 0, vx = 0, lastX = 0, lastT = 0;
-        let cand = false, live = false, W = 1;
+        let cand = false, live = false, plain = false, W = 1;
         let page: HTMLElement | null = null;
         let ghost: HTMLDivElement | null = null;
         let dim: HTMLDivElement | null = null;
@@ -279,6 +306,8 @@ export function useBackSwipe(): void {
             x0 = lastX = e.touches[0].clientX;
             y0 = e.touches[0].clientY;
             lastT = e.timeStamp;
+            /* **이 손짓 하나에 대해** 끌지 말지를 여기서 정한다(위 `plainBack`). */
+            plain = plainBack();
             cand = true;
         };
 
@@ -290,21 +319,25 @@ export function useBackSwipe(): void {
                 // 세로가 크면 굴리는 손짓이다 — 통째로 넘긴다.
                 if (Math.abs(gy) > Math.abs(gx) && Math.abs(gy) > WAKE) { cand = false; return; }
                 if (gx < WAKE || gx < Math.abs(gy) * SLOPE) return;
-                page = pageEl();
-                if (!page) { cand = false; return; }
                 W = window.innerWidth || 1;
-                document.documentElement.classList.add('back-drag');
-                /* 여기서부터는 우리 손짓이다 — 굴리는 것을 막는 듣기를
-                   **이제** 붙인다(위 `block` 주석). */
-                document.addEventListener('touchmove', block, { passive: false });
-                build();
                 live = true;
+                /* **끌지 않는 판에서는 자리만 쫓는다** — 그림도 안 깔고
+                   화면도 안 민다(위 `plainBack` 주석). */
+                if (!plain) {
+                    page = pageEl();
+                    if (!page) { cand = false; live = false; return; }
+                    document.documentElement.classList.add('back-drag');
+                    /* 여기서부터는 우리 손짓이다 — 굴리는 것을 막는 듣기를
+                       **이제** 붙인다(위 `block` 주석). */
+                    document.addEventListener('touchmove', block, { passive: false });
+                    build();
+                }
             }
             dx = Math.max(0, gx);
             const dt = e.timeStamp - lastT;
             if (dt > 0) vx = (t.clientX - lastX) / dt;
             lastX = t.clientX; lastT = e.timeStamp;
-            paint();
+            if (!plain) paint();
         };
 
         const end = () => {
@@ -313,8 +346,13 @@ export function useBackSwipe(): void {
             if (!live) return;
             /* 손이 멈춘 채로 있었으면 빠르기는 없던 것으로 본다. */
             const still = performance.now() - lastT > STALE;
-            const go = dx > W * TAKE
-                    || (!still && vx > FLICK && dx > FLICK_MIN);
+            const flick = !still && vx > FLICK && dx > FLICK_MIN;
+            if (plain) {
+                live = false;
+                if (dx > PLAIN_TAKE || flick) nav(-1);
+                return;
+            }
+            const go = dx > W * TAKE || flick;
             document.documentElement.classList.add('back-ease');
             dx = go ? W : 0;
             paint();
@@ -334,7 +372,7 @@ export function useBackSwipe(): void {
         };
 
         /* 흔들림 없이 되돌아오게, 손짓이 끊기면 그대로 접는다. */
-        const cancel = () => { if (live) { dx = 0; paint(); } clean(); cand = false; };
+        const cancel = () => { if (live && !plain) { dx = 0; paint(); } clean(); cand = false; };
 
         /* **무엇이 던져져도 그림은 걷는다.** 손짓 도중에 오류가 나면
            깔아 둔 앞 화면이 그대로 남아 앱이 죽은 것처럼 보인다
@@ -364,28 +402,6 @@ export function useBackSwipe(): void {
        `GHOST_MAX`가 지난 것만 걷으므로 **지금 돌고 있는 뒤로 가기는
        건드리지 않는다.** */
     useEffect(() => { sweepGhosts(); }, [pathname]);
-
-    useEffect(() => {
-        if (onTab) return;
-        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-        let x0 = 0, y0 = 0, ok0 = false;
-        const s = (e: TouchEvent) => {
-            ok0 = e.touches.length === 1 && !taken(e.target);
-            if (ok0) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }
-        };
-        const t = (e: TouchEvent) => {
-            if (!ok0) return;
-            ok0 = false;
-            const c = e.changedTouches[0];
-            if (c && c.clientX - x0 > 60 && c.clientX - x0 > Math.abs(c.clientY - y0) * 1.6) nav(-1);
-        };
-        document.addEventListener('touchstart', s, { passive: true });
-        document.addEventListener('touchend', t, { passive: true });
-        return () => {
-            document.removeEventListener('touchstart', s);
-            document.removeEventListener('touchend', t);
-        };
-    }, [onTab, nav]);
 }
 
 /**

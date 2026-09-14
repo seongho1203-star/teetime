@@ -31,6 +31,15 @@
     max-width: var(--page-w);
     margin: 0 auto;
     padding-top: var(--safe-t);
+    /* **대화방에는 탭바가 없다**(사용자 요청 — `채팅에서 탭바없애고`).
+       `TabBar`가 이 화면에서 `null`을 돌려주므로 그 자리를 비워 둘 이유가
+       없다. **여기 한 줄로 세 군데가 함께 0이 된다** — 입력칸 아래 여백 ·
+       이모티콘 서랍의 음수 여백 · 그림 칸 아래 여백. 한 곳씩 고치면
+       반드시 하나를 빠뜨린다.
+       **네이티브 바에는 이 값이 안 간다** — `composerSkin()`이 `--tabbar-h`를
+       `documentElement`에서 읽어 기억하므로, 거기는 `tabH: 0`을 손으로
+       준다(`Chat.tsx`의 `attach`). */
+    --tabbar-h: 0px;
 }
 
 /* 대화방 머리말 — 카톡 오픈톡과 같은 배치의 44px 띠다.
@@ -41,13 +50,34 @@
 .chat-head {
     flex: 0 0 auto;
     height: 44px;
-    padding: 0 var(--gap-sm) 0 var(--gap);
+    /* 왼쪽 여백이 좁아진 것은 `←`가 들어왔기 때문이다 — 단추 안쪽에
+       이미 여백이 있어 `--gap`을 그대로 두면 제목이 너무 안으로 밀린다. */
+    padding: 0 var(--gap-sm) 0 var(--gap-xs);
     border-bottom: 1px solid var(--line);
     display: flex;
     align-items: center;
     gap: 2px;
     background: var(--bg);
 }
+/* `←` — 대화방을 나간다(카톡의 그 자리다 · 사용자 요청).
+   **크기는 오른쪽 단추 둘(`.chat-find`·`.chat-who-btn`)과 같은 34px이다** —
+   머리말에 서는 단추 셋이 다르게 보일 이유가 없고, 30px 아래로 내리면
+   `node .dev/audit.mjs`가 '누름 자리 작음'으로 잡는다. */
+.chat-back {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+}
+.chat-back svg { width: 22px; height: 22px; stroke: currentColor; }
+
 /* 다른 화면의 제목과 같은 글꼴·굵기를 쓴다. 이 줄 하나로 대화방이
    '같은 앱의 한 화면'이 된다.
    **`flex: 1`과 `min-width: 0`이 한 쌍이다** — 없으면 이름이 길 때

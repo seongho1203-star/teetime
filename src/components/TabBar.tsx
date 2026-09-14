@@ -129,7 +129,8 @@ export function TabBar() {
     const counts = useLiveCounts();
     const { session } = useAuth();
     const { pathname } = useLocation();
-    useDing(session?.user.id ?? '', pathname === '/chat');
+    const onChat = pathname === '/chat';
+    useDing(session?.user.id ?? '', onChat);
 
     /* 순서는 사용자가 정한 것이다. 공지가 라운드 앞에 온다 —
        홈에서 공지 칸을 걷어냈으므로 그 자리를 이 탭이 대신한다. */
@@ -140,6 +141,14 @@ export function TabBar() {
         { to: '/polls',  label: '투표',   icon: icons.poll,  count: counts?.polls },
         { to: '/chat',   label: '대화',   icon: icons.chat,  count: counts?.chat,  alert: true },
     ];
+
+    /* **대화방에서는 탭바를 감춘다**(사용자 요청 — `채팅에서 탭바없애고`).
+       카톡의 대화방이 그렇다: 들어가면 화면을 통째로 쓰고, 나오는 길은
+       `←`와 미는 손짓이다(`lib/tabs.ts`의 `TAB_PATHS`에서 `/chat`을 뺐다).
+       **`null`을 돌려줄 뿐 떼어 내지는 않는다** — 위 갈고리 둘
+       (`useLiveCounts`·`useDing`)이 계속 돌아야 대화에서도 `까꿍` 소리가
+       나고, 나올 때 숫자가 이미 맞춰져 있다. */
+    if (onChat) return null;
 
     return (
         <nav className="tabbar">

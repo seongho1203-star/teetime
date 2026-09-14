@@ -2900,6 +2900,50 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     await bCtx2.close();
 }
 
+/* ── 대화는 탭이 아니라 들어갔다 나오는 화면이다 ────────────────────
+ *
+ * 사용자 요청 — `채팅에서 탭바없애고 오른쪽에서 왼쪽으로 채팅화면이 나오고
+ * 뒤로가기처럼 나올수있게해줘`(카톡의 대화방 사진을 받아 맞췄다).
+ *
+ * **클래스 이름만 보면 다 초록으로 뜨는 자리라 값을 잰다** — 탭바가 정말
+ * 없는지 · 탭바 자리를 안 비워 두는지(입력칸이 바닥에 닿는지) · `←`가
+ * 실제로 앞 화면으로 돌려놓는지. `TAB_PATHS`에 `/chat`을 도로 넣으면
+ * 미끄러져 들어오는 줄이 빨갛게 뜬다.
+ */
+console.log('\n── 대화는 들어갔다 나오는 화면이다 ──');
+{
+    await go('/#/', 700);
+    await page.click('.tabbar a:last-child');
+    await page.waitForTimeout(120);
+    const slid = await page.evaluate(() => document.querySelector('.app').className);
+    ok(slid.includes('slide-in'), `오른쪽에서 미끄러져 들어온다 (${slid})`);
+
+    await page.waitForSelector('.chat-list', { timeout: 10000 });
+    await page.waitForTimeout(600);
+    const room = await page.evaluate(() => {
+        const i = document.querySelector('.chat-input');
+        return {
+            탭바: !!document.querySelector('.tabbar'),
+            탭바자리: getComputedStyle(document.querySelector('.chat'))
+                .getPropertyValue('--tabbar-h').trim(),
+            입력칸아래: Math.round(innerHeight - i.getBoundingClientRect().bottom),
+            뒤로: !!document.querySelector('.chat-back'),
+        };
+    });
+    ok(!room.탭바, '대화방에는 탭바가 없다');
+    ok(room.탭바자리 === '0px', `탭바 자리를 안 비워 둔다 (${room.탭바자리})`);
+    ok(room.입력칸아래 === 0, `입력칸이 화면 맨 아래에 붙는다 (아래 ${room.입력칸아래}px)`);
+    ok(room.뒤로, '머리말 왼쪽에 `←`가 있다');
+
+    await page.click('.chat-back');
+    await page.waitForTimeout(700);
+    const out = await page.evaluate(() => ({
+        길: location.hash, 탭바: !!document.querySelector('.tabbar'),
+    }));
+    ok(out.길 === '#/', `\`←\`를 누르면 앞 화면으로 돌아간다 (${out.길})`);
+    ok(out.탭바, '나오면 탭바가 돌아온다');
+}
+
 /* ── 15. 사진을 줄여서 올리는가 ───────────────────────────────────
  *
  * **2560px으로 키웠다가 사진이 통째로 안 올라갔다**(사용자 제보 —

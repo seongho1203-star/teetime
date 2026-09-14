@@ -652,6 +652,23 @@ export function Chat() {
     /* 앱 목록에서 카드를 눌렀을 때 옮겨 갈 길이다(19판). 웹 목록은
        `<Link>`로 가지만 앱 목록에는 링크가 없어 여기서 옮긴다. */
     const nav = useNavigate();
+
+    /**
+     * 머리말의 `←` — **대화방을 나간다**(사용자 요청 — 카톡처럼).
+     *
+     * **뒤로 갈 데가 없으면 홈으로 간다.** 대화는 이제 탭이 아니라
+     * 들어갔다 나오는 화면인데, **알림을 눌러 `#/chat`으로 곧바로 들어오는
+     * 길이 있어서**(`sw.js`의 `putNav` · `native-push`) 그때는 히스토리에
+     * 앞 화면이 없다 — 그냥 `nav(-1)`만 부르면 **앱 밖으로 나가거나
+     * 아무 일도 안 일어난다.** 리액트 라우터가 몇 번째 화면인지를
+     * `history.state.idx`에 적어 두므로 그것으로 가린다.
+     */
+    const goBack = useCallback(() => {
+        const idx = (history.state as { idx?: number } | null)?.idx;
+        if (typeof idx === 'number' && idx > 0) nav(-1);
+        else nav('/');
+    }, [nav]);
+
     /* 저장·공유가 도는 동안 단추를 잠근다. **저장은 끝나기까지 몇 초가
        걸리는데 그동안 아무 말이 없어**, 안 된 줄 알고 또 눌러 **같은
        사진이 여러 장 저장됐다**(사용자 제보). 토스트를 위로 올린 것과
@@ -3098,6 +3115,13 @@ export function Chat() {
                    (14판 · `slideKb` 주석). 목록이 시작하는 자리(`listTop`)는
                    아래 효과가 재서 알려 준다 — 여기서는 켜기만 한다. */
                 slide: canSlide(),
+                /* **대화방에는 탭바가 없다**(사용자 요청 — 위 머리말 주석).
+                   바 아래에 그 자리를 비워 두면 입력칸이 그만큼 떠 보인다.
+                   `composerSkin()`은 `--tabbar-h`를 **`documentElement`에서**
+                   읽어 기억해 두므로(`skinCache`), `.chat` 안에서 그 값을
+                   0으로 덮어도 여기까지는 안 온다 — 그래서 손으로 준다
+                   (댓글 바가 `tabH: 0`을 주는 것과 같은 자리다). */
+                tabH: 0,
             })));
             if (dead) return;
             ncOn.current = true;
@@ -3447,13 +3471,28 @@ export function Chat() {
 
                 예전에는 제목을 가운데 세우고 단추 둘을 양끝에 얹었는데,
                 카톡은 제목이 왼쪽에 붙고 누르는 것이 오른쪽에 모여 있다.
-                **`←`(뒤로)는 안 둔다** — 카톡에서는 방을 나가는 자리지만
-                이 앱에서 대화는 **탭**이라 뒤로 갈 데가 없다(눌러 봐야 앱이
-                통째로 닫힌다). 방을 옮기는 일은 탭바가 맡는다.
 
-                단추 둘 다 흐름 안에 있다 — 제목이 왼쪽이라 자리를 뺏길
+                **맨 왼쪽에 `←`가 있다**(사용자 요청 — `채팅에서 탭바없애고
+                오른쪽에서 왼쪽으로 채팅화면이 나오고 뒤로가기처럼
+                나올수있게해줘`). 한동안 안 두었는데 그때는 **대화가 탭이라
+                뒤로 갈 데가 없었기 때문**이다 — 지금은 카톡의 대화방처럼
+                들어갔다 나오는 화면이라(`lib/tabs.ts`의 `TAB_PATHS`에서
+                `/chat`을 뺐다) 그 전제가 바뀌었다. **탭바도 여기서는
+                감춰진다**(`TabBar`) — 나오는 길이 `←`와 미는 손짓 둘이다.
+
+                단추 셋 다 흐름 안에 있다 — 제목이 `flex: 1`이라 자리를 뺏길
                 일이 없어, 예전처럼 `position: absolute`로 띄울 이유가 없다. */}
             <div className="chat-head">
+                {/* 찾는 동안에는 안 보인다 — 그 줄은 칸과 `취소`로 꽉 차고,
+                    거기서 나가는 길은 `취소`다(카톡도 그렇다). */}
+                {!searchOn && (
+                    <button className="chat-back" onClick={goBack} aria-label="뒤로">
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="2"
+                             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M15 5l-7 7 7 7" />
+                        </svg>
+                    </button>
+                )}
                 {searchOn ? (
                     <div className="chat-search">
                         <input className="chat-search-in" ref={sqRef} type="search"
