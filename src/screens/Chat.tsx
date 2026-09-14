@@ -2665,10 +2665,25 @@ export function Chat() {
         /* **`[data-mid]`가 아니라 그 안의 `.chat-row`다.** 바깥 칸에는
            날짜 칸(`2026년 9월 7일`)과 `여기까지 읽으셨습니다` 줄이 함께
            들어 있어, 그대로 찍으면 그것들까지 그림에 딸려 온다. */
-        const el = listRef.current?.querySelector<HTMLElement>(`[data-mid="${m.id}"] .chat-row`);
-        if (!el) { toast('그 메시지를 찾지 못했습니다.', 'error'); return; }
+        const list = listRef.current;
+        const el = list?.querySelector<HTMLElement>(`[data-mid="${m.id}"] .chat-row`);
+        if (!list || !el) { toast('그 메시지를 찾지 못했습니다.', 'error'); return; }
         toast('그림으로 만드는 중…', 'ok');
-        const how = await captureNode(el);
+        /* **찍는 동안만 웹 목록을 내보인다.**
+           앱 목록이 서 있으면 웹 목록은 `visibility: hidden`인데(`.nc-list`),
+           그 값은 **물려받는 것**이라 찍히는 줄까지 `hidden`이 되어 **그림이
+           통째로 빈 채로 나온다.** 앱 목록이 그 위를 덮고 있으므로 잠깐
+           내보여도 **화면에는 아무 변화가 없다.**
+           `finally`로 되돌리는 것이 한 쌍이다 — 도중에 실패하면 웹 목록이
+           내보인 채로 남아 앱 목록 뒤에서 두 겹으로 비친다. */
+        const was = list.style.visibility;
+        if (listUp) list.style.visibility = 'visible';
+        let how: Awaited<ReturnType<typeof captureNode>>;
+        try {
+            how = await captureNode(el);
+        } finally {
+            if (listUp) list.style.visibility = was;
+        }
         if (how === 'saved') toast('그림으로 내려받았습니다.', 'ok');
         else if (how === 'fail') toast('캡쳐가 안 됩니다.', 'error');
         // 'shared'는 공유창이 뜬 것이라 따로 알릴 것이 없다.
