@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
-import { listOn } from './chatlist';
+import { canNativeList, listOn } from './chatlist';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -293,7 +293,31 @@ const PLAIN_TAKE = 60;
  */
 function plainBack(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        || document.documentElement.classList.contains('nc');
+        || document.documentElement.classList.contains('nc')
+        || ghostBlank();
+}
+
+/**
+ * **뒤에 깔 앞 화면을 웹이 못 그리는가.**
+ *
+ * 대화방은 말풍선을 **앱이 그리므로**(`teetime:nc-list`를 켠 판) 떠날 때
+ * 찍어 둔 그 화면의 DOM에는 **감춰진 빈 목록만** 들어 있다(`.nc-list`가
+ * `visibility: hidden`이다). 그대로 깔면 **머리말만 있고 아래가 텅 빈
+ * 회색 판이 손을 따라 나온다** — 대화방에서 모집을 눌러 들어갔다 돌아올
+ * 때 실제로 그랬다(사용자 제보 · 사진 — `다시 채팅으로 올때는 뒷배경이
+ * 안보임`).
+ *
+ * 그때는 **끌지 않고 곧바로 넘어간다** — 뒤에 깔 그림이 없을 때
+ * `useScreenSlide`가 40px짜리로 물러나는 그 잣대와 같다(`빈 화면이
+ * 통째로 지나가면 안 된다`).
+ *
+ * **앱 목록 쪽에서 끌어 나오는 것은 이것과 상관없다**(35판의 `BackDrag`) —
+ * 거기는 **앱이 화면을 통째로 찍으므로** 말풍선이 그대로 들어 있다.
+ * 못 그리는 것은 **대화방으로 돌아올 때**뿐이다.
+ */
+function ghostBlank(): boolean {
+    const shot = shots[shots.length - 1];
+    return !!shot && shot.path.startsWith('/chat') && canNativeList();
 }
 
 /**
