@@ -3066,6 +3066,73 @@ console.log('\n── 대화는 들어갔다 나오는 화면이다 ──');
 
 }
 
+/* ── 읽던 자리로 돌아온다 ────────────────────────────────────
+ *
+ * 사용자 제보 — `채팅방으로 공유된 알림을 눌러서 라운드나 투표로 들어갔다가
+ * 뒤로가기하면 그 화면으로 와야 하는데 최근대화로 넘어와`.
+ *
+ * 대화는 `useAsync` 기억해 두기를 안 쓰므로 나갔다 오면 화면이 통째로 새로
+ * 만들어지고 첫 묶음을 다시 받는다 — 그러면 `pinBottom`이 맨 아래로
+ * 내려놓아 **옛 대화를 되짚다가 카드를 눌러 들어간 사람은 읽던 자리를 잃는다.**
+ *
+ * **클래스 이름으로는 못 본다 — 자리를 잰다.** 화면 맨 위에 걸린 글과 그
+ * 글이 위로 지나간 만큼(`off`)이 돌아왔을 때도 같아야 한다.
+ * **맨 아래를 보고 있었으면 맨 아래 그대로여야 하는 것**도 함께 본다 —
+ * 그 자리를 글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다.
+ */
+console.log('\n── 읽던 자리로 돌아온다 ──');
+{
+    /** 화면 맨 위에 걸린 글과 그 글이 위로 지나간 만큼. */
+    const spot = () => page.evaluate(() => {
+        const el = document.querySelector('.chat-list');
+        const top = el.getBoundingClientRect().top;
+        const at = [...el.querySelectorAll('[data-mid]')]
+            .find(r => r.getBoundingClientRect().bottom > top + 1);
+        return {
+            자리: Math.round(el.scrollTop),
+            끝: Math.round(el.scrollHeight - el.clientHeight),
+            글: at?.dataset.mid ?? null,
+            위로: at ? Math.round(top - at.getBoundingClientRect().top) : null,
+        };
+    });
+    /** 굴려 놓고 **굴리기 신호까지 준다** — 적어 두는 일이 거기에 달려 있다. */
+    const scrollTo = async (fn) => {
+        await page.evaluate(f => {
+            const el = document.querySelector('.chat-list');
+            el.scrollTop = new Function('el', `return ${f}`)(el);
+            el.dispatchEvent(new Event('scroll'));
+        }, fn);
+        await page.waitForTimeout(400);
+    };
+    /** 대화방의 눌리는 카드로 들어갔다 뒤로 온다. */
+    const roundTrip = async () => {
+        await page.click('.chat-result');
+        await settleScreen(page);
+        await page.waitForTimeout(500);
+        await page.goBack();
+        await settleScreen(page);
+        await page.waitForSelector('.chat-list');
+        await page.waitForTimeout(1200);
+    };
+
+    await go('/#/chat', 900);
+    await page.waitForSelector('.chat-list');
+
+    await scrollTo('Math.max(0, el.scrollHeight - el.clientHeight - 600)');
+    const 전 = await spot();
+    await roundTrip();
+    const 후 = await spot();
+    ok(후.글 === 전.글 && Math.abs(후.위로 - 전.위로) <= 4,
+       `카드를 눌러 들어갔다 오면 읽던 자리다 (${전.글}/${전.위로} → ${후.글}/${후.위로})`);
+    ok(후.자리 < 후.끝 - 100, `맨 아래로 안 끌려간다 (${후.자리}/${후.끝})`);
+
+    await scrollTo('el.scrollHeight');
+    await roundTrip();
+    const 바닥 = await spot();
+    ok(바닥.자리 >= 바닥.끝 - 4,
+       `맨 아래를 보고 있었으면 맨 아래 그대로다 (${바닥.자리}/${바닥.끝})`);
+}
+
 /* ── 화면이 통째로 밀려 들어오고 나간다 ──────────────────────────
  *
  * 사용자 제보 — `카톡과 비교하면 아직도 엄청빨라`. **빠르게 느껴지던 것은

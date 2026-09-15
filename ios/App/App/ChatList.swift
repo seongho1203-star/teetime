@@ -532,26 +532,55 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     var rowCount: Int { return rows.count }
 
     /**
+     * **읽던 자리**(32판) — 화면 맨 위에 걸린 줄과 그 줄이 위로 지나간 만큼.
+     *
+     * 라운드·투표를 눌러 들어갔다 `←`로 돌아오면 대화가 새로 만들어져
+     * **최근 대화로 툭 내려갔다**(사용자 제보). 나가면서 이 값을 웹에 넘겨
+     * 두면 다시 들어올 때 그 글을 같은 자리에 놓을 수 있다.
+     *
+     * **굴린 픽셀이 아니라 글 id로 적는다** — 다시 들어오면 사진이 늦게
+     * 뜨며 높이가 달라져 같은 숫자가 다른 자리를 가리킨다.
+     */
+    func topSpot() -> (id: String, off: CGFloat)? {
+        let y = table.contentOffset.y + table.adjustedContentInset.top
+        guard let ip = (table.indexPathsForVisibleRows ?? [])
+            .first(where: { table.rectForRow(at: $0).maxY > y + 1 }),
+            ip.row < rows.count else { return nil }
+        return (rows[ip.row].id, max(0, y - table.rectForRow(at: ip).minY))
+    }
+
+    /**
      * 그 글로 뛴다 — 인용을 누르거나 검색 결과를 골랐을 때다(5판).
      *
      * **못 찾으면 거짓을 돌려준다.** 지난 묶음에 있어 아직 안 받아 온 글이라,
      * 웹이 `지난 대화에 있습니다`로 알려 준다(웹 목록과 같은 잣대다).
      *
-     * `place`는 `center`(인용·검색) 또는 `top`(`여기까지 읽으셨습니다` 줄 —
-     * **마지막으로 읽은 글이 한 줄 보이게** 위에서 조금 내려 둔다).
+     * `place`는 셋이다 — `center`(인용·검색) · `top`(`여기까지 읽으셨습니다`
+     * 줄 — **마지막으로 읽은 글이 한 줄 보이게** 위에서 조금 내려 둔다) ·
+     * **`at`(읽던 자리 — 그 글이 위로 `off`만큼 지나간 자리. 32판)**.
      */
-    func scrollTo(id: String, place: String, flash: Bool) -> Bool {
+    func scrollTo(id: String, place: String, off: CGFloat = 0, flash: Bool) -> Bool {
         guard let at = rows.firstIndex(where: { $0.id == id }) else { return false }
         let ip = IndexPath(row: at, section: 0)
         /* **부드럽게 굴리지 않는다** — 300개까지 받아 둔 목록을 훑어
            내려가는 일이라 느린 폰에서 그대로 끊긴다(웹의 `jumpToLatest`와
            같은 잣대다). 게다가 `top`은 굴린 뒤에 자리를 한 번 더 고치므로
            움직이는 중이면 그 값이 어긋난다. */
-        table.scrollToRow(at: ip, at: place == "top" ? .top : .middle, animated: false)
+        table.scrollToRow(at: ip,
+                          at: place == "top" || place == "at" ? .top : .middle,
+                          animated: false)
         if place == "top" {
             /* 웹이 `위에서 100px`에 두는 그 자리다 — 줄 바로 위에 지난 글이
                한 줄 비쳐야 거기서부터 읽어 내려갈 수 있다. */
             table.contentOffset.y = max(0, table.contentOffset.y - 100)
+        } else if place == "at" {
+            /* `.top`은 그 줄의 윗변을 화면 맨 위에 맞춘다 — 나갈 때 위로
+               지나가 있던 `off`만큼 더 내려야 **그때 보던 그 자리**다.
+               끝을 넘지 않게 자른다(그 글이 마지막 즈음이면 더 갈 데가 없다). */
+            let maxY = max(-table.adjustedContentInset.top,
+                           table.contentSize.height - table.bounds.height
+                               + table.adjustedContentInset.bottom)
+            table.contentOffset.y = min(maxY, table.contentOffset.y + off)
         }
         lastAtBottom = atBottom()
         guard flash else { return true }

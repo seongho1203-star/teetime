@@ -227,10 +227,19 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        (같은 판에서 **가린 글이 가운데 칩**이 되었는데, 그건 웹이
     ///        `kind: 'system'`으로 넘기는 것이라 앱에 손댈 것이 없었다.)
     ///
+    /// 32판 — **나가면서 읽던 자리를 돌려준다**(`listDetach`의 `topId`·`off` ·
+    ///        `listScrollTo`의 `place: "at"`). 대화방에서 라운드·투표 카드를
+    ///        눌러 들어갔다 `←`로 돌아오면 **최근 대화로 툭 내려갔다**
+    ///        (사용자 제보 — `뒤로가기하면 그 화면으로 와야하는데 최근대화로
+    ///        넘어와`). 굴린 자리는 앱이 들고 있으므로 **나갈 때 한 번**
+    ///        물어보고, 다시 들어올 때 그 글을 같은 자리에 놓는다.
+    ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 `listDetach`가
+    ///        빈손으로 답할 뿐이라 예전처럼 맨 아래로 갈 뿐이다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 31
+    private static let version = 32
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -565,6 +574,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             }
             let ok = list.scrollTo(id: id,
                                    place: call.getString("place") ?? "center",
+                                   off: CGFloat(call.getDouble("off") ?? 0),
                                    flash: call.getBool("flash") ?? false)
             call.resolve(["ok": ok])
         }
@@ -640,15 +650,27 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         notifyListeners("listMenuPick", data: ["kind": kind, "name": name])
     }
 
+    /**
+     * 목록을 걷는다 — **나가면서 읽던 자리를 함께 돌려준다**(32판).
+     *
+     * 굴린 자리는 앱이 들고 있어 웹이 물어볼 길이 이 순간뿐이다. 굴릴
+     * 때마다 알려 오게 하면 다리를 쉼 없이 건너게 되므로(`far`를 뒤집힐
+     * 때만 알리는 것과 같은 잣대다) **나갈 때 한 번만** 적어 보낸다.
+     */
     @objc func listDetach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.menu?.hide()
+            var spot: [String: Any] = ["atBottom": self.list?.atBottom() ?? true]
+            if let s = self.list?.topSpot() {
+                spot["topId"] = s.id
+                spot["off"] = Double(s.off)
+            }
             self.list?.removeFromSuperview()
             self.listTopC = nil
             self.listBotC = nil
             /* 바와 같은 까닭으로 **버리지는 않는다** — 탭을 오갈 때마다
                표를 새로 만들면 그만큼 늦어진다. */
-            call.resolve()
+            call.resolve(spot)
         }
     }
 

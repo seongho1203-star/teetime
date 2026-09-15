@@ -29,7 +29,7 @@ import {
     GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
     isNewDay, listAttach, listDetach, listMenu, listOn, listRows, listScrollTo, listSet,
     onListHold, onListMenuPick, onListState, onListTap, sameBlock,
-    type HoldItem, type ListRow,
+    type ChatSpot, type HoldItem, type ListRow,
 } from '../lib/chatlist';
 
 /**
@@ -88,6 +88,69 @@ const JUMP_AT = 240;
 /** 반응을 물어볼 때 한 번에 실을 글 개수. **늘리지 말 것** — 300개를
  *  한 줄에 다 실으면 주소가 11KB가 되어 중간에서 잘린다. */
 const REACT_CHUNK = 60;
+
+/**
+ * **읽던 자리를 방마다 기억해 둔다** (사용자 제보 — `채팅방으로 공유된
+ * 알림을 눌러서 라운드나 투표로 들어갔다가 뒤로가기하면 그 화면으로 와야
+ * 하는데 최근대화로 넘어와`).
+ *
+ * 대화는 `useAsync` 기억해 두기를 안 쓰므로(위 '탭을 넘길 때' 꼭지) 나갔다
+ * 오면 화면이 통째로 새로 만들어지고 첫 묶음을 다시 받는다 — 그러면 굴려
+ * 둔 자리가 없어 `pinBottom`이 맨 아래로 내려놓는다. 옛 대화를 되짚다가
+ * 그 안의 카드를 눌러 들어간 사람에게는 **읽던 자리를 잃는 일**이다.
+ *
+ * - **굴린 픽셀이 아니라 글 id로 적는다.** 다시 들어오면 사진이 늦게 뜨며
+ *   높이가 달라져 **같은 숫자가 다른 자리를 가리킨다.** 화면 맨 위에 걸린
+ *   글과 그 글이 위로 지나간 만큼(`off`)이면 목록이 어떻게 자라도 같은 자리다.
+ * - **맨 아래를 보고 있었으면 아예 안 적는다**(지운다). 그때 되돌려 놓을
+ *   자리는 '맨 아래'이고, 그건 새 글이 오면 따라 내려가야 하는 자리다 —
+ *   글 id로 못박아 두면 되레 안 따라간다.
+ * - **모듈에 둔다.** 방을 나가면 화면이 없어지므로 화면 안에 두면 함께
+ *   사라진다. 로그아웃해도 안 비우지만 **적어 둔 것이 글 id뿐**이라,
+ *   다른 사람으로 들어오면 그 글이 목록에 없어 저절로 맨 아래가 된다.
+ * - 방이 몇 개 없지만 **한도를 둔다** — 목록·상세 기억해 두기(`CACHE_MAX`)와
+ *   같은 잣대다.
+ */
+const SPOTS = new Map<string, ChatSpot>();
+const SPOT_MAX = 10;
+
+/** 굴리기가 멎고 나서 적는다 — **굴리는 동안에는 재지 않는다.** */
+const SPOT_WAIT = 150;
+
+function keepSpot(room: string, spot: ChatSpot | null): void {
+    SPOTS.delete(room);
+    if (!spot) return;
+    SPOTS.set(room, spot);
+    for (const old of SPOTS.keys()) {
+        if (SPOTS.size <= SPOT_MAX) break;
+        SPOTS.delete(old);
+    }
+}
+
+/**
+ * 웹 목록에서 **화면 맨 위에 걸린 줄**을 찾는다.
+ *
+ * 줄이 300개까지 쌓이므로 하나씩 훑지 않고 **반씩 좁혀 간다** — 굴리기가
+ * 멎은 뒤에 도는 일이라 값이 싸야 할 자리는 아니지만, 느린 폰에서 굴리다
+ * 멈출 때마다 300개를 훑을 이유도 없다.
+ */
+function webSpot(el: HTMLElement): ChatSpot | null {
+    const rows = el.querySelectorAll<HTMLElement>('[data-mid]');
+    if (!rows.length) return null;
+    const top = el.getBoundingClientRect().top;
+    let lo = 0;
+    let hi = rows.length - 1;
+    let at = -1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (rows[mid].getBoundingClientRect().bottom > top + 1) { at = mid; hi = mid - 1; }
+        else lo = mid + 1;
+    }
+    if (at < 0) return null;
+    const id = rows[at].dataset.mid;
+    if (!id) return null;
+    return { id, off: Math.max(0, Math.round(top - rows[at].getBoundingClientRect().top)) };
+}
 
 /**
  * **아직 서버에 안 닿은 내 글의 id 앞머리.**
@@ -295,6 +358,9 @@ export function Chat() {
     }, []);
 
     const roomId = data?.room?.id;
+    /** 화면을 걷는 뒷정리에서도 읽어야 한다(`listDetach` → `SPOTS`). */
+    const roomRef = useRef<string | undefined>(undefined);
+    roomRef.current = roomId;
     const names = byId(data?.people ?? []);
     const myName = names[me]?.name ?? '';
     /** 언급에 쓸 이름들. 회원 이상만 — 대기·추방된 사람은 대화를 못 본다. */
@@ -812,6 +878,75 @@ export function Chat() {
         const off = window.setTimeout(() => ro.disconnect(), 600);
         return () => { ro.disconnect(); clearTimeout(off); };
     }, [tray]);
+
+    /**
+     * **읽던 자리로 되돌려 놓는다**(사용자 제보 — `채팅방으로 공유된 알림을
+     * 눌러서 라운드나 투표로 들어갔다가 뒤로가기하면 그 화면으로 와야 하는데
+     * 최근대화로 넘어와`). 적어 두는 곳은 위의 `SPOTS`다.
+     *
+     * - **`여기까지 읽으셨습니다` 줄이 이긴다.** 그 효과가 바로 아래에
+     *   있으니 여기서는 비켜 준다 — 밀린 글이 있는 사람에게는 그 줄이
+     *   먼저 답해야 할 물음이다.
+     * - **적어 둔 글이 목록에 없으면 그냥 넘어간다.** 지난 묶음으로 밀려난
+     *   글이라, 예전처럼 맨 아래에 내려놓는 것이 맞다.
+     * - **앱 목록은 한 번 더 한다**(`web` → `app`). 앱 목록은 웹 화면이
+     *   그려진 **뒤에** 서고 그때 맨 아래로 붙으므로, 웹 목록에 놓아 둔
+     *   자리를 그대로 덮어쓴다. 그쪽은 **줄을 넘긴 뒤에** 해야 하므로
+     *   `listRows` 바로 옆에 따로 두었다(아래 `앱 목록에도 같은 자리로`).
+     */
+    const spotDone = useRef<'web' | 'app' | 'skip' | null>(null);
+
+    /** 되돌려 놓을 자리. 없거나 그 글이 목록에 없으면 `null`이다. */
+    const spotNow = useCallback((list: Message[]): ChatSpot | null => {
+        if (!roomId || !list.length) return null;
+        const spot = SPOTS.get(roomId);
+        /* 밀린 글이 있는 사람에게는 `여기까지 읽으셨습니다` 줄이 먼저
+           답해야 할 물음이다 — 그 효과가 바로 아래에 있어 이쪽이 비켜 준다. */
+        if (!spot || unreadFrom || !list.some(m => m.id === spot.id)) {
+            spotDone.current = 'skip';
+            return null;
+        }
+        return spot;
+    }, [roomId, unreadFrom]);
+
+    useLayoutEffect(() => {
+        if (listUp || spotDone.current) return;   // 앱 목록 몫은 아래에 따로 있다.
+        const spot = spotNow(messages);
+        const el = listRef.current;
+        if (!spot || !el || !el.querySelector(`[data-mid="${spot.id}"]`)) return;
+        spotDone.current = 'web';
+        atBottom.current = false;
+
+        const put = () => {
+            const row = el.querySelector<HTMLElement>(`[data-mid="${spot.id}"]`);
+            if (!row) return;
+            el.scrollTop
+                += row.getBoundingClientRect().top - el.getBoundingClientRect().top + spot.off;
+            // 사진이 도착했을 때 얼마나 자랐는지 견줄 잣대(위 `onImageLoad`).
+            listH.current = el.scrollHeight;
+        };
+        put();
+
+        /* **한 번만 놓으면 어긋난다 — 목록 높이가 한 번에 안 정해진다.**
+           들어오고 나서도 그림·글꼴이 뒤늦게 자리를 잡느라 한동안 자라는데,
+           헤드리스로 재 보니 **그 자란 66px이 통째로 위쪽 몫이라** 놓아 둔
+           자리가 그만큼 밀렸다. 그래서 맨 아래를 붙들어 두는 감시(위)와
+           똑같이 **높이가 바뀔 때마다** 다시 놓고 1.5초 뒤에 손을 뗀다.
+           **높이가 바뀔 때만** 한다 — 사람이 굴리는 것은 높이를 안 바꾸므로
+           그 사이에 읽으러 옮겨 간 자리를 빼앗지 않는다. */
+        let raf = 0;
+        let last = el.scrollHeight;
+        let lastFit = el.clientHeight;
+        const until = performance.now() + 1500;
+        const tick = () => {
+            const h = el.scrollHeight;
+            const fit = el.clientHeight;
+            if (h !== last || fit !== lastFit) { last = h; lastFit = fit; put(); }
+            raf = performance.now() < until ? requestAnimationFrame(tick) : 0;
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [messages, listUp, spotNow]);
 
     /* **줄이 그어진 자리로 옮겨 준다.** 100~200개가 밀린 사람을 맨 아래에
        내려놓으면 어디부터 읽어야 할지 스스로 찾아 올라가야 한다.
@@ -1911,9 +2046,40 @@ export function Chat() {
         return () => clearTimeout(timer);
     }, [messages]);
 
+    /**
+     * **읽던 자리를 적어 둔다**(위 `SPOTS`).
+     *
+     * **굴리는 동안이 아니라 멎고 나서 한 번** 잰다 — 굴릴 때마다 줄 자리를
+     * 재면 긴 대화에서 그대로 끊긴다(그림 자리를 재서 미리 받던 것이
+     * 되레 나빠진 그 자리다).
+     *
+     * **화면을 떠날 때 재는 길로 가지 않았다** — 그때는 리액트가 이미
+     * 목록을 걷어 가고 있어 `scrollTop`이 0으로 읽힌다.
+     */
+    const spotTimer = useRef(0);
+    const saveSpot = () => {
+        const el = listRef.current;
+        if (!roomId || !el) return;
+        /* 앱 목록이 서 있으면 굴린 자리는 앱이 안다 — 나갈 때 물어본다
+           (`listDetach`). 여기서 감춰 둔 웹 목록을 재 봐야 헛값이다. */
+        if (listUpRef.current) return;
+        /* **맨 아래를 보고 있었으면 지운다** — 되돌려 놓을 자리가 '맨 아래'인데,
+           글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다. */
+        keepSpot(roomId, atBottom.current ? null : webSpot(el));
+    };
+    const spotSoon = () => {
+        if (spotTimer.current) return;
+        spotTimer.current = window.setTimeout(() => {
+            spotTimer.current = 0;
+            saveSpot();
+        }, SPOT_WAIT);
+    };
+    useEffect(() => () => clearTimeout(spotTimer.current), []);
+
     const onScroll = () => {
         const el = listRef.current;
         if (!el) return;
+        spotSoon();
         const below = el.scrollHeight - el.scrollTop - el.clientHeight;
         /* **앉히는 동안에는 '맨 아래인가'를 고쳐 쓰지 않는다.** 키보드가
            오르내리면 목록 높이가 여러 단계에 걸쳐 바뀌고 그때마다 브라우저가
@@ -3269,7 +3435,12 @@ export function Chat() {
             dead = true;
             drop?.();
             setListUp(false);
-            void listDetach();
+            /* **나가면서 읽던 자리를 받아 적는다**(32판 · 위 `SPOTS`).
+               굴린 자리는 앱이 들고 있어 물어볼 길이 이 순간뿐이다 —
+               굴릴 때마다 알려 오게 하면 다리를 쉼 없이 건너게 된다.
+               답이 늦게 와도 `SPOTS`는 모듈에 있어 그대로 남는다. */
+            const room = roomRef.current;
+            void listDetach().then(spot => { if (room) keepSpot(room, spot); });
         };
     }, [nativeBar]);
 
@@ -3425,6 +3596,27 @@ export function Chat() {
         if (!listUp) return;
         void listRows(listData, true);
     }, [listUp, listData]);
+
+    /**
+     * **앱 목록에도 같은 자리로 되돌려 놓는다**(32판 · 위 `SPOTS` 참고).
+     *
+     * **줄을 넘긴 뒤에 해야 한다** — 앱 목록은 방금 섰고 아직 비어 있어,
+     * 먼저 부르면 `못 찾음`으로 돌아온다. 그래서 웹 목록 쪽(`useLayoutEffect`)과
+     * 갈라 `listRows` 바로 뒤에 두었다.
+     *
+     * **못 찾으면 표를 안 남긴다** — 다음 묶음에서 다시 해 본다.
+     */
+    useEffect(() => {
+        if (!listUp) return;
+        if (spotDone.current === 'app' || spotDone.current === 'skip') return;
+        const spot = spotNow(messages);
+        if (!spot) return;
+        void listScrollTo(spot.id, 'at', false, spot.off).then(ok => {
+            if (!ok) return;
+            spotDone.current = 'app';
+            atBottom.current = false;
+        });
+    }, [listUp, listData, messages, spotNow]);
 
     /**
      * 목록이 시작하는 자리를 알려 준다 — 앱 목록의 윗변이 그 자리에 선다.

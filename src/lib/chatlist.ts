@@ -346,9 +346,11 @@ type Bridge = {
     listAttach(o: Record<string, unknown>): Promise<{ ok?: boolean }>;
     listRows(o: { rows: ListRow[]; stickBottom: boolean }): Promise<{ ok?: boolean; n?: number }>;
     listSet(o: Record<string, unknown>): Promise<void>;
-    listScrollTo(o: { id: string; place?: string; flash?: boolean }): Promise<{ ok?: boolean }>;
+    listScrollTo(o: {
+        id: string; place?: string; flash?: boolean; off?: number;
+    }): Promise<{ ok?: boolean }>;
     listMenu(o: Record<string, unknown>): Promise<{ ok?: boolean }>;
-    listDetach(): Promise<void>;
+    listDetach(): Promise<{ atBottom?: boolean; topId?: string; off?: number }>;
     addListener(
         n: 'listState',
         cb: (e: { atBottom: boolean; atTop: boolean; far: boolean }) => void,
@@ -384,6 +386,15 @@ export type HoldItem = {
 /** 길게 누른 말풍선의 자리 — **창(화면) 좌표다**(웹의 `getBoundingClientRect`와 같은 자). */
 export type HoldAt = { id: string; mine: boolean; x: number; y: number; w: number; h: number };
 
+/**
+ * **읽던 자리**(32판) — 화면 맨 위에 걸린 글과 그 글이 위로 지나간 만큼이다.
+ *
+ * 굴린 픽셀(`scrollTop`)을 적어 두지 않는 것이 핵심이다 — 다시 들어오면
+ * 사진이 늦게 뜨며 높이가 달라져 같은 숫자가 다른 자리를 가리킨다.
+ * 글 id로 적어 두면 그 글이 목록에 있는 한 늘 같은 자리다.
+ */
+export type ChatSpot = { id: string; off: number };
+
 const bridge = NativeComposer as unknown as Bridge;
 
 /** 목록을 세운다. **바가 먼저 서 있어야 한다** — 안 서 있으면 앱이 거절한다. */
@@ -404,8 +415,25 @@ export async function listSet(o: Record<string, unknown>): Promise<void> {
     await hush(bridge.listSet(o));
 }
 
-export async function listDetach(): Promise<void> {
-    await hush(bridge.listDetach());
+/**
+ * 나가면서 **읽던 자리**를 받아 온다(32판).
+ *
+ * 굴린 자리는 앱이 들고 있으므로 웹이 물어볼 길이 그 순간뿐이다 —
+ * 굴릴 때마다 알려 오게 하면 다리를 쉼 없이 건너게 된다(`far`를 뒤집힐
+ * 때만 알리는 것과 같은 잣대다). 라운드·투표를 눌러 들어갔다 돌아왔을 때
+ * 그 자리에 되돌려 놓는 값이다.
+ *
+ * **그 값을 모르는 옛 앱에서는 `null`이다** — 그때는 예전처럼 최근 대화로
+ * 내려놓을 뿐이라 깨질 자리가 없다(`canNativeList()`의 문을 안 올린 까닭).
+ */
+export async function listDetach(): Promise<ChatSpot | null> {
+    try {
+        const r = await bridge.listDetach();
+        if (!r || r.atBottom !== false || !r.topId) return null;
+        return { id: r.topId, off: Math.max(0, Math.round(r.off ?? 0)) };
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -448,16 +476,19 @@ export async function closeListMenu(): Promise<void> {
 
 /**
  * 그 글로 뛴다 — 인용을 눌렀을 때 · 검색 결과를 골랐을 때 ·
- * `여기까지 읽으셨습니다` 줄로 내려놓을 때.
+ * `여기까지 읽으셨습니다` 줄로 내려놓을 때 · **읽던 자리로 되돌릴 때**(`at`).
+ *
+ * `place`는 셋이다 — `center`(인용·검색) · `top`(줄. 위에서 100px) ·
+ * **`at`(읽던 자리. 그 글이 위로 `off`만큼 지나간 자리)**.
  *
  * **못 찾으면 거짓이다**(아직 안 받아 온 지난 묶음의 글) — 그때 무엇을
  * 알릴지는 웹이 정한다(`지난 대화에 있습니다. 위로 올려 주세요.`).
  */
 export async function listScrollTo(
-    id: string, place: 'center' | 'top' = 'center', flash = false,
+    id: string, place: 'center' | 'top' | 'at' = 'center', flash = false, off = 0,
 ): Promise<boolean> {
     try {
-        const r = await bridge.listScrollTo({ id, place, flash });
+        const r = await bridge.listScrollTo({ id, place, flash, off });
         return r?.ok === true;
     } catch {
         return false;
