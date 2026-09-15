@@ -26,8 +26,8 @@ import {
     kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeText,
 } from '../lib/composer';
 import {
-    GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip,
-    dragOn, edgeColor, isNewDay, listAttach, listDetach, listMenu, listOn, listRows,
+    GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canBackDrag, canNativeList, chatListSkin, closeListMenu,
+    dayChip, edgeColor, isNewDay, listAttach, listDetach, listMenu, listOn, listRows,
     listScrollTo, listSet, onListBack, onListHold, onListMenuPick, onListState, onListTap,
     sameBlock, spotLog, spotNote,
     type ChatSpot, type HoldItem, type ListRow,
@@ -3572,7 +3572,7 @@ export function Chat() {
                    깔 앞 화면이 있는지는 **웹만 안다** — 그 그림은 떠날 때
                    찍어 둔 웹 DOM이라 앱이 만들 길이 없다. 거짓이면 앱이
                    25판처럼 곧바로 넘어간다. */
-                drag: dragOn() && hasBackShot(),
+                drag: canBackDrag() && hasBackShot(),
             });
             if (dead || !ok) return;
             const h = await onListState(e => {

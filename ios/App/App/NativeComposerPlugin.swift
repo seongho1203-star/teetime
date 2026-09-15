@@ -254,13 +254,19 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        (`BackDrag` · `listBack` · `chatListBackBegan`). `root`를 통째로
     ///        찍어 그 그림을 끌고, 웹뷰는 1/4만큼 따라 나오며 막이 걷힌다 —
     ///        나머지 열아홉 화면과 같은 그림이다.
-    ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 모르는 칸
-    ///        (`drag`)을 그냥 흘려 25판처럼 곧바로 넘어갈 뿐이라 깨질 자리가 없다.
+    ///
+    ///   - **36판** 그 그림을 **화면이 아니라 창에 얹는다**(`BackDrag.stage`).
+    ///        Capacitor는 **웹뷰를 화면 그 자체로 쓰므로**(`loadView`의
+    ///        `view = webView`) 35판은 그림을 웹뷰 안에 얹었고, 앞 화면 몫으로
+    ///        웹뷰를 미는 순간 **그림까지 함께 밀려** 화면이 왼쪽으로 튀었다가
+    ///        손을 따라 끌려왔다(사용자 제보). **웹이 `drag`를 36판부터만
+    ///        보낸다** — 35판을 든 폰은 25판처럼 곧바로 넘어가고, 거기에는
+    ///        그 자국이 없다.
     ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 35
+    private static let version = 36
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

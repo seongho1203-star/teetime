@@ -1291,6 +1291,8 @@ final class BackDrag {
     private weak var web: UIView?
     private var shot: UIView?
     private var veil: UIView?
+    /// 그림을 얹는 곳 — **창(`UIWindow`)이다.** 아래 `begin` 주석을 볼 것.
+    private weak var stage: UIView?
     /// 감춰 둔 앱 부품과 **감추기 전 값**. 바는 `hidden`이 진짜 기능이라
     /// (7판) 덮어놓고 내보이면 감춰 둔 것까지 살아난다.
     private var hid: [(view: UIView, was: Bool)] = []
@@ -1301,26 +1303,41 @@ final class BackDrag {
      * 끌 준비를 한다. **떠나는 화면을 먼저 찍는다** — 앱 부품을 감춘 뒤에
      * 찍으면 말풍선이 빠진 그림이 된다.
      *
+     * **그림은 화면(`root`)이 아니라 창(`UIWindow`)에 얹는다.**
+     * Capacitor는 **웹뷰를 화면 그 자체로 쓴다**(`CAPBridgeViewController`의
+     * `loadView`가 `view = webView`다) — 그래서 `root`가 곧 웹뷰이고, 그
+     * 안에 그림을 얹으면 **앞 화면 몫으로 웹뷰를 미는 순간 그림과 앱
+     * 부품까지 함께 밀린다.** 처음에 그렇게 짰다가 실기기에서
+     * **화면이 왼쪽으로 97px 튀었다가 손을 따라 끌려오는** 자국으로
+     * 나타났다(사용자 제보 — `오른쪽으로 손가락을 밀면 … 화면이 왼쪽으로
+     * 갔다가 오른쪽으로 끌려와`). 창에 얹으면 웹뷰와 남남이라 그 자리가
+     * 아예 없다.
+     *
+     * **앱 부품(목록·바)이 웹뷰와 함께 밀리는 것은 상관없다** — 그 둘은
+     * 여기서 감춰지고, 찍어 둔 그림이 그 자리를 대신한다.
+     *
      * 못 찍으면 거짓을 돌려주고, 그때는 목록이 25판처럼 곧바로 넘어간다.
      */
     func begin(root: UIView, web: UIView, cover: [UIView]) -> Bool {
         end()
         guard root.bounds.width > 1,
+              let stage = root.window,
               let shot = root.snapshotView(afterScreenUpdates: false) else { return false }
         self.web = web
+        self.stage = stage
         width = root.bounds.width
-        shot.frame = root.bounds
+        let box = root.convert(root.bounds, to: stage)
+        shot.frame = box
         shot.isUserInteractionEnabled = false
 
-        let veil = UIView(frame: root.bounds)
+        let veil = UIView(frame: box)
         veil.backgroundColor = .black
         veil.alpha = Self.dim
         veil.isUserInteractionEnabled = false
-        veil.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        /* **막은 웹뷰 위·그림 아래다.** 앱 부품은 이 뒤에서 감춰지므로
-           차례를 따질 것이 없다 — 둘 다 맨 위에 얹으면 된다. */
-        root.addSubview(veil)
-        root.addSubview(shot)
+        /* **막은 웹뷰 위·그림 아래다.** 창에서 화면 다음에 얹으므로 차례를
+           따로 따질 것이 없다 — 둘 다 맨 위에 붙이면 그대로 그 차례다. */
+        stage.addSubview(veil)
+        stage.addSubview(shot)
         self.shot = shot
         self.veil = veil
 
@@ -1387,6 +1404,7 @@ final class BackDrag {
         veil?.removeFromSuperview()
         shot = nil
         veil = nil
+        stage = nil
         web?.transform = .identity
         web = nil
         hid = []
