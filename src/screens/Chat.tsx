@@ -153,6 +153,19 @@ function webSpot(el: HTMLElement): ChatSpot | null {
 }
 
 /**
+ * 적어 두는 자리에 **그 글의 시각을 함께 붙인다**(`ChatSpot.at`).
+ *
+ * 다시 들어오면 마지막 묶음만 받아 오므로, 그 글이 거기 없으면 받아 올
+ * 길이 있어야 한다 — 시각이 그 열쇠다(첫 묶음 받는 곳의 `언저리를 받아 온다`).
+ * 웹 목록과 앱 목록이 **같이 쓴다**(앱은 id만 돌려주므로 여기서 붙인다).
+ */
+function stampSpot(spot: ChatSpot | null, list: Message[]): ChatSpot | null {
+    if (!spot) return null;
+    const at = list.find(m => m.id === spot.id)?.created_at;
+    return at ? { ...spot, at } : spot;
+}
+
+/**
  * **아직 서버에 안 닿은 내 글의 id 앞머리.**
  *
  * 보내기를 누르면 서버에 넣고 **답이 온 뒤에** 그리던 것을, 누르는 즉시
@@ -411,6 +424,42 @@ export function Chat() {
                 atBottom.current = false;
                 setUnreadFrom(list[i].id);
             }
+
+            /* **읽던 글이 첫 묶음에 없으면 그 언저리를 받아 온다**(사용자
+               제보 — 고쳐 놓고도 `깜빡하면서 최근대화로되어있어`).
+               옛 대화를 되짚다가(=`지난 대화 더 보기`를 눌러 가며 올라가다가)
+               카드를 눌러 들어간 사람은, 돌아오면 **마지막 50개만 받아 와**
+               그 글이 목록에 아예 없어 맨 아래로 떨어졌다. 헤드리스로
+               재서 갈랐다 — 첫 묶음 안이면 제자리로 오고, 넘어가면 `끝 0`이다.
+               **검색 결과로 옮겨 갈 때와 같은 길이다**(`openHit`) — 그 글을
+               가운데 두고 앞뒤를 받고 `windowed`를 세워 `최근 대화로`를 낸다.
+               한쪽만 고치지 말 것.
+               - **`여기까지 읽으셨습니다` 줄이 있으면 안 한다**(`i > 0`).
+                 밀린 글이 있는 사람에게는 그 줄이 먼저 답해야 할 물음이다.
+               - **시각을 모르면 안 한다**(옛 판이 적어 둔 자리) — 예전처럼
+                 맨 아래다. 한 번 더 다녀오는 것은 그 글이 정말 없을 때뿐이다. */
+            const back = SPOTS.get(roomId);
+            if (i <= 0 && back?.at && !list.some(m => m.id === back.id)) {
+                const [older, newer] = await Promise.all([
+                    supabase.from('messages').select('*').eq('room_id', roomId)
+                        .lte('created_at', back.at)
+                        .order('created_at', { ascending: false }).limit(PAGE),
+                    supabase.from('messages').select('*').eq('room_id', roomId)
+                        .gt('created_at', back.at)
+                        .order('created_at', { ascending: true }).limit(WINDOW_AFTER),
+                ]);
+                if (!alive) return;
+                const before = older.data ?? [];
+                if (before.some(m => m.id === back.id)) {
+                    // 맨 아래로 끌려 내려가지 않게 먼저 내려 둔다.
+                    atBottom.current = false;
+                    setMessages([...before.slice().reverse(), ...(newer.data ?? [])]);
+                    setHasMore(before.length === PAGE);
+                    setWindowed(true);
+                    return;
+                }
+            }
+
             setMessages(list);
             setHasMore((rows ?? []).length === limit);
         })();
@@ -2071,7 +2120,7 @@ export function Chat() {
         if (listUpRef.current) return;
         /* **맨 아래를 보고 있었으면 지운다** — 되돌려 놓을 자리가 '맨 아래'인데,
            글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다. */
-        keepSpot(roomId, atBottom.current ? null : webSpot(el));
+        keepSpot(roomId, stampSpot(atBottom.current ? null : webSpot(el), msgsRef.current));
     };
     const spotSoon = () => {
         if (spotTimer.current) return;
@@ -3459,7 +3508,8 @@ export function Chat() {
                굴릴 때마다 알려 오게 하면 다리를 쉼 없이 건너게 된다.
                답이 늦게 와도 `SPOTS`는 모듈에 있어 그대로 남는다. */
             const room = roomRef.current;
-            void listDetach().then(spot => { if (room) keepSpot(room, spot); });
+            const list = msgsRef.current;
+            void listDetach().then(spot => { if (room) keepSpot(room, stampSpot(spot, list)); });
         };
     }, [nativeBar]);
 

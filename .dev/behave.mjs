@@ -3232,6 +3232,120 @@ console.log('\n── 읽던 자리로 돌아온다 ──');
        `맨 아래를 보고 있었으면 맨 아래 그대로다 (${바닥.자리}/${바닥.끝})`);
 }
 
+/* ── 읽던 글이 첫 묶음 밖에 있어도 돌아온다 ──────────────────────
+ *
+ * 사용자 제보 — 두 번 고쳐 놓고도 `깜빡하면서 최근대화로되어있어`.
+ *
+ * **고정 자료의 대화가 짧아 위 칸이 이 자리를 통째로 지나쳤다.** 다시
+ * 들어오면 마지막 `PAGE`(50)개만 받아 오는데, 옛 대화를 되짚다가(=`지난
+ * 대화 더 보기`를 눌러 가며 올라가다가) 카드를 눌러 들어간 사람은 그 글이
+ * 목록에 아예 없어 맨 아래로 떨어졌다 — 백 명이 하루 백 마디를 쌓는 방에서는
+ * 이쪽이 오히려 흔한 길이다. 그래서 **글 140개짜리 방을 따로 띄워** 잰다.
+ * 고침을 되돌리면 `끝 0`(맨 아래)으로 빨갛게 뜬다.
+ */
+console.log('\n── 읽던 글이 첫 묶음 밖에 있어도 ──');
+{
+    /* **반드시 지난 시각이어야 한다.** 이 파일은 노드(UTC)에서 도는데 화면은
+       한국 시각이라, `setHours(8,…)`처럼 적으면 **앞으로 올 시각**이 되기
+       쉽다 — 그러면 `안 읽은 개수만큼 더 받는다`가 걸려 140개가 통째로
+       실려 오고, 여기서 보려던 `첫 묶음 밖` 상태가 아예 안 만들어진다
+       (실제로 그렇게 헛돌았다). 어제부터 1분 간격으로 쌓아 둔다. */
+    const 어제 = Date.now() - 864e5;
+    const at = i => new Date(어제 + i * 60000).toISOString();
+    const others = tables.profiles.filter(p => p.id !== ME).map(p => p.id);
+    /* **카드는 맨 위에서 서른 번째다** — 뒤에서 세면 110번째라 첫 묶음(50)을
+       한참 넘어간다. 가까이 두면 그냥 실려 와 검사가 헛돈다. */
+    const CARD = 30;
+    const long = [];
+    for (let i = 0; i < 140; i++) {
+        long.push(i === CARD
+            ? { id: `x${i}`, room_id: 'room1', user_id: ME, system: true, round_id: 'r1',
+                body: '신성호님이 라운드를 공유했습니다\n무등산CC\n9월 8일 (화)',
+                created_at: at(i) }
+            : { id: `x${i}`, room_id: 'room1', user_id: others[i % others.length],
+                body: `${i}번째 이야기입니다 오늘도 좋은 하루 되세요`, created_at: at(i) });
+    }
+    const lCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await lCtx.route('**/rest/v1/**', restRoute({ ...tables, messages: long }));
+    await lCtx.route('**/auth/v1/**', r => r.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
+    await stubOutside(lCtx);
+    await lCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const lPage = await lCtx.newPage();
+
+    const lSpot = () => lPage.evaluate(() => {
+        const el = document.querySelector('.chat-list');
+        if (!el) return { 글: null, 위로: -1, 끝: -1 };
+        const top = el.getBoundingClientRect().top;
+        const row = [...el.querySelectorAll('[data-mid]')]
+            .find(r => r.getBoundingClientRect().bottom > top + 1);
+        return {
+            글: row?.dataset.mid ?? null,
+            위로: row ? Math.round(top - row.getBoundingClientRect().top) : -1,
+            끝: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
+        };
+    });
+
+    await lPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+    await lPage.waitForSelector('.chat-list .chat-row', { timeout: 15000 });
+    await lPage.waitForTimeout(700);
+
+    // `지난 대화 더 보기`를 눌러 올라간다 — 카드가 나올 때까지.
+    for (let i = 0; i < 4; i++) {
+        if (await lPage.evaluate(() => !!document.querySelector('.chat-result'))) break;
+        const more = await lPage.$('.chat-more');
+        if (!more) break;
+        await more.click();
+        await lPage.waitForTimeout(600);
+    }
+    ok(await lPage.evaluate(() => !!document.querySelector('.chat-result')),
+       '더 보기를 눌러 올라가면 카드가 나온다');
+
+    // 카드를 화면 위에서 200px 자리에 놓고 **그 자리를 손가락처럼** 누른다.
+    await lPage.evaluate(() => {
+        const el = document.querySelector('.chat-list');
+        const card = el.querySelector('.chat-result');
+        el.scrollTop += card.getBoundingClientRect().top
+            - el.getBoundingClientRect().top - 200;
+        el.dispatchEvent(new Event('scroll'));
+    });
+    await lPage.waitForTimeout(400);
+    const 밖전 = await lSpot();
+    const 점 = await lPage.evaluate(() => {
+        const el = document.querySelector('.chat-list');
+        const box = el.getBoundingClientRect();
+        const card = [...el.querySelectorAll('.chat-result')].find(c => {
+            const r = c.getBoundingClientRect();
+            return r.top > box.top + 8 && r.bottom < box.bottom - 8;
+        });
+        const r = card.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await lPage.mouse.click(점.x, 점.y);
+    await settleScreen(lPage);
+    await lPage.waitForTimeout(600);
+    /* **정말 들어갔는지 먼저 본다.** 안 들어갔으면 화면이 그대로 남아
+       자리도 그대로라 **아무것도 안 고쳐도 초록으로 뜬다.** */
+    ok(lPage.url().includes('/rounds/r1'), `카드를 누르면 그 라운드로 간다 (${lPage.url().split('#')[1]})`);
+    await lPage.goBack();
+    await settleScreen(lPage);
+    await lPage.waitForSelector('.chat-list', { timeout: 15000 });
+    await lPage.waitForTimeout(1200);
+    const 밖후 = await lSpot();
+    ok(밖후.글 === 밖전.글 && Math.abs(밖후.위로 - 밖전.위로) <= 4,
+       `첫 묶음 밖의 글이어도 읽던 자리다 (${밖전.글}/${밖전.위로} → ${밖후.글}/${밖후.위로})`);
+    ok(밖후.끝 > 100, `맨 아래로 안 끌려간다 (끝 ${밖후.끝})`);
+    /* 목록이 그 언저리만 담고 있으므로 **돌아올 길이 있어야 한다** —
+       검색으로 옮겨 갔을 때와 같은 자리다(`windowed`). */
+    const 줄수 = await lPage.evaluate(() =>
+        document.querySelectorAll('.chat-list [data-mid]').length);
+    ok(await lPage.evaluate(() => !!document.querySelector('.chat-recent')),
+       `최근 대화로 돌아올 단추가 있다 (줄 ${줄수})`);
+
+    await lCtx.close();
+}
+
 /* ── 화면이 통째로 밀려 들어오고 나간다 ──────────────────────────
  *
  * 사용자 제보 — `카톡과 비교하면 아직도 엄청빨라`. **빠르게 느껴지던 것은

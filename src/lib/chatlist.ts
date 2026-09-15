@@ -399,8 +399,15 @@ export type HoldAt = { id: string; mine: boolean; x: number; y: number; w: numbe
  * 굴린 픽셀(`scrollTop`)을 적어 두지 않는 것이 핵심이다 — 다시 들어오면
  * 사진이 늦게 뜨며 높이가 달라져 같은 숫자가 다른 자리를 가리킨다.
  * 글 id로 적어 두면 그 글이 목록에 있는 한 늘 같은 자리다.
+ *
+ * **`at`은 그 글의 시각이다 — 첫 묶음에 없을 때 받아 오려고 함께 적는다.**
+ * 다시 들어오면 마지막 50개만 받아 오므로, 옛 글을 되짚다 나간 사람은
+ * 그 글이 목록에 아예 없어 맨 아래로 떨어진다(사용자 제보 — 고쳐 놓고도
+ * `최근대화로 넘어와`). 시각이 있어야 그 언저리를 받아 올 수 있다.
+ * **없을 수도 있다** — 앱이 돌려준 자리(`listDetach`)에서 그 글이 이미
+ * 밀려났을 때다. 그때는 예전처럼 맨 아래다.
  */
-export type ChatSpot = { id: string; off: number };
+export type ChatSpot = { id: string; off: number; at?: string };
 
 const bridge = NativeComposer as unknown as Bridge;
 
