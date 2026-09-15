@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
-import { listOn, listStat, setListOn } from '../lib/chatlist';
+import { listOn, listStat, setListOn, spotStat } from '../lib/chatlist';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -575,6 +575,13 @@ export function Me() {
                     것**이고, 느는데 화면이 안 움직이면 **웹이 안 받는 것**이다.
                     **까닭이 가려지면 이 줄을 걷어낼 것.** */}
                 {listStat() && <span><br />{listStat()}</span>}
+                {/* **읽던 자리 되돌리기를 잰 값**(진단 · `lib/chatlist.ts`의
+                    `spotLog` 주석). 되풀이해 드나들면 말풍선이 조금씩
+                    내려간다는 제보를 쫓는 자리인데 **헤드리스로는 한 픽셀도
+                    안 밀려** 폰에서 재는 수밖에 없다. 대화방에서 조금 올린 뒤
+                    카드를 눌러 들어갔다 나오면 여기에 적힌다.
+                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
+                {spotStat() && <span><br />{spotStat()}</span>}
             </p>
         </div>
     );

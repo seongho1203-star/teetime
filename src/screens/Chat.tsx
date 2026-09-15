@@ -28,7 +28,7 @@ import {
 import {
     GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
     isNewDay, listAttach, listDetach, listMenu, listOn, listRows, listScrollTo, listSet,
-    onListHold, onListMenuPick, onListState, onListTap, sameBlock,
+    onListHold, onListMenuPick, onListState, onListTap, sameBlock, spotLog,
     type ChatSpot, type HoldItem, type ListRow,
 } from '../lib/chatlist';
 
@@ -440,10 +440,18 @@ export function Chat() {
     useLayoutEffect(() => {
         const kept = keptKey && KEPT.get(keptKey);
         if (!kept) return;
-        // 되돌려 놓을 자리가 있으므로 맨 아래로 끌려가지 않게 먼저 내려 둔다.
-        if (SPOTS.get(roomId!)) atBottom.current = false;
+        /* **`atBottom`을 여기서 내리지 말 것.** 되돌려 놓을 자리가 있다고
+           미리 내려 두었더니, **되돌리기가 어긋나는 판에서 맨 위에 멈췄다** —
+           `pinBottom`이 막히는데 아무도 안 옮기므로 굴린 자리가 0으로 남는다
+           (사용자 사진 — 되돌아오니 대화 맨 위였다). 그대로 두면 `pinBottom`이
+           일단 맨 아래로 붙이고, 되돌리기는 **같은 프레임에 뒤에서** 제 자리로
+           옮긴다(그쪽이 스스로 `atBottom`을 내린다) — 그리기 전이라 안 보인다.
+           되돌릴 자리를 못 찾아도 **맨 아래**로 끝난다: 예전 그대로다. */
         setMessages(kept.list);
         setHasMore(kept.more);
+        spotLog.판++;
+        spotLog.깜 = `줄 ${kept.list.length}`;
+        spotLog.놓음 = '아직';
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keptKey]);
 
@@ -1027,6 +1035,8 @@ export function Chat() {
            답해야 할 물음이다 — 그 효과가 바로 아래에 있어 이쪽이 비켜 준다. */
         if (!spot || unreadFrom || !list.some(m => m.id === spot.id)) {
             spotDone.current = 'skip';
+            spotLog.놓음 = !spot ? '건너뜀(적은게없음)'
+                : unreadFrom ? '건너뜀(안읽음줄)' : '건너뜀(그글없음)';
             return null;
         }
         return spot;
@@ -1039,6 +1049,7 @@ export function Chat() {
         if (!spot || !el || !el.querySelector(`[data-mid="${spot.id}"]`)) return;
         spotDone.current = 'web';
         atBottom.current = false;
+        spotLog.놓음 = `놓음 ${spot.id.slice(-4)}/${spot.off}`;
 
         const put = () => {
             const row = el.querySelector<HTMLElement>(`[data-mid="${spot.id}"]`);
@@ -1065,7 +1076,12 @@ export function Chat() {
             const h = el.scrollHeight;
             const fit = el.clientHeight;
             if (h !== last || fit !== lastFit) { last = h; lastFit = fit; put(); }
-            raf = performance.now() < until ? requestAnimationFrame(tick) : 0;
+            if (performance.now() < until) { raf = requestAnimationFrame(tick); return; }
+            raf = 0;
+            /* **손을 뗄 때의 실제 자리를 적어 둔다**(진단 · `spotLog`).
+               놓아 준 자리와 여기가 다르면 그 사이에 무엇이 밀었다는 뜻이다. */
+            const row = webSpot(el);
+            spotLog.놓음 += row ? ` → 끝 ${row.id.slice(-4)}/${row.off}` : ' → 끝?';
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
@@ -2194,7 +2210,11 @@ export function Chat() {
         if (listUpRef.current) return;
         /* **맨 아래를 보고 있었으면 지운다** — 되돌려 놓을 자리가 '맨 아래'인데,
            글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다. */
-        keepSpot(roomId, stampSpot(atBottom.current ? null : webSpot(el), msgsRef.current));
+        const 적을것 = stampSpot(atBottom.current ? null : webSpot(el), msgsRef.current);
+        keepSpot(roomId, 적을것);
+        spotLog.적음 = 적을것
+            ? `${적을것.id.slice(-4)}/${적을것.off}${적을것.at ? '' : '(시각없음)'}`
+            : '맨아래';
     };
     const spotSoon = () => {
         if (spotTimer.current) return;
