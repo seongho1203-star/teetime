@@ -250,10 +250,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        그것은 옛 판에서 고칠 길이 없다. 그때는 웹 목록으로 돌아가는데
     ///        거기에는 그 자국이 아예 없다.
     ///
+    ///   - **35판** 대화방에서도 **뒤로 가기가 손가락을 따라온다**
+    ///        (`BackDrag` · `listBack` · `chatListBackBegan`). `root`를 통째로
+    ///        찍어 그 그림을 끌고, 웹뷰는 1/4만큼 따라 나오며 막이 걷힌다 —
+    ///        나머지 열아홉 화면과 같은 그림이다.
+    ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 모르는 칸
+    ///        (`drag`)을 그냥 흘려 25판처럼 곧바로 넘어갈 뿐이라 깨질 자리가 없다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 34
+    private static let version = 35
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -486,6 +493,13 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     private var list: ChatList?
     /**
+     * 손가락을 따라 뒤로 가기(35판 · `BackDrag`). **스위치가 켜져 있고 웹이
+     * 뒤에 깔 앞 화면을 들고 있을 때만 돈다** — 웹이 `listAttach`·`listSet`의
+     * `drag`로 알려 준다(앱은 그 그림을 만들 길이 없다).
+     */
+    private let backDrag = BackDrag()
+    private var backOn = false
+    /**
      * 길게 누른 창(27판). **목록이 아니라 `root`에 얹혀 바보다 위에 있다** —
      * 옅은 바탕이 머리말과 입력칸까지 덮어야 웹에서 보던 것과 같아진다.
      * 바·목록과 같은 까닭으로 **버리지 않는다**(다시 만들면 그만큼 늦다).
@@ -520,6 +534,12 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             let list = self.list ?? ChatList(frame: root.bounds)
             list.listDelegate = self
             self.list = list
+            /* **다시 설 때는 늘 보인다**(35판). 감추는 것은 덮는 창이 떠
+               있는 동안만인데(`listSet({hidden})`), 손가락을 따라 뒤로 간
+               판에서는 감춰 둔 채로 걷히므로 여기서 안 되돌리면 **다음에
+               들어올 때 목록이 통째로 안 보인다**(바는 `composerSkin`이
+               늘 `hidden: false`를 함께 보내 저절로 풀린다). */
+            list.isHidden = false
 
             if list.superview !== root {
                 list.removeFromSuperview()
@@ -674,6 +694,13 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     @objc func listDetach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.menu?.hide()
+            /* 끌던 것이 남아 있으면 걷는다(35판) — 손짓 도중에 알림을 눌러
+               화면이 바뀌면 찍어 둔 그림이 그대로 남는다(웹의 `sweepGhosts`와
+               같은 결이다). 넘어간 판에서는 이미 화면 밖이라 걷어도 안 보인다.
+               **감춰 둔 것은 안 되돌린다**(`drop`) — 목록과 바가 곧 걷힐
+               참이라, 여기서 도로 내보이면 옛 말풍선이 새 화면 위에 한두
+               프레임 되살아난다. */
+            self.backDrag.drop()
             var spot: [String: Any] = ["atBottom": self.list?.atBottom() ?? true]
             if let s = self.list?.topSpot() {
                 spot["topId"] = s.id
@@ -709,6 +736,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             }
         }
         if let v = call.getBool("hidden") { list.isHidden = v }
+        /* 손가락을 따라 뒤로 갈 수 있는가(35판). **웹이 정한다** — 스위치와,
+           뒤에 깔 앞 화면이 있는지를 웹만 안다(`hasBackShot()`). */
+        if let v = call.getBool("drag") { backOn = v }
         if let skin = call.getObject("skin") {
             list.apply(skin: skin.mapValues { v in v as Any })
         }
@@ -754,6 +784,50 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             "x": Double(rect.minX), "y": Double(rect.minY),
             "w": Double(rect.width), "h": Double(rect.height),
         ])
+    }
+
+    /* ── 손가락을 따라 뒤로 가기(35판) ─────────────────────────
+     *
+     * 짜임과 까닭은 `ChatList.swift`의 `BackDrag` 머리말에 있다 — 여기는
+     * **`root`·웹뷰를 아는 다리**일 뿐이다.
+     *
+     * 웹에 부탁하는 것은 **앞 화면을 깔아 달라**는 것 하나뿐이고(`start`),
+     * 끄는 동안에는 다리를 한 번도 안 건넌다.
+     */
+
+    func chatListBackBegan() -> Bool {
+        guard backOn, live,
+              let root = bridge?.viewController?.view,
+              let web = bridge?.webView,
+              let list = list else { return false }
+        /* 감출 것은 **웹뷰 위에 얹힌 앱 부품**이다 — 그 둘은 방금 찍은
+           그림 안에 이미 들어 있다. 길게 누른 창은 떠 있을 리가 없다
+           (창이 떠 있으면 그 위에서 손짓이 시작되지 않는다). */
+        var cover: [UIView] = [list]
+        if let bar = bar, bar.superview === root { cover.append(bar) }
+        guard backDrag.begin(root: root, web: web, cover: cover) else { return false }
+        notifyListeners("listBack", data: ["phase": "start"])
+        return true
+    }
+
+    func chatListBackMoved(dx: CGFloat) { backDrag.move(dx: dx) }
+
+    func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool) {
+        let go = !cancelled && backDrag.wants(dx: dx, vx: vx)
+        backDrag.finish(go: go) { [weak self] in
+            guard let self = self else { return }
+            self.notifyListeners("listBack", data: ["phase": go ? "commit" : "cancel"])
+            /* **웹이 손을 쓴 뒤에 걷는다.** 되돌아오는 판에서는 감춰 둔
+               화면을 다시 내보이는 데 한 프레임이면 되고, 넘어가는 판에서는
+               목적지가 그려질 때까지 기다린다 — 먼저 걷으면 앱 부품(옛
+               말풍선)이 새 화면 위에 잠깐 되살아난다.
+               그때는 대개 대화가 이미 걷혀(`listDetach`) 걷을 것도 없지만,
+               뒤로 갈 데가 없어 아무 일도 안 일어난 판을 위해 **반드시
+               한 번은 돌아야 한다** — 안 그러면 목록이 감춰진 채로 굳는다. */
+            DispatchQueue.main.asyncAfter(deadline: .now() + (go ? 0.4 : 0.05)) {
+                self.backDrag.end()
+            }
+        }
     }
 
     /// 목록을 아래로 끌었거나 눌렀다 — 키보드를 내린다(18판).

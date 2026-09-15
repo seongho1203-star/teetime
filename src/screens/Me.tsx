@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
-import { listOn, listStat, setListOn, spotStat } from '../lib/chatlist';
+import { dragOn, listOn, listStat, setDragOn, setListOn, spotStat } from '../lib/chatlist';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -174,6 +174,8 @@ export function Me() {
 
     /** 대화 목록을 앱이 그릴지(17판 시험 스위치). 값은 이 기기에만 남는다. */
     const [ncList, setNcList] = useState(listOn());
+    /** 대화방 뒤로 가기가 손가락을 따라올지(35판 시험 스위치). */
+    const [ncDrag, setNcDrag] = useState(dragOn());
 
     useEffect(() => {
         pushState().then(async s => {
@@ -528,6 +530,29 @@ export function Me() {
                                 on={ncList}
                                 onChange={v => { setListOn(v); setNcList(v); }} />
                     </div>
+
+                    {/* **손가락을 따라 뒤로 가기**(35판 · 사용자 요청 —
+                        `되돌아가기할때 손따라 오면서 되는건 안되는거야?`).
+                        대화방만 밀면 곧바로 넘어갔다 — 말풍선과 입력칸이
+                        앱 부품이라 웹이 화면을 밀면 안 따라와 찢어지기
+                        때문이다. 이제 끄는 일을 통째로 앱이 맡는다.
+                        **위 스위치가 켜져 있어야 뜻이 있다** — 앱 목록이
+                        안 서면 애초에 그 손짓을 앱이 안 잡는다. */}
+                    {ncList && (
+                        <div className="switch-row">
+                            <div className="grow">
+                                <div className="switch-label">뒤로 가기를 손가락 따라</div>
+                                <div className="switch-desc">
+                                    {ncDrag
+                                        ? '켜짐 — 대화방에서 오른쪽으로 밀면 앞 화면이 손을 따라 나옵니다'
+                                        : '꺼짐 — 밀면 곧바로 넘어갑니다'}
+                                </div>
+                            </div>
+                            <Switch label="뒤로 가기를 손가락 따라"
+                                    on={ncDrag}
+                                    onChange={v => { setDragOn(v); setNcDrag(v); }} />
+                        </div>
+                    )}
                 </div>
             )}
 

@@ -20,15 +20,16 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
-import { slideLeft } from '../lib/tabs';
+import { hasBackShot, nativeBackEnd, nativeBackStart, slideLeft } from '../lib/tabs';
 import {
     NativeComposer, canNativeShare, canPickNative, canSlide, composerReady, composerSkin, hush,
     kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeText,
 } from '../lib/composer';
 import {
-    GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
-    isNewDay, listAttach, listDetach, listMenu, listOn, listRows, listScrollTo, listSet,
-    onListHold, onListMenuPick, onListState, onListTap, sameBlock, spotLog, spotNote,
+    GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip,
+    dragOn, edgeColor, isNewDay, listAttach, listDetach, listMenu, listOn, listRows,
+    listScrollTo, listSet, onListBack, onListHold, onListMenuPick, onListState, onListTap,
+    sameBlock, spotLog, spotNote,
     type ChatSpot, type HoldItem, type ListRow,
 } from '../lib/chatlist';
 
@@ -3567,6 +3568,11 @@ export function Chat() {
                    같이 끝나게 한다 — 제 시간을 다 쓰면 늦게 끝나 두 단계로
                    보인다. 들어오는 참이 아니면 0이라 아무 일도 안 한다. */
                 slide: slideLeft(),
+                /* **손가락을 따라 뒤로 갈 것인가**(35판). 스위치와, 뒤에
+                   깔 앞 화면이 있는지는 **웹만 안다** — 그 그림은 떠날 때
+                   찍어 둔 웹 DOM이라 앱이 만들 길이 없다. 거짓이면 앱이
+                   25판처럼 곧바로 넘어간다. */
+                drag: dragOn() && hasBackShot(),
             });
             if (dead || !ok) return;
             const h = await onListState(e => {
@@ -3601,8 +3607,19 @@ export function Chat() {
                그 자리 값은 곧 `getBoundingClientRect`와 같은 창 좌표다. */
             const d = await onListHold(e => nc.current.hold(e));
             const p = await onListMenuPick(e => nc.current.menuPick(e));
+            /* **손가락을 따라 뒤로 가기**(35판). 끄는 그림은 앱이 옮기고
+               (`BackDrag`) 웹은 **뒤에 깔릴 앞 화면만** 그린다 — 그 그림은
+               떠날 때 찍어 둔 웹 DOM이라 앱이 만들 길이 없다.
+               **넘어갈 때 뒤로 가는 것도 여기서 한다** — 앱이 그림을 다
+               내보낸 뒤에 알려 오므로, 목적지가 그 0.23초 동안 반쯤 그려진
+               채로 지나가지 않는다(웹 `end()`의 그 차례와 같다). */
+            const b = await onListBack(e => {
+                if (e.phase === 'start') nativeBackStart();
+                else nativeBackEnd(e.phase === 'commit', () => nc.current.back());
+            });
             const off = () => {
-                void h.remove(); void t.remove(); void d.remove(); void p.remove();
+                void h.remove(); void t.remove(); void d.remove();
+                void p.remove(); void b.remove();
             };
             if (dead) { off(); return; }
             drop = off;

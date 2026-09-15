@@ -500,6 +500,25 @@ protocol ChatListDelegate: AnyObject {
     /// 말풍선을 길게 눌렀다 — **누른 자리에** 고르는 창이 떠야 하므로
     /// 말풍선의 자리를 **창(화면) 좌표로** 함께 넘긴다.
     func chatListHold(id: String, mine: Bool, rect: CGRect)
+
+    /* ── 손가락을 따라 뒤로 가기(35판) ─────────────────────────
+     *
+     * **끄는 그림은 앱이 옮긴다**(`BackDrag`). 25판까지는 놓을 때 한 번만
+     * 보고 곧바로 넘어갔는데, 나머지 열아홉 화면은 손가락을 따라오므로
+     * **대화방만 툭 넘어가는 것이 눈에 걸렸다**(사용자 요청 —
+     * `되돌아가기할때 손따라 오면서 되는건 안되는거야?`).
+     *
+     * 목록은 여기서 손짓만 잡고 **하는 일은 다리가 맡는다** — 그림을
+     * 옮기는 것도, 웹에 알리는 것도 `root`·웹뷰를 아는 쪽이라야 한다.
+     */
+
+    /// 끌 준비가 됐는가. **거짓이면 예전처럼** 놓을 때 한 번만 보고 넘어간다
+    /// (스위치가 꺼져 있거나 뒤에 깔 앞 화면이 없을 때다).
+    func chatListBackBegan() -> Bool
+    /// 손가락이 움직였다 — 오른쪽으로 간 만큼(pt).
+    func chatListBackMoved(dx: CGFloat)
+    /// 손을 뗐다. `cancelled`면 손짓이 끊긴 것이라 그대로 접는다.
+    func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool)
 }
 
 // MARK: - 목록
@@ -534,6 +553,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private let backAt: CGFloat = 60
     /// 그 손짓의 문지기 — **오른쪽으로 그은 것만** 받는다(`BackGuard` 참고).
     private let backGuard = BackGuard()
+    /// 지금 **손가락을 따라** 끌고 있는가(35판). 거짓이면 25판처럼 놓을 때
+    /// 한 번만 보고 넘어간다 — 한 손짓 안에서 갈래가 안 바뀌어야 하므로
+    /// `.began`에서 한 번 정하고 그대로 간다.
+    private var backLive = false
 
     /// 되돌려 놓을 자리(34판의 `holdSpot`) — 높이가 정해질 때까지 다시 놓는다.
     private var spotAim: (id: String, off: CGFloat)?
@@ -599,15 +622,35 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     @objc private func tapped() { listDelegate?.chatListDismissKeyboard() }
 
     /**
-     * 오른쪽으로 밀어 뒤로 가기(25판). **하는 일은 웹이 정한다** — 앱은
-     * `back`을 눌렀다고만 알리고, 어디로 갈지는 `goBack()`이 이미 안다
-     * (히스토리가 비었으면 홈으로 간다).
+     * 오른쪽으로 밀어 뒤로 가기(25판 · **35판에서 손가락을 따라온다**).
+     *
+     * **하는 일은 웹이 정한다** — 앱은 `back`을 눌렀다고만 알리고, 어디로
+     * 갈지는 `goBack()`이 이미 안다(히스토리가 비었으면 홈으로 간다).
+     *
+     * **갈래가 둘이다.** 다리가 끌 준비를 해 주면(`chatListBackBegan`)
+     * 움직임마다 알려 손가락을 따라 화면이 나오고, 못 하면 **25판 그대로**
+     * 놓을 때 한 번만 보고 곧바로 넘어간다 — 스위치가 꺼져 있거나 뒤에
+     * 깔 앞 화면이 없을 때다.
      */
     @objc private func backPan(_ g: UIPanGestureRecognizer) {
-        guard g.state == .ended else { return }
         let t = g.translation(in: self)
-        guard t.x >= backAt, t.x > abs(t.y) else { return }
-        listDelegate?.chatListTap(kind: "back", id: "", to: nil)
+        switch g.state {
+        case .began:
+            backLive = listDelegate?.chatListBackBegan() ?? false
+        case .changed:
+            if backLive { listDelegate?.chatListBackMoved(dx: max(0, t.x)) }
+        case .ended, .cancelled, .failed:
+            if backLive {
+                backLive = false
+                listDelegate?.chatListBackEnded(dx: max(0, t.x),
+                                                vx: g.velocity(in: self).x,
+                                                cancelled: g.state != .ended)
+            } else if g.state == .ended, t.x >= backAt, t.x > abs(t.y) {
+                listDelegate?.chatListTap(kind: "back", id: "", to: nil)
+            }
+        default:
+            break
+        }
     }
 
     /**
@@ -1194,6 +1237,160 @@ final class BackGuard: NSObject, UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
         return true
+    }
+}
+
+// MARK: - 손가락을 따라 뒤로 가기 (35판)
+
+/**
+ * 대화방에서 **오른쪽으로 밀면 앞 화면이 손가락을 따라 나온다.**
+ *
+ * 나머지 열아홉 화면은 웹이 통째로 그려서 `useBackSwipe`가 그대로 하는데
+ * (지금 화면이 손끝을 따라가고 앞 화면이 뒤에서 1/4만큼 따라 나오며
+ * 어둡던 것이 밝아진다), **대화방만 25판까지 툭 넘어갔다** — 말풍선 목록과
+ * 입력칸이 웹뷰 **위에 얹힌 앱 부품**이라 웹의 `transform`을 안 따라와
+ * 화면이 찢어져 보이기 때문이다(`plainBack()`의 그 까닭이다).
+ * 사용자 요청 — `되돌아가기할때 손따라 오면서 되는건 안되는거야?`
+ *
+ * **그래서 옮기는 일을 통째로 앱이 맡는다.** 짜임이 이렇다:
+ *
+ * ```
+ * [떠나는 화면]  ← root를 통째로 찍은 그림. 손끝을 그대로 따라간다.
+ * [막(dim)]      ← 그 아래. 밝아지며 걷힌다.
+ * [웹뷰]         ← 앞 화면(웹이 깐 그림)만 남아 1/4만큼 따라 나온다.
+ * ```
+ *
+ * 세 가지가 이 짜임의 값이다:
+ *
+ * 1. **`root`를 한 장으로 찍으므로 웹·앱이 갈릴 자리가 없다.** 머리말(웹)과
+ *    말풍선(앱)과 입력칸(앱)이 한 그림이라 **어긋날 수가 없다** — 값을
+ *    하나씩 맞추는 길로 가지 않는다는 27판의 그 답이다.
+ * 2. **끄는 동안 다리를 한 번도 안 건넌다.** 그림도 웹뷰도 앱이 옮기므로
+ *    프레임마다 값을 실어 보내던 일(13판 `frame`)이 아예 없다 —
+ *    **손끝과 화면 사이에 아무것도 없다.**
+ * 3. 앞 화면을 **웹이 깐다**(`nativeBackStart`). 그 그림은 떠날 때 찍어 둔
+ *    웹 DOM이라 앱이 만들 길이 없고, 그것 하나만 `listBack` 신호로 부탁한다.
+ *
+ * **값은 웹 `tabs.ts`에서 그대로 가져왔다 — 한쪽만 고치지 말 것.**
+ */
+final class BackDrag {
+    /// 앞 화면이 뒤에서 어긋나 따라 나오는 몫(웹의 `PARALLAX`).
+    static let parallax: CGFloat = 0.25
+    /// 그 위에 덮는 막의 짙기(웹의 `DIM`).
+    static let dim: CGFloat = 0.18
+    /// 이만큼 끌면 넘어간다 — 화면 폭의 몫(웹의 `TAKE`).
+    static let take: CGFloat = 0.34
+    /// 짧게 튕겨도 넘어가는 빠르기(pt/s). 웹의 `FLICK`(0.8px/ms)과 같은 값이다.
+    static let flick: CGFloat = 800
+    /// **거리 없이 빠르기만 보지 않는다** — 손끝이 미끄러진 것까지 걸린다
+    /// (웹의 `FLICK_MIN`).
+    static let flickMin: CGFloat = 40
+    /// 손을 뗀 뒤 마무리에 걸리는 시간. 웹 `end()`의 230ms와 같다.
+    static let ease = 0.23
+
+    private weak var web: UIView?
+    private var shot: UIView?
+    private var veil: UIView?
+    /// 감춰 둔 앱 부품과 **감추기 전 값**. 바는 `hidden`이 진짜 기능이라
+    /// (7판) 덮어놓고 내보이면 감춰 둔 것까지 살아난다.
+    private var hid: [(view: UIView, was: Bool)] = []
+    private var width: CGFloat = 1
+    private(set) var live = false
+
+    /**
+     * 끌 준비를 한다. **떠나는 화면을 먼저 찍는다** — 앱 부품을 감춘 뒤에
+     * 찍으면 말풍선이 빠진 그림이 된다.
+     *
+     * 못 찍으면 거짓을 돌려주고, 그때는 목록이 25판처럼 곧바로 넘어간다.
+     */
+    func begin(root: UIView, web: UIView, cover: [UIView]) -> Bool {
+        end()
+        guard root.bounds.width > 1,
+              let shot = root.snapshotView(afterScreenUpdates: false) else { return false }
+        self.web = web
+        width = root.bounds.width
+        shot.frame = root.bounds
+        shot.isUserInteractionEnabled = false
+
+        let veil = UIView(frame: root.bounds)
+        veil.backgroundColor = .black
+        veil.alpha = Self.dim
+        veil.isUserInteractionEnabled = false
+        veil.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        /* **막은 웹뷰 위·그림 아래다.** 앱 부품은 이 뒤에서 감춰지므로
+           차례를 따질 것이 없다 — 둘 다 맨 위에 얹으면 된다. */
+        root.addSubview(veil)
+        root.addSubview(shot)
+        self.shot = shot
+        self.veil = veil
+
+        hid = cover.map { ($0, $0.isHidden) }
+        for v in cover { v.isHidden = true }
+        web.transform = CGAffineTransform(translationX: -width * Self.parallax, y: 0)
+        live = true
+        return true
+    }
+
+    /// 손끝을 따라간다. **웹의 `paint()`와 같은 셈이다.**
+    func move(dx: CGFloat) {
+        guard live else { return }
+        let d = max(0, min(width, dx))
+        let p = d / width
+        shot?.transform = CGAffineTransform(translationX: d, y: 0)
+        web?.transform = CGAffineTransform(translationX: (p - 1) * width * Self.parallax, y: 0)
+        veil?.alpha = Self.dim * (1 - p)
+    }
+
+    /// 놓았을 때 넘어갈 것인가(웹 `end()`의 잣대 그대로다).
+    func wants(dx: CGFloat, vx: CGFloat) -> Bool {
+        return dx > width * Self.take || (vx > Self.flick && dx > Self.flickMin)
+    }
+
+    /**
+     * 마무리한다 — `go`면 화면 밖으로 내보내고 아니면 제자리로 되돌린다.
+     *
+     * **끝나고 나서 웹에 알리는 것은 부르는 쪽 몫이다.** 넘어가는 판에서는
+     * 그림이 다 빠져나간 **뒤에** 뒤로 가야 한다 — 먼저 가면 목적지가
+     * 아직 안 그려진 채로 그 0.23초가 지나간다(웹 `end()`가 230ms을
+     * 기다렸다 `nav(-1)`을 부르는 그 자리다).
+     */
+    func finish(go: Bool, done: @escaping () -> Void) {
+        guard live, let shot = shot, let web = web else { done(); return }
+        let toShot = go ? width : 0
+        let toWeb: CGFloat = go ? 0 : -width * Self.parallax
+        UIView.animate(withDuration: Self.ease, delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState],
+                       animations: {
+            shot.transform = CGAffineTransform(translationX: toShot, y: 0)
+            web.transform = CGAffineTransform(translationX: toWeb, y: 0)
+            self.veil?.alpha = go ? 0 : Self.dim
+        }, completion: { _ in done() })
+    }
+
+    /// 깔아 둔 것을 걷고 감춰 둔 것을 되돌린다. **여러 번 불러도 안전하다.**
+    func end() {
+        for h in hid { h.view.isHidden = h.was }
+        drop()
+    }
+
+    /**
+     * 걷기만 하고 **감춰 둔 것은 그대로 둔다.**
+     *
+     * 넘어가는 판에서 쓴다 — 그때 앱 부품은 곧 걷힐 참인데(`listDetach`·
+     * `detach`) 그 사이에 도로 내보이면 **옛 말풍선과 입력칸이 새 화면
+     * 위에 한두 프레임 되살아난다.** 다시 설 때 저절로 보이므로
+     * (`listAttach`가 되돌리고, 바는 `composerSkin`이 늘 `hidden: false`를
+     * 함께 보낸다) 여기서 되돌릴 것이 없다.
+     */
+    func drop() {
+        shot?.removeFromSuperview()
+        veil?.removeFromSuperview()
+        shot = nil
+        veil = nil
+        web?.transform = .identity
+        web = nil
+        hid = []
+        live = false
     }
 }
 

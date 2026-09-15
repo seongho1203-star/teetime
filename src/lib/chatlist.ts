@@ -50,6 +50,33 @@ export function setListOn(on: boolean): void {
 }
 
 /**
+ * **손가락을 따라 뒤로 가기**(35판)의 시험 스위치.
+ *
+ * 대화방은 말풍선과 입력칸을 앱이 그려서 웹이 화면을 밀면 찢어진다 —
+ * 그래서 25판까지는 밀면 **곧바로** 넘어갔고, 나머지 열아홉 화면만
+ * 손가락을 따라왔다(사용자 요청 — `되돌아가기할때 손따라 오면서 되는건
+ * 안되는거야?`). 지금은 끄는 일을 통째로 앱이 맡는다(`BackDrag`).
+ *
+ * **기본은 꺼짐이다** — 여기는 헤드리스로 한 줄도 확인할 수 없는 자리라
+ * (그림을 찍어 미는 것이 앱이다) 14판 `ListSlider`·17판 앱 목록과 같은
+ * 잣대를 쓴다: 매일 쓰는 화면을 짐작으로 갈아 끼우지 않는다.
+ * **스위치가 화면에 있어야 하는 것이 한 쌍이다**(`내 정보 → 시험 중`) —
+ * 저장 열쇠를 폰에서 손으로 적을 길이 없다.
+ */
+const DRAG_KEY = 'teetime:nc-drag';
+
+export function dragOn(): boolean {
+    try { return localStorage.getItem(DRAG_KEY) === 'on'; } catch { return false; }
+}
+
+export function setDragOn(on: boolean): void {
+    try {
+        if (on) localStorage.setItem(DRAG_KEY, 'on');
+        else localStorage.removeItem(DRAG_KEY);
+    } catch { /* 사파리 잠금 */ }
+}
+
+/**
  * 지금 판에서 앱 목록을 쓸 수 있는가. 옛 앱은 판 번호로 걸러진다.
  *
  * **17판이 아니라 18판부터다.** 17판 앱 목록에는 **키보드를 내릴 길이
@@ -383,6 +410,10 @@ type Bridge = {
         n: 'listMenuPick',
         cb: (e: { kind: string; name: string }) => void,
     ): Promise<{ remove: () => Promise<void> }>;
+    addListener(
+        n: 'listBack',
+        cb: (e: { phase: string }) => void,
+    ): Promise<{ remove: () => Promise<void> }>;
 };
 
 /**
@@ -625,6 +656,25 @@ export function onListMenuPick(
     return bridge.addListener('listMenuPick', e => {
         listLog.tap++;
         listLog.last = `창:${e.kind}`;
+        cb(e);
+    });
+}
+
+/**
+ * **손가락을 따라 뒤로 가기**(35판) — 앱이 세 번 알려 온다.
+ *
+ * - `start` — 끌기 시작했다. 웹은 **뒤에 깔릴 앞 화면만** 그려 둔다.
+ * - `commit` — 그림이 다 빠져나갔다. 웹이 **그때** 뒤로 간다.
+ * - `cancel` — 되돌아왔다. 감춰 둔 화면을 도로 내보인다.
+ *
+ * 끄는 동안에는 아무것도 안 온다 — 그림도 웹뷰도 앱이 옮기므로 다리를
+ * 건널 일이 없다(13판 `frame`이 프레임마다 건너던 그 자리와 갈린다).
+ */
+export function onListBack(
+    cb: (e: { phase: string }) => void,
+): Promise<{ remove: () => Promise<void> }> {
+    return bridge.addListener('listBack', e => {
+        listLog.last = `뒤로:${e.phase}`;
         cb(e);
     });
 }

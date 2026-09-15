@@ -178,6 +178,21 @@ const MOVING = ['back-drag', 'back-ease', 'screen-push', 'screen-pop', 'screen-e
 /** 끄는 동안에만 세로 굴리기를 막는다(아래 `block` 주석). */
 function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
 
+/** 앱이 끄는 동안 감춰 둔 지금 화면(35판 · 아래 `nativeBackStart`). */
+let backPage: HTMLElement | null = null;
+
+/**
+ * 감춰 둔 화면을 도로 내보인다.
+ *
+ * **잡아 둔 것과 지금 것을 둘 다 본다** — 리액트가 같은 자리의 DOM을 다시
+ * 쓰는 일이 있어, 잡아 둔 것만 되돌리면 **새 화면이 안 보인 채로 굳는다**
+ * (`clean()`이 `transform`을 그렇게 지우는 그 자리다).
+ */
+function showBackPage(): void {
+    for (const el of [backPage, pageEl()]) if (el) el.style.visibility = '';
+    backPage = null;
+}
+
 /**
  * 남은 그림·클래스·`transform`을 걷는다.
  * @param force 지금 막 깐 것까지 걷는다(손짓이 끝난 것이 확실할 때만).
@@ -194,6 +209,10 @@ function sweepGhosts(force = false): void {
     document.removeEventListener('touchmove', blockScroll);
     const el = pageEl();
     if (el) { el.style.transform = ''; el.style.transition = ''; }
+    /* 앱이 끌다 만 것도 여기서 풀린다(35판) — 손짓 도중에 알림을 눌러
+       화면이 바뀌면 `listBack`이 갈 데가 없어져, 감춰 둔 화면이 그대로
+       남으면 **앱이 죽은 것처럼 보인다.** */
+    showBackPage();
     ghostAt = 0;
 }
 
@@ -368,6 +387,63 @@ function runPop(el: HTMLElement, shot: Shot): void {
         gx.style.transform = `translate3d(${W}px,0,0)`;
         dim.style.opacity = '0';
     });
+}
+
+/* ── 앱이 끌 때 웹이 하는 일 (35판) ──────────────────────────
+ *
+ * 대화방은 말풍선 목록과 입력칸을 **앱이 그리므로**(`teetime:nc-list`를
+ * 켠 판) 웹이 화면을 밀면 그 둘이 안 따라와 찢어진다 — 그래서 25판까지는
+ * `plainBack()`으로 곧바로 넘어갔다. 35판부터는 **끄는 일을 통째로 앱이
+ * 맡고**(`ChatList.swift`의 `BackDrag`), 웹은 **뒤에 깔릴 앞 화면만**
+ * 그려 준다. 앱은 그 그림을 만들 길이 없기 때문이다(떠날 때 찍어 둔
+ * 웹 DOM이다 — 위 `shots`).
+ *
+ * 그래서 여기 셋은 `useBackSwipe`가 하던 일에서 **손짓과 화면 밀기를 뺀
+ * 나머지**다. 값(`PARALLAX`·`DIM`·`TAKE`·`FLICK`)은 앱 쪽에 같은 것이
+ * 적혀 있다 — **한쪽만 고치지 말 것.**
+ */
+
+/**
+ * **뒤에 깔 앞 화면 그림이 있는가.** 없으면 앱이 끌지 않고 곧바로 넘어간다 —
+ * 바탕만 깔고 끌면 **빈 화면이 손을 따라 나온다**(`useScreenSlide`가
+ * `full`을 가리는 그 잣대와 같다).
+ */
+export function hasBackShot(): boolean {
+    return shots.length > 0;
+}
+
+/** 앱이 끌기 시작했다 — 앞 화면을 깔고 지금 화면은 감춘다(앱이 찍어 둔
+ *  그림이 그 자리를 대신한다). */
+export function nativeBackStart(): boolean {
+    const shot = shots[shots.length - 1];
+    if (!shot) return false;
+    sweepGhosts(true);
+    layGhost(shot);
+    backPage = pageEl();
+    if (backPage) backPage.style.visibility = 'hidden';
+    return true;
+}
+
+/**
+ * 앱이 놓았다. `go`면 넘어간 것이라 **여기서 뒤로 간다** — 앱이 그림을
+ * 다 내보낸 뒤에 부르므로 웹 `end()`가 230ms 기다렸다 `nav(-1)`을 부르는
+ * 그 차례와 같다.
+ *
+ * **그림은 새 화면이 한 번 그려진 뒤에 걷는다** — 바로 걷으면 그 한
+ * 프레임에 옛 화면이 비친다. `rAF`는 앱을 덮어 두면 안 도므로 예비
+ * 타이머를 함께 건다(위 `end()`와 같은 한 쌍이다).
+ */
+export function nativeBackEnd(go: boolean, nav: () => void): void {
+    if (!go) {
+        showBackPage();
+        sweepGhosts(true);
+        return;
+    }
+    skipSlide = true;
+    nav();
+    const done = () => { showBackPage(); sweepGhosts(true); };
+    requestAnimationFrame(() => requestAnimationFrame(done));
+    window.setTimeout(done, 600);
 }
 
 export function useBackSwipe(): void {
