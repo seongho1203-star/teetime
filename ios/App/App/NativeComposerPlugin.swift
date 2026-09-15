@@ -242,10 +242,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 모르는 칸
     ///        (`cardTint`)을 그냥 흘려 예전 흰 카드를 그릴 뿐이라 깨질 자리가 없다.
     ///
+    ///   - **34판** 카드가 웹과 같은 짜임이 되고(`CardParts`·`cardBox` —
+    ///        곳 이름 알약 · 큰 제목 · 그림 붙은 칩 · 알약 단추),
+    ///        **읽던 자리를 높이가 정해질 때까지 다시 놓는다**(`holdSpot`).
+    ///        **`canNativeList()`의 문을 34로 올렸다** — 33판까지는 드나들
+    ///        때마다 말풍선이 조금씩 내려앉았고(`한 번만 놓으면 어긋난다`)
+    ///        그것은 옛 판에서 고칠 길이 없다. 그때는 웹 목록으로 돌아가는데
+    ///        거기에는 그 자국이 아예 없다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 33
+    private static let version = 34
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

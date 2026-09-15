@@ -277,6 +277,215 @@ struct ChatSkin {
     }
 }
 
+// MARK: - 눌리는 카드 (웹의 `LinkCard`)
+
+/**
+ * 카드 글을 웹의 `LinkCard`와 **같은 규칙으로** 가른다(34판).
+ *
+ * **줄을 세는 것이 아니라 `icon`으로 갈린다** — 글 모양이 갈래마다 정해져
+ * 있는데 줄 수로 가리면 **공지의 본문 첫 줄이 제목 자리에 앉는다**(웹에서
+ * 실제로 그렇게 짜 봤다가 갈아엎은 자리다).
+ *
+ * - **라운드** — 둘째 줄이 알약(곳 이름), 셋째 줄을 `·`로 갈라 **첫 조각이
+ *   큰 제목**(날짜)이고 나머지가 그림 붙은 칩이다. `모집을 열었습니다`처럼
+ *   **두 줄뿐인 것**(DB 트리거)은 곳 이름이 곧 제목이 된다.
+ * - **투표 · 공지** — 둘째 줄이 제목이고 나머지는 있는 대로 곁줄이다.
+ *
+ * **한쪽만 고치지 말 것** — `Chat.tsx`의 `LinkCard`와 한 벌이다.
+ */
+struct CardParts {
+    /// `○○님이 …했습니다` — **맨 아래, 가는 선 밑**이다(그림의 그 차례).
+    var by = ""
+    /// 곳 이름 알약(라운드만).
+    var pill: String?
+    var title = ""
+    /// 그림 붙은 곁줄 칩(시각·정원·자리).
+    var chips: [String] = []
+    /// 투표·공지의 곁줄(1위 줄 · 본문 첫 줄).
+    var notes: [String] = []
+    /// 아랫줄에 `○○님이 …`를 적는가 — 한 줄짜리 글에는 안 적는다.
+    var showBy = false
+
+    static func parse(_ body: String, icon: String?) -> CardParts {
+        var p = CardParts()
+        let lines = body.components(separatedBy: "\n").filter { !$0.isEmpty }
+        guard let foot = lines.first else { return p }
+        p.by = foot
+        p.title = foot
+        let rest = Array(lines.dropFirst())
+        p.showBy = !rest.isEmpty
+        if icon == "round", rest.count >= 2 {
+            p.pill = rest[0]
+            let segs = rest.dropFirst().joined(separator: " · ")
+                .components(separatedBy: "·")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            p.title = segs.first ?? rest[0]
+            p.chips = Array(segs.dropFirst())
+        } else if let t = rest.first {
+            p.title = t
+            p.notes = Array(rest.dropFirst())
+        }
+        return p
+    }
+}
+
+/**
+ * 곁줄 칩 앞의 작은 그림 — **글을 보고 고른다**(웹의 `ChipIcon`과 같은 잣대).
+ * 시각이면 시계, 사람 수면 사람, **모르는 것에는 안 붙인다**(억지로 붙이면
+ * 뜻이 어긋난 그림이 선다).
+ */
+func cardChipSymbol(_ text: String) -> String? {
+    if text.range(of: "오전|오후|[0-9]\\s*:\\s*[0-9]", options: .regularExpression) != nil {
+        return "clock"
+    }
+    if text.range(of: "정원|자리|명|인", options: .regularExpression) != nil {
+        return "person.2"
+    }
+    return nil
+}
+
+/// 카드에 쓰는 글꼴. 굵기는 웹의 `font-weight`를 그대로 옮긴 것이다.
+struct CardFonts {
+    let pill: UIFont, title: UIFont, chip: UIFont, note: UIFont, by: UIFont, go: UIFont
+
+    init(_ s: ChatSkin) {
+        pill = .systemFont(ofSize: s.cardHead, weight: .heavy)    // 800
+        title = .systemFont(ofSize: s.cardTitle, weight: .heavy)  // 800
+        chip = .systemFont(ofSize: s.cardNote, weight: .semibold) // 600
+        note = .systemFont(ofSize: s.cardNote, weight: .regular)
+        by = .systemFont(ofSize: s.cardHead, weight: .bold)       // 700
+        go = .systemFont(ofSize: s.cardGo, weight: .heavy)        // 800
+    }
+}
+
+/// 글 한 덩이의 크기. `lines`를 주면 그 줄 수에서 자른다(웹의 말줄임 자리).
+func cardText(_ s: String, font: UIFont, width: CGFloat, lines: Int = 0) -> CGSize {
+    if s.isEmpty { return .zero }
+    let r = (s as NSString).boundingRect(
+        with: CGSize(width: max(1, width), height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading],
+        attributes: [.font: font], context: nil)
+    var h = ceil(r.height)
+    if lines > 0 { h = min(h, ceil(font.lineHeight) * CGFloat(lines)) }
+    return CGSize(width: ceil(r.width), height: h)
+}
+
+/// 카드 한 장의 자리.
+struct CardBox {
+    var badge = CGRect.zero
+    var pill = CGRect.zero
+    var title = CGRect.zero
+    var chips: [CGRect] = []
+    var notes: [CGRect] = []
+    var rule = CGRect.zero
+    var by = CGRect.zero
+    var go = CGRect.zero
+    var height: CGFloat = 0
+}
+
+/**
+ * 웹의 `.chat-result` 격자를 그대로 옮긴 셈이다 — 배지 오른쪽에 글이 서고,
+ * 가는 선 아래에 `○○님이 …`와 알약 단추가 나란히 선다.
+ *
+ * **높이 셈과 배치가 이 한 함수에서 나온다** — 두 곳에서 따로 셈하면
+ * 언젠가 어긋나 글이 제 칸 밖으로 밀려 나간다(26판에서 겪은 그 자리다).
+ */
+func cardBox(_ p: CardParts, go: String, skin s: ChatSkin, width cw: CGFloat) -> CardBox {
+    let f = CardFonts(s)
+    let pad = s.cardPad
+    let icon = s.cardIconSize
+    let x = pad + icon + s.cardIconGap
+    let w = max(1, cw - x - pad)       // 글이 쓸 폭
+    let inner = cw - pad * 2
+    let gap: CGFloat = 3               // 웹 `.chat-result-body`의 `gap: 3px`
+    var box = CardBox()
+    box.badge = CGRect(x: pad, y: pad, width: icon, height: icon)
+
+    var y = pad
+    if let pill = p.pill {
+        /* 알약은 안여백 `3px 9px`이고 **한 줄로 자른다**(웹과 같다). */
+        let t = cardText(pill, font: f.pill, width: max(1, w - 18), lines: 1)
+        box.pill = CGRect(x: x, y: y, width: min(w, t.width + 18), height: t.height + 6)
+        y = box.pill.maxY + gap
+    }
+    let th = cardText(p.title, font: f.title, width: w).height
+    box.title = CGRect(x: x, y: y, width: w, height: th)
+    y = box.title.maxY
+
+    if !p.chips.isEmpty {
+        y += gap + 1                   // 웹의 `margin-top: 1px`
+        let rowH = ceil(f.chip.lineHeight)
+        var cx: CGFloat = 0, cy: CGFloat = 0
+        for c in p.chips {
+            var wd = cardText(c, font: f.chip, width: w, lines: 1).width
+            if cardChipSymbol(c) != nil { wd += 17 }   // 그림 13 + 사이 4
+            wd = min(wd, w)
+            if cx > 0 && cx + wd > w { cx = 0; cy += rowH + 3 }
+            box.chips.append(CGRect(x: x + cx, y: y + cy, width: wd, height: rowH))
+            cx += wd + 10              // 칩 사이 10px
+        }
+        y += cy + rowH
+    }
+    if !p.notes.isEmpty {
+        /* 곁줄은 **한 덩이로 그린다**(글상자 하나) — 줄마다 칸을 두면 줄
+           사이가 벌어져 웹과 달라진다. */
+        y += gap
+        let h = cardText(p.notes.joined(separator: "\n"), font: f.note, width: w).height
+        box.notes = [CGRect(x: x, y: y, width: w, height: h)]
+        y += h
+    }
+
+    /* 배지보다 글이 짧을 수 있어 윗줄 높이는 **둘 중 큰 쪽**이다. */
+    let bodyH = max(y - pad, icon)
+    var fy = pad + bodyH + 11          // 웹 `.chat-result-foot`의 `margin-top`
+    box.rule = CGRect(x: pad, y: fy, width: inner, height: 1)
+    fy += 1 + 9                        // 선 + `padding-top`
+    /* 알약 단추는 안여백 `7px 12px`. `○○님이 …`는 **두 줄까지 편다** —
+       말줄임으로 자르면 누가 무엇을 했는지가 사라진다. */
+    let gt = cardText(go, font: f.go, width: inner, lines: 1)
+    let gw = go.isEmpty ? 0 : min(inner, gt.width + 24)
+    let gh = go.isEmpty ? 0 : gt.height + 14
+    let bw = max(1, inner - (gw > 0 ? gw + 8 : 0))
+    let bh = p.showBy ? cardText(p.by, font: f.by, width: bw, lines: 2).height : 0
+    let footH = max(bh, gh)
+    if p.showBy {
+        box.by = CGRect(x: pad, y: fy + (footH - bh) / 2, width: bw, height: bh)
+    }
+    if gw > 0 {
+        box.go = CGRect(x: cw - pad - gw, y: fy + (footH - gh) / 2, width: gw, height: gh)
+    }
+    box.height = fy + footH + pad
+    return box
+}
+
+/// 곁줄 칩 하나(`🕐 오전 7:30`) — 그림과 글이 한 줄에 선다.
+final class CardChip: UIView {
+    let icon = UIImageView()
+    let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        icon.contentMode = .scaleAspectFit
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(icon)
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let has = icon.image != nil
+        icon.frame = has
+            ? CGRect(x: 0, y: (bounds.height - 13) / 2, width: 13, height: 13)
+            : .zero
+        let lx: CGFloat = has ? 17 : 0
+        label.frame = CGRect(x: lx, y: 0, width: max(0, bounds.width - lx),
+                             height: bounds.height)
+    }
+}
+
 protocol ChatListDelegate: AnyObject {
     /// 맨 아래에 있는가 · 맨 위에 닿았는가(지난 대화를 더 받아야 한다) ·
     /// `최근 대화로` 줄을 띄울 만큼 멀어졌는가.
@@ -325,6 +534,13 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private let backAt: CGFloat = 60
     /// 그 손짓의 문지기 — **오른쪽으로 그은 것만** 받는다(`BackGuard` 참고).
     private let backGuard = BackGuard()
+
+    /// 되돌려 놓을 자리(34판의 `holdSpot`) — 높이가 정해질 때까지 다시 놓는다.
+    private var spotAim: (id: String, off: CGFloat)?
+    private var spotUntil: CFTimeInterval = 0
+    private var spotSize: CGFloat = -1
+    private var spotFit: CGFloat = -1
+    private var spotLink: CADisplayLink?
 
     /// 끌기 시작한 자리. 아래로 끌었는지를 이것으로 잰다.
     private var dragFrom: CGFloat = 0
@@ -523,10 +739,75 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     func scrollToBottom(animated: Bool) {
+        dropSpot()
         let y = max(-table.adjustedContentInset.top,
                     table.contentSize.height - table.bounds.height
                         + table.adjustedContentInset.bottom)
         table.setContentOffset(CGPoint(x: 0, y: y), animated: animated)
+    }
+
+    /**
+     * **읽던 자리를 높이가 정해질 때까지 다시 놓는다**(34판).
+     *
+     * **한 번만 놓으면 어긋난다 — 목록 높이가 한 번에 안 정해진다.**
+     * 사진이 늦게 뜨고 그림이 풀리며 위쪽에서 자라면 놓아 둔 자리가 그만큼
+     * 밀리는데, 나갈 때 그 밀린 자리를 다시 적으므로 **드나들 때마다
+     * 조금씩 쌓인다**(사용자 제보 — `들어갔다 되돌아오기를 반복하면
+     * 말풍선이 조금씩 내려가`. 웹 목록에서는 안 나는 자국이었다 —
+     * 거기는 `requestAnimationFrame`으로 1.5초 동안 다시 놓고 있었다).
+     *
+     * **높이가 바뀔 때만 한다** — 사람이 굴리는 것은 높이를 안 바꾸므로
+     * 그 사이에 옮겨 간 자리를 빼앗지 않는다(웹과 같은 잣대다).
+     */
+    private func holdSpot(id: String, off: CGFloat) {
+        spotAim = (id, off)
+        spotSize = table.contentSize.height
+        spotFit = table.bounds.height
+        spotUntil = CACurrentMediaTime() + 1.5
+        spotLink?.invalidate()
+        let link = CADisplayLink(target: self, selector: #selector(spotTick))
+        link.add(to: .main, forMode: .common)
+        spotLink = link
+    }
+
+    @objc private func spotTick() {
+        guard let aim = spotAim else { dropSpot(); return }
+        /* **사람이 굴리기 시작하면 손을 뗀다** — 그 자리를 빼앗으면 안 된다. */
+        if table.isDragging || table.isDecelerating { dropSpot(); return }
+        let h = table.contentSize.height, fit = table.bounds.height
+        if h != spotSize || fit != spotFit {
+            spotSize = h
+            spotFit = fit
+            if let at = rows.firstIndex(where: { $0.id == aim.id }) {
+                putAt(IndexPath(row: at, section: 0), off: aim.off)
+                lastAtBottom = atBottom()
+            }
+        }
+        if CACurrentMediaTime() >= spotUntil { dropSpot() }
+    }
+
+    private func dropSpot() {
+        spotLink?.invalidate()
+        spotLink = nil
+        spotAim = nil
+    }
+
+    /* 화면에서 걷힐 때 함께 끈다 — 남으면 안 보이는 목록을 프레임마다 잰다. */
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { dropSpot() }
+    }
+
+    /**
+     * `at`(읽던 자리)로 놓는다 — 그 줄의 윗변을 맨 위에 맞추고 나갈 때 위로
+     * 지나가 있던 `off`만큼 더 내린다. 끝을 넘지 않게 자른다.
+     */
+    private func putAt(_ ip: IndexPath, off: CGFloat) {
+        table.scrollToRow(at: ip, at: .top, animated: false)
+        let maxY = max(-table.adjustedContentInset.top,
+                       table.contentSize.height - table.bounds.height
+                           + table.adjustedContentInset.bottom)
+        table.contentOffset.y = min(maxY, table.contentOffset.y + off)
     }
 
     func atBottom() -> Bool {
@@ -568,25 +849,25 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     func scrollTo(id: String, place: String, off: CGFloat = 0, flash: Bool) -> Bool {
         guard let at = rows.firstIndex(where: { $0.id == id }) else { return false }
         let ip = IndexPath(row: at, section: 0)
-        /* **부드럽게 굴리지 않는다** — 300개까지 받아 둔 목록을 훑어
-           내려가는 일이라 느린 폰에서 그대로 끊긴다(웹의 `jumpToLatest`와
-           같은 잣대다). 게다가 `top`은 굴린 뒤에 자리를 한 번 더 고치므로
-           움직이는 중이면 그 값이 어긋난다. */
-        table.scrollToRow(at: ip,
-                          at: place == "top" || place == "at" ? .top : .middle,
-                          animated: false)
-        if place == "top" {
-            /* 웹이 `위에서 100px`에 두는 그 자리다 — 줄 바로 위에 지난 글이
-               한 줄 비쳐야 거기서부터 읽어 내려갈 수 있다. */
-            table.contentOffset.y = max(0, table.contentOffset.y - 100)
-        } else if place == "at" {
-            /* `.top`은 그 줄의 윗변을 화면 맨 위에 맞춘다 — 나갈 때 위로
-               지나가 있던 `off`만큼 더 내려야 **그때 보던 그 자리**다.
-               끝을 넘지 않게 자른다(그 글이 마지막 즈음이면 더 갈 데가 없다). */
-            let maxY = max(-table.adjustedContentInset.top,
-                           table.contentSize.height - table.bounds.height
-                               + table.adjustedContentInset.bottom)
-            table.contentOffset.y = min(maxY, table.contentOffset.y + off)
+        dropSpot()
+        if place == "at" {
+            /* **읽던 자리다**(32판). 한 번 놓고 끝내면 그 뒤에 사진이 뜨며
+               위쪽에서 자라는 만큼 밀리므로, 높이가 정해질 때까지 다시
+               놓는다(34판의 `holdSpot`). */
+            putAt(ip, off: off)
+            holdSpot(id: id, off: off)
+        } else {
+            /* **부드럽게 굴리지 않는다** — 300개까지 받아 둔 목록을 훑어
+               내려가는 일이라 느린 폰에서 그대로 끊긴다(웹의 `jumpToLatest`와
+               같은 잣대다). 게다가 `top`은 굴린 뒤에 자리를 한 번 더 고치므로
+               움직이는 중이면 그 값이 어긋난다. */
+            table.scrollToRow(at: ip, at: place == "top" ? .top : .middle,
+                              animated: false)
+            if place == "top" {
+                /* 웹이 `위에서 100px`에 두는 그 자리다 — 줄 바로 위에 지난
+                   글이 한 줄 비쳐야 거기서부터 읽어 내려갈 수 있다. */
+                table.contentOffset.y = max(0, table.contentOffset.y - 100)
+            }
         }
         lastAtBottom = atBottom()
         guard flash else { return true }
@@ -637,11 +918,6 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      */
     private func cardWidth() -> CGFloat {
         return min(bounds.width - skin.pad * 4, skin.cardW)
-    }
-
-    /// 카드 안에서 **글이 쓰는 폭**(배지 오른쪽). 웹의 `.chat-result-body`다.
-    private func cardTextWidth() -> CGFloat {
-        return cardWidth() - skin.cardPad * 2 - skin.cardIconSize - skin.cardIconGap
     }
 
     /**
@@ -723,18 +999,11 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
             h += measure(row.body, width: bounds.width - skin.pad * 4,
                          size: skin.stampSize + 2).height + 12
         case .card:
-            /* **글은 배지 오른쪽에서 시작하고, `보러 가기 ›`는 카드 폭을
-               통째로 쓴다**(웹의 격자와 같다). 배지보다 글이 짧을 수 있어
-               윗줄 높이는 **둘 중 큰 쪽**이다. */
-            let bh = max(measure(row.body, width: cardTextWidth(),
-                                 size: skin.cardTitle).height,
-                         skin.cardIconSize)
-            let gh = measure(row.go ?? "", width: cardWidth() - skin.cardPad * 2,
-                             size: skin.cardGo).height
-            /* 카드가 제 안여백을 들고 있고 웹의 `.chat-result`는 아래 여백이
-               2px다(`margin-top`은 `row.top`이 든다). 가는 선 위아래로
-               10 + 1 + 9는 웹의 `.chat-result-go`와 같은 값이다. */
-            h += bh + gh + skin.cardPad * 2 + 20 + 2
+            /* **자리는 `cardBox`가 셈한다** — 배치도 같은 함수를 쓰므로 둘이
+               어긋날 자리가 없다(34판). 웹의 `.chat-result`는 아래 여백이
+               2px다(`margin-top`은 `row.top`이 든다). */
+            h += cardBox(CardParts.parse(row.body, icon: row.icon),
+                         go: row.go ?? "", skin: skin, width: cardWidth()).height + 2
         case .photo, .sticker:
             if row.name != nil { h += skin.nameSize + 5 }
             h += quoteHeight(row, above: true)
@@ -963,9 +1232,16 @@ final class BubbleCell: UITableViewCell {
     private let cardView = UIView()
     private let cardBadge = UIView()
     private let cardIcon = UIImageView()
-    private let cardBody = UILabel()
+    /// 곳 이름 알약 · 큰 제목 · 곁줄 · `○○님이 …했습니다` · 알약 단추(34판).
+    private let cardPill = PadLabel()
+    private let cardTitle = UILabel()
+    private let cardNote = UILabel()
+    private let cardBy = UILabel()
     private let cardRule = UIView()
-    private let cardGo = UILabel()
+    private let cardGo = PadLabel()
+    private var cardChips: [CardChip] = []
+    /// 그린 카드의 조각들 — 배치가 다시 가르지 않게 담아 둔다.
+    private var cardParts = CardParts()
     private let quoteBox = UIView()
     private let quoteWho = UILabel()
     private let quoteText = UILabel()
@@ -1029,8 +1305,20 @@ final class BubbleCell: UITableViewCell {
            (사용자 요청 — 셋이 똑같이 생겨 글을 읽어야 무엇인지 알았다).
            **테두리 대신 그림자다** — `--line`은 흰 바탕에 맞춘 값이라
            보라 목록 위에서는 거의 안 보였다(웹의 `.chat-result`와 같다). */
-        cardBody.numberOfLines = 0
+        cardTitle.numberOfLines = 0
+        cardNote.numberOfLines = 0
+        /* **두 줄까지 편다 — 말줄임으로 자르지 말 것.** `○○님이 스크린을
+           공유했습니다`는 한 문장이라 뒤가 잘리면 누가 무엇을 했는지가
+           사라진다(웹의 `-webkit-line-clamp: 2`와 같은 자리다). */
+        cardBy.numberOfLines = 2
+        cardPill.numberOfLines = 1
+        cardPill.lineBreakMode = .byTruncatingTail
+        cardPill.inset = UIEdgeInsets(top: 3, left: 9, bottom: 3, right: 9)
+        cardPill.layer.masksToBounds = true
         cardGo.numberOfLines = 1
+        cardGo.inset = UIEdgeInsets(top: 7, left: 12, bottom: 7, right: 12)
+        cardGo.textAlignment = .center
+        cardGo.layer.masksToBounds = true
         cardView.layer.cornerCurve = .continuous
         cardView.layer.shadowColor = UIColor(red: 27 / 255, green: 31 / 255,
                                              blue: 25 / 255, alpha: 1).cgColor
@@ -1060,8 +1348,9 @@ final class BubbleCell: UITableViewCell {
         }
         bubble.addSubview(bodyLabel)
         capBubble.addSubview(capLabel)
-        cardView.addSubview(cardBody)
-        cardView.addSubview(cardGo)
+        for v in [cardPill, cardTitle, cardNote, cardBy, cardGo] as [UIView] {
+            cardView.addSubview(v)
+        }
 
         /* **누르는 것은 한 곳에서 받아 자리로 가른다**(21판).
            예전에는 얼굴·사진·카드마다 제 탭 인식기를 달았는데, 실기기에서
@@ -1320,8 +1609,9 @@ final class BubbleCell: UITableViewCell {
 
         if isCard {
             /* **눌러서 들어가는 카드다**(라운드·투표·공지). 웹의 `LinkCard`와
-               같은 짜임이라 **줄 수를 세지 않는다** — 첫 줄만 흐리게 깔고
-               나머지는 있는 대로 그리므로 문구가 늘어도 안 깨진다. */
+               **같은 짜임이다**(34판) — 곳 이름 알약 · 큰 제목 · 그림 붙은 칩 ·
+               가는 선 아래의 `○○님이 …`와 알약 단추. 가르는 규칙은
+               `CardParts`에 한 벌로 있다. **한쪽만 고치지 말 것.** */
             cardView.backgroundColor = s.cardTint
             cardView.layer.cornerRadius = s.cardRadius
             cardRule.backgroundColor = s.cardRule
@@ -1333,42 +1623,63 @@ final class BubbleCell: UITableViewCell {
             cardIcon.tintColor = s.card
             cardIcon.image = UIImage(systemName: BubbleCell.cardSymbol(r.icon))?
                 .withRenderingMode(.alwaysTemplate)
-            let text = NSMutableAttributedString()
-            let lines = r.body.components(separatedBy: "\n").filter { !$0.isEmpty }
-            if lines.count > 1 {
-                /* **제목이 먼저 오고 `○○님이 …했습니다`는 맨 아래다**(웹의
-                   `.chat-result`와 같은 차례 — 사용자가 올린 그림의 그
-                   짜임이다). 가운데 줄들은 알려 주는 값이라 흐리게 둔다.
-                   웹은 그 곁줄을 `·`로 갈라 그림 붙은 칩으로 그리는데,
-                   여기서는 한 줄로 이어 두었다 — **한쪽만 고치지 말 것.** */
-                text.append(NSAttributedString(string: lines[1], attributes: [
-                    .font: UIFont.systemFont(ofSize: s.cardTitle, weight: .bold),
-                    .foregroundColor: s.text,
-                    .paragraphStyle: p,
-                ]))
-                for extra in lines.dropFirst(2) {
-                    text.append(NSAttributedString(string: "\n" + extra, attributes: [
-                        .font: UIFont.systemFont(ofSize: s.cardNote, weight: .regular),
-                        .foregroundColor: s.text.withAlphaComponent(0.7),
-                        .paragraphStyle: p,
-                    ]))
-                }
-                text.append(NSAttributedString(string: "\n" + lines[0], attributes: [
-                    .font: UIFont.systemFont(ofSize: s.cardHead, weight: .semibold),
-                    .foregroundColor: s.text.withAlphaComponent(0.55),
-                    .paragraphStyle: p,
-                ]))
-            } else {
-                text.append(NSAttributedString(string: r.body, attributes: [
-                    .font: UIFont.systemFont(ofSize: s.cardTitle, weight: .bold),
-                    .foregroundColor: s.text,
-                    .paragraphStyle: p,
-                ]))
+
+            let parts = CardParts.parse(r.body, icon: r.icon)
+            cardParts = parts
+            let f = CardFonts(s)
+            let dim = s.text.withAlphaComponent(0.7)
+
+            /* **알약과 단추가 잔디색 두 톤이다** — 곳 이름은 `--grass`,
+               `보러 가기`는 한 톤 낮춘 `--grass-deep`. 연두 위 흰 글자는
+               `필드` 이름표와 같은 **정해 둔 예외**다(대비 2.4:1).
+               **분홍을 쓰지 말 것**(보내기 단추 몫이다). */
+            cardPill.isHidden = parts.pill == nil
+            if let pill = parts.pill {
+                cardPill.backgroundColor = s.cardBadge
+                cardPill.attributedText = NSAttributedString(string: pill, attributes: [
+                    .font: f.pill, .foregroundColor: s.card,
+                ])
             }
-            cardBody.attributedText = text
-            cardGo.attributedText = NSAttributedString(string: r.go ?? "", attributes: [
-                .font: UIFont.systemFont(ofSize: s.cardGo, weight: .semibold),
-                .foregroundColor: s.link,
+            cardTitle.attributedText = NSAttributedString(string: parts.title, attributes: [
+                .font: f.title, .foregroundColor: s.text, .paragraphStyle: p,
+            ])
+            cardNote.isHidden = parts.notes.isEmpty
+            if !parts.notes.isEmpty {
+                cardNote.attributedText = NSAttributedString(
+                    string: parts.notes.joined(separator: "\n"), attributes: [
+                        .font: f.note, .foregroundColor: dim, .paragraphStyle: p,
+                    ])
+            }
+            /* 곁줄 칩. **알려 주는 값이라 글자는 흐리고 그림만 잔디색이다.** */
+            while cardChips.count < parts.chips.count {
+                let c = CardChip()
+                cardView.addSubview(c)
+                cardChips.append(c)
+            }
+            for (i, c) in cardChips.enumerated() {
+                c.isHidden = i >= parts.chips.count
+                guard i < parts.chips.count else { continue }
+                let text = parts.chips[i]
+                c.label.attributedText = NSAttributedString(string: text, attributes: [
+                    .font: f.chip, .foregroundColor: dim,
+                ])
+                c.icon.image = cardChipSymbol(text).flatMap {
+                    UIImage(systemName: $0)?.withRenderingMode(.alwaysTemplate)
+                }
+                c.icon.tintColor = s.link
+            }
+            cardBy.isHidden = !parts.showBy
+            if parts.showBy {
+                cardBy.attributedText = NSAttributedString(string: parts.by, attributes: [
+                    .font: f.by, .foregroundColor: s.text.withAlphaComponent(0.55),
+                    .paragraphStyle: p,
+                ])
+            }
+            let go = r.go ?? ""
+            cardGo.isHidden = go.isEmpty
+            cardGo.backgroundColor = s.link
+            cardGo.attributedText = NSAttributedString(string: go, attributes: [
+                .font: f.go, .foregroundColor: s.card,
             ])
             setNeedsLayout()
             return
@@ -1494,26 +1805,25 @@ final class BubbleCell: UITableViewCell {
         }
 
         if r.kind == .card {
-            /* **웹의 격자와 같은 짜임이다**(`.chat-result`) — 배지 오른쪽에
-               글이 서고, `보러 가기 ›`는 가는 선 아래에서 카드 폭을 통째로
-               쓴다. **`height(_:)`와 같은 셈이어야 한다** — 한쪽만 고치면
-               줄이 제 칸 밖으로 밀려 나간다. */
-            let pad = skin.cardPad
-            let icon = skin.cardIconSize
-            let bodyX = pad + icon + skin.cardIconGap
-            let inner = cardW - pad * 2
-            let bodyW = cardW - bodyX - pad
-            let bh = max(ceil(cardBody.sizeThatFits(
-                CGSize(width: bodyW, height: .greatestFiniteMagnitude)).height), icon)
-            let gh = ceil(cardGo.sizeThatFits(
-                CGSize(width: inner, height: .greatestFiniteMagnitude)).height)
+            /* **자리는 `cardBox`가 셈한다** — `height(_:)`가 쓰는 그 함수라
+               둘이 어긋날 자리가 없다(34판). */
+            let box = cardBox(cardParts, go: r.go ?? "", skin: skin, width: cardW)
             cardView.frame = CGRect(x: (w - cardW) / 2, y: y,
-                                    width: cardW, height: pad * 2 + bh + 20 + gh)
-            cardBadge.frame = CGRect(x: pad, y: pad, width: icon, height: icon)
-            cardIcon.frame = cardBadge.bounds.insetBy(dx: icon * 0.2, dy: icon * 0.2)
-            cardBody.frame = CGRect(x: bodyX, y: pad, width: bodyW, height: bh)
-            cardRule.frame = CGRect(x: pad, y: pad + bh + 10, width: inner, height: 1)
-            cardGo.frame = CGRect(x: pad, y: pad + bh + 20, width: inner, height: gh)
+                                    width: cardW, height: box.height)
+            cardBadge.frame = box.badge
+            cardIcon.frame = cardBadge.bounds.insetBy(dx: box.badge.width * 0.2,
+                                                      dy: box.badge.height * 0.2)
+            cardPill.frame = box.pill
+            cardPill.layer.cornerRadius = box.pill.height / 2
+            cardTitle.frame = box.title
+            for (i, c) in cardChips.enumerated() where i < box.chips.count {
+                c.frame = box.chips[i]
+            }
+            cardNote.frame = box.notes.first ?? .zero
+            cardRule.frame = box.rule
+            cardBy.frame = box.by
+            cardGo.frame = box.go
+            cardGo.layer.cornerRadius = box.go.height / 2
             return
         }
 
