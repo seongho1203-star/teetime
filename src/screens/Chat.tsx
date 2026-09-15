@@ -153,6 +153,41 @@ function webSpot(el: HTMLElement): ChatSpot | null {
 }
 
 /**
+ * **마지막으로 그려 둔 줄을 방마다 들고 있는다.**
+ *
+ * 나갔다 오면 화면이 통째로 새로 만들어지는데, 그동안 **빈 화면이 0.8초쯤
+ * 지나간다** — 사용자 제보(`되돌아가기하면 … 화면이 깜빡이면서 나오는데`)로
+ * 잡은 자리다. 헤드리스로 프레임마다 재 보니 갈래가 둘이었다:
+ * **0.4초는 통째로 스피너**(방·명단을 물어보는 동안 `page center-fill`),
+ * **그다음 0.4초는 줄이 하나도 없는 빈 목록**(첫 묶음이 아직 안 왔다).
+ *
+ * 그래서 나갈 때 들고 있다가 **들어오자마자 그대로 깐다.** 빈 화면이 아예
+ * 없어지고, 읽던 자리(`SPOTS`)도 그 자리에서 바로 잡힌다.
+ *
+ * - **통째로 다시 받지 않는다 — 마지막 글 뒤엣것만 덧붙인다.** 다시 받으면
+ *   굴려 둔 자리도 `여기까지 읽으셨습니다` 줄도 잃는다(접었다 펴는
+ *   `useRefreshOnShow`와 같은 잣대다). 첫 묶음 밖을 받아 오는 일도
+ *   그만큼 안 생긴다.
+ * - **열쇠에 사람을 넣는다**(`방:나`). 한 기기를 둘이 쓸 때 앞사람 대화가
+ *   잠깐이라도 비치면 안 된다 — 사람이 바뀌면 열쇠가 달라 저절로 빈손이다.
+ * - **검색으로 옛 글에 가 있을 때는 안 적는다**(`windowed`). 그 목록은
+ *   '지금'이 아니라 찾은 글 언저리라, 뒤에 오늘 글을 붙이면 안 된다.
+ * - **방 둘까지만** 들고 있는다(`SPOT_MAX`와 같은 결).
+ */
+const KEPT = new Map<string, { list: Message[]; more: boolean }>();
+const KEPT_MAX = 2;
+
+function keepList(key: string, v: { list: Message[]; more: boolean } | null): void {
+    KEPT.delete(key);
+    if (!v || !v.list.length) return;
+    KEPT.set(key, v);
+    for (const old of KEPT.keys()) {
+        if (KEPT.size <= KEPT_MAX) break;
+        KEPT.delete(old);
+    }
+}
+
+/**
  * 적어 두는 자리에 **그 글의 시각을 함께 붙인다**(`ChatSpot.at`).
  *
  * 다시 들어오면 마지막 묶음만 받아 오므로, 그 글이 거기 없으면 받아 올
@@ -368,7 +403,12 @@ export function Chat() {
             fetchPeople(),
         ]);
         return { room: unwrap(room), people };
-    }, []);
+        /* **기억해 둔다**(`chat`). 여기서 받는 것은 **방 하나와 회원 명단**
+           뿐이라 읽던 자리·안 읽음 줄과 아무 상관이 없다 — 그것들은 아래
+           `messages`가 맡는다. 안 기억해 두면 나갔다 올 때마다 인터넷을
+           한 바퀴 돌 동안 **화면이 통째로 스피너**가 된다(0.4초로 쟀다).
+           새 값은 뒤에서 받아 슬쩍 갈아 끼운다. */
+    }, [], `chat:${me}`);
 
     const roomId = data?.room?.id;
     /** 화면을 걷는 뒷정리에서도 읽어야 한다(`listDetach` → `SPOTS`). */
@@ -391,10 +431,44 @@ export function Chat() {
        사람에게는 `여기까지 읽으셨습니다` 줄이 아예 안 뜬다.
        줄 자리도 여기서 함께 정한다. 나중에 효과로 정하면 그 사이에
        `pinBottom`이 화면을 맨 아래로 붙여 버려 한 번 튄다. */
+    /** 들고 있던 줄의 열쇠. **사람을 넣는다** — 위 `KEPT` 주석 참고. */
+    const keptKey = roomId ? `${roomId}:${me}` : '';
+
+    /* **들고 있던 줄을 그리기 전에 깐다**(위 `KEPT`). `useEffect`로 하면
+       한 프레임이 빈 채로 그려져 그만큼 깜빡인다 — 배치 효과라야 첫 그림에
+       이미 들어 있다. 아래 첫 묶음 받는 곳은 이걸 보고 **덧붙이기로 간다.** */
+    useLayoutEffect(() => {
+        const kept = keptKey && KEPT.get(keptKey);
+        if (!kept) return;
+        // 되돌려 놓을 자리가 있으므로 맨 아래로 끌려가지 않게 먼저 내려 둔다.
+        if (SPOTS.get(roomId!)) atBottom.current = false;
+        setMessages(kept.list);
+        setHasMore(kept.more);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [keptKey]);
+
     useEffect(() => {
         if (!roomId) return;
         let alive = true;
         (async () => {
+            /* **들고 있던 줄이 있으면 통째로 다시 안 받는다 — 뒤엣것만
+               덧붙인다.** 다시 받으면 굴려 둔 자리도 `여기까지 읽으셨습니다`
+               줄도 잃는다(접었다 펴는 `useRefreshOnShow`와 같은 잣대다). */
+            const kept = keptKey ? KEPT.get(keptKey) : null;
+            if (kept?.list.length) {
+                const tail = kept.list[kept.list.length - 1].created_at;
+                const { data: add } = await supabase
+                    .from('messages').select('*').eq('room_id', roomId)
+                    .gt('created_at', tail)
+                    .order('created_at', { ascending: true }).limit(MAX_CATCHUP);
+                if (!alive || !add?.length) return;
+                setMessages(prev => {
+                    const 새것 = add.filter(r => !prev.some(m => m.id === r.id));
+                    return 새것.length ? [...prev, ...새것] : prev;
+                });
+                return;
+            }
+
             const at = enteredSeen.current;
             const fresh = !at || at === NEVER;
 
@@ -2137,7 +2211,22 @@ export function Chat() {
        효과의 뒷정리는 **DOM을 지운 뒤에** 돌아 `listRef`가 이미 비어 있다
        (그래서 고쳐 놓고도 그대로였다). 배치 효과의 뒷정리만 지우기
        전에 돈다. */
+    /** 나갈 때 들고 갈 값. 뒷정리는 한 번만 걸리므로 마지막 것을 본다. */
+    const keepNow = useRef<() => void>(() => {});
+    keepNow.current = () => {
+        if (!keptKey) return;
+        /* 검색으로 옛 글에 가 있으면 안 들고 간다 — 그 목록은 '지금'이
+           아니라 찾은 글 언저리라, 다음에 그 뒤로 오늘 글을 붙이면 안 된다. */
+        if (windowedRef.current) { keepList(keptKey, null); return; }
+        /* **줄이 없으면 들고 있던 것을 지우지 않는다.** 첫 묶음이 오기 전에
+           나가면(또는 리액트가 뒷정리를 한 번 더 돌리면 — 개발 모드의
+           `StrictMode`가 그렇다) 빈 목록으로 덮어써 **다음에 들어올 때
+           깜빡임이 그대로 돌아온다.** 실제로 그렇게 났다. */
+        if (!msgsRef.current.length) return;
+        keepList(keptKey, { list: msgsRef.current, more: hasMore });
+    };
     useLayoutEffect(() => () => {
+        keepNow.current();
         if (!spotTimer.current) return;      // 이미 적어 둔 것이다.
         clearTimeout(spotTimer.current);
         spotTimer.current = 0;
@@ -3784,7 +3873,12 @@ export function Chat() {
         void hush(NativeComposer.setState({ slide: !searchOn }));
     }, [nativeBar, searchOn]);
 
-    if (loading) return <div className="page center-fill"><div className="spinner" /></div>;
+    /* **`loading`만 보지 말 것 — 기억해 둔 것이 있으면 그걸 먼저 그린다.**
+       `loading`은 다시 물어보는 동안 늘 참이라, 그것만 보면 나갔다 올 때마다
+       **화면이 통째로 스피너로 0.4초** 지나간다(사용자 제보 — `되돌아가기하면
+       … 화면이 깜빡이면서 나오는데`. 헤드리스로 프레임마다 재서 잡았다).
+       다른 화면들이 처음부터 `loading && !data`로 두고 있던 그 잣대다. */
+    if (loading && !data) return <div className="page center-fill"><div className="spinner" /></div>;
     if (error || !data?.room) {
         return (
             <div className="page">

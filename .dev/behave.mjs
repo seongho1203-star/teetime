@@ -3338,12 +3338,154 @@ console.log('\n── 읽던 글이 첫 묶음 밖에 있어도 ──');
     ok(밖후.끝 > 100, `맨 아래로 안 끌려간다 (끝 ${밖후.끝})`);
     /* 목록이 그 언저리만 담고 있으므로 **돌아올 길이 있어야 한다** —
        검색으로 옮겨 갔을 때와 같은 자리다(`windowed`). */
-    const 줄수 = await lPage.evaluate(() =>
-        document.querySelectorAll('.chat-list [data-mid]').length);
-    ok(await lPage.evaluate(() => !!document.querySelector('.chat-recent')),
-       `최근 대화로 돌아올 단추가 있다 (줄 ${줄수})`);
+    /* **빈 화면이 지나가지 않는다**(사용자 제보 — `되돌아가기하면 … 화면이
+       깜빡이면서 나오는데`). 들고 있던 줄을 그대로 깔므로 스피너도, 줄
+       하나 없는 빈 목록도 없어야 한다 — 위에서 이미 돌아와 있으므로
+       여기서는 **한 번 더 다녀오며 프레임마다** 본다. */
+    {
+        const 본 = [];
+        await lPage.evaluate(() => {
+            const el = document.querySelector('.chat-list');
+            const c = el.querySelector('.chat-result');
+            if (c) el.scrollTop += c.getBoundingClientRect().top
+                - el.getBoundingClientRect().top - 200;
+            el.dispatchEvent(new Event('scroll'));
+        });
+        await lPage.waitForTimeout(400);
+        /* **보이는 카드가 없으면 던지지 말 것** — 고침을 되돌려 보는 판에서
+           목록이 맨 아래에 있으면 카드가 화면 밖이라, 그냥 죽으면 **뒤에 있는
+           칸이 통째로 안 돈다.** 빨갛게 적고 넘어간다. */
+        const 자리 = await lPage.evaluate(() => {
+            const el = document.querySelector('.chat-list');
+            const box = el.getBoundingClientRect();
+            const c = [...el.querySelectorAll('.chat-result')].find(x => {
+                const r = x.getBoundingClientRect();
+                return r.top > box.top + 8 && r.bottom < box.bottom - 8;
+            });
+            if (!c) return null;
+            const r = c.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        });
+        if (!자리) ok(false, '되돌아온 자리에 카드가 보인다');
+        else await lPage.mouse.click(자리.x, 자리.y);
+        await settleScreen(lPage);
+        await lPage.waitForTimeout(600);
+        void lPage.goBack();
+        for (let i = 0; i < 8; i++) {
+            await lPage.waitForTimeout(80);
+            본.push(await lPage.evaluate(() => ({
+                스피너: !!document.querySelector('.center-fill .spinner'),
+                줄: document.querySelectorAll('.chat-list [data-mid]').length,
+            })));
+        }
+        ok(본.every(f => !f.스피너), `되돌아올 때 스피너가 안 지나간다 (${본.filter(f => f.스피너).length}프레임)`);
+        ok(본.every(f => f.줄 > 0), `되돌아올 때 빈 목록이 안 지나간다 (${본.filter(f => !f.줄).length}프레임)`);
+    }
 
     await lCtx.close();
+}
+
+/* ── 들고 있던 줄이 없을 때는 언저리를 받아 온다 ──────────────────
+ *
+ * 위 칸은 **나갈 때 들고 있던 줄**(`KEPT`)로 돌아오므로 받아 오는 길을
+ * 안 지나간다. 그 길은 **검색으로 옛 글에 가 있다가 나갔을 때** 쓰인다 —
+ * 그때는 목록이 '지금'이 아니라 찾은 글 언저리라 들고 가지 않기 때문이다.
+ * 되돌아올 때 그 글이 첫 묶음에 없으면 언저리를 받아 오고 `최근 대화로`가
+ * 뜬다. 고침을 되돌리면 맨 아래로 떨어져 빨갛게 뜬다.
+ */
+console.log('\n── 들고 있던 줄이 없을 때 ──');
+{
+    const 어제 = Date.now() - 864e5;
+    const others = tables.profiles.filter(p => p.id !== ME).map(p => p.id);
+    const long = [];
+    for (let i = 0; i < 140; i++) {
+        long.push(i === 30
+            ? { id: `y${i}`, room_id: 'room1', user_id: ME, system: true, round_id: 'r1',
+                body: '신성호님이 라운드를 공유했습니다\n무등산CC\n9월 8일 (화)',
+                created_at: new Date(어제 + i * 6e4).toISOString() }
+            /* **찾을 말은 딱 한 줄에만 있어야 한다** — `29번째`처럼 두면
+               `129번째`도 걸려 목록 맨 위에 최근 글이 오고, 그건 이미
+               받아 둔 줄이라 `openHit`이 언저리를 안 받아 온다(그러면
+               여기서 보려던 길을 통째로 지나친다). */
+            : { id: `y${i}`, room_id: 'room1', user_id: others[i % others.length],
+                body: i === 29 ? '그날 찾을말 이야기입니다' : `${i}번째 이야기입니다`,
+                created_at: new Date(어제 + i * 6e4).toISOString() });
+    }
+    const wCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await wCtx.route('**/rest/v1/**', restRoute({ ...tables, messages: long }));
+    await wCtx.route('**/auth/v1/**', r => r.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
+    await stubOutside(wCtx);
+    await wCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const wPage = await wCtx.newPage();
+    await wPage.goto(BASE + '/#/chat', { waitUntil: 'networkidle' });
+    await wPage.waitForSelector('.chat-list .chat-row', { timeout: 15000 });
+    await wPage.waitForTimeout(700);
+
+    /* 🔍로 옛 글에 가면 `windowed`가 선다 — 그러면 나갈 때 줄을 안 들고 간다. */
+    await wPage.click('.chat-find');
+    await wPage.waitForTimeout(200);
+    await wPage.fill('.chat-search-in', '찾을말');
+    await wPage.waitForTimeout(900);
+    const 결과 = await wPage.$$('.chat-hit');
+    ok(결과.length > 0, `검색으로 옛 글을 찾는다 (${결과.length}건)`);
+    if (결과.length) {
+        await 결과[0].click();
+        await wPage.waitForTimeout(900);
+        ok(await wPage.evaluate(() => !!document.querySelector('.chat-recent')),
+           '찾아간 자리에서는 `최근 대화로`가 뜬다');
+
+        // 그 언저리에 카드가 있다. 보이는 자리를 눌러 들어갔다 나온다.
+        const 점 = await wPage.evaluate(() => {
+            const el = document.querySelector('.chat-list');
+            const box = el.getBoundingClientRect();
+            const c = [...el.querySelectorAll('.chat-result')].find(x => {
+                const r = x.getBoundingClientRect();
+                return r.top > box.top + 8 && r.bottom < box.bottom - 8;
+            });
+            if (!c) return null;
+            const r = c.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        });
+        if (!점) {
+            ok(false, '찾아간 자리에 카드가 보인다');
+        } else {
+            const 전 = await wPage.evaluate(() => {
+                const el = document.querySelector('.chat-list');
+                const top = el.getBoundingClientRect().top;
+                const row = [...el.querySelectorAll('[data-mid]')]
+                    .find(r => r.getBoundingClientRect().bottom > top + 1);
+                return { 글: row?.dataset.mid ?? null,
+                         위로: row ? Math.round(top - row.getBoundingClientRect().top) : -1 };
+            });
+            await wPage.mouse.click(점.x, 점.y);
+            await settleScreen(wPage);
+            await wPage.waitForTimeout(600);
+            ok(wPage.url().includes('/rounds/r1'), '카드를 누르면 그 라운드로 간다');
+            await wPage.goBack();
+            await settleScreen(wPage);
+            await wPage.waitForSelector('.chat-list', { timeout: 15000 });
+            await wPage.waitForTimeout(1500);
+            const 후 = await wPage.evaluate(() => {
+                const el = document.querySelector('.chat-list');
+                const top = el.getBoundingClientRect().top;
+                const row = [...el.querySelectorAll('[data-mid]')]
+                    .find(r => r.getBoundingClientRect().bottom > top + 1);
+                return {
+                    글: row?.dataset.mid ?? null,
+                    위로: row ? Math.round(top - row.getBoundingClientRect().top) : -1,
+                    끝: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
+                    돌아올단추: !!document.querySelector('.chat-recent'),
+                };
+            });
+            ok(후.글 === 전.글 && Math.abs(후.위로 - 전.위로) <= 4,
+               `언저리를 받아 와 읽던 자리로 온다 (${전.글}/${전.위로} → ${후.글}/${후.위로})`);
+            ok(후.끝 > 100, `맨 아래로 안 끌려간다 (끝 ${후.끝})`);
+            ok(후.돌아올단추, '`최근 대화로` 단추가 있다');
+        }
+    }
+    await wCtx.close();
 }
 
 /* ── 화면이 통째로 밀려 들어오고 나간다 ──────────────────────────
