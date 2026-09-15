@@ -725,6 +725,27 @@ const wordFor = h => h?.includes('/rounds/') ? '라운드'
     : h?.includes('/polls/') ? '투표' : '공지';
 ok(goes.every(([h, g]) => g?.includes(wordFor(h))),
    `카드마다 갈 곳에 맞는 말이 붙는다 (실제 ${JSON.stringify(goes)})`);
+/* **머리에 그림 배지가 선다**(사용자 요청 — `공유될 때 나오는 창을 예쁘게
+   바꿔줘`). 셋이 똑같이 생겨 글을 읽어야 무엇인지 알았다.
+   **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다.
+   클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 **값을 잰다.** */
+const cardLook = await page.evaluate(() => {
+    const c = document.querySelector('.chat-result');
+    if (!c) return null;
+    const icon = c.querySelector('.chat-result-icon');
+    const cs = getComputedStyle(c);
+    return {
+        배지: icon ? Math.round(icon.getBoundingClientRect().width) : 0,
+        그림: !!icon?.querySelector('svg'),
+        모서리: parseFloat(cs.borderTopLeftRadius),
+        테두리: parseFloat(cs.borderTopWidth),
+        그림자: cs.boxShadow !== 'none',
+    };
+});
+ok(cardLook && cardLook.배지 >= 24 && cardLook.그림,
+   `카드 머리에 선 SVG 배지가 선다 (실제 ${JSON.stringify(cardLook)})`);
+ok(cardLook && cardLook.모서리 >= 13 && cardLook.테두리 === 0 && cardLook.그림자,
+   `테두리 대신 그림자 · 통통한 모서리 (실제 ${JSON.stringify(cardLook)})`);
 /* **지운 것은 카드가 아니다** — 갈 곳이 이미 없다. */
 const notices = await page.$$eval('.chat-notice', e => e.map(x => x.textContent));
 ok(notices.some(t => t?.includes('지웠습니다')),
@@ -1098,28 +1119,37 @@ ok(patched.length === before + 1 && !!patched.at(-1)?.hidden_at,
    `가리기를 누르면 hidden_at을 세워 보낸다 (실제 ${JSON.stringify(patched.at(-1))})`);
 ok((await page.textContent('[data-mid="m5"]') ?? '').includes('가려진 메시지입니다'),
    '가리면 그 자리에서 바로 덮인다 — 다시 들어와 볼 일이 없다');
-/* **말풍선을 벗기고 흐린 한 줄로만 그린다**(사용자가 고른 모양이다 —
-   카톡의 `삭제된 메시지입니다`가 그 자리다). 덮어 둔 글에 말풍선을
-   두르면 오히려 여느 말보다 도드라진다.
-   **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 값을 잰다** —
-   칠이 있는가 · 한 줄 높이가 말풍선과 같은가. */
+/* **가린 글은 날짜 칸처럼 가운데 한 줄이다**(사용자 요청 — `가릴때
+   누가썼는지 모르게 프로필도 없애고 … 가운데로 표시해줘`).
+   얼굴·이름·시각·안 읽은 수가 통째로 빠지고 안내 줄과 같은 칩이 된다 —
+   **누가 썼는지를 지우는 것이 이 줄의 뜻**이라 옆에 얼굴이 남으면 안 된다.
+   **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 자리와 값을 잰다.** */
 const hidBox = await page.evaluate(() => {
+    const row = document.querySelector('[data-mid="m5"] .chat-row');
     const el = document.querySelector('[data-mid="m5"] .chat-hidden');
-    if (!el) return null;
+    if (!el || !row) return null;
     const cs = getComputedStyle(el);
-    const one = document.querySelector('[data-mid="m1"] .chat-bubble');
+    const r = el.getBoundingClientRect();
+    const list = document.querySelector('.chat-list').getBoundingClientRect();
+    const day = document.querySelector('.chat-day');
     return {
         말풍선: el.classList.contains('chat-bubble'),
         칠: cs.backgroundColor,
-        높이: Math.round(el.getBoundingClientRect().height),
-        한줄말풍선: one ? Math.round(one.getBoundingClientRect().height) : 0,
+        얼굴: !!row.querySelector('.chat-face, .chat-avatar'),
+        이름: !!row.querySelector('.chat-who'),
+        시각: !!row.querySelector('.chat-stamp, .chat-time'),
+        치우침: Math.round(Math.abs((r.left + r.right) / 2 - (list.left + list.right) / 2)),
+        날짜칠: day ? getComputedStyle(day).backgroundColor : null,
     };
 });
 ok(hidBox && !hidBox.말풍선, '가린 글에는 말풍선을 안 두른다');
-ok(hidBox && /rgba\(0, 0, 0, 0\)|transparent/.test(hidBox.칠),
-   `바탕을 안 깐다 — 흐린 한 줄이다 (실제 ${hidBox?.칠})`);
-ok(hidBox && Math.abs(hidBox.높이 - hidBox.한줄말풍선) <= 2,
-   `높이는 한 줄 말풍선과 같다 — 가릴 때마다 읽던 자리가 튀면 안 된다 (실제 ${hidBox?.높이} · 말풍선 ${hidBox?.한줄말풍선})`);
+ok(hidBox && !hidBox.얼굴 && !hidBox.이름,
+   `얼굴도 이름도 안 붙는다 — 누가 썼는지를 지우는 줄이다 (실제 얼굴 ${hidBox?.얼굴} · 이름 ${hidBox?.이름})`);
+ok(hidBox && !hidBox.시각, '시각·안 읽은 수도 안 붙는다');
+ok(hidBox && hidBox.치우침 <= 2,
+   `목록 가운데에 선다 (실제 ${hidBox?.치우침}px 치우침)`);
+ok(hidBox && hidBox.칠 === hidBox.날짜칠,
+   `날짜 칸과 같은 칩이다 (실제 ${hidBox?.칠} · 날짜 ${hidBox?.날짜칠})`);
 ok(!await page.evaluate(() => document.documentElement.classList.contains('confirm-up')),
    '닫으면 그 표가 걷힌다 — 남겨 두면 입력칸이 영영 안 돌아온다');
 

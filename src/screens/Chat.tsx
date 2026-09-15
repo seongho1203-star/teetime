@@ -3307,12 +3307,14 @@ export function Chat() {
             /* **안내 줄 가운데 갈 곳이 있는 것은 눌리는 카드다**(웹의
                `LinkCard`와 같은 다섯 자리). 갈 곳이 없으면 가운데 한 줄이다. */
             if (m.system) {
-                const card = m.round_id
-                    ? { to: `/rounds/${m.round_id}`, go: '라운드 보러 가기 ›' }
+                /* `icon`은 머리에 서는 배지다(웹의 `CARD_PATHS`) — 앱은 같은
+                   이름을 제 SF Symbol로 옮겨 그린다. **한쪽만 고치지 말 것.** */
+                const card: Pick<ListRow, 'to' | 'go' | 'icon'> | null = m.round_id
+                    ? { to: `/rounds/${m.round_id}`, go: '라운드 보러 가기 ›', icon: 'round' }
                     : m.poll_id
-                        ? { to: `/polls/${m.poll_id}`, go: '투표 보러 가기 ›' }
+                        ? { to: `/polls/${m.poll_id}`, go: '투표 보러 가기 ›', icon: 'poll' }
                         : m.post_id
-                            ? { to: `/board/${m.post_id}`, go: '공지 보러 가기 ›' }
+                            ? { to: `/board/${m.post_id}`, go: '공지 보러 가기 ›', icon: 'post' }
                             : null;
                 /* 안내 줄에도 `여기까지 읽으셨습니다`는 그어야 한다 —
                    그 줄이 곧 안 읽은 것의 첫 줄일 수 있다. */
@@ -3324,6 +3326,24 @@ export function Chat() {
                         top: ROW_TOP, ...card }
                     : { id: m.id, kind: 'system', body: m.body, date, mark,
                         top: ROW_TOP };
+            }
+
+            /* **가린 글은 날짜 칸처럼 가운데 한 줄이다**(사용자 요청 —
+               `가릴때 누가썼는지 모르게 프로필도 없애고 가려진 메시지입니다를
+               가운데로 표시해줘. 날짜와요일 표시되는거처럼`).
+               얼굴·이름·시각·안 읽은 수를 통째로 뺀다 — **누가 썼는지를
+               지우는 것이 이 줄의 뜻**이라, 옆에 얼굴이 남아 있으면 그 뜻이
+               반쯤 없어진다.
+
+               **`system`으로 넘기는 것이 이 자리의 전부다** — 앱이 안내 줄과
+               같은 칩으로 그려 주므로 **앱에 손댈 것이 없다**(웹의
+               `.chat-hidden`이 `.chat-notice`와 같은 모양인 것과 짝이다).
+               **원문은 아예 안 넘긴다** — 덮어 둔 것이 그리로 새면 안 된다. */
+            if (m.hidden_at) {
+                return {
+                    id: m.id, kind: 'system', body: HIDDEN_LINE, date,
+                    mark: m.id === unreadFrom, top: ROW_TOP,
+                };
             }
 
             const head = !mine && !grouped;
@@ -3349,11 +3369,11 @@ export function Chat() {
                     : undefined,
             };
 
-            /* 인용(답장). **가린 글에는 안 붙인다** — 덮어 둔 것이 그리로
-               샌다(웹의 `hasQuote`와 같은 잣대다). 원본이 아직 안 불러온
-               지난 묶음에 있으면 `지난 대화에 댓글`이 된다. */
+            /* 인용(답장). 원본이 아직 안 불러온 지난 묶음에 있으면
+               `지난 대화에 댓글`이 된다. (가린 글은 위에서 이미 가운데
+               한 줄로 빠졌으므로 여기까지 오지 않는다.) */
             const quoted = m.reply_to ? byMid.get(m.reply_to) : undefined;
-            const quote = !m.hidden_at && m.reply_to
+            const quote = m.reply_to
                 ? {
                     quoteWho: quoted
                         ? `${who[quoted.user_id ?? '']?.name ?? '알 수 없음'}에게 댓글`
@@ -3368,13 +3388,7 @@ export function Chat() {
                 }
                 : {};
 
-            /* **가린 글은 말풍선을 벗기고 흐린 한 줄로만 그린다**(카톡의
-               `삭제된 메시지입니다`와 같은 자리다 · 사용자가 고른 모양).
-               그림이 있어도 `other`로 넘겨 **무슨 줄인지만** 적는다 —
-               덮어 둔 것이 새면 안 되고, 웹 말풍선과 같은 말이어야 한다
-               (`HIDDEN_LINE` 한 곳에서 온다). */
-            const plain = !m.hidden_at;
-            if (plain && m.image_url) {
+            if (m.image_url) {
                 /* **`image_url`이 이미 `sticker:<id>`다 — `stickerRef()`를 또
                    거치지 말 것.** 그러면 `sticker:sticker:<id>`가 되어
                    `stickerSrc()`가 `./stickers/sticker:<id>.png`를 내놓는다.
@@ -3396,14 +3410,13 @@ export function Chat() {
             }
             return {
                 id: m.id,
-                kind: plain ? 'text' : 'other',
+                kind: 'text',
                 mine,
                 ...head3, ...stamp, ...quote,
-                body: plain ? m.body : HIDDEN_LINE,
+                body: m.body,
                 /* **인용이 붙으면 이모지만 보낸 글이라도 말풍선을 안 벗긴다** —
                    벗기면 머리말과 가는 선이 허공에 뜬다(웹과 같은 규칙이다). */
-                big: plain && !m.reply_to ? emojiOnly(m.body) : false,
-                note: plain ? undefined : HIDDEN_LINE,
+                big: !m.reply_to ? emojiOnly(m.body) : false,
             };
         });
     }, [listUp, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
@@ -3648,13 +3661,16 @@ export function Chat() {
                             {m.system && (
                                 m.round_id
                                     ? <LinkCard body={m.body} to={`/rounds/${m.round_id}`}
-                                                go="라운드 보러 가기 ›" rest="chat-result-note" />
+                                                go="라운드 보러 가기 ›" icon="round"
+                                                rest="chat-result-note" />
                                     : m.poll_id
                                         ? <LinkCard body={m.body} to={`/polls/${m.poll_id}`}
-                                                    go="투표 보러 가기 ›" rest="chat-result-win" />
+                                                    go="투표 보러 가기 ›" icon="poll"
+                                                    rest="chat-result-win" />
                                         : m.post_id
                                             ? <LinkCard body={m.body} to={`/board/${m.post_id}`}
-                                                        go="공지 보러 가기 ›" rest="chat-result-note" />
+                                                        go="공지 보러 가기 ›" icon="post"
+                                                        rest="chat-result-note" />
                                             : <div className="chat-notice">{m.body}</div>
                             )}
                             {m.id === unreadFrom && (
@@ -4865,12 +4881,13 @@ const Bubble = memo(function Bubble({
     /**
      * 창이 붙을 자리 — **줄 전체가 아니라 말풍선(또는 그림)이다.**
      * 줄은 화면 폭을 다 쓰므로 그걸 넘기면 내 글에서도 창이 왼쪽에 뜬다.
-     * 그림·이모티콘도 같은 자리를 쓰고, 무엇도 못 찾으면 줄로 물러난다.
+     * 그림·이모티콘·가린 칩도 같은 자리를 쓰고, 무엇도 못 찾으면 줄로
+     * 물러난다.
      */
     const anchor = (): DOMRect => {
         const row = rowRef.current;
         const el = row?.querySelector<HTMLElement>(
-            '.chat-bubble, .chat-sticker, .chat-image, .chat-sticker-gone');
+            '.chat-bubble, .chat-sticker, .chat-image, .chat-sticker-gone, .chat-hidden');
         return (el ?? row)?.getBoundingClientRect() ?? new DOMRect();
     };
     const startHold = () => {
@@ -4879,7 +4896,8 @@ const Bubble = memo(function Bubble({
         hold.current = window.setTimeout(() => {
             hold.current = null;
             held.current = true;
-            onHold(message, anchor(), mine);
+            /* 가린 글은 가운데 줄이라 **어느 쪽도 아니다** — 왼쪽에 붙인다. */
+            onHold(message, anchor(), !hidden && mine);
         }, HOLD_MS);
     };
 
@@ -4963,6 +4981,33 @@ const Bubble = memo(function Bubble({
     /** 말풍선 안에 넣을 수 있는가 — **글 말풍선을 그릴 때만**이다. */
     const quoteIn = hasQuote && !message.image_url;
 
+    /* **운영진이 가린 글은 날짜 칸처럼 가운데 한 줄이다**(사용자 요청 —
+       `가릴때 누가썼는지 모르게 프로필도 없애고 가려진 메시지입니다를
+       가운데로 표시해줘. 날짜와요일 표시되는거처럼`).
+
+       얼굴·이름·시각·안 읽은 수를 통째로 뺀다 — **누가 썼는지를 지우는
+       것이 이 줄의 뜻**이라, 옆에 얼굴이 그대로 남아 있으면 덮어 봐야
+       누가 쓴 글인지가 다 보인다. 앱 목록도 같은 모양으로 그린다
+       (`listData`가 `kind: 'system'`으로 넘긴다 — 한쪽만 고치지 말 것).
+
+       **손짓은 그대로 붙여 둔다** — 운영진이 길게 눌러 `가리기 풀기`를
+       할 길이 여기밖에 없다. 창이 붙을 자리는 `anchor()`가 이 칩에서
+       잡고(`.chat-hidden`), 가운데 줄이라 **왼쪽에 붙인다**(`mine`을
+       안 넘긴다). */
+    if (hidden) {
+        return (
+            <div className="chat-row hidden" ref={rowRef}
+                 onTouchStart={onTouchStart} onTouchMove={onTouchMove}
+                 onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
+                 onContextMenu={e => {
+                     e.preventDefault();
+                     if (!held.current) onHold(message, anchor(), false);
+                 }}>
+                <div className="chat-hidden">{HIDDEN_LINE}</div>
+            </div>
+        );
+    }
+
     return (
         <div className={`chat-row${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}`}
              ref={rowRef}
@@ -4996,17 +5041,8 @@ const Bubble = memo(function Bubble({
                 )}
                 {hasQuote && !quoteIn && quoteAt('above')}
                 <div className="chat-line">
-                    {/* **운영진이 가린 글**(카톡의 '가리기'). 글·사진·이모티콘을
-                        통째로 덮고 안내 한 줄만 남긴다 — 지운 것이 아니라
-                        덮어 둔 것이라 운영진이 다시 풀 수 있다.
-                        **말풍선을 벗기고 흐린 한 줄로만 그린다**(카톡의
-                        `삭제된 메시지입니다`와 같은 자리다 · 사용자가 고른
-                        모양). 말풍선을 두르면 덮어 둔 글이 오히려 여느 말보다
-                        도드라진다. 말은 `HIDDEN_LINE` 한 곳에서 오므로 앱
-                        목록과 어긋날 자리가 없다. */
-                    hidden
-                        ? <div className="chat-hidden">{HIDDEN_LINE}</div>
-                        : sticker
+                    {/* 가린 글은 위에서 이미 가운데 한 줄로 빠졌다. */
+                    sticker
                         // 이모티콘. 사진과 달리 **누르는 곳이 아니다** —
                         // 원본을 새 창에 띄워 봐야 같은 그림이고, 앱에 딸린
                         // 그림이라 저장할 것도 없다.
@@ -5034,14 +5070,14 @@ const Bubble = memo(function Bubble({
                         안 그러면 사진 옆에 시각이 찍히고 그 아래로 글이 더 온다.
                         **안 읽은 사람 수는 글마다 붙는다**(카톡이 그렇다) —
                         같은 분에 보낸 글이라도 읽힌 정도가 다를 수 있다. */}
-                    {(!caption || hidden) && <Stamp at={message.created_at} showTime={showTime} unread={unread} />}
+                    {!caption && <Stamp at={message.created_at} showTime={showTime} unread={unread} />}
                 </div>
                 {/* 사진에 글을 함께 보냈으면 그 아래 한 줄로 붙인다.
                     **`.chat-line`으로 감싸야 한다** — 그냥 두면 `.chat-col`이
                     늘여서(`align-items: stretch`) 짧은 글도 사진보다 넓게
                     퍼진다. 감싸면 글 길이만큼만 차지하고, 내 글은 오른쪽으로
                     붙으며, 시각도 이 줄 끝에 온다. */}
-                {caption && !hidden && (
+                {caption && (
                     <div className="chat-line">
                         {/* `chat-cap` — **꼬리를 안 단다.** 꼬리는 덩어리의
                             첫 말풍선에만 붙는데, 이 줄은 사진 아래에 딸린
@@ -5154,24 +5190,64 @@ function Links({ text }: { text: string }) {
  * 내용이라** 머리말로 흐리게 깔지 않고 제목으로 세운다.
  *
  * 어느 칸도 없는 예전 안내 줄은 지금처럼 가운데 한 줄로 그려진다.
+ *
+ * **머리에 그림 배지가 선다**(사용자 요청 — `채팅 창에 라운드 뭐 공지 투표
+ * 이런 게 공유될 때 나오는 창을 예쁘게 바꿔줘`). 카드가 셋 다 똑같이 생겨
+ * 목록을 훑을 때 무엇이 올라온 것인지 글을 읽어야 알 수 있었다 — 배지 하나로
+ * 모양에서 갈린다.
  */
-function LinkCard({ body, to, go, rest: restClass }: {
-    body: string; to: string; go: string; rest: string;
+function LinkCard({ body, to, go, icon, rest: restClass }: {
+    body: string; to: string; go: string; icon: CardIconName; rest: string;
 }) {
     const lines = body.split('\n').filter(Boolean);
     const [head, ...rest] = lines;
     return (
         <Link className="chat-result" to={to}>
-            <span className={lines.length > 1 ? 'chat-result-head' : 'chat-result-title'}>
-                {head}
+            <span className="chat-result-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    {CARD_PATHS[icon]}
+                </svg>
             </span>
-            {rest.map((line, i) => (
-                <span key={i} className={i === 0 ? 'chat-result-title' : restClass}>
-                    {line}
+            <span className="chat-result-body">
+                <span className={lines.length > 1 ? 'chat-result-head' : 'chat-result-title'}>
+                    {head}
                 </span>
-            ))}
+                {rest.map((line, i) => (
+                    <span key={i} className={i === 0 ? 'chat-result-title' : restClass}>
+                        {line}
+                    </span>
+                ))}
+            </span>
             <span className="chat-result-go">{go}</span>
         </Link>
     );
 }
+
+/**
+ * 카드 머리의 배지 그림.
+ *
+ * **그림글자(이모지)를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다
+ * (투표 결과 카드의 `🗳`에서 겪었다 · `HoldIcons`와 같은 잣대다).
+ * **앱 목록은 같은 이름을 제 SF Symbol로 옮겨 그린다**(`ChatList.swift`의
+ * `cardSymbol`) — 이름을 늘릴 때는 그쪽도 함께 볼 것.
+ */
+type CardIconName = 'round' | 'poll' | 'post';
+const CARD_PATHS: Record<CardIconName, React.ReactNode> = {
+    // 라운드 — 골프 깃발(필드든 스크린이든 하나로 쓴다).
+    round: <>
+        <path d="M7 20.5V4" />
+        <path d="M7 4.5 17 8 7 11.5Z" />
+    </>,
+    // 투표 — 네모 안의 체크.
+    poll: <>
+        <rect x="4" y="4.5" width="16" height="15" rx="3.5" />
+        <path d="M8.5 12.2 11 14.7l4.5-5.4" />
+    </>,
+    // 공지 — 확성기.
+    post: <>
+        <path d="M4 10.5a1.5 1.5 0 0 1 1.5-1.5H8l6-4v14l-6-4H5.5A1.5 1.5 0 0 1 4 13.5Z" />
+        <path d="M17 9.5a4 4 0 0 1 0 5" />
+    </>,
+};
 

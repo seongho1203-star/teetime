@@ -613,37 +613,71 @@
    안내 줄(`.chat-notice`)과 달리 **눌러서 그 투표로 들어간다** — 결과만
    보고 마는 게 아니라 누가 무엇을 골랐는지까지 가 볼 수 있어야 한다.
    가운데에 두고 폭을 묶어 말풍선과 안 헷갈리게 한다. */
+/* **머리에 그림 배지가 선다**(사용자 요청 — `라운드 뭐 공지 투표 이런 게
+   공유될 때 나오는 창을 예쁘게 바꿔줘`). 셋이 똑같이 생겨 목록을 훑을 때
+   글을 읽어야 무엇인지 알 수 있었다.
+
+   **테두리 대신 그림자다.** `--line`은 흰 바탕에 맞춘 옅은 값이라 보라
+   목록 위에서는 거의 안 보였다 — 종이가 떠 있는 것으로 읽히게 그림자를
+   준다(`.chat-jump`와 같은 결).
+
+   **가운데 정렬을 왼쪽으로 돌렸다.** 앱 목록은 처음부터 왼쪽이었는데 웹만
+   가운데라 같은 카드가 두 곳에서 달라 보였다 — 글이 두세 줄이라 왼쪽이 맞다.
+
+   **크기는 앱 목록(`ChatList.swift`의 카드)과 같은 값이어야 한다** —
+   길게 누르는 창이 뜰 때 웹 목록으로 바꿔치기하는 판이 아직 남아 있다
+   (28판 아래 앱). 한쪽만 고치지 말 것. */
 .chat-result {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 10px;
+    align-self: center;
+    width: fit-content;
+    max-width: min(88%, 320px);
+    margin: var(--gap-sm) auto 2px;
+    padding: 13px;
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--text);
+    text-align: left;
+    text-decoration: none;
+    box-shadow: 0 1px 2px rgba(27, 31, 25, 0.10), 0 4px 12px rgba(27, 31, 25, 0.10);
+}
+/* 배지. **잔디색을 쓰는 것은 아랫줄(`보러 가기 ›`)과 한 벌이기 때문이다** —
+   분홍을 쓰지 말 것(이 화면에서 '지금 눌러야 할 것'은 보내기 단추 하나다). */
+.chat-result-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--grass-soft);
+    color: var(--grass-deep);
+}
+.chat-result-icon svg { width: 17px; height: 17px; }
+.chat-result-body {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    align-self: center;
-    width: fit-content;
-    max-width: 88%;
-    margin: var(--gap-sm) auto 2px;
-    padding: 9px 14px;
-    border: 1px solid var(--line);
-    border-radius: var(--r-sm);
-    background: var(--surface);
-    color: var(--text);
-    text-align: center;
-    text-decoration: none;
+    min-width: 0;
 }
-.chat-result-head { font-size: 10px; font-weight: 800; color: var(--text-faint); }
-.chat-result-title { font-size: 13px; font-weight: 800; line-height: 1.35; }
+.chat-result-head { font-size: 11.5px; font-weight: 700; color: var(--text-faint); }
+.chat-result-title { font-size: 15px; font-weight: 800; line-height: 1.35; }
 /* 1위 줄. **분홍을 안 쓴다** — 분홍은 '지금 눌러야 할 것' 자리이고 이건
    알려 주는 값이다. 좋은 결과라 잔디색이 뜻에 맞는다. */
-.chat-result-win { font-size: 12px; font-weight: 800; color: var(--grass-deep); }
+.chat-result-win { font-size: 13px; font-weight: 800; color: var(--grass-deep); }
 /* 라운드 카드의 곁줄(날짜·시각·정원). 알려 주는 값이라 흐리게 둔다 —
    여기에 뜻이 있는 색을 쓰면 결과 카드의 1위 줄과 뜻이 겹친다. */
-.chat-result-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+.chat-result-note { font-size: 12.5px; color: var(--text-dim); line-height: 1.4; }
 .chat-result-go {
-    margin-top: 4px;
-    padding-top: 5px;
+    grid-column: 1 / -1;
+    margin-top: 10px;
+    padding-top: 9px;
     border-top: 1px solid var(--line);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
-    color: var(--text-dim);
+    color: var(--grass-deep);
 }
 
 .chat-notice {
@@ -902,26 +936,30 @@
     clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 /* **운영진이 가린 글**(카톡의 '가리기').
-   **말풍선을 벗기고 흐린 한 줄로만 그린다**(사용자가 고른 모양이다 —
-   카톡의 `삭제된 메시지입니다`가 그 자리다). 말풍선을 두르면 **덮어 둔
-   글이 오히려 여느 말보다 도드라진다** — 지운 것도 아니고 읽을 것도 없는
-   줄이므로 조용히 지나가는 편이 맞다. 그래서 **`.chat-bubble`을 아예
-   안 붙인다**: 뿔(`::before`)도 안여백도 저절로 빠진다.
+   **날짜 칸처럼 가운데 한 줄이다**(사용자 요청 — `가릴때 누가썼는지 모르게
+   프로필도 없애고 가려진 메시지입니다를 가운데로 표시해줘. 날짜와요일
+   표시되는거처럼`). 얼굴·이름·시각·안 읽은 수가 통째로 빠진다 —
+   **누가 썼는지를 지우는 것이 이 줄의 뜻**이라, 글이 있던 자리에 그대로
+   두고 덮기만 하면 옆의 얼굴이 누구인지를 다 말해 준다.
+
+   모양은 **안내 줄(`.chat-notice`)·날짜 칸(`.chat-day`)과 같은 칩**이다 —
+   앱 목록도 이 줄을 `system`으로 받아 같은 칩으로 그리므로(`listData`),
+   값을 갈라 두면 웹과 앱이 어긋난다. 글자만 한 톤 낮춰(`--chat-soft`)
+   '읽을 것이 없는 줄'인 것을 알린다.
 
    내 글이든 남의 글이든 같은 모양이다 — 가린 글이 사람마다 다른 색이면
-   무슨 뜻인지 흐려진다. 글자를 눕혀 '내용이 아니라 안내'라는 것을 알리고,
-   말은 `HIDDEN_LINE`(lib/chatlist.ts) 한 곳에서 온다.
-
-   **높이는 한 줄 말풍선과 같게 둔다**(`padding` 세로 7.5px + 테두리 몫 2px).
-   줄이 통째로 줄어들면 가릴 때마다 읽던 자리가 위아래로 튄다. */
+   무슨 뜻인지 흐려진다. 말은 `HIDDEN_LINE`(lib/chatlist.ts) 한 곳에서 온다. */
+.chat-row.hidden { justify-content: center; }
 .chat-hidden {
-    padding: 8.5px 2px;
-    color: var(--chat-faint);
-    font-style: italic;
-    /* 말풍선과 **같은 15px**이다(위 `.chat-bubble` 참고) — 한 줄 높이 셈이
-       그 값에 매여 있고, 카톡의 그 줄도 본문과 같은 크기다. */
-    font-size: 15px;
-    line-height: 1.2;
+    max-width: 88%;
+    padding: 4px 12px;
+    border-radius: var(--r-pill);
+    background: var(--chat-chip);
+    color: var(--chat-soft);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.45;
 }
 
 /* **손가락으로 쓰는 기기에서는 글자 고르기를 막는다.**
