@@ -3060,6 +3060,46 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     const moved = await bp.evaluate(() => document.querySelectorAll('.back-ghost').length);
     ok(moved === 0, `화면을 옮기면 남은 그림이 걷힌다 (${moved}장)`);
 
+    /* ── 대화방으로 돌아올 때 뒷배경에 말풍선이 들어 있는가 ─────────
+       말풍선을 앱이 그리던 판이면 떠날 때 찍힌 웹 목록은 `.nc-list`로
+       감춰져 있다 — 그대로 깔면 **머리말만 있고 아래가 텅 빈 회색 판**이
+       손을 따라 나온다(사용자 제보 · 사진 — `다시 채팅으로 올때는 뒷배경이
+       안보임`). 그림에서는 그 감춤을 풀고 맨 아래(보던 자리)로 굴려 둬야 한다.
+       헤드리스에는 앱 목록이 없으므로 **그 표만 손으로 붙여** 같은 길을 탄다. */
+    await bp.goto(`${BASE}/#/chat`);
+    await bp.waitForSelector('.chat-list [data-mid]', { timeout: 20000 });
+    await bp.waitForTimeout(500);
+    await bp.evaluate(() => document.querySelector('.chat-list').classList.add('nc-list'));
+    /* **카드를 눌러 들어간다** — 해시만 바꾸면 `pushState`를 안 거쳐 그림이
+       안 찍힌다. 가려진 목록은 `pointer-events: none`이라 카드를 누를 수
+       없으므로 그 안의 링크를 코드로 누른다. */
+    await bp.evaluate(() => {
+        const a = [...document.querySelectorAll('.chat-list .chat-result')]
+            .map(c => c.closest('a') || c.querySelector('a') || c).find(Boolean);
+        a?.click();
+    });
+    await bp.waitForTimeout(900);
+    ok(bp.url().includes('/rounds/'), `대화방에서 카드를 눌러 들어간다 (${bp.url().split('#')[1]})`);
+    await draw(120, 0, true);
+    const back = await bp.evaluate(() => {
+        const list = document.querySelector('.back-ghost .chat-list');
+        if (!list) return { 있나: false };
+        const r = list.getBoundingClientRect();
+        return {
+            있나: true,
+            감춤: getComputedStyle(list).visibility,
+            줄: list.querySelectorAll('[data-mid]').length,
+            아래: Math.abs(list.scrollHeight - list.clientHeight - list.scrollTop),
+            높이: Math.round(r.height),
+        };
+    });
+    ok(back.있나 && back.감춤 === 'visible' && back.줄 > 0,
+       `대화방 그림에 말풍선이 들어 있다 (${back.줄}줄 · ${back.감춤})`);
+    ok(back.있나 && back.높이 > 100 && back.아래 <= 2,
+       `그 목록은 보던 자리(맨 아래)로 굴려져 있다 (끝에서 ${back.아래}px)`);
+    await touchAt('touchend', 128, 420);
+    await bp.waitForTimeout(600);
+
     await bCtx2.close();
 }
 

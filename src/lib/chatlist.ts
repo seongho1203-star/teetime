@@ -498,13 +498,41 @@ export async function listSet(o: Record<string, unknown>): Promise<void> {
  * 내려놓을 뿐이라 깨질 자리가 없다(`canNativeList()`의 문을 안 올린 까닭).
  */
 export async function listDetach(): Promise<ChatSpot | null> {
+    let spot: ChatSpot | null = null;
     try {
         const r = await bridge.listDetach();
-        if (!r || r.atBottom !== false || !r.topId) return null;
-        return { id: r.topId, off: Math.max(0, Math.round(r.off ?? 0)) };
-    } catch {
-        return null;
-    }
+        if (r && r.atBottom === false && r.topId) {
+            spot = { id: r.topId, off: Math.max(0, Math.round(r.off ?? 0)) };
+        }
+    } catch { /* 옛 앱 — 자리를 모르면 맨 아래로 본다 */ }
+    tellDetached(spot ? { bottom: false, ...spot } : { bottom: true });
+    return spot;
+}
+
+/**
+ * **앱 목록이 걷히며 남긴 자리** — 앞 화면 그림(`lib/tabs.ts`의 `shots`)이
+ * 그 자리로 굴려 둘 때 쓴다.
+ *
+ * 대화방을 떠날 때 찍어 둔 웹 DOM에는 **감춰진 웹 목록**이 들어 있는데
+ * (말풍선은 앱이 그렸다) 그 목록은 앱 목록과 **굴린 자리가 따로**라, 그대로
+ * 되살리면 엉뚱한 자리가 보인다. 찍는 순간(`pushState`)에는 앱 목록이 아직
+ * 서 있어 물어볼 길이 없고 `listDetach`가 **뒤늦게** 알려 주므로, 값이
+ * 오면 기다리던 그림을 그때 굴려 둔다(`onListDetached`).
+ *
+ * `bottom`이면 맨 아래를 보고 있던 것이다(그때는 id를 안 적는다 — 새 글이
+ * 오면 따라 내려가야 하는 자리라 못박아 두면 되레 안 따라간다).
+ */
+export type ListSpot = { bottom: true } | { bottom: false; id: string; off: number };
+
+let detachedCb: ((spot: ListSpot) => void) | null = null;
+
+/** 앱 목록이 걷힐 때 그 자리를 받아 볼 곳을 건다(한 곳뿐이다 — `lib/tabs.ts`). */
+export function onListDetached(cb: (spot: ListSpot) => void): void {
+    detachedCb = cb;
+}
+
+function tellDetached(spot: ListSpot): void {
+    try { detachedCb?.(spot); } catch { /* 그림 굴리기가 실패해도 나가는 길은 막지 않는다 */ }
 }
 
 /**

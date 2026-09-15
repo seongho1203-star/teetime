@@ -214,6 +214,9 @@ function stampSpot(spot: ChatSpot | null, list: Message[]): ChatSpot | null {
  * 진짜 id는 uuid라, 섞여 나가면 그 조회가 통째로 400으로 막힌다
  * (반응 받아 오는 자리가 그렇다).
  */
+/** 방이 비어 있어 첫 묶음이 영영 안 오면 이만큼 기다렸다 앱 목록을 드러낸다. */
+const EMPTY_WAIT = 1200;
+
 const TEMP_ID = 'tmp:';
 const isTemp = (id: string) => id.startsWith(TEMP_ID);
 
@@ -356,10 +359,20 @@ export function Chat() {
     /** **앱 목록이 실제로 섰는가**(17판). 이게 참일 때만 웹 목록을 감춘다 —
         안 서면 예전 그대로다(바의 `watchdog`과 같은 결이다). */
     const [listUp, setListUp] = useState(false);
+    /**
+     * **앱 목록이 섰지만 아직 감춰 둔 상태**(37판 몫의 웹 쪽). 줄을 넘기고
+     * 읽던 자리까지 잡은 **뒤에** 드러내고, 그때 비로소 `listUp`이 된다 —
+     * 아래 `대화 목록을 앱이 그린다` 효과의 주석을 볼 것.
+     */
+    const [listReady, setListReady] = useState(false);
+    /** 이번에 세운 목록을 이미 드러냈는가(한 번만 한다). 세울 때마다 오른다. */
+    const revealSeq = useRef(0);
     /* **`jumpTo`는 `useCallback`이라 그 안에서 읽는 state는 처음 값에 굳는다**
        (말풍선이 `memo`라 붙박아 둔 값이다 — `windowedRef`와 같은 수다). */
     const listUpRef = useRef(false);
     listUpRef.current = listUp;
+    const listReadyRef = useRef(false);
+    listReadyRef.current = listReady;
     const ncOn = useRef(false);
     /** 네이티브 바가 마지막으로 알려 준 제 높이. **`--composer`를 다시 적을
         때 쓴다** — 그 값을 지우는 곳이 따로 있어서다(아래 `write()` 주석). */
@@ -3560,14 +3573,24 @@ export function Chat() {
         let dead = false;
         let drop: (() => void) | null = null;
         void (async () => {
+            /* **화면이 밀려 들어오는 동안에는 세우지 않는다.** 그동안은 웹
+               목록이 보이고(읽던 자리도 웹 쪽이 이미 잡아 두었다) 그것이
+               머리말과 함께 밀려 들어온다. 25판까지는 그 도중에 앱 목록을
+               세우고 40px을 따라 들어오게 했는데, **세우는 순간 웹 목록을
+               감추고 빈 앱 목록이 알파 0에서 뜨며 줄이 채워지고 맨 아래로
+               붙었다가 읽던 자리로 튀는 것**이 미끄러지는 끝자락에 겹쳐
+               `떠는 듯한 느낌`과 `대화가 위로 올라감`으로 보였다(사용자
+               제보). 끝난 뒤에 갈아 끼우면 그 셋이 한 프레임에 끝난다. */
+            const left = slideLeft();
+            if (left > 0) await new Promise(r => setTimeout(r, left + 40));
+            if (dead) return;
             const ok = await listAttach({
                 top: Math.round(listRef.current?.getBoundingClientRect().top ?? 0),
                 skin: chatListSkin(listRef.current),
-                /* **들어올 때 같이 미끄러져 들어온다**(25판). 앱 목록은 웹
-                   화면이 그려진 뒤에 서므로 **남은 시간**을 넘겨 머리말과
-                   같이 끝나게 한다 — 제 시간을 다 쓰면 늦게 끝나 두 단계로
-                   보인다. 들어오는 참이 아니면 0이라 아무 일도 안 한다. */
-                slide: slideLeft(),
+                /* **감춘 채로 세운다.** 줄을 넘기고 읽던 자리까지 잡은 뒤에
+                   드러낸다(아래 `드러내기` 효과) — 그래야 빈 보라 판도,
+                   맨 아래 → 읽던 자리로 튀는 것도 눈에 안 띈다. */
+                hidden: true,
                 /* **손가락을 따라 뒤로 갈 것인가**(35판). 스위치와, 뒤에
                    깔 앞 화면이 있는지는 **웹만 안다** — 그 그림은 떠날 때
                    찍어 둔 웹 DOM이라 앱이 만들 길이 없다. 거짓이면 앱이
@@ -3623,11 +3646,17 @@ export function Chat() {
             };
             if (dead) { off(); return; }
             drop = off;
-            setListUp(true);
+            revealSeq.current++;
+            setListReady(true);
         })();
         return () => {
             dead = true;
             drop?.();
+            /* 아직 안 끝난 `드러내기` 약속을 없던 일로 한다(일부러 뒷정리에서
+               ref를 올린다 — 값이 아니라 '지금 세대'를 보는 것이다). */
+            // oxlint-disable-next-line react-hooks/exhaustive-deps
+            revealSeq.current++;
+            setListReady(false);
             setListUp(false);
             /* **나가면서 읽던 자리를 받아 적는다**(32판 · 위 `SPOTS`).
                굴린 자리는 앱이 들고 있어 물어볼 길이 이 순간뿐이다 —
@@ -3663,7 +3692,7 @@ export function Chat() {
      * `unreadFrom`(줄 자리는 한 번 정하고 안 바꾼다). **두 벌로 셈하지 말 것.**
      */
     const listData = useMemo<ListRow[]>(() => {
-        if (!listUp) return [];
+        if (!listReady) return [];
         const who = byId(data?.people ?? []);
         const byMid = new Map(messages.map(m => [m.id, m]));
         return messages.map((m, i) => {
@@ -3791,12 +3820,12 @@ export function Chat() {
                 big: !m.reply_to ? emojiOnly(m.body) : false,
             };
         });
-    }, [listUp, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
+    }, [listReady, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
 
     useEffect(() => {
-        if (!listUp) return;
+        if (!listReady) return;
         void listRows(listData, true);
-    }, [listUp, listData]);
+    }, [listReady, listData]);
 
     /**
      * **앱 목록에도 같은 자리로 되돌려 놓는다**(32판 · 위 `SPOTS` 참고).
@@ -3808,7 +3837,7 @@ export function Chat() {
      * **못 찾으면 표를 안 남긴다** — 다음 묶음에서 다시 해 본다.
      */
     useEffect(() => {
-        if (!listUp) return;
+        if (!listReady) return;
         if (spotDone.current === 'app' || spotDone.current === 'skip') return;
         const spot = spotNow(messages);
         if (!spot) return;
@@ -3820,7 +3849,51 @@ export function Chat() {
             spotDone.current = 'app';
             atBottom.current = false;
         });
-    }, [listUp, listData, messages, spotNow]);
+    }, [listReady, listData, messages, spotNow]);
+
+    /**
+     * **드러내기** — 줄과 읽던 자리가 앱 목록에 다 들어간 뒤에 감춤을 풀고,
+     * 그제야 웹 목록을 감춘다(`listUp`).
+     *
+     * 위 두 효과가 같은 커밋에서 먼저 돌아 `listRows` → `listScrollTo`를
+     * 실어 보냈고, 다리 호출은 **보낸 차례대로** 앱에 닿으므로 여기서
+     * `hidden: false`를 보내면 그 둘 뒤에 처리된다. 앱 목록이 보이는 순간
+     * 이미 줄이 차 있고 자리도 잡혀 있어 **빈 보라 판도, 맨 아래에서 읽던
+     * 자리로 튀는 것도 없다**(사용자 제보 — `약간 떠는 듯한 느낌` ·
+     * `대화 내용도 위로 자꾸 올라감`. `지난자리`가 그대로였으므로 되돌리는
+     * 셈이 아니라 **그리는 쪽**이었다).
+     *
+     * - **`여기까지 읽으셨습니다` 줄도 여기서 다시 잡는다.** 웹 목록이
+     *   먼저 그 줄로 옮겨 두면 `unreadDone`이 서서 앱 목록 쪽 옮기기가
+     *   안 도는데, 앱 목록은 굴린 자리가 따로라 맨 아래에 남는다.
+     * - **첫 묶음이 오기 전에는 드러내지 않는다** — 빈 앱 목록이 잠깐
+     *   비친다. 방이 정말 비어 있으면 `EMPTY_WAIT` 뒤에 그냥 드러낸다.
+     * - **앱 목록을 먼저 드러내고 웹 목록을 감춘다.** 반대로 하면 그 틈에
+     *   둘 다 안 보이는 프레임이 생긴다. 잠깐 둘 다 보이는 것은 앱 목록이
+     *   위에 얹혀 있어 티가 안 난다.
+     * - `revealSeq`로 가린다 — 드러내는 사이에 화면을 떠났다 다시 들어오면
+     *   옛 약속이 새 목록에 `listUp`을 세워 **빈 채로 웹 목록만 감춘다.**
+     */
+    useEffect(() => {
+        if (!listReady || listUp || loading) return;
+        const seq = revealSeq.current;
+        let timer = 0;
+        const reveal = () => {
+            if (revealSeq.current !== seq) return;
+            revealSeq.current++;   // 이번 목록은 한 번만 드러낸다
+            void (async () => {
+                if (unreadFrom) {
+                    atBottom.current = false;
+                    await listScrollTo(unreadFrom, 'top');
+                }
+                await listSet({ hidden: false });
+                if (revealSeq.current === seq + 1 && listReadyRef.current) setListUp(true);
+            })();
+        };
+        if (messages.length) reveal();
+        else timer = window.setTimeout(reveal, EMPTY_WAIT);
+        return () => window.clearTimeout(timer);
+    }, [listReady, listUp, loading, messages, unreadFrom]);
 
     /**
      * 목록이 시작하는 자리를 알려 준다 — 앱 목록의 윗변이 그 자리에 선다.
@@ -3832,7 +3905,7 @@ export function Chat() {
            `.chat-list`가 없다. 빈 배열로 두면 그때 한 번 돌고 말아 목록이
            생겨도 영영 안 재는데, 아래로 끌어 키보드를 내리는 기능이 예전에
            꼭 그렇게 죽어 있었다. */
-        if (!listUp || loading) return;
+        if (!listReady || loading) return;
         const el = listRef.current;
         if (!el) return;
         /**
@@ -3876,7 +3949,7 @@ export function Chat() {
             ro.disconnect();
             window.removeEventListener('resize', tell);
         };
-    }, [listUp, loading]);
+    }, [listReady, loading]);
 
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {

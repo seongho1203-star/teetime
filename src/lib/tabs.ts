@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
-import { canNativeList, listOn } from './chatlist';
+import { listOn, onListDetached, type ListSpot } from './chatlist';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -91,9 +91,101 @@ function taken(from: EventTarget | null): boolean {
  * 리액트가 주소가 바뀐 걸 알아채기 **전에** 도는 유일한 자리다.
  * 원래 하던 일은 그대로 부르므로 라우터는 아무것도 모른다.
  */
-type Shot = { path: string; node: HTMLElement; scroll: number };
+/**
+ * 찍어 둔 화면 한 장.
+ *
+ * `scroll`은 창을 굴린 자리이고, **`list`는 대화 목록(`.chat-list`)을 굴린
+ * 자리다** — `cloneNode`는 굴린 자리를 안 가져오므로 따로 적어 둔다. 안 적으면
+ * 대화방 그림이 늘 **맨 위 글**부터 보인다.
+ *
+ * **`native`는 그 목록을 앱이 그리고 있었다는 표다**(`.nc-list`). 그때 웹
+ * 목록은 감춰져 있고 굴린 자리도 앱 목록과 따로라, 그림에서는 그 감춤을 풀고
+ * **앱이 알려 주는 자리**(`spot`)로 굴려 둔다. 그 값은 찍는 순간에는 아직
+ * 없고 `listDetach`가 **뒤늦게** 준다(아래 `onListDetached`).
+ */
+type Shot = {
+    path: string; node: HTMLElement; scroll: number;
+    list: number; native: boolean; spot?: ListSpot;
+};
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
+
+/** 지금 화면을 한 장 찍는다(위 `Shot`). */
+function takeShot(el: HTMLElement): Shot {
+    const list = el.querySelector<HTMLElement>('.chat-list');
+    return {
+        path: routeOf(location.href),
+        node: el.cloneNode(true) as HTMLElement,
+        scroll: window.scrollY,
+        list: list?.scrollTop ?? 0,
+        native: !!list?.classList.contains('nc-list'),
+    };
+}
+
+/**
+ * 찍어 둔 그림을 화면에 깔 사본으로 만든다.
+ *
+ * **대화방 그림은 손을 봐야 한다.** 말풍선을 앱이 그리던 판이면 웹 목록이
+ * `.nc-list`로 감춰져 있어, 그대로 깔면 **머리말만 있고 아래가 텅 빈 회색
+ * 판이 손을 따라 나온다**(사용자 제보 · 사진 — `다시 채팅으로 올때는
+ * 뒷배경이 안보임`). 그 감춤을 풀면 웹 목록에도 말풍선이 다 들어 있다 —
+ * 앱이 그리는 동안에도 웹 목록은 자리를 지키느라 통째로 그려져 있다.
+ *
+ * 굴린 자리는 **붙인 뒤에** 잡아야 한다(`placeChatList`) — 아직 문서에
+ * 없는 칸은 높이가 없어 `scrollTop`이 안 먹는다.
+ */
+function cloneShot(shot: Shot): { c: HTMLElement; list: HTMLElement | null } {
+    const c = shot.node.cloneNode(true) as HTMLElement;
+    /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
+       늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
+    if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
+    const list = c.querySelector<HTMLElement>('.chat-list');
+    list?.classList.remove('nc-list');
+    return { c, list };
+}
+
+/**
+ * 그림 속 대화 목록을 **보던 자리**로 굴려 둔다.
+ *
+ * 웹이 그리던 목록이면 찍을 때의 `scrollTop` 그대로다. 앱이 그리던 목록이면
+ * 앱이 알려 준 자리다 — 맨 아래를 보고 있었으면 맨 아래, 아니면 그 글이
+ * 위로 `off`만큼 지나간 자리(`listScrollTo`의 `at`과 같은 셈). **아직
+ * 못 받았으면 맨 아래로 둔다** — 대개 거기를 보고 있었고, 값이 오면
+ * `onListDetached`가 다시 굴려 준다.
+ */
+function placeChatList(list: HTMLElement, shot: Shot): void {
+    if (!shot.native) { list.scrollTop = shot.list; return; }
+    const spot = shot.spot;
+    if (!spot || spot.bottom) { list.scrollTop = list.scrollHeight; return; }
+    const row = list.querySelector<HTMLElement>(`[data-mid="${spot.id}"]`);
+    if (!row) { list.scrollTop = list.scrollHeight; return; }
+    list.scrollTop = 0;
+    list.scrollTop = row.getBoundingClientRect().top - list.getBoundingClientRect().top + spot.off;
+}
+
+/**
+ * 앱 목록이 걷히며 자리를 알려 왔다 — **자리를 아직 모르던 그림에 적어 두고**,
+ * 이미 깔려 있는 그림이면 그 자리로 다시 굴려 둔다.
+ *
+ * 순서가 이렇다: 카드를 눌러 라운드로 가면 `pushState`에서 대화방을 찍고 →
+ * 리액트가 라운드를 그리며 대화 화면을 걷고(`listDetach`) → 그 답이 몇 ms
+ * 뒤에 온다. 눌러서 들어가는 연출(`runPush`)은 그 사이에 그림을 깔므로
+ * 처음 한두 프레임은 맨 아래로 보였다가 여기서 제자리로 온다. 손가락으로
+ * 끌어 돌아올 때는 한참 뒤라 처음부터 제자리다.
+ */
+/** 깔린 그림이 어느 장에서 왔는지 — 아래에서 다시 굴릴 때 찾는다. */
+const ghostShots = new WeakMap<HTMLElement, Shot>();
+
+onListDetached(spot => {
+    for (const s of [...shots, exiting]) {
+        if (s && s.native && !s.spot) s.spot = spot;
+    }
+    for (const g of document.querySelectorAll<HTMLElement>('.back-ghost, .exit-ghost')) {
+        const list = g.querySelector<HTMLElement>('.chat-list');
+        const shot = ghostShots.get(g);
+        if (list && shot && shot.native) placeChatList(list, shot);
+    }
+});
 
 /** **떠나는** 화면 그림(뒤로 갈 때 오른쪽으로 빠져나가는 그것).
  *  위 `shots`는 **뒤에 깔리는 앞 화면**이라 서로 다른 것이다. */
@@ -130,16 +222,14 @@ function snap(toPath: string) {
     if (TAB_PATHS.includes(toPath)) return;
     const el = pageEl();
     if (!el) return;
-    shots.push({ path: routeOf(location.href), node: el.cloneNode(true) as HTMLElement,
-                 scroll: window.scrollY });
+    shots.push(takeShot(el));
     while (shots.length > MAX_SHOTS) shots.shift();
 }
 
 /** 지금 화면을 **떠나는 것**으로 찍어 둔다(위 `exiting`). */
 function snapExit(): void {
     const el = pageEl();
-    exiting = el ? { path: routeOf(location.href), node: el.cloneNode(true) as HTMLElement,
-                     scroll: window.scrollY } : null;
+    exiting = el ? takeShot(el) : null;
     exitAt = exiting ? Date.now() : 0;
 }
 /** 방금 찍은 떠나는 화면인가. */
@@ -293,31 +383,7 @@ const PLAIN_TAKE = 60;
  */
 function plainBack(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        || document.documentElement.classList.contains('nc')
-        || ghostBlank();
-}
-
-/**
- * **뒤에 깔 앞 화면을 웹이 못 그리는가.**
- *
- * 대화방은 말풍선을 **앱이 그리므로**(`teetime:nc-list`를 켠 판) 떠날 때
- * 찍어 둔 그 화면의 DOM에는 **감춰진 빈 목록만** 들어 있다(`.nc-list`가
- * `visibility: hidden`이다). 그대로 깔면 **머리말만 있고 아래가 텅 빈
- * 회색 판이 손을 따라 나온다** — 대화방에서 모집을 눌러 들어갔다 돌아올
- * 때 실제로 그랬다(사용자 제보 · 사진 — `다시 채팅으로 올때는 뒷배경이
- * 안보임`).
- *
- * 그때는 **끌지 않고 곧바로 넘어간다** — 뒤에 깔 그림이 없을 때
- * `useScreenSlide`가 40px짜리로 물러나는 그 잣대와 같다(`빈 화면이
- * 통째로 지나가면 안 된다`).
- *
- * **앱 목록 쪽에서 끌어 나오는 것은 이것과 상관없다**(35판의 `BackDrag`) —
- * 거기는 **앱이 화면을 통째로 찍으므로** 말풍선이 그대로 들어 있다.
- * 못 그리는 것은 **대화방으로 돌아올 때**뿐이다.
- */
-function ghostBlank(): boolean {
-    const shot = shots[shots.length - 1];
-    return !!shot && shot.path.startsWith('/chat') && canNativeList();
+        || document.documentElement.classList.contains('nc');
 }
 
 /**
@@ -330,17 +396,19 @@ function ghostBlank(): boolean {
 function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElement } {
     const g = document.createElement('div');
     g.className = 'back-ghost';
+    let list: HTMLElement | null = null;
     if (shot) {
-        const c = shot.node.cloneNode(true) as HTMLElement;
-        /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
-           늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
-        if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
-        g.appendChild(c);
+        const made = cloneShot(shot);
+        list = made.list;
+        g.appendChild(made.c);
+        ghostShots.set(g, shot);
     }
     const dim = document.createElement('div');
     dim.className = 'back-ghost-dim';
     g.appendChild(dim);
     document.body.insertBefore(g, document.body.firstChild);
+    /* 대화 목록은 **붙인 뒤에** 굴려야 먹는다(위 `cloneShot`). */
+    if (shot && list) placeChatList(list, shot);
     ghostAt = Date.now();
     return { g, dim };
 }
@@ -396,11 +464,12 @@ function runPop(el: HTMLElement, shot: Shot): void {
     dim.style.opacity = String(DIM);
     const gx = document.createElement('div');
     gx.className = 'exit-ghost';
-    const c = shot.node.cloneNode(true) as HTMLElement;
-    if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
+    const { c, list } = cloneShot(shot);
     gx.appendChild(c);
+    ghostShots.set(gx, shot);
     document.body.appendChild(dim);
     document.body.appendChild(gx);
+    if (list) placeChatList(list, shot);
     ghostAt = Date.now();
     root.classList.add('screen-pop');
     el.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
