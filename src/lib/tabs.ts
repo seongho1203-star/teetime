@@ -271,6 +271,79 @@ function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
 /** 앱이 끄는 동안 감춰 둔 지금 화면(35판 · 아래 `nativeBackStart`). */
 let backPage: HTMLElement | null = null;
 
+/* ── 대화방 그림을 앱 목록이 뜰 때까지 붙들어 둔다 ────────────────
+ *
+ * 라운드·투표에서 **손가락으로 끌어 대화방으로 돌아오면** 화면이 세 번
+ * 바뀌어 보였다(사용자 제보 · 사진 셋 — `되돌아가기하면 사진 순서대로
+ * 바껴서돼`): ① 끄는 동안의 그림(웹 목록 사본) → ② 진짜 대화 화면의
+ * **웹 목록**(글꼴이 Pretendard라 줄 바뀜이 다르고, 읽음 표가 아직 안 와
+ * 안 읽은 수가 `4`) → ③ **앱 목록**(폰 글꼴 · `1`). ②는 앱 목록이 감춘
+ * 채로 서서 줄과 자리를 다 잡을 때까지의 그 틈에 잠깐 드러나는 것이다.
+ *
+ * **그래서 그 틈 동안 그림을 안 걷는다.** 그림을 화면(`z-index` 2)보다
+ * 위로 올려 붙들고(`.hold`), 대화 화면이 앱 목록을 드러낸 뒤에
+ * `releaseGhost()`로 풀어 달라고 한다. 앱 목록은 웹뷰 **위에 얹힌 앱
+ * 부품**이라 그림보다도 위에 그려지므로, 드러나는 순간 ① 위에 곧바로
+ * ③이 앉는다 — ②가 끼어들 자리가 없다.
+ *
+ * - **앱 목록을 쓰는 판에서만 붙든다**(`holdsChat`). 웹 목록 그대로인
+ *   판에서는 그 틈이 아예 없다.
+ * - **대화 화면이 앱 목록을 안 세우기로 하면 그 자리에서 푼다** —
+ *   플러그인이 없는 판(웹으로 열었을 때)이 그렇다. 안 풀면 옛 그림을
+ *   `HOLD_MAX`까지 들고 있다가 툭 바뀐다.
+ * - **그래도 못 풀면 `HOLD_MAX` 뒤에 스스로 푼다** — 그림은 죽은 사본이라
+ *   영영 남으면 앱이 죽은 것처럼 보인다(`sweepGhosts`의 그 규칙이다).
+ * - 붙드는 동안 `back-drag`도 그대로 둔다 — 그 표가 화면에 바탕색을
+ *   깔아 두므로(`global.css`) 걷으면 뒤가 비친다. 푸는 자리에서 함께 걷는다.
+ */
+/** 이만큼 지나면 풀어 달라는 말이 없어도 푼다. */
+const HOLD_MAX = 2500;
+let holdRelease: (() => void) | null = null;
+let holdTimer = 0;
+
+/** 이 그림이 **앱 목록이 그리던 대화방**이라 붙들어야 하는가. */
+function holdsChat(shot: Shot | undefined): boolean {
+    return !!shot && shot.native && shot.path.startsWith('/chat') && listOn();
+}
+
+/**
+ * 깔아 둔 그림을 붙든다. 걷는 일은 `releaseGhost()`(또는 `HOLD_MAX`)가
+ * 맡는다 — 부른 쪽은 그 그림에서 손을 뗄 것.
+ */
+function holdGhost(g: HTMLElement): void {
+    g.classList.add('hold');
+    /* 붙드는 때부터 다시 센다 — 천천히 끌어 `GHOST_MAX`가 지났으면 화면이
+       바뀌는 순간의 `sweepGhosts()`가 방금 붙든 것을 도로 걷는다. */
+    ghostAt = Date.now();
+    window.clearTimeout(holdTimer);
+    const fin = () => {
+        if (holdRelease !== fin) return;
+        holdRelease = null;
+        window.clearTimeout(holdTimer);
+        g.remove();
+        document.documentElement.classList.remove('back-drag', 'back-ease');
+        const el = pageEl();
+        if (el) { el.style.transform = ''; el.style.transition = ''; }
+        ghostAt = 0;
+    };
+    holdRelease = fin;
+    holdTimer = window.setTimeout(fin, HOLD_MAX);
+}
+
+/** 붙들어 둔 그림이 있는가(`.dev`의 검사가 본다). */
+export function ghostHeld(): boolean {
+    return holdRelease !== null;
+}
+
+/**
+ * 붙들어 둔 그림을 걷는다 — 대화 화면이 **앱 목록을 드러낸 뒤에**, 또는
+ * 앱 목록을 안 세우기로 한 그 자리에서 부른다. 붙든 것이 없으면 아무 일도
+ * 안 한다.
+ */
+export function releaseGhost(): void {
+    holdRelease?.();
+}
+
 /**
  * 감춰 둔 화면을 도로 내보인다.
  *
@@ -294,6 +367,9 @@ function sweepGhosts(force = false): void {
     if (!left.length && !MOVING.some(c => root.classList.contains(c))) return;
     for (const g of left) g.remove();
     root.classList.remove(...MOVING);
+    /* 붙들어 둔 것도 함께 걷은 셈이다(위 `holdGhost`). */
+    holdRelease = null;
+    window.clearTimeout(holdTimer);
     /* 걷었으면 아직 안 돈 `nextFrames`도 없던 일로 한다(위 `moveSeq`). */
     moveSeq++;
     document.removeEventListener('touchmove', blockScroll);
@@ -656,17 +732,35 @@ export function useBackSwipe(): void {
             dx = go ? W : 0;
             paint();
             const mine = ghost;
+            /* **앱 목록이 그리던 대화방으로 돌아가는 참이면 그림을 안 걷고
+               붙들어 둔다**(위 `holdGhost`) — 대화 화면이 앱 목록을 드러낸
+               뒤에 `releaseGhost()`로 걷는다. */
+            const hold = go && !!mine && holdsChat(ghostShots.get(mine));
             window.setTimeout(() => {
                 if (go) { skipSlide = true; nav(-1); }
+                if (hold && mine) {
+                    /* 여기서부터는 그 그림의 임자가 `holdGhost`다 — 이 손짓의
+                       뒷정리(`clean`)가 못 걷게 손을 뗀다. 굴리기를 막던
+                       듣기만 떼어 두고, 밀려 나간 화면은 그림 뒤로 돌려놓는다
+                       (그림이 위(`.hold`)라 안 보인다). */
+                    document.removeEventListener('touchmove', block);
+                    holdGhost(mine);
+                    for (const el of [page, pageEl()]) {
+                        if (el) { el.style.transform = ''; el.style.transition = ''; }
+                    }
+                    ghost = dim = null; page = null; live = false;
+                    return;
+                }
                 /* 새 화면이 한 번 그려진 **뒤에** 걷는다 — 바로 걷으면
                    그 한 프레임에 옛 화면이 비친다. */
                 requestAnimationFrame(() => requestAnimationFrame(clean));
             }, 230);
             /* **rAF에만 매달지 않는다.** 앱을 덮어 두면 위의 rAF가 아예
                안 돌아 그림이 화면에 남는다(`setTimeout`은 그래도 돈다).
-               같은 그림이 아직 붙어 있고 새 손짓도 없을 때만 걷는다. */
+               같은 그림이 아직 붙어 있고 새 손짓도 없을 때만 걷는다 —
+               **붙들어 둔 것은 빼고**(그건 `releaseGhost`가 걷는다). */
             window.setTimeout(() => {
-                if (!live && mine && mine.isConnected) clean();
+                if (!live && mine && mine.isConnected && !mine.classList.contains('hold')) clean();
             }, 600);
         };
 

@@ -20,7 +20,7 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
-import { hasBackShot, nativeBackEnd, nativeBackStart, slideLeft } from '../lib/tabs';
+import { hasBackShot, nativeBackEnd, nativeBackStart, releaseGhost, slideLeft } from '../lib/tabs';
 import {
     NativeComposer, canNativeShare, canPickNative, canSlide, composerReady, composerSkin, hush,
     kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeText,
@@ -185,6 +185,24 @@ function keepList(key: string, v: { list: Message[]; more: boolean } | null): vo
     for (const old of KEPT.keys()) {
         if (KEPT.size <= KEPT_MAX) break;
         KEPT.delete(old);
+    }
+}
+
+/**
+ * **읽음 표(`room_reads`)도 방마다 들고 있는다.** 줄은 `KEPT`로 첫 그림부터
+ * 깔리는데 읽음 표는 서버에 다시 물어봐 몇백 ms 뒤에 오므로, 그 사이
+ * **안 읽은 수가 잠깐 크게 찍혔다**(줄이 없는 사람은 '한 번도 안 읽음'으로
+ * 세므로 `1`이 `4`로 보였다 — 사용자 제보 · 사진). 들어오자마자 마지막
+ * 값을 깔면 첫 그림의 숫자가 나갈 때와 같다. 새 값은 뒤에서 와서 갈아 끼운다.
+ */
+const READS_KEPT = new Map<string, Reads>();
+
+function keepReads(roomId: string, r: Reads): void {
+    READS_KEPT.delete(roomId);
+    READS_KEPT.set(roomId, r);
+    for (const old of READS_KEPT.keys()) {
+        if (READS_KEPT.size <= KEPT_MAX) break;
+        READS_KEPT.delete(old);
     }
 }
 
@@ -770,6 +788,13 @@ export function Chat() {
         if (roomId) void purgeOldPhotos(roomId);
     }, [roomId]);
 
+    /* **들고 있던 읽음 표를 그리기 전에 깐다**(위 `READS_KEPT`). 줄을 까는
+       것과 같은 배치 효과라야 첫 그림의 안 읽은 수가 나갈 때와 같다. */
+    useLayoutEffect(() => {
+        const kept = roomId ? READS_KEPT.get(roomId) : undefined;
+        if (kept) setReads(kept);
+    }, [roomId]);
+
     // 들어올 때 한 번 받는다. 100명이라도 100줄, 7KB 남짓이다.
     useEffect(() => {
         if (!roomId) return;
@@ -777,7 +802,9 @@ export function Chat() {
         supabase.from('room_reads').select('user_id, last_read_at').eq('room_id', roomId)
             .then(({ data: rows }) => {
                 if (!alive || !rows) return;
-                setReads(Object.fromEntries(rows.map(r => [r.user_id, r.last_read_at])));
+                const r: Reads = Object.fromEntries(rows.map(r => [r.user_id, r.last_read_at]));
+                keepReads(roomId, r);
+                setReads(r);
             });
         return () => { alive = false; };
     }, [roomId]);
@@ -797,7 +824,11 @@ export function Chat() {
                 payload => {
                     const row = payload.new as { user_id?: string; last_read_at?: string };
                     if (!row?.user_id || !row.last_read_at) return;
-                    setReads(prev => ({ ...prev, [row.user_id!]: row.last_read_at! }));
+                    setReads(prev => {
+                        const next = { ...prev, [row.user_id!]: row.last_read_at! };
+                        keepReads(roomId, next);
+                        return next;
+                    });
                 })
             .subscribe();
         return () => { supabase.removeChannel(channel); };
@@ -3569,7 +3600,10 @@ export function Chat() {
      * 예전 그대로다 — 바가 안 설 때 되돌리는 것(`watchdog`)과 같은 결이다.
      */
     useEffect(() => {
-        if (!nativeBar || !canNativeList()) return;
+        /* **앱 목록을 안 세우는 판이면 붙들어 둔 앞 그림을 여기서 푼다**
+           (`lib/tabs.ts`의 `holdGhost`). 웹 목록이 곧 화면이라 덮어 둘
+           까닭이 없고, 안 풀면 옛 그림을 `HOLD_MAX`까지 들고 있다가 툭 바뀐다. */
+        if (!nativeBar || !canNativeList()) { releaseGhost(); return; }
         let dead = false;
         let drop: (() => void) | null = null;
         void (async () => {
@@ -3597,7 +3631,7 @@ export function Chat() {
                    25판처럼 곧바로 넘어간다. */
                 drag: canBackDrag() && hasBackShot(),
             });
-            if (dead || !ok) return;
+            if (dead || !ok) { releaseGhost(); return; }
             const h = await onListState(e => {
                 /* 굴린 자리는 이제 앱이 안다 — 우리 `atBottom`도 그 값을 따른다
                    (새 글이 왔을 때 따라 내릴지를 가르는 값이다). */
@@ -3888,6 +3922,12 @@ export function Chat() {
                 }
                 await listSet({ hidden: false });
                 if (revealSeq.current === seq + 1 && listReadyRef.current) setListUp(true);
+                /* **붙들어 둔 앞 그림을 이제 걷는다**(`lib/tabs.ts`의 `holdGhost`).
+                   손가락으로 끌어 돌아온 참이면 그 그림이 아직 화면을 덮고
+                   있고, 방금 드러난 앱 목록이 그 위에 앉아 있다 — 웹 목록이
+                   비칠 틈이 없게 **드러낸 뒤에** 푼다. 한 프레임 뒤에 푸는
+                   것은 앱이 그린 것이 화면에 실제로 닿은 다음이게 하려는 것이다. */
+                requestAnimationFrame(() => releaseGhost());
             })();
         };
         if (messages.length) reveal();
