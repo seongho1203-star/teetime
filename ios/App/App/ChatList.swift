@@ -2285,3 +2285,128 @@ final class HoldPill: UIControl {
         didSet { backgroundColor = isHighlighted ? UIColor(white: 0, alpha: 0.06) : .clear }
     }
 }
+
+/**
+ * **안내창(토스트)을 앱이 띄운다**(29판).
+ *
+ * ## 왜 앱이 맡는가
+ *
+ * 웹의 `.toast-stack`은 **화면 아래**에 붙는데, 앱에서는 거기가 곧
+ * **네이티브 바와 앱 목록이 덮는 자리**다 — 웹의 `z-index`로는 앱 부품을
+ * 못 덮으므로 `복사했습니다`가 한 줄도 안 보였다. 28판에서는 그 자리를
+ * 피해 **머리말 자리로 올려** 두었는데, 사용자가 **`안내창이 위쪽이라
+ * 눈에 잘 안띄어`**라고 짚었다 — 맞는 말이다. 대화방에서 눈이 가 있는
+ * 곳은 방금 누른 말풍선과 입력칸 언저리이지 화면 맨 위가 아니다.
+ *
+ * **웹이 그릴 수 있는 자리 가운데 아래쪽은 없다.** 그래서 자리를 옮기는
+ * 것이 아니라 **그리는 쪽을 옮겼다** — 공유·캡쳐를 28판에서 앱으로
+ * 넘긴 것과 같은 까닭이다.
+ *
+ * ## 자리
+ *
+ * **네이티브 바 바로 위**다(`above`). 키보드가 올라와 있으면 바가 키보드
+ * 위에 있으므로 토스트도 따라 올라간다 — `keyboardLayoutGuide`에 묶인
+ * 바의 자리를 그대로 읽으면 되는 것이라 우리가 키보드를 셈할 일이 없다.
+ * 바가 없으면 안전 영역 위에 띄운다(댓글 화면 등).
+ *
+ * ## 한 번에 하나만
+ *
+ * 웹은 여러 줄이 쌓이지만 여기서는 **새것이 옛것을 갈아 끼운다.**
+ * 쌓으면 자리 셈이 늘어나는데, 잇따라 두 줄이 뜨는 자리가 애초에 없다
+ * (`복사했습니다` 다음에 오는 것은 다음 손짓이다).
+ *
+ * 값은 웹의 `.toast`와 같게 맞춰 두었다 — 흰 알약 · 13px 굵은 글씨 ·
+ * `ok`는 분홍, `error`는 빨강. **한쪽만 고치지 말 것**(`Toast.css`).
+ */
+final class ToastHUD: UIView {
+
+    /// 지금 떠 있는 것. 새것이 오면 갈아 끼운다.
+    private static weak var live: ToastHUD?
+
+    /// 보이는 시간 — 웹의 `ToastProvider`와 같은 2.8초다.
+    private static let hold = 2.8
+
+    private let label = UILabel()
+    private var timer: Timer?
+
+    /// 띄운다. `above`가 네이티브 바(없으면 안전 영역 위에 뜬다).
+    static func show(_ text: String, skin: Skin, in root: UIView, above bar: UIView?) {
+        live?.close()
+        let t = ToastHUD(text: text, skin: skin)
+        live = t
+        root.addSubview(t)
+
+        let maxW = root.bounds.width - 32
+        let size = t.label.sizeThatFits(CGSize(width: maxW - 32, height: .greatestFiniteMagnitude))
+        let w = min(maxW, ceil(size.width) + 32)
+        let h = ceil(size.height) + 22
+        /* 바 윗변에서 12px 위. 바가 키보드에 묶여 있으므로(`pin`) 키보드가
+           올라와 있으면 토스트도 저절로 따라 올라간다. */
+        let bottom: CGFloat = bar.map { $0.frame.minY } ?? (root.bounds.height - root.safeAreaInsets.bottom)
+        t.frame = CGRect(x: (root.bounds.width - w) / 2, y: bottom - 12 - h, width: w, height: h)
+        t.layer.cornerRadius = h / 2
+
+        /* 웹의 `toast-in`과 같은 값이다 — 8px 아래에서 0.18초에 뜬다. */
+        t.alpha = 0
+        t.transform = CGAffineTransform(translationX: 0, y: 8)
+        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut]) {
+            t.alpha = 1
+            t.transform = .identity
+        }
+        t.timer = Timer.scheduledTimer(withTimeInterval: hold, repeats: false) { [weak t] _ in
+            t?.close()
+        }
+    }
+
+    /// 떠 있는 것을 걷는다(화면을 떠날 때 · 새것이 올 때).
+    static func clear() { live?.close() }
+
+    /**
+     * 생김새 — **웹이 준다**(`composerSkin()`·`chatListSkin()`과 같은 결).
+     * 앱은 한 바퀴가 30분인데 웹은 밀면 바로 올라가므로, 어긋난 것을
+     * 고치는 길이 웹에 있어야 한다. 여기 값은 예비값일 뿐이다.
+     */
+    struct Skin {
+        var bg = UIColor(hexString: "#e4e9da") ?? .secondarySystemBackground
+        var fg = UIColor(hexString: "#1b1f19") ?? .label
+        var line = UIColor(white: 0, alpha: 0.12)
+        var size: CGFloat = 13
+    }
+
+    private init(text: String, skin: Skin) {
+        super.init(frame: .zero)
+        /* **뒤를 가로막지 않는다** — 웹의 `pointer-events: none`과 같다.
+           읽기만 하는 것이라 그 밑의 말풍선이 그대로 눌려야 한다. */
+        isUserInteractionEnabled = false
+        backgroundColor = skin.bg
+        layer.borderWidth = 1
+        layer.borderColor = skin.line.cgColor
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.18
+        layer.shadowRadius = 12
+        layer.shadowOffset = CGSize(width: 0, height: 4)
+
+        label.text = text
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.font = .systemFont(ofSize: skin.size, weight: .bold)
+        label.textColor = skin.fg
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds.insetBy(dx: 16, dy: 11)
+    }
+
+    private func close() {
+        timer?.invalidate()
+        timer = nil
+        if ToastHUD.live === self { ToastHUD.live = nil }
+        UIView.animate(withDuration: 0.2, animations: { self.alpha = 0 }) { _ in
+            self.removeFromSuperview()
+        }
+    }
+}

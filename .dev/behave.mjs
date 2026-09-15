@@ -1101,26 +1101,35 @@ ok((await page.textContent('[data-mid="m5"]') ?? '').includes('운영진이 가�
 ok(!await page.evaluate(() => document.documentElement.classList.contains('confirm-up')),
    '닫으면 그 표가 걷힌다 — 남겨 두면 입력칸이 영영 안 돌아온다');
 
-/* **토스트는 앱이 목록을 그리는 동안 머리말 자리로 올라간다**
-   (`html.nc-list` · `components/Toast.css`). 화면 아래는 앱 목록과
-   네이티브 바가 덮는 자리라 거기 두면 `복사했습니다`·`캡쳐가 안 됩니다`가
-   **한 줄도 안 보인다** — 웹의 `z-index`로는 앱 부품을 못 덮는다.
+/* **네이티브 바가 아래를 덮고 있으면 토스트가 머리말 자리로 올라간다**
+   (`components/Toast.css`). 화면 아래는 앱 목록과 네이티브 바가 덮는
+   자리라 거기 두면 `복사했습니다`·`캡쳐가 안 됩니다`가 **한 줄도
+   안 보인다** — 웹의 `z-index`로는 앱 부품을 못 덮는다.
    **헤드리스에는 그 부품이 없으므로 표만 손으로 붙여 규칙을 본다**
-   (댓글 바의 `nc-typing`에서 쓴 그 수다). */
+   (댓글 바의 `nc-typing`에서 쓴 그 수다).
+
+   **잣대 셋을 다 본다** — 29판부터 앱이 직접 띄우므로 여기는 예비 길인데,
+   그 잣대(`canNativeToast()`)는 `html.nc`·`body.nc-typing`이다. `nc-list`만
+   보고 있으면 **웹 목록을 쓰는 앱**에서 그대로 바 뒤에 깔린다. */
 const toastY = await page.evaluate(() => {
     const el = document.querySelector('.toast-stack');
     if (!el) return null;
-    const y = () => el.getBoundingClientRect().top;
-    const off = y();
-    document.documentElement.classList.add('nc-list');
-    const on = y();
-    document.documentElement.classList.remove('nc-list');
-    return { off: Math.round(off), on: Math.round(on), h: window.innerHeight };
+    const y = () => Math.round(el.getBoundingClientRect().top);
+    const root = document.documentElement;
+    const out = { off: y(), h: window.innerHeight };
+    for (const [k, node, cls] of [['nc', root, 'nc'], ['list', root, 'nc-list'],
+                                  ['typing', document.body, 'nc-typing']]) {
+        node.classList.add(cls);
+        out[k] = y();
+        node.classList.remove(cls);
+    }
+    return out;
 });
 /* **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜬다** — 실제 자리를 잰다.
    평소에는 화면 아래(탭바 위)이고, 표가 붙으면 머리말 자리로 올라간다. */
-ok(toastY !== null && toastY.off > toastY.h / 2 && toastY.on < 60,
-   `앱이 목록을 그리면 토스트가 머리말 자리로 올라간다 (실제 ${JSON.stringify(toastY)})`);
+ok(toastY !== null && toastY.off > toastY.h / 2
+   && toastY.nc < 60 && toastY.list < 60 && toastY.typing < 60,
+   `바가 덮고 있으면 토스트가 머리말 자리로 올라간다 (실제 ${JSON.stringify(toastY)})`);
 
 /* 이미 가린 글은 **푸는 쪽**이 나온다. 지운 것이 아니므로 되돌릴 수 있다. */
 await page.click('[data-mid="m17"] .chat-bubble', { button: 'right' });

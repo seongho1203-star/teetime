@@ -48,6 +48,12 @@ type Native = {
     shareText(o: { text?: string; url?: string }): Promise<{ ok: boolean }>;
     /** 캡쳐한 PNG(base64)를 공유창에 넘긴다(28판부터). */
     shareImage(o: { data: string; name?: string }): Promise<{ ok: boolean }>;
+    /**
+     * 안내창(토스트)을 띄운다(29판부터). 아래 `canNativeToast()`를 볼 것.
+     * 색·글자 크기는 **웹이 준다** — 안 보내면 앱의 예비값이 쓰인다.
+     */
+    toast(o: { text: string; bg?: string; fg?: string; line?: string; size?: number }):
+        Promise<{ ok: boolean }>;
     addListener(n: 'change', cb: (e: { text: string; sel: number }) => void): Promise<Handle>;
     addListener(n: 'send', cb: (e: { text: string }) => void): Promise<Handle>;
     addListener(n: 'action', cb: (e: { name: ComposerAction }) => void): Promise<Handle>;
@@ -481,6 +487,63 @@ export async function shareNativeText(text: string, url?: string): Promise<boole
 export async function shareNativeImage(data: string, name: string): Promise<boolean> {
     try {
         const r = await NativeComposer.shareImage({ data, name });
+        return !!r?.ok;
+    } catch { return false; }
+}
+
+/* ── 안내창(토스트)을 앱이 띄운다 (29판) ────────────────────────
+ *
+ * **웹이 그릴 수 있는 자리에 아래쪽이 없다.** `.toast-stack`은 화면
+ * 아래에 붙는데 앱에서는 거기가 곧 **네이티브 바와 앱 목록이 덮는
+ * 자리**라 `복사했습니다`가 한 줄도 안 보였다. 28판에서 **머리말
+ * 자리로 올려** 두었더니 이번에는 **눈에 안 띈다**고 했다(사용자 제보 —
+ * `안내창이 위쪽이라 눈에 잘 안띄어`). 맞는 말이다: 대화방에서 눈이
+ * 가 있는 곳은 방금 누른 말풍선과 입력칸 언저리다.
+ *
+ * 그래서 **자리를 옮기는 대신 그리는 쪽을 옮겼다** — 공유·캡쳐를 28판에서
+ * 앱으로 넘긴 것과 같은 까닭이고, 앱은 바 바로 위에 띄운다.
+ * **웹과 옛 앱은 아래 `Toast.css`의 예비 길로 간다**(머리말 자리).
+ */
+
+/**
+ * 앱에게 안내창을 맡길 수 있는가. false면 웹 토스트가 그대로 뜬다.
+ *
+ * **바가 화면 아래를 덮고 있을 때만 참이다** — `html.nc`(대화) ·
+ * `body.nc-typing`(댓글 바). 그 밖의 화면에서는 웹 토스트가 멀쩡히
+ * 보이므로 굳이 다리를 건널 이유가 없다.
+ * **`Toast.css`의 예비 길이 같은 잣대를 쓴다 — 한쪽만 고치지 말 것.**
+ */
+export function canNativeToast(): boolean {
+    if (ncLog.ready !== true || ncLog.v < 29) return false;
+    try {
+        return document.documentElement.classList.contains('nc')
+            || document.body.classList.contains('nc-typing');
+    } catch { return false; }
+}
+
+/**
+ * 안내창을 앱에 넘긴다. 됐으면 참 — 거짓이면 부르는 쪽이 웹으로 그린다.
+ *
+ * 색은 `:root`에서 읽어 함께 보낸다(`composerSkin()`과 같은 결) —
+ * 앱은 한 바퀴가 30분이라 **고치는 길이 웹에 있어야 한다.**
+ * 값의 출처는 `Toast.css`의 `.toast`이니 **한쪽만 고치지 말 것.**
+ */
+export async function showNativeToast(text: string, kind: 'ok' | 'error' | 'info'): Promise<boolean> {
+    try {
+        const cs = getComputedStyle(document.documentElement);
+        const v = (k: string) => cs.getPropertyValue(k).trim();
+        /* `--fs-sm`은 `0.82rem`이라 px로 바꿔 보낸다. 못 읽으면 안 보내고
+           앱의 예비값(13px)을 쓴다. */
+        const rem = parseFloat(cs.fontSize) || 16;
+        const sm = v('--fs-sm');
+        const size = sm.endsWith('rem') ? Math.round(parseFloat(sm) * rem) : parseFloat(sm);
+        const r = await NativeComposer.toast({
+            text,
+            bg: v('--surface-3'),
+            fg: v(kind === 'ok' ? '--brand' : kind === 'error' ? '--danger' : '--text'),
+            line: v(kind === 'ok' ? '--brand-deep' : kind === 'error' ? '--danger' : '--line'),
+            ...(size > 0 ? { size } : {}),
+        });
         return !!r?.ok;
     } catch { return false; }
 }

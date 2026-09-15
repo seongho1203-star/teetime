@@ -61,6 +61,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shareText", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shareImage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "toast", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listAttach", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listRows", returnType: CAPPluginReturnPromise),
@@ -199,10 +200,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        물러나 봐야 앱 안에서는 `<a download>`가 아무 일도 안 한다.
     ///        그래서 **눌러도 아무 일이 없었다**(사용자 제보 — `캡쳐가 안되네`).
     ///
+    /// 29판 — **안내창(토스트)을 앱이 띄운다**(`toast` · `ChatList.swift`의
+    ///        `ToastHUD`). 웹의 토스트는 화면 아래에 붙는데 거기가 곧 바와
+    ///        앱 목록이 덮는 자리라 한 줄도 안 보였고, 28판에서 **머리말
+    ///        자리로 올려** 두었더니 이번에는 **눈에 안 띈다**고 했다
+    ///        (사용자 제보 — `안내창이 위쪽이라 눈에 잘 안띄어`).
+    ///        웹이 그릴 수 있는 자리에 아래쪽이 없으므로 **자리를 옮기는
+    ///        대신 그리는 쪽을 옮겼다** — 이제 바 바로 위에 뜬다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 28
+    private static let version = 29
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -287,6 +296,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         DispatchQueue.main.async {
             self.live = false
             self.release()
+            /* 떠 있던 안내창은 함께 걷는다(29판) — 바 위에 얹혀 있던 것이라
+               화면을 떠난 뒤까지 남으면 엉뚱한 화면에 떠 있는 꼴이 된다. */
+            ToastHUD.clear()
             self.slider.cancel()
             self.slider.enabled = false
             _ = self.bar?.textView.resignFirstResponder()
@@ -945,6 +957,37 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         do { try data.write(to: url) } catch { call.resolve(["ok": false]); return }
         call.resolve(["ok": present(items: [url])])
+    }
+
+    /**
+     * **안내창(토스트)을 띄운다**(29판 · `ToastHUD`).
+     *
+     * 자리는 **네이티브 바 바로 위**다 — 바가 `keyboardLayoutGuide`에
+     * 묶여 있어(`pin`) 키보드가 올라와 있으면 토스트도 따라 올라간다.
+     * 바를 아직 안 세웠으면(댓글 화면 등) 안전 영역 위에 뜬다.
+     *
+     * 생김새는 **웹이 준다** — 앱은 한 바퀴가 30분이라 고치는 길이 웹에
+     * 있어야 한다(`composerSkin()`과 같은 결). 안 보내면 예비값을 쓴다.
+     */
+    @objc func toast(_ call: CAPPluginCall) {
+        guard let text = call.getString("text"), !text.isEmpty else {
+            call.resolve(["ok": false]); return
+        }
+        DispatchQueue.main.async {
+            guard let root = self.bridge?.viewController?.view else {
+                call.resolve(["ok": false]); return
+            }
+            var skin = ToastHUD.Skin()
+            if let s = call.getString("bg"), let c = UIColor(hexString: s) { skin.bg = c }
+            if let s = call.getString("fg"), let c = UIColor(hexString: s) { skin.fg = c }
+            if let s = call.getString("line"), let c = UIColor(hexString: s) { skin.line = c }
+            if let n = call.getDouble("size"), n > 0 { skin.size = CGFloat(n) }
+            /* 바가 붙어 있을 때만 그 위에 올린다 — 떼어 둔 바는 화면에
+               없으므로 그 자리를 읽으면 엉뚱한 데 뜬다. */
+            let bar = (self.live && self.bar?.superview === root) ? self.bar : nil
+            ToastHUD.show(text, skin: skin, in: root, above: bar)
+            call.resolve(["ok": true])
+        }
     }
 
     /// 공유창을 띄운다. 아이패드에서 붙일 자리가 없으면 그대로 죽으므로
