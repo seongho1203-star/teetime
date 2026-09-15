@@ -1798,6 +1798,52 @@ if (hasMention) {
 }
 await page.waitForTimeout(250);
 
+/* ── 언급 목록 뒤에 판이 하나 더 깔리지 않는다 ────────────────────
+ *
+ * 사용자 요청 — `언급 기능 사용할 때 이름 목록 팝업창 뜨는 뒷면에
+ * 배경화면 같은 게 하나 있는데 그거 삭제해줘`. `.chat-input`의 밝은 칠이
+ * 목록 둘레에 띠로 남아 있던 것이다. 지금은 `.chat-over`가 그 자리를
+ * **대화 바탕색**으로 덮어 목록이 대화 위에 그냥 떠 있는 것으로 읽힌다.
+ *
+ * **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 값을 잰다** —
+ * 칠이 대화 목록과 같은가 · 화면 끝까지 닿는가 · 목록 위에 밝은 띠가
+ * 남지 않는가(윗변이 `.chat-input`의 테두리까지 먹는가).
+ */
+await page.click('.chat-input .textarea');
+await page.type('.chat-input .textarea', '@');
+await page.waitForTimeout(400);
+const over = await page.evaluate(() => {
+    const box = document.querySelector('.chat-over');
+    const list = document.querySelector('.mention-list');
+    const inp = document.querySelector('.chat-input');
+    const chat = document.querySelector('.chat-list');
+    if (!box || !list) return null;
+    const b = box.getBoundingClientRect(), l = list.getBoundingClientRect();
+    return {
+        칠: getComputedStyle(box).backgroundColor,
+        대화칠: getComputedStyle(chat).backgroundColor,
+        왼쪽: Math.round(b.left), 폭: Math.round(b.width),
+        위여백: Math.round(l.top - b.top),
+        넘침: Math.round(inp.getBoundingClientRect().top - b.top),
+        목록왼쪽: Math.round(l.left),
+    };
+});
+ok(over && over.칠 === over.대화칠,
+   `언급 목록 뒤가 대화 바탕색이다 (실제 ${over?.칠} · 대화 ${over?.대화칠})`);
+ok(over && over.왼쪽 === 0 && over.폭 === 390,
+   `화면 끝까지 덮는다 — 옆에 밝은 띠가 안 남는다 (실제 ${over?.왼쪽}·${over?.폭})`);
+/* **위로는 `.chat-input`의 여백과 테두리까지만 먹는다.** 더 먹으면 앱
+   목록이 그린 말풍선을 덮고, 덜 먹으면 밝은 띠가 한 줄 남는다. */
+ok(over && over.넘침 >= 0 && over.넘침 <= 12,
+   `위로 여백과 테두리까지만 먹는다 (실제 ${over?.넘침}px)`);
+ok(over && over.목록왼쪽 === 16,
+   `목록은 예전 여백 그대로다 — 화면 끝에 닿아 보이면 안 된다 (실제 ${over?.목록왼쪽}px)`);
+await page.$eval('.chat-input .textarea', el => { el.value = ''; });
+await page.keyboard.press('Backspace');
+await page.waitForTimeout(300);
+ok(await page.$('.chat-over') === null,
+   '하나도 없으면 칸째 안 그린다 — 빈 보라 띠가 남으면 안 된다');
+
 /* 멀리 내리면 닫힌다 — 위에서 닫아 버렸으면 한 번 더 연다. */
 if (await page.$('.profile-full') === null) {
     await page.click('.chat-face');
