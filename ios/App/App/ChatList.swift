@@ -182,6 +182,11 @@ struct ChatSkin {
     /// 배지의 옅은 칠(웹의 `--grass-soft`).
     var linkSoft = UIColor(red: 0x7c / 255, green: 0xb8 / 255, blue: 0x28 / 255, alpha: 0.16)
     var card = UIColor.white
+    /// 눌리는 카드의 잔디빛 칠. **`card`를 물들이지 말 것** — 그 값은 길게
+    /// 누른 창의 카드(`HoldMenu`)도 같이 쓴다.
+    var cardTint = UIColor(red: 0xe9 / 255, green: 0xf3 / 255, blue: 0xda / 255, alpha: 1)
+    /// 그 카드 배지의 꽉 찬 칠(웹의 `--grass`). 그림은 흰색으로 뒤집는다.
+    var cardBadge = UIColor(red: 0x7c / 255, green: 0xb8 / 255, blue: 0x28 / 255, alpha: 1)
     /// 카드 안의 가는 선(`보러 가기 ›` 위). 흰 바탕 위라 `--line` 그대로다.
     var cardRule = UIColor(red: 0xdd / 255, green: 0xe3 / 255, blue: 0xd1 / 255, alpha: 1)
     /// 인용 안의 가는 선. **`--line`을 쓰지 말 것** — 흰 말풍선에만 맞는 값이라
@@ -233,11 +238,11 @@ struct ChatSkin {
     /// (28판 아래 앱) 두 카드가 같아 보여야 한다. 한쪽만 고치지 말 것.
     var cardW: CGFloat = 320
     var cardPad: CGFloat = 13
-    var cardRadius: CGFloat = 14
-    var cardIconSize: CGFloat = 28
+    var cardRadius: CGFloat = 16
+    var cardIconSize: CGFloat = 34
     var cardIconGap: CGFloat = 10
     var cardHead: CGFloat = 11.5
-    var cardTitle: CGFloat = 15
+    var cardTitle: CGFloat = 16
     var cardNote: CGFloat = 12.5
     var cardGo: CGFloat = 12
 
@@ -253,6 +258,7 @@ struct ChatSkin {
         c("chip", &chip); c("on", &on); c("unread", &unread)
         c("link", &link); c("linkSoft", &linkSoft)
         c("card", &card); c("cardRule", &cardRule)
+        c("cardTint", &cardTint); c("cardBadge", &cardBadge)
         c("quoteRule", &quoteRule); c("brand", &brand)
         c("jumpBg", &jumpBg); c("jumpLine", &jumpLine); c("jumpDim", &jumpDim)
         c("danger", &danger)
@@ -1316,31 +1322,42 @@ final class BubbleCell: UITableViewCell {
             /* **눌러서 들어가는 카드다**(라운드·투표·공지). 웹의 `LinkCard`와
                같은 짜임이라 **줄 수를 세지 않는다** — 첫 줄만 흐리게 깔고
                나머지는 있는 대로 그리므로 문구가 늘어도 안 깨진다. */
-            cardView.backgroundColor = s.card
+            cardView.backgroundColor = s.cardTint
             cardView.layer.cornerRadius = s.cardRadius
             cardRule.backgroundColor = s.cardRule
             /* 배지. **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가
                나온다. 이름은 웹의 `CARD_PATHS` 그대로이고 여기서 폰에 늘 있는
                그림으로 옮겨 그린다(길게 누른 창의 `HoldRow.symbols`와 같은 결). */
-            cardBadge.backgroundColor = s.linkSoft
+            cardBadge.backgroundColor = s.cardBadge
             cardBadge.layer.cornerRadius = s.cardIconSize / 2
-            cardIcon.tintColor = s.link
+            cardIcon.tintColor = s.card
             cardIcon.image = UIImage(systemName: BubbleCell.cardSymbol(r.icon))?
                 .withRenderingMode(.alwaysTemplate)
             let text = NSMutableAttributedString()
-            let lines = r.body.components(separatedBy: "\n")
+            let lines = r.body.components(separatedBy: "\n").filter { !$0.isEmpty }
             if lines.count > 1 {
-                text.append(NSAttributedString(string: lines[0] + "\n", attributes: [
+                /* **제목이 먼저 오고 `○○님이 …했습니다`는 맨 아래다**(웹의
+                   `.chat-result`와 같은 차례 — 사용자가 올린 그림의 그
+                   짜임이다). 가운데 줄들은 알려 주는 값이라 흐리게 둔다.
+                   웹은 그 곁줄을 `·`로 갈라 그림 붙은 칩으로 그리는데,
+                   여기서는 한 줄로 이어 두었다 — **한쪽만 고치지 말 것.** */
+                text.append(NSAttributedString(string: lines[1], attributes: [
+                    .font: UIFont.systemFont(ofSize: s.cardTitle, weight: .bold),
+                    .foregroundColor: s.text,
+                    .paragraphStyle: p,
+                ]))
+                for extra in lines.dropFirst(2) {
+                    text.append(NSAttributedString(string: "\n" + extra, attributes: [
+                        .font: UIFont.systemFont(ofSize: s.cardNote, weight: .regular),
+                        .foregroundColor: s.text.withAlphaComponent(0.7),
+                        .paragraphStyle: p,
+                    ]))
+                }
+                text.append(NSAttributedString(string: "\n" + lines[0], attributes: [
                     .font: UIFont.systemFont(ofSize: s.cardHead, weight: .semibold),
                     .foregroundColor: s.text.withAlphaComponent(0.55),
                     .paragraphStyle: p,
                 ]))
-                text.append(NSAttributedString(
-                    string: lines.dropFirst().joined(separator: "\n"), attributes: [
-                        .font: UIFont.systemFont(ofSize: s.cardTitle, weight: .bold),
-                        .foregroundColor: s.text,
-                        .paragraphStyle: p,
-                    ]))
             } else {
                 text.append(NSAttributedString(string: r.body, attributes: [
                     .font: UIFont.systemFont(ofSize: s.cardTitle, weight: .bold),

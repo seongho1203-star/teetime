@@ -5389,24 +5389,49 @@ function Links({ text }: { text: string }) {
  * 끝났을 때(`post_poll_result`), 그리고 **라운드 상세와 공지 상세**의
  * `📣 대화방에 공유`. **넷을 한 코드로 그린다** — 따로 만들면 한쪽만 고치게 된다.
  *
- * **줄 수를 세지 않는다.** 첫 줄만 갈라 흐리게 놓고 나머지는 있는 대로
- * 그리므로 문구가 늘거나 줄어도 안 깨진다. 다만 **한 줄짜리는 그 줄이 곧
- * 내용이라** 머리말로 흐리게 깔지 않고 제목으로 세운다.
+ * **생김새는 사용자가 올린 그림에 맞췄다**(`채팅창 공유팝업을 내가 올린
+ * 사진형태로 바꿔줘. 공유,투표도 저렇게 멋있게해줘`) — 잔디빛 카드 · 큰
+ * 동그라미 배지 · 곳 이름 알약 · 굵은 제목 · 그림 붙은 곁줄 · 가르는 선 ·
+ * 꽉 찬 알약 단추. 오른쪽에는 그 갈래의 그림이 흐리게 깔린다.
  *
+ * **줄을 세는 것이 아니라 `icon`으로 갈린다.** 글의 모양이 갈래마다 정해져
+ * 있는데(아래), 줄 수로 가리면 **공지의 본문 첫 줄이 제목 자리에 앉는** 식으로
+ * 엉뚱하게 배정된다(실제로 그렇게 짜 봤다가 갈아엎었다):
+ *
+ * - **라운드** — `○○님이 …했습니다` / `골프장` / `9월 30일 (수) · 오전 7:00 ·
+ *   정원 4명 · 3자리 남음`. 곳 이름이 **알약**, 그 뒤 `·`로 갈린 조각들 중
+ *   **첫째가 제목**(날짜)이고 나머지가 **곁줄 칩**이다.
+ *   `모집을 열었습니다`처럼 **두 줄뿐인 것**(DB 트리거)은 곳 이름이 곧
+ *   제목이 된다 — 알약만 덩그러니 남지 않게 한 것이다.
+ * - **투표 · 공지** — 둘째 줄이 제목이고 나머지는 있는 대로 곁줄로 그린다
+ *   (투표 결과의 `1위 …` 줄, 공지의 본문 첫 줄). **거기서는 줄 수를 안 센다.**
+ *
+ * 한 줄짜리는 그 줄이 곧 내용이라 제목으로 세우고 아랫줄을 비운다.
  * 어느 칸도 없는 예전 안내 줄은 지금처럼 가운데 한 줄로 그려진다.
- *
- * **머리에 그림 배지가 선다**(사용자 요청 — `채팅 창에 라운드 뭐 공지 투표
- * 이런 게 공유될 때 나오는 창을 예쁘게 바꿔줘`). 카드가 셋 다 똑같이 생겨
- * 목록을 훑을 때 무엇이 올라온 것인지 글을 읽어야 알 수 있었다 — 배지 하나로
- * 모양에서 갈린다.
  */
 function LinkCard({ body, to, go, icon, rest: restClass }: {
     body: string; to: string; go: string; icon: CardIconName; rest: string;
 }) {
     const lines = body.split('\n').filter(Boolean);
-    const [head, ...rest] = lines;
+    const [foot, ...rest] = lines;
+
+    let pill: string | null = null;
+    let title = foot;
+    let chips: string[] = [];
+    let notes: string[] = [];
+    if (icon === 'round' && rest.length >= 2) {
+        pill = rest[0];
+        const segs = rest.slice(1).join(' · ').split('·').map(s => s.trim()).filter(Boolean);
+        title = segs[0] ?? pill;
+        chips = segs.slice(1);
+    } else if (rest.length) {
+        title = rest[0];
+        notes = rest.slice(1);
+    }
+
     return (
         <Link className="chat-result" to={to}>
+            <span className="chat-result-deco" aria-hidden="true">{CARD_DECO[icon]}</span>
             <span className="chat-result-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -5414,17 +5439,52 @@ function LinkCard({ body, to, go, icon, rest: restClass }: {
                 </svg>
             </span>
             <span className="chat-result-body">
-                <span className={lines.length > 1 ? 'chat-result-head' : 'chat-result-title'}>
-                    {head}
-                </span>
-                {rest.map((line, i) => (
-                    <span key={i} className={i === 0 ? 'chat-result-title' : restClass}>
-                        {line}
+                {pill && <span className="chat-result-pill">{pill}</span>}
+                <span className="chat-result-title">{title}</span>
+                {chips.length > 0 && (
+                    <span className="chat-result-chips">
+                        {chips.map((chip, i) => (
+                            <span key={i} className="chat-result-chip">
+                                <ChipIcon text={chip} />
+                                {chip}
+                            </span>
+                        ))}
                     </span>
+                )}
+                {notes.map((line, i) => (
+                    <span key={i} className={restClass}>{line}</span>
                 ))}
             </span>
-            <span className="chat-result-go">{go}</span>
+            <span className="chat-result-foot">
+                {rest.length > 0 && <span className="chat-result-by">{foot}</span>}
+                <span className="chat-result-go">{go}</span>
+            </span>
         </Link>
+    );
+}
+
+/**
+ * 곁줄 칩 앞의 작은 그림. **글을 보고 고른다** — 시각이면 시계, 사람 수면
+ * 사람. 모르는 것에는 아무것도 안 붙이고 글자만 둔다(억지로 붙이면 뜻이
+ * 어긋난 그림이 선다). **그림글자를 쓰지 말 것**(`CARD_PATHS`와 같은 잣대).
+ */
+function ChipIcon({ text }: { text: string }) {
+    const kind = /오전|오후|\d\s*:\s*\d/.test(text) ? 'time'
+        : /정원|자리|명|인/.test(text) ? 'who'
+            : null;
+    if (!kind) return null;
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
+             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {kind === 'time'
+                ? <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.2V12l3.2 1.9" /></>
+                : <>
+                    <circle cx="9.5" cy="8.8" r="3.3" />
+                    <path d="M3.8 18.6c.6-3 2.8-4.6 5.7-4.6s5.1 1.6 5.7 4.6" />
+                    <path d="M16.6 6.5a3.2 3.2 0 0 1 0 6" />
+                    <path d="M18.4 18.6a6.6 6.6 0 0 0-1.4-3.4" />
+                </>}
+        </svg>
     );
 }
 
@@ -5453,5 +5513,43 @@ const CARD_PATHS: Record<CardIconName, React.ReactNode> = {
         <path d="M4 10.5a1.5 1.5 0 0 1 1.5-1.5H8l6-4v14l-6-4H5.5A1.5 1.5 0 0 1 4 13.5Z" />
         <path d="M17 9.5a4 4 0 0 1 0 5" />
     </>,
+};
+
+/**
+ * 카드 오른쪽에 흐리게 깔리는 그림(사용자가 올린 그림의 그 자리다).
+ *
+ * **글 뒤에 깔릴 뿐 자리를 안 뺏는다** — `position: absolute`에 `opacity`도
+ * 낮아, 글이 길어 그 위를 지나가도 읽는 데 지장이 없다. 여기도 **그림글자를
+ * 쓰지 말 것**(기기에 없으면 네모난 두부가 나온다).
+ */
+const CARD_DECO: Record<CardIconName, React.ReactNode> = {
+    // 라운드 — 그린 위의 깃발과 공.
+    round: (
+        <svg viewBox="0 0 80 56" fill="none" aria-hidden="true">
+            <path d="M0 45c11-9 25-13 40-13s29 4 40 13v11H0Z" fill="currentColor" opacity=".45" />
+            <path d="M53 45V8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            <path d="M53 9 73 15 53 21Z" fill="currentColor" />
+            <circle cx="25" cy="42" r="5" fill="currentColor" opacity=".8" />
+        </svg>
+    ),
+    // 투표 — 표가 쌓인 막대.
+    poll: (
+        <svg viewBox="0 0 80 56" fill="none" aria-hidden="true">
+            <rect x="8" y="30" width="15" height="26" rx="4" fill="currentColor" opacity=".45" />
+            <rect x="32" y="13" width="15" height="43" rx="4" fill="currentColor" />
+            <rect x="56" y="38" width="15" height="18" rx="4" fill="currentColor" opacity=".45" />
+        </svg>
+    ),
+    // 공지 — 확성기와 퍼지는 소리.
+    post: (
+        <svg viewBox="0 0 80 56" fill="none" aria-hidden="true">
+            <path d="M10 22h10l22-13v38L20 34H10a4 4 0 0 1-4-4v-4a4 4 0 0 1 4-4Z"
+                  fill="currentColor" />
+            <path d="M52 19a12 12 0 0 1 0 18" stroke="currentColor" strokeWidth="3.4"
+                  strokeLinecap="round" />
+            <path d="M61 12a22 22 0 0 1 0 32" stroke="currentColor" strokeWidth="3.4"
+                  strokeLinecap="round" opacity=".45" />
+        </svg>
+    ),
 };
 

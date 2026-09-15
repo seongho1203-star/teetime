@@ -289,6 +289,13 @@ export function chatListSkin(el: HTMLElement | null): Record<string, unknown> {
         /* 배지의 옅은 칠(웹의 `.chat-result-icon`). */
         linkSoft: read(root, '--grass-soft', 'rgba(124,184,40,0.16)'),
         card: read(root, '--surface', '#ffffff'),
+        /* 눌리는 카드의 잔디빛 칠과 배지(사용자가 올린 그림에 맞춘 값이다).
+           **`card`를 물들이지 말 것** — 그 값은 길게 누른 창의 카드도 같이
+           쓴다(`ChatList.swift`의 `HoldMenu`). 웹은 `.chat-result`에서 위가
+           짙고 아래가 옅은 그라디언트로 깔지만 앱은 한 색이라, 여기 값은
+           그 **위쪽 칠을 흰 바탕에 눌러 담은 것**이다(`--grass` 17%). */
+        cardTint: '#e9f3da',
+        cardBadge: read(root, '--grass', '#7cb828'),
         /* 카드 안의 가는 선(`보러 가기 ›` 위). 흰 바탕 위라 `--line` 그대로다. */
         cardRule: read(root, '--line', '#dde3d1'),
         /* 인용 안의 가는 선. **`--line`을 쓰지 말 것** — 흰 말풍선에만 맞는
@@ -310,9 +317,9 @@ export function chatListSkin(el: HTMLElement | null): Record<string, unknown> {
         /* 눌리는 카드(라운드·투표·공지). **웹의 `.chat-result`와 같은 값이다** —
            길게 누르는 창이 뜰 때 웹 목록으로 바꿔치기하는 판이 아직 남아
            있어(28판 아래 앱) 두 카드가 같아 보여야 한다. 한쪽만 고치지 말 것. */
-        cardW: 320, cardPad: 13, cardRadius: 14,
-        cardIconSize: 28, cardIconGap: 10,
-        cardHead: 11.5, cardTitle: 15, cardNote: 12.5, cardGo: 12,
+        cardW: 320, cardPad: 13, cardRadius: 16,
+        cardIconSize: 34, cardIconGap: 10,
+        cardHead: 11.5, cardTitle: 16, cardNote: 12.5, cardGo: 12,
         /* `최근 대화로` 줄(웹의 `.chat-jump`). **앱이 그린다** — 그 단추는
            목록 위에 떠 있는데 앱 목록은 웹 화면 **위에 얹힌 앱 부품**이라
            웹이 그리면 통째로 가려진다(사용자 제보 — `최신대화로 버튼

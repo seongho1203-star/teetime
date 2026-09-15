@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, unwrap, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
-import { formatDateTime, formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
+import { formatDate, formatDateTime, formatFullDate, formatTime, formatWon, ddayLabel, daysUntil } from '../lib/format';
 import {
     CADDIE_SHORT, CART_SHORT, FEE_LABEL, KIND_ICON, KIND_LABEL, TEE_LABEL,
     personLabel, roundKind,
@@ -249,10 +249,14 @@ export function RoundDetail() {
         const label = KIND_LABEL[kind];
         const josa = (label.charCodeAt(label.length - 1) - 0xac00) % 28 ? '을' : '를';
 
+        /* **셋째 줄은 `·`로 갈라 적는다.** 카드가 그 조각을 그대로 나눠
+           **첫째를 큰 제목(날짜)으로, 나머지를 그림 붙은 곁줄 칩**으로
+           그린다(`LinkCard` in Chat.tsx) — 날짜와 시각을 붙여 두면 한
+           칩에 뭉쳐 그림이 하나밖에 안 붙는다. **한쪽만 고치지 말 것.** */
         const body = [
             `${profile?.name || '누군가'}님이 ${label}${josa} 공유했습니다`,
             r.course || r.title || KIND_LABEL[kind],
-            `${when} · 정원 ${r.capacity}명`
+            `${formatDate(r.tee_at)} · ${formatTime(r.tee_at)} · 정원 ${r.capacity}명`
                 + (openSlots > 0 ? ` · ${openSlots}자리 남음` : ' · 자리 참'),
         ].join('\n');
 

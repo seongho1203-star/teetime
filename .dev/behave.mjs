@@ -746,6 +746,55 @@ ok(cardLook && cardLook.배지 >= 24 && cardLook.그림,
    `카드 머리에 선 SVG 배지가 선다 (실제 ${JSON.stringify(cardLook)})`);
 ok(cardLook && cardLook.모서리 >= 13 && cardLook.테두리 === 0 && cardLook.그림자,
    `테두리 대신 그림자 · 통통한 모서리 (실제 ${JSON.stringify(cardLook)})`);
+/* **사용자가 올린 그림의 짜임인가**(`채팅창 공유팝업을 내가 올린 사진형태로
+   바꿔줘`). 라운드 공유 카드에서 곳 이름은 **알약**, 날짜는 **큰 제목**,
+   시각·정원·자리는 **그림 붙은 칩**이고 `○○님이 …했습니다`는 **맨 아래**다.
+   **클래스 이름만 보면 배정이 뒤집혀도 초록으로 뜨므로 글자와 자리를 잰다.** */
+const shareCard = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('.chat-result')]
+        .find(x => x.getAttribute('href')?.includes('/rounds/r4'));
+    if (!c) return null;
+    const box = el => el?.getBoundingClientRect();
+    const title = c.querySelector('.chat-result-title');
+    const foot = c.querySelector('.chat-result-by');
+    const chips = [...c.querySelectorAll('.chat-result-chip')];
+    return {
+        알약: c.querySelector('.chat-result-pill')?.textContent ?? null,
+        제목: title?.textContent ?? null,
+        칩: chips.map(x => x.textContent),
+        그림달린칩: chips.filter(x => x.querySelector('svg')).length,
+        아래글: foot?.textContent ?? null,
+        // 아래글이 제목보다 밑에 있는가(그림의 그 차례다).
+        아래인가: !!foot && !!title && box(foot).top > box(title).bottom,
+        // 단추가 꽉 찬 알약인가(그림처럼) — 투명이면 예전 글자 링크다.
+        단추칠: getComputedStyle(c.querySelector('.chat-result-go')).backgroundColor,
+    };
+});
+ok(shareCard && shareCard.알약 === '골프존파크 상무점'
+    && shareCard.제목 === '9월 8일 (화)',
+   `곳 이름은 알약 · 날짜가 큰 제목 (실제 ${JSON.stringify(shareCard)})`);
+ok(shareCard && shareCard.칩.length === 3 && shareCard.그림달린칩 === 3,
+   `시각·정원·자리가 그림 붙은 칩이 된다 (실제 ${JSON.stringify(shareCard?.칩)})`);
+ok(shareCard && shareCard.아래인가
+    && shareCard.아래글 === '신성호님이 스크린을 공유했습니다',
+   `\`○○님이 …했습니다\`는 맨 아래 줄이다 (실제 ${JSON.stringify(shareCard)})`);
+ok(shareCard && !/rgba\(0, 0, 0, 0\)|transparent/.test(shareCard.단추칠),
+   `\`보러 가기\`가 꽉 찬 알약 단추다 (실제 ${shareCard?.단추칠})`);
+/* **투표·공지는 줄 수를 안 센다** — 둘째 줄이 제목이고 나머지는 있는 대로
+   곁줄이다. 라운드 규칙(알약)을 여기까지 끌고 오면 **공지의 본문 첫 줄이
+   제목 자리에 앉는다**(실제로 그렇게 짜 봤다가 갈아엎은 자리다). */
+const postCard = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('.chat-result')]
+        .find(x => x.getAttribute('href')?.includes('/board/b1'));
+    return c && {
+        알약: !!c.querySelector('.chat-result-pill'),
+        제목: c.querySelector('.chat-result-title')?.textContent,
+        곁줄: c.querySelector('.chat-result-note')?.textContent,
+    };
+});
+ok(postCard && !postCard.알약 && postCard.제목 === '9월 회비 안내'
+    && (postCard.곁줄 ?? '').startsWith('9월 회비는'),
+   `공지 카드는 제목이 크고 본문이 곁줄이다 (실제 ${JSON.stringify(postCard)})`);
 /* **지운 것은 카드가 아니다** — 갈 곳이 이미 없다. */
 const notices = await page.$$eval('.chat-notice', e => e.map(x => x.textContent));
 ok(notices.some(t => t?.includes('지웠습니다')),
