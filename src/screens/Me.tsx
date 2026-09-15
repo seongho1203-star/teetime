@@ -581,7 +581,7 @@ export function Me() {
                     안 밀려** 폰에서 재는 수밖에 없다. 대화방에서 조금 올린 뒤
                     카드를 눌러 들어갔다 나오면 여기에 적힌다.
                     **까닭이 가려지면 이 줄을 걷어낼 것.** */}
-                {spotStat() && <span><br />{spotStat()}</span>}
+                {spotStat().map(line => <span key={line}><br />{line}</span>)}
             </p>
         </div>
     );

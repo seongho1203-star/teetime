@@ -28,7 +28,7 @@ import {
 import {
     GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
     isNewDay, listAttach, listDetach, listMenu, listOn, listRows, listScrollTo, listSet,
-    onListHold, onListMenuPick, onListState, onListTap, sameBlock, spotLog,
+    onListHold, onListMenuPick, onListState, onListTap, sameBlock, spotLog, spotNote,
     type ChatSpot, type HoldItem, type ListRow,
 } from '../lib/chatlist';
 
@@ -2212,9 +2212,9 @@ export function Chat() {
            글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다. */
         const 적을것 = stampSpot(atBottom.current ? null : webSpot(el), msgsRef.current);
         keepSpot(roomId, 적을것);
-        spotLog.적음 = 적을것
+        spotNote(적을것
             ? `${적을것.id.slice(-4)}/${적을것.off}${적을것.at ? '' : '(시각없음)'}`
-            : '맨아래';
+            : '맨아래');
     };
     const spotSoon = () => {
         if (spotTimer.current) return;
@@ -3618,7 +3618,13 @@ export function Chat() {
                답이 늦게 와도 `SPOTS`는 모듈에 있어 그대로 남는다. */
             const room = roomRef.current;
             const list = msgsRef.current;
-            void listDetach().then(spot => { if (room) keepSpot(room, stampSpot(spot, list)); });
+            void listDetach().then(spot => {
+                const 적을것 = stampSpot(spot, list);
+                if (room) keepSpot(room, 적을것);
+                /* 진단(`spotLog`) — 앱 목록이 그린 방에서는 `saveSpot`이
+                   일찍 돌아서므로 적어 두는 자리가 여기 하나뿐이다. */
+                spotNote(적을것 ? `${적을것.id.slice(-4)}/${적을것.off}앱` : '맨아래앱');
+            });
         };
     }, [nativeBar]);
 
@@ -3790,6 +3796,9 @@ export function Chat() {
         const spot = spotNow(messages);
         if (!spot) return;
         void listScrollTo(spot.id, 'at', false, spot.off).then(ok => {
+            /* 진단(`spotLog`) — 웹 목록 쪽이 먼저 적어 둔 값을 덮는다.
+               **눈에 보이는 것은 앱 목록이라 이쪽이 맞는 값이다.** */
+            spotLog.놓음 = `앱 ${spot.id.slice(-4)}/${spot.off}${ok ? '' : ' 못찾음'}`;
             if (!ok) return;
             spotDone.current = 'app';
             atBottom.current = false;

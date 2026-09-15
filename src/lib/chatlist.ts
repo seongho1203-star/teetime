@@ -530,19 +530,33 @@ export const listLog = { tap: 0, hold: 0, state: 0, far: 0, last: '' };
  * 바 세우기 흉내까지 다섯 가지로 재 봤다). 폰에서만 갈리므로 값을 화면에
  * 남겨 읽어 주는 편이 결국 빠르다(`ncStatus`·`kbStat`과 같은 자리다).
  *
- * - `적음` — 나가면서 적어 둔 자리(글 id / 위로 몇 px / 시각을 아는가)
+ * - `적음` — 나가면서 적어 둔 자리(글 id / 위로 몇 px). 앱 목록이 그린
+ *   방이면 뒤에 `앱`이 붙는다 — **그 길은 `saveSpot`이 아니라
+ *   `listDetach`가 적는다**(굴린 자리를 앱이 들고 있다).
  * - `깜` — 들어올 때 들고 있던 줄을 깔았는가(`줄 N`) 아니면 받아 왔는가
  * - `놓음` — 되돌린 결과. `건너뜀`이면 그 까닭이 붙는다
+ * - `지난` — **드나든 차례대로 적어 둔 자리 넷**(새것이 앞). 아무것도
+ *   안 굴리고 드나들면 이 값이 그대로여야 한다 — **조금씩 달라지면
+ *   되돌리는 쪽이 어긋나는 것이고, 같은데 화면만 내려가면 그리는 쪽이다.**
  *
  * **까닭이 가려지면 이 줄을 걷어낼 것.**
  */
-export const spotLog = { 적음: '', 깜: '', 놓음: '', 판: 0 };
+export const spotLog = { 적음: '', 깜: '', 놓음: '', 판: 0, 지난: [] as string[] };
 
-/** `내 정보` 맨 아래에 적는 한 줄. 아직 드나든 적이 없으면 빈 글자다. */
-export function spotStat(): string {
+/** 적어 둔 자리를 기록한다 — 마지막 넷만 남긴다. */
+export function spotNote(적음: string): void {
+    spotLog.적음 = 적음;
+    spotLog.지난.unshift(적음);
+    if (spotLog.지난.length > 4) spotLog.지난.length = 4;
+}
+
+/** `내 정보` 맨 아래에 적는 줄들. 아직 드나든 적이 없으면 빈 배열이다. */
+export function spotStat(): string[] {
     const s = spotLog;
-    if (!s.판) return '';
-    return `자리${s.판} 적음 ${s.적음 || '-'} · ${s.깜 || '-'} · ${s.놓음 || '-'}`;
+    if (!s.판) return [];
+    const out = [`자리${s.판} 적음 ${s.적음 || '-'} · ${s.깜 || '-'} · ${s.놓음 || '-'}`];
+    if (s.지난.length > 1) out.push(`지난자리 ${s.지난.join(' · ')}`);
+    return out;
 }
 
 /** `내 정보` 맨 아래에 적는 한 줄. 값이 하나도 없으면 빈 글자다. */
