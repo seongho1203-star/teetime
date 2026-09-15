@@ -3153,9 +3153,9 @@ console.log('\n── 읽던 자리로 돌아온다 ──');
         }, fn);
         await page.waitForTimeout(400);
     };
-    /** 대화방의 눌리는 카드로 들어갔다 뒤로 온다. */
-    const roundTrip = async () => {
-        await page.click('.chat-result');
+    /** 대화방을 나갔다 들어온다. `tap`이 나가는 길이다. */
+    const roundTrip = async (tap) => {
+        await tap();
         await settleScreen(page);
         await page.waitForTimeout(500);
         await page.goBack();
@@ -3164,19 +3164,69 @@ console.log('\n── 읽던 자리로 돌아온다 ──');
         await page.waitForTimeout(1200);
     };
 
+    /** 눌리는 카드를 화면 위에서 200px 자리에 놓는다 — 그 자리에서 눌러야
+     *  **누를 때 자리가 안 달라진다.** */
+    const showCard = async (rest) => {
+        await page.evaluate(() => {
+            const el = document.querySelector('.chat-list');
+            const card = el.querySelector('.chat-result');
+            el.scrollTop += card.getBoundingClientRect().top
+                - el.getBoundingClientRect().top - 200;
+            el.dispatchEvent(new Event('scroll'));
+        });
+        await page.waitForTimeout(rest);
+    };
+
+    /** 보이는 카드를 **손가락처럼 그 자리에서** 누른다.
+     *
+     *  **`page.click`으로 누르지 말 것** — playwright가 누르기 전에 그 카드를
+     *  화면 안으로 굴려 넣어, 방금 맞춰 둔 자리가 통째로 달라진다(재 보고
+     *  잡았다). 보이지 않는 카드를 누르면 아무 데도 안 들어가므로
+     *  `showCard()`로 먼저 올려 둔다. */
+    const tapCard = async () => {
+        const at = await page.evaluate(() => {
+            const el = document.querySelector('.chat-list');
+            const box = el.getBoundingClientRect();
+            const card = [...el.querySelectorAll('.chat-result')].find(c => {
+                const r = c.getBoundingClientRect();
+                return r.top > box.top + 8 && r.bottom < box.bottom - 8;
+            });
+            if (!card) return null;
+            const r = card.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        });
+        if (!at) throw new Error('보이는 카드가 없다');
+        await page.mouse.click(at.x, at.y);
+    };
+
     await go('/#/chat', 900);
     await page.waitForSelector('.chat-list');
 
-    await scrollTo('Math.max(0, el.scrollHeight - el.clientHeight - 600)');
+    await showCard(400);
     const 전 = await spot();
-    await roundTrip();
+    await roundTrip(tapCard);
     const 후 = await spot();
     ok(후.글 === 전.글 && Math.abs(후.위로 - 전.위로) <= 4,
        `카드를 눌러 들어갔다 오면 읽던 자리다 (${전.글}/${전.위로} → ${후.글}/${후.위로})`);
     ok(후.자리 < 후.끝 - 100, `맨 아래로 안 끌려간다 (${후.자리}/${후.끝})`);
 
+    /* **굴리자마자 누르는 것이 진짜 자리다**(사용자 제보 — 고쳐 놓고도
+       `최근대화로 넘어와`가 그대로였다). 카드를 찾으려고 굴린 사람은
+       보이는 그 순간 누르므로, 적어 두기를 기다리는 150ms 안에 화면을
+       떠난다 — 그때 기다리던 것을 뒷정리가 지워 **한 번도 안 적혔다.**
+       위 칸은 400ms을 쉬므로 이 자리를 통째로 지나친다. */
     await scrollTo('el.scrollHeight');
-    await roundTrip();
+    await showCard(40);
+    const 급 = await spot();
+    await roundTrip(tapCard);
+    const 급후 = await spot();
+    ok(급후.글 === 급.글 && Math.abs(급후.위로 - 급.위로) <= 4,
+       `굴리자마자 눌러도 읽던 자리다 (${급.글}/${급.위로} → ${급후.글}/${급후.위로})`);
+
+    /* 맨 아래에서는 카드가 화면에 없을 수 있으므로 **그냥 홈으로 나간다** —
+       보는 것은 '나갔다 오면 맨 아래 그대로인가'이지 나가는 길이 아니다. */
+    await scrollTo('el.scrollHeight');
+    await roundTrip(() => page.goto(BASE + '/#/'));
     const 바닥 = await spot();
     ok(바닥.자리 >= 바닥.끝 - 4,
        `맨 아래를 보고 있었으면 맨 아래 그대로다 (${바닥.자리}/${바닥.끝})`);

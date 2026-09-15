@@ -2053,8 +2053,14 @@ export function Chat() {
      * 재면 긴 대화에서 그대로 끊긴다(그림 자리를 재서 미리 받던 것이
      * 되레 나빠진 그 자리다).
      *
-     * **화면을 떠날 때 재는 길로 가지 않았다** — 그때는 리액트가 이미
-     * 목록을 걷어 가고 있어 `scrollTop`이 0으로 읽힌다.
+     * **다만 기다리던 것이 남아 있으면 떠나면서 한 번 잰다**(사용자 제보 —
+     * 고쳐 놓고도 `최근대화로 넘어와`가 그대로였다). 카드를 눌러 들어가는
+     * 사람은 **굴려서 그 카드를 찾자마자 누르므로**, 마지막 굴리기 신호와
+     * 누름 사이가 150ms보다 짧으면 기다리던 것이 뒷정리에 지워져
+     * **한 번도 안 적힌 채로 나갔다.** 헤드리스로 재서 잡은 자리다
+     * (누르기 전 400ms 기다리면 그대로, 40ms면 맨 아래로 끌려간다).
+     * 리액트는 뒷정리를 **DOM을 걷기 전에** 돌리므로 그 자리에서 재도 값이
+     * 맞는다 — 기다리던 것이 없으면 이미 적어 둔 것이라 아무 일도 안 한다.
      */
     const spotTimer = useRef(0);
     const saveSpot = () => {
@@ -2074,7 +2080,20 @@ export function Chat() {
             saveSpot();
         }, SPOT_WAIT);
     };
-    useEffect(() => () => clearTimeout(spotTimer.current), []);
+    /* 뒷정리는 화면이 만들어질 때 한 번만 걸리므로 **그때의 `saveSpot`을
+       들고 있으면 옛 `roomId`를 본다** — 늘 마지막 것을 부른다. */
+    const saveNow = useRef(saveSpot);
+    saveNow.current = saveSpot;
+    /* **`useEffect`가 아니라 `useLayoutEffect`다.** 화면을 걷을 때 보통
+       효과의 뒷정리는 **DOM을 지운 뒤에** 돌아 `listRef`가 이미 비어 있다
+       (그래서 고쳐 놓고도 그대로였다). 배치 효과의 뒷정리만 지우기
+       전에 돈다. */
+    useLayoutEffect(() => () => {
+        if (!spotTimer.current) return;      // 이미 적어 둔 것이다.
+        clearTimeout(spotTimer.current);
+        spotTimer.current = 0;
+        saveNow.current();
+    }, []);
 
     const onScroll = () => {
         const el = listRef.current;
