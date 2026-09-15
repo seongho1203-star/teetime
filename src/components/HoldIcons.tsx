@@ -14,7 +14,7 @@
 
 /** 창에 세울 수 있는 그림들. `.chat-menu-item`의 오른쪽 자리다. */
 export type HoldIconName =
-    | 'copy' | 'pick' | 'reply' | 'share' | 'capture'
+    | 'copy' | 'pick' | 'reply' | 'share'
     | 'hide' | 'trash';
 
 const PATHS: Record<HoldIconName, React.ReactNode> = {
@@ -38,11 +38,6 @@ const PATHS: Record<HoldIconName, React.ReactNode> = {
         <path d="M12 4v11" />
         <path d="M8.5 7.5 12 4l3.5 3.5" />
         <path d="M6.5 11H5.5a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 18.5 11h-1" />
-    </>,
-    // 캡쳐 — 사진을 오릴 때의 그 표.
-    capture: <>
-        <path d="M7 3v14h14" />
-        <path d="M3 7h14v14" />
     </>,
     // 가리기 — 그어진 눈.
     hide: <>

@@ -23,10 +23,10 @@ import { IS_NATIVE } from '../lib/native';
 import { slideLeft } from '../lib/tabs';
 import {
     NativeComposer, canNativeShare, canPickNative, canSlide, composerReady, composerSkin, hush,
-    kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeImage, shareNativeText,
+    kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeText,
 } from '../lib/composer';
 import {
-    GROUPED_TOP, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
+    GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canNativeList, chatListSkin, closeListMenu, dayChip, edgeColor,
     isNewDay, listAttach, listDetach, listMenu, listOn, listRows, listScrollTo, listSet,
     onListHold, onListMenuPick, onListState, onListTap, sameBlock,
     type HoldItem, type ListRow,
@@ -56,7 +56,7 @@ import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
 import { HoldIcon } from '../components/HoldIcons';
-import { captureNode, shareText, sharePhotoFile } from '../lib/share';
+import { shareText, sharePhotoFile } from '../lib/share';
 import { purgeOldPhotos } from '../lib/photos';
 import './Chat.css';
 
@@ -2308,7 +2308,7 @@ export function Chat() {
      * 길게 누른 글. 여기 값이 있으면 **누른 자리에** 고르는 창이 뜬다.
      *
      * **곧바로 묻지 않고 한 번 고르게 하는 것은 할 일이 여럿이기 때문이다** —
-     * 복사·선택 복사·댓글·공유·캡쳐에 운영진의 가리기·공지, 쓴 사람의 삭제까지
+     * 복사·선택 복사·댓글·공유에 운영진의 가리기, 쓴 사람의 삭제까지
      * 붙는다. 바로 확인창을 띄우면 그중 하나를 고를 자리가 없다.
      *
      * **`at`은 누른 말풍선의 자리다**(사용자 요청 — `누른 자리에서 나오도록`).
@@ -2343,9 +2343,16 @@ export function Chat() {
         const ok = await confirm({
             title: on ? '이 메시지를 가릴까요?' : '가리기를 풀까요?',
             detail: on
-                ? <>모두에게 <b>운영진이 가린 메시지입니다</b>로 보입니다.
+                ? <>모두에게 <b>{HIDDEN_LINE}</b>로 보입니다.
                    지우는 것이 아니라 덮어 두는 것이라 언제든 다시 풀 수 있습니다.</>
                 : '가렸던 내용이 모두에게 다시 보입니다.',
+            /* **꾸민 글은 앱 확인창에 못 넘긴다** — 같은 말을 글자로만 한
+               번 더 적어 둔다(`components/Confirm.tsx`). 안 적어 두면 이
+               창만 웹으로 뜨고, 그러면 앱 목록 바꿔치기가 그대로 돌아와
+               대화가 맨 아래로 툭 내려간다(30판이 없앤 그 자국이다). */
+            detailText: on
+                ? `모두에게 ‘${HIDDEN_LINE}’로 보입니다. 지우는 것이 아니라 덮어 두는 것이라 언제든 다시 풀 수 있습니다.`
+                : undefined,
             confirmLabel: on ? '가리기' : '가리기 풀기',
             danger: on,
         });
@@ -2433,7 +2440,7 @@ export function Chat() {
      * 토스트가 그것 때문에 **한 줄도 안 보였다.** `.toast-stack`은 화면
      * 아래에 붙는데(`bottom`), 그 자리는 앱 목록과 네이티브 바가 덮고 있는
      * 자리다 — 웹의 `z-index`로는 앱 부품을 못 덮으므로 `복사했습니다` ·
-     * `캡쳐가 안 됩니다` 같은 말이 통째로 증발했다. 그래서 대화 화면에서만
+     * `가렸습니다` 같은 말이 통째로 증발했다. 그래서 대화 화면에서만
      * **머리말 자리로 올려** 띄운다(`components/Toast.css`) — 앱 목록의
      * 윗변(`listTop`)이 머리말 아래라 **거기만이 웹이 그릴 수 있는 자리다.**
      *
@@ -2583,45 +2590,6 @@ export function Chat() {
             if (await shareNativeText(text, url)) return;
         } else if (await shareText(text, url)) return;
         copyText(url ? `${text}\n${url}` : text);
-    };
-
-    /**
-     * **말풍선을 그림으로 만든다**(카톡의 `캡쳐`).
-     *
-     * 화면에 그려져 있는 그 줄을 그대로 찍으므로 **모양을 두 번 만들지
-     * 않는다** — 말풍선 규칙이 두 벌이 되면 언젠가 어긋난다.
-     * 그리는 데 한 박자 걸려서 **누르자마자 `만드는 중`이라고 알린다**:
-     * 아무 반응이 없으면 안 눌린 줄 알고 또 누른다.
-     */
-    const captureMessage = async (m: Message) => {
-        /* **`[data-mid]`가 아니라 그 안의 `.chat-row`다.** 바깥 칸에는
-           날짜 칸(`2026년 9월 7일`)과 `여기까지 읽으셨습니다` 줄이 함께
-           들어 있어, 그대로 찍으면 그것들까지 그림에 딸려 온다. */
-        const list = listRef.current;
-        const el = list?.querySelector<HTMLElement>(`[data-mid="${m.id}"] .chat-row`);
-        if (!list || !el) { toast('그 메시지를 찾지 못했습니다.', 'error'); return; }
-        toast('그림으로 만드는 중…', 'ok');
-        /* **찍는 동안만 웹 목록을 내보인다.**
-           앱 목록이 서 있으면 웹 목록은 `visibility: hidden`인데(`.nc-list`),
-           그 값은 **물려받는 것**이라 찍히는 줄까지 `hidden`이 되어 **그림이
-           통째로 빈 채로 나온다.** 앱 목록이 그 위를 덮고 있으므로 잠깐
-           내보여도 **화면에는 아무 변화가 없다.**
-           `finally`로 되돌리는 것이 한 쌍이다 — 도중에 실패하면 웹 목록이
-           내보인 채로 남아 앱 목록 뒤에서 두 겹으로 비친다. */
-        const was = list.style.visibility;
-        if (listUp) list.style.visibility = 'visible';
-        let how: Awaited<ReturnType<typeof captureNode>>;
-        try {
-            /* **앱에서는 앱이 공유창을 띄운다**(28판 · `공유`와 같은 까닭이다).
-               웹의 길은 손짓이 없어 거절당하고, 내려받기도 앱 안에서는
-               아무 일을 안 한다 — 그래서 눌러도 조용했다. */
-            how = await captureNode(el, canNativeShare() ? shareNativeImage : undefined);
-        } finally {
-            if (listUp) list.style.visibility = was;
-        }
-        if (how === 'saved') toast('그림으로 내려받았습니다.', 'ok');
-        else if (how === 'fail') toast('캡쳐가 안 됩니다.', 'error');
-        // 'shared'는 공유창이 뜬 것이라 따로 알릴 것이 없다.
     };
 
     /**
@@ -2950,7 +2918,7 @@ export function Chat() {
      * 길게 누른 창에 설 줄 목록 — **웹 창과 앱 창이 같이 쓴다**(27판).
      *
      * **누구에게 무엇이 붙는지가 이 창의 규칙 전부다** — 앞 다섯(복사 ·
-     * 선택 복사 · 댓글 · 공유 · 캡쳐)은 누구나, `가리기`는
+     * 선택 복사 · 댓글 · 공유)은 누구나, `가리기`는
      * **운영진**(사용자 요청 — `가리기는 운영진만 할수있도록`), `삭제`는
      * **쓴 사람**(제 글에만)이다. 가린 글에는 복사·선택 복사·댓글과 반응
      * 알약을 안 붙인다 — 덮어 둔 내용이 그리로 샌다.
@@ -2975,7 +2943,6 @@ export function Chat() {
            정한 이름이다 — `댓글이 답장기능과 같은거고`). */
         if (!hidden) out.push({ name: 'reply', label: '댓글', icon: 'reply' });
         out.push({ name: 'share', label: '공유', icon: 'share' });
-        out.push({ name: 'capture', label: '캡쳐', icon: 'capture' });
         if (isAdmin) {
             out.push({ name: 'hide', label: hidden ? '가리기 풀기' : '가리기', icon: 'hide' });
         }
@@ -2994,7 +2961,6 @@ export function Chat() {
             case 'pick': setPickText(m.body); break;
             case 'reply': startReply(m); break;
             case 'share': void shareMessage(m); break;
-            case 'capture': void captureMessage(m); break;
             case 'hide': void askHide(m); break;
             case 'trash': void askDelete(m); break;
         }
@@ -3402,8 +3368,11 @@ export function Chat() {
                 }
                 : {};
 
-            /* 가린 글은 아직 앱이 못 그린다 — 그림이 있어도 `other`로 넘겨
-               무슨 줄인지만 적는다(덮어 둔 것이 새면 안 된다). */
+            /* **가린 글은 말풍선을 벗기고 흐린 한 줄로만 그린다**(카톡의
+               `삭제된 메시지입니다`와 같은 자리다 · 사용자가 고른 모양).
+               그림이 있어도 `other`로 넘겨 **무슨 줄인지만** 적는다 —
+               덮어 둔 것이 새면 안 되고, 웹 말풍선과 같은 말이어야 한다
+               (`HIDDEN_LINE` 한 곳에서 온다). */
             const plain = !m.hidden_at;
             if (plain && m.image_url) {
                 /* **`image_url`이 이미 `sticker:<id>`다 — `stickerRef()`를 또
@@ -3430,11 +3399,11 @@ export function Chat() {
                 kind: plain ? 'text' : 'other',
                 mine,
                 ...head3, ...stamp, ...quote,
-                body: plain ? m.body : preview(m),
+                body: plain ? m.body : HIDDEN_LINE,
                 /* **인용이 붙으면 이모지만 보낸 글이라도 말풍선을 안 벗긴다** —
                    벗기면 머리말과 가는 선이 허공에 뜬다(웹과 같은 규칙이다). */
                 big: plain && !m.reply_to ? emojiOnly(m.body) : false,
-                note: plain ? undefined : (preview(m) || '사진'),
+                note: plain ? undefined : HIDDEN_LINE,
             };
         });
     }, [listUp, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
@@ -4854,7 +4823,7 @@ const Bubble = memo(function Bubble({
     lostQuote: boolean;
     onJump: (id: string) => void;
     onReply: (m: Message) => void;
-    /** 길게 눌렀을 때. 복사·댓글·공유·캡쳐 따위를 고르는 창을 연다.
+    /** 길게 눌렀을 때. 복사·댓글·공유 따위를 고르는 창을 연다.
      *  **어느 글에서나 열린다** — 남의 글에서도 복사와 댓글은 할 수 있다.
      *  **`at`은 누른 말풍선의 자리다** — 창이 거기 붙어 뜬다(`HoldAt`). */
     onHold: (m: Message, at: DOMRect, mine: boolean) => void;
@@ -5029,9 +4998,14 @@ const Bubble = memo(function Bubble({
                 <div className="chat-line">
                     {/* **운영진이 가린 글**(카톡의 '가리기'). 글·사진·이모티콘을
                         통째로 덮고 안내 한 줄만 남긴다 — 지운 것이 아니라
-                        덮어 둔 것이라 운영진이 다시 풀 수 있다. */
+                        덮어 둔 것이라 운영진이 다시 풀 수 있다.
+                        **말풍선을 벗기고 흐린 한 줄로만 그린다**(카톡의
+                        `삭제된 메시지입니다`와 같은 자리다 · 사용자가 고른
+                        모양). 말풍선을 두르면 덮어 둔 글이 오히려 여느 말보다
+                        도드라진다. 말은 `HIDDEN_LINE` 한 곳에서 오므로 앱
+                        목록과 어긋날 자리가 없다. */
                     hidden
-                        ? <div className="chat-bubble chat-hidden">운영진이 가린 메시지입니다</div>
+                        ? <div className="chat-hidden">{HIDDEN_LINE}</div>
                         : sticker
                         // 이모티콘. 사진과 달리 **누르는 곳이 아니다** —
                         // 원본을 새 창에 띄워 봐야 같은 그림이고, 앱에 딸린

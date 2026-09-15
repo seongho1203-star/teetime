@@ -60,8 +60,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         CAPPluginMethod(name: "savePhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sharePhoto", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shareText", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "shareImage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "toast", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirm", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listAttach", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listRows", returnType: CAPPluginReturnPromise),
@@ -193,12 +193,14 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        **바꿔치기 자체를 없앴다** — 창이 앱 것이면 앱 목록을 감출
     ///        이유가 없다. 무엇이 뜨는지는 그대로 웹이 정한다.
     ///
-    /// 28판 — **`공유`와 `캡쳐`를 앱이 맡는다**(`shareText`·`shareImage`).
+    /// 28판 — **`공유`를 앱이 맡는다**(`shareText`).
     ///        27판에서 창이 앱 것이 되면서 **웹의 `navigator.share`가 통째로
     ///        막혔다** — 그것은 *사람이 누른 그 손짓 안에서만* 열리는데,
     ///        앱 창에서 고른 것은 다리를 건너와 그 손짓이 없다. 내려받기로
     ///        물러나 봐야 앱 안에서는 `<a download>`가 아무 일도 안 한다.
     ///        그래서 **눌러도 아무 일이 없었다**(사용자 제보 — `캡쳐가 안되네`).
+    ///        (같은 판에서 `캡쳐`(`shareImage`)도 함께 맡았는데, **그 기능은
+    ///        그 뒤 사용자 요청으로 통째로 걷어냈다.**)
     ///
     /// 29판 — **안내창(토스트)을 앱이 띄운다**(`toast` · `ChatList.swift`의
     ///        `ToastHUD`). 웹의 토스트는 화면 아래에 붙는데 거기가 곧 바와
@@ -208,10 +210,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        웹이 그릴 수 있는 자리에 아래쪽이 없으므로 **자리를 옮기는
     ///        대신 그리는 쪽을 옮겼다** — 이제 바 바로 위에 뜬다.
     ///
+    /// 30판 — **한 번 더 묻는 창(`가리기`·`삭제`)도 앱이 띄운다**(`confirm`).
+    ///        웹 확인창은 앱 목록 뒤에 깔리므로 그동안 **앱 목록을 감추고
+    ///        웹 목록을 도로 내보이는 바꿔치기**를 했는데, 웹 목록은 굴린
+    ///        자리가 따로라 **대화가 맨 아래로 툭 내려갔다가 닫으면 도로
+    ///        올라왔다**(사용자 제보 · 사진). 27판에서 길게 누른 창으로
+    ///        배운 그대로 — **값을 맞추지 말고 바꿔치기 자체를 없앤다.**
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 29
+    private static let version = 30
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -939,27 +948,6 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     }
 
     /**
-     * **그림 한 장을 공유창에 넘긴다**(28판 · 말풍선 창의 `캡쳐`).
-     *
-     * 웹이 만든 PNG를 base64로 받는다 — `URLSession`은 `data:`도 `blob:`도
-     * 못 읽으므로 위 `fetch`로는 이 길이 아예 없다.
-     *
-     * **파일로 만들어 넘긴다.** `UIImage`를 그대로 넘기면 공유창이 제
-     * 이름을 붙이는데, 파일로 주면 `kkakkung-0908-214305.png`가 그대로
-     * 간다(웹에서 내려받을 때와 같은 이름이다).
-     */
-    @objc func shareImage(_ call: CAPPluginCall) {
-        guard let b64 = call.getString("data"),
-              let data = Data(base64Encoded: b64) else {
-            call.resolve(["ok": false]); return
-        }
-        let name = call.getString("name") ?? "kkakkung.png"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        do { try data.write(to: url) } catch { call.resolve(["ok": false]); return }
-        call.resolve(["ok": present(items: [url])])
-    }
-
-    /**
      * **안내창(토스트)을 띄운다**(29판 · `ToastHUD`).
      *
      * 자리는 **네이티브 바 바로 위**다 — 바가 `keyboardLayoutGuide`에
@@ -987,6 +975,47 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             let bar = (self.live && self.bar?.superview === root) ? self.bar : nil
             ToastHUD.show(text, skin: skin, in: root, above: bar)
             call.resolve(["ok": true])
+        }
+    }
+
+    /**
+     * **한 번 더 묻는 창을 띄운다**(30판 · 웹의 `components/Confirm.tsx`).
+     *
+     * **왜 앱이 그리는가** — 웹 확인창은 앱 목록과 바 **뒤에** 깔린다
+     * (웹의 `z-index`로는 앱 부품을 못 덮는다). 그래서 그동안 창이 뜨는
+     * 동안만 **앱 목록을 감추고 웹 목록을 도로 내보이는 바꿔치기**를
+     * 했는데, 두 목록은 굴린 자리가 따로라 **대화가 맨 아래로 툭 내려갔다가
+     * 닫으면 도로 올라왔다**(사용자 제보 · 사진 — `가리기를 누르면 채팅
+     * 맨아래로 내려와서 팝업이뜨고 … 다시 눌렀던 위치로 돌아가`).
+     * 27판에서 길게 누른 창으로 배운 그대로, **값을 맞추는 대신 바꿔치기
+     * 자체를 없앴다.**
+     *
+     * **`UIAlertController`를 그대로 쓴다** — 아이폰이 늘 띄우는 그 창이라
+     * 모양을 우리가 맞출 것이 없고, 어느 부품보다도 위에 선다.
+     * 고른 것만 웹으로 돌려주고 **하는 일은 그대로 웹이 정한다.**
+     */
+    @objc func confirm(_ call: CAPPluginCall) {
+        let title = call.getString("title") ?? ""
+        let detail = call.getString("detail")
+        let yes = call.getString("confirmLabel") ?? "확인"
+        let danger = call.getBool("danger") ?? false
+        DispatchQueue.main.async {
+            guard let vc = self.bridge?.viewController else {
+                /* 띄울 데가 없으면 **거절한다** — `ok: false`로 답하면
+                   사용자가 고르지도 않은 `취소`가 되어 버린다. 웹은 이
+                   답을 보고 제 확인창으로 물러난다. */
+                call.reject("no host"); return
+            }
+            let a = UIAlertController(title: title, message: detail,
+                                      preferredStyle: .alert)
+            a.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in
+                call.resolve(["ok": false])
+            })
+            a.addAction(UIAlertAction(title: yes,
+                                      style: danger ? .destructive : .default) { _ in
+                call.resolve(["ok": true])
+            })
+            vc.present(a, animated: true)
         }
     }
 

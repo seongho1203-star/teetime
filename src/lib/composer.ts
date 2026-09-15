@@ -46,13 +46,18 @@ type Native = {
     sharePhoto(o: { url: string }): Promise<{ ok: boolean }>;
     /** 글을 공유창에 넘긴다(28판부터). 아래 `canNativeShare()`를 볼 것. */
     shareText(o: { text?: string; url?: string }): Promise<{ ok: boolean }>;
-    /** 캡쳐한 PNG(base64)를 공유창에 넘긴다(28판부터). */
-    shareImage(o: { data: string; name?: string }): Promise<{ ok: boolean }>;
     /**
      * 안내창(토스트)을 띄운다(29판부터). 아래 `canNativeToast()`를 볼 것.
      * 색·글자 크기는 **웹이 준다** — 안 보내면 앱의 예비값이 쓰인다.
      */
     toast(o: { text: string; bg?: string; fg?: string; line?: string; size?: number }):
+        Promise<{ ok: boolean }>;
+    /**
+     * 한 번 더 묻는 창(30판부터). 아래 `canNativeConfirm()`을 볼 것.
+     * **띄울 데가 없으면 거절한다** — `ok: false`로 답하면 사용자가
+     * 고르지도 않은 `취소`가 되어 버린다.
+     */
+    confirm(o: { title: string; detail?: string; confirmLabel?: string; danger?: boolean }):
         Promise<{ ok: boolean }>;
     addListener(n: 'change', cb: (e: { text: string; sel: number }) => void): Promise<Handle>;
     addListener(n: 'send', cb: (e: { text: string }) => void): Promise<Handle>;
@@ -457,13 +462,16 @@ export async function hush(p: Promise<unknown>): Promise<void> {
     try { await p; } catch { /* 없는 판에서는 그냥 지나간다 */ }
 }
 
-/* ── 공유 · 캡쳐를 앱이 맡는다 (28판) ───────────────────────────
+/* ── 공유를 앱이 맡는다 (28판) ─────────────────────────────────
  *
  * **웹의 `navigator.share`는 27판부터 통째로 막혔다.** 그것은 *사람이
  * 누른 그 손짓 안에서만* 열리는데, 길게 누른 창이 앱 것이 되면서 고른
  * 값이 **다리를 건너와** 그 손짓이 없다 — iOS가 거절하고, 내려받기로
  * 물러나 봐야 앱 안에서는 `<a download>`가 아무 일도 안 한다.
- * 그래서 `공유`·`캡쳐`가 **눌러도 아무 일이 없었다**(사용자 제보).
+ * 그래서 `공유`가 **눌러도 아무 일이 없었다**(사용자 제보).
+ *
+ * (같은 판에서 `캡쳐`도 함께 옮겼는데, **그 기능은 그 뒤 사용자
+ * 요청으로 통째로 걷어냈다** — `shareImage`도 함께 지웠다.)
  *
  * **웹과 옛 앱은 그대로 `lib/share.ts`로 간다** — 거기서는 누른 것이
  * 곧 그 손짓이라 예전처럼 열린다. 판 번호로 갈래를 고르므로 새 앱을
@@ -483,14 +491,6 @@ export async function shareNativeText(text: string, url?: string): Promise<boole
     } catch { return false; }
 }
 
-/** 캡쳐한 PNG를 앱의 공유창에 넘긴다. `canNativeShare()`가 참일 때만. */
-export async function shareNativeImage(data: string, name: string): Promise<boolean> {
-    try {
-        const r = await NativeComposer.shareImage({ data, name });
-        return !!r?.ok;
-    } catch { return false; }
-}
-
 /* ── 안내창(토스트)을 앱이 띄운다 (29판) ────────────────────────
  *
  * **웹이 그릴 수 있는 자리에 아래쪽이 없다.** `.toast-stack`은 화면
@@ -500,7 +500,7 @@ export async function shareNativeImage(data: string, name: string): Promise<bool
  * `안내창이 위쪽이라 눈에 잘 안띄어`). 맞는 말이다: 대화방에서 눈이
  * 가 있는 곳은 방금 누른 말풍선과 입력칸 언저리다.
  *
- * 그래서 **자리를 옮기는 대신 그리는 쪽을 옮겼다** — 공유·캡쳐를 28판에서
+ * 그래서 **자리를 옮기는 대신 그리는 쪽을 옮겼다** — 공유를 28판에서
  * 앱으로 넘긴 것과 같은 까닭이고, 앱은 바 바로 위에 띄운다.
  * **웹과 옛 앱은 아래 `Toast.css`의 예비 길로 간다**(머리말 자리).
  */
@@ -546,4 +546,46 @@ export async function showNativeToast(text: string, kind: 'ok' | 'error' | 'info
         });
         return !!r?.ok;
     } catch { return false; }
+}
+
+/* ── 한 번 더 묻는 창도 앱이 띄운다 (30판) ──────────────────────
+ *
+ * **웹 확인창은 앱 목록과 바 뒤에 깔린다**(웹의 `z-index`로는 앱 부품을
+ * 못 덮는다). 그래서 그동안 창이 뜨는 동안만 **앱 목록을 감추고 웹
+ * 목록을 도로 내보이는 바꿔치기**를 했는데(`useConfirmUp`), 두 목록은
+ * 굴린 자리가 따로라 **대화가 맨 아래로 툭 내려갔다가 닫으면 도로
+ * 올라왔다**(사용자 제보 · 사진 — `가리기를 누르면 채팅 맨아래로
+ * 내려와서 팝업이뜨고 … 다시 눌렀던 위치로 돌아가`).
+ *
+ * **27판에서 길게 누른 창으로 배운 그대로다** — 값을 하나씩 맞추는
+ * 길로는 끝이 없으므로 **바꿔치기 자체를 없앤다.** 창이 앱 것이면
+ * 감출 이유가 아예 없다.
+ */
+
+/**
+ * 앱에게 확인창을 맡길 수 있는가. false면 웹 확인창이 그대로 뜬다.
+ *
+ * **앱 목록이 화면을 덮고 있을 때만 참이다**(`html.nc-list`) — 그
+ * 바꿔치기가 일어나는 자리가 거기 하나뿐이다. 그 밖의 화면(다른 열아홉
+ * 화면과, 앱 목록을 안 켠 대화)에서는 웹 확인창이 멀쩡히 보이므로 굳이
+ * 다리를 건너 **모양을 아이폰 것으로 바꿀 이유가 없다.**
+ */
+export function canNativeConfirm(): boolean {
+    if (ncLog.ready !== true || ncLog.v < 30) return false;
+    try {
+        return document.documentElement.classList.contains('nc-list');
+    } catch { return false; }
+}
+
+/**
+ * 확인창을 앱에 넘긴다. `null`이면 **못 띄운 것이라** 부르는 쪽이 웹
+ * 확인창으로 물러난다 — `false`(취소)와 반드시 갈라야 한다.
+ */
+export async function askNativeConfirm(
+    o: { title: string; detail?: string; confirmLabel?: string; danger?: boolean },
+): Promise<boolean | null> {
+    try {
+        const r = await NativeComposer.confirm(o);
+        return !!r?.ok;
+    } catch { return null; }
 }

@@ -675,7 +675,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         case .text, .other:
             if row.name != nil { h += skin.nameSize + 5 }
             h += quoteHeight(row, above: false)
-            let body = row.kind == .other ? (row.note ?? "사진") : row.body
+            /* **가린 글은 말풍선을 벗긴다**(웹의 `.chat-hidden`과 같은 모양).
+               세로 안여백은 그대로라 **높이는 한 줄 말풍선과 같다** — 줄이
+               통째로 줄어들면 가릴 때마다 읽던 자리가 위아래로 튄다. */
+            let body = row.kind == .other ? (row.note ?? row.body) : row.body
             if row.big {
                 /* 이모지만 보낸 글은 말풍선을 벗기고 크게 그린다 —
                    안여백도 웹과 같이 거의 없다(`.emoji-only`). */
@@ -1288,12 +1291,17 @@ final class BubbleCell: UITableViewCell {
             }
         }
 
-        bubble.backgroundColor = r.big ? .clear : (r.mine ? s.mineBubble : s.bubble)
+        /* **가린 글(`other`)은 말풍선을 벗긴다** — 웹의 `.chat-hidden`과 같은
+           모양이다(사용자가 고른 것: 흐린 한 줄). 덮어 둔 글에 말풍선을
+           두르면 오히려 여느 말보다 도드라진다. 말은 웹이 `HIDDEN_LINE`
+           하나로 보내 주므로 여기서 지어내지 않는다. */
+        let bare = r.big || r.kind == .other
+        bubble.backgroundColor = bare ? .clear : (r.mine ? s.mineBubble : s.bubble)
         bubble.layer.cornerRadius = s.radius
-        let body = r.kind == .other ? (r.note ?? "사진") : r.body
+        let body = r.kind == .other ? (r.note ?? r.body) : r.body
         bodyLabel.attributedText = NSAttributedString(string: body, attributes: [
             .font: r.big ? UIFont.systemFont(ofSize: s.bigSize) : font,
-            .foregroundColor: s.text,
+            .foregroundColor: r.kind == .other ? s.faint : s.text,
             /* 큰 이모지는 **줄 간격을 못박지 않는다** — 18px에 가두면
                40px 글자가 서로 겹친다(웹도 거기서만 `line-height: 1.15`다). */
             .paragraphStyle: r.big ? NSParagraphStyle.default : p,
@@ -1396,7 +1404,10 @@ final class BubbleCell: UITableViewCell {
         } else {
             let body = bodyLabel.attributedText?.string ?? ""
             size = measureBody(body, big: r.big)
-            let padH = r.big ? 2 : skin.padH
+            /* 말풍선을 안 두르는 줄(큰 이모지 · 가린 글)은 가로 안여백이
+               거의 없다 — 웹의 `.emoji-only`·`.chat-hidden`과 같다.
+               **세로는 가린 글만 그대로 둔다**(한 줄 높이가 안 흔들리게). */
+            let padH = (r.big || r.kind == .other) ? 2 : skin.padH
             let padV = r.big ? 1 : skin.padV
             bw = min(maxBubble, size.width + padH * 2)
             /* 인용이 붙으면 말풍선이 너무 좁아지지 않게 바닥을 둔다 —
@@ -1432,7 +1443,7 @@ final class BubbleCell: UITableViewCell {
                 bh += 2 + ch
             }
         } else {
-            let padH = r.big ? 2 : skin.padH
+            let padH = (r.big || r.kind == .other) ? 2 : skin.padH
             let padV = r.big ? 1 : skin.padV
             bubble.frame = CGRect(x: x, y: y, width: bw, height: bh)
             bodyLabel.frame = CGRect(x: padH, y: padV + quoteIn,
@@ -2205,7 +2216,6 @@ final class HoldRow: UIControl {
         "pick": "text.cursor",
         "reply": "arrowshape.turn.up.left",
         "share": "square.and.arrow.up",
-        "capture": "camera",
         "hide": "eye.slash",
         "trash": "trash",
     ]

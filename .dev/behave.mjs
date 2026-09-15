@@ -1067,7 +1067,7 @@ console.log('\n── 메시지 가리기 · 지우기 ──');
 await go('/#/chat', 1200);
 
 const chatText = await page.textContent('.chat-list') ?? '';
-ok(chatText.includes('운영진이 가린 메시지입니다'),
+ok(chatText.includes('가려진 메시지입니다'),
    '가려진 글은 내용 대신 안내 한 줄로 그려진다');
 ok(!chatText.includes('여기 광고 글이 있었습니다'),
    '가려진 글의 내용은 화면 어디에도 안 실린다');
@@ -1096,14 +1096,36 @@ await page.waitForTimeout(400);
 const patched = writes.filter(([w]) => w === 'messages PATCH').map(([, v]) => v);
 ok(patched.length === before + 1 && !!patched.at(-1)?.hidden_at,
    `가리기를 누르면 hidden_at을 세워 보낸다 (실제 ${JSON.stringify(patched.at(-1))})`);
-ok((await page.textContent('[data-mid="m5"]') ?? '').includes('운영진이 가린 메시지입니다'),
+ok((await page.textContent('[data-mid="m5"]') ?? '').includes('가려진 메시지입니다'),
    '가리면 그 자리에서 바로 덮인다 — 다시 들어와 볼 일이 없다');
+/* **말풍선을 벗기고 흐린 한 줄로만 그린다**(사용자가 고른 모양이다 —
+   카톡의 `삭제된 메시지입니다`가 그 자리다). 덮어 둔 글에 말풍선을
+   두르면 오히려 여느 말보다 도드라진다.
+   **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 값을 잰다** —
+   칠이 있는가 · 한 줄 높이가 말풍선과 같은가. */
+const hidBox = await page.evaluate(() => {
+    const el = document.querySelector('[data-mid="m5"] .chat-hidden');
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    const one = document.querySelector('[data-mid="m1"] .chat-bubble');
+    return {
+        말풍선: el.classList.contains('chat-bubble'),
+        칠: cs.backgroundColor,
+        높이: Math.round(el.getBoundingClientRect().height),
+        한줄말풍선: one ? Math.round(one.getBoundingClientRect().height) : 0,
+    };
+});
+ok(hidBox && !hidBox.말풍선, '가린 글에는 말풍선을 안 두른다');
+ok(hidBox && /rgba\(0, 0, 0, 0\)|transparent/.test(hidBox.칠),
+   `바탕을 안 깐다 — 흐린 한 줄이다 (실제 ${hidBox?.칠})`);
+ok(hidBox && Math.abs(hidBox.높이 - hidBox.한줄말풍선) <= 2,
+   `높이는 한 줄 말풍선과 같다 — 가릴 때마다 읽던 자리가 튀면 안 된다 (실제 ${hidBox?.높이} · 말풍선 ${hidBox?.한줄말풍선})`);
 ok(!await page.evaluate(() => document.documentElement.classList.contains('confirm-up')),
    '닫으면 그 표가 걷힌다 — 남겨 두면 입력칸이 영영 안 돌아온다');
 
 /* **네이티브 바가 아래를 덮고 있으면 토스트가 머리말 자리로 올라간다**
    (`components/Toast.css`). 화면 아래는 앱 목록과 네이티브 바가 덮는
-   자리라 거기 두면 `복사했습니다`·`캡쳐가 안 됩니다`가 **한 줄도
+   자리라 거기 두면 `복사했습니다`·`가렸습니다`가 **한 줄도
    안 보인다** — 웹의 `z-index`로는 앱 부품을 못 덮는다.
    **헤드리스에는 그 부품이 없으므로 표만 손으로 붙여 규칙을 본다**
    (댓글 바의 `nc-typing`에서 쓴 그 수다).
@@ -1132,7 +1154,7 @@ ok(toastY !== null && toastY.off > toastY.h / 2
    `바가 덮고 있으면 토스트가 머리말 자리로 올라간다 (실제 ${JSON.stringify(toastY)})`);
 
 /* 이미 가린 글은 **푸는 쪽**이 나온다. 지운 것이 아니므로 되돌릴 수 있다. */
-await page.click('[data-mid="m17"] .chat-bubble', { button: 'right' });
+await page.click('[data-mid="m17"] .chat-hidden', { button: 'right' });
 await page.waitForTimeout(300);
 ok((await page.textContent('.chat-menu') ?? '').includes('가리기 풀기'),
    '이미 가린 글은 푸는 쪽이 나온다');
@@ -1185,7 +1207,7 @@ await hPage.waitForTimeout(300);
 const menuMine = await hPage.textContent('.chat-menu') ?? '';
 ok(menuMine.includes('삭제'), '일반회원도 제 글은 지울 수 있다');
 ok(!menuMine.includes('가리기'), '가리기는 운영진 몫이라 일반회원에게는 안 나온다');
-ok((await hPage.textContent('.chat-list') ?? '').includes('운영진이 가린 메시지입니다'),
+ok((await hPage.textContent('.chat-list') ?? '').includes('가려진 메시지입니다'),
    '가려진 글은 일반회원에게도 똑같이 덮여 보인다');
 await hCtx.close();
 
@@ -1466,8 +1488,8 @@ console.log('\n── 창이 누른 자리에서 뜬다 ──');
 /* ── 6-1-1-3-1-14. 메뉴에 무엇이 붙는가 · 선택 복사 ─────────────
  *
  * 줄 차례는 사용자가 정해 준 그대로다 —
- * `복사 · 선택 복사 · 댓글 · 공유 · 캡쳐`에 운영진의 `가리기`·`공지로
- * 올리기`, 쓴 사람의 `삭제`가 뒤에 붙는다. **`댓글`은 왼쪽으로 밀면
+ * `복사 · 선택 복사 · 댓글 · 공유`에 운영진의 `가리기`, 쓴 사람의
+ * `삭제`가 뒤에 붙는다. **`댓글`은 왼쪽으로 밀면
  * 걸리는 그 답장과 같은 일이다**(사용자가 정한 이름이다).
  *
  * **`선택 복사`는 말풍선에서 못 하는 일을 되돌리는 자리다** — 말풍선에는
@@ -1479,8 +1501,11 @@ console.log('\n── 메뉴 줄과 선택 복사 ──');
     await page.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
     await page.waitForTimeout(300);
     const rows = await page.$$eval('.chat-menu > .chat-menu-item', es => es.map(e => e.textContent));
-    ok(JSON.stringify(rows.slice(0, 5)) === JSON.stringify(['복사', '선택 복사', '댓글', '공유', '캡쳐']),
-       `앞 다섯 줄은 사용자가 정해 준 차례 그대로다 (실제 ${JSON.stringify(rows)})`);
+    ok(JSON.stringify(rows.slice(0, 4)) === JSON.stringify(['복사', '선택 복사', '댓글', '공유']),
+       `앞 네 줄은 사용자가 정해 준 차례 그대로다 (실제 ${JSON.stringify(rows)})`);
+    /* **`캡쳐`는 없앴다**(사용자 요청 — `캡쳐기능은 삭제해줘`).
+       되살아나면 여기서 빨갛게 뜬다. */
+    ok(!rows.includes('캡쳐'), '`캡쳐`는 없앴다 — 창에 안 선다');
     const icons = await page.$$eval('.chat-menu > .chat-menu-item', es => es.map(e => !!e.querySelector('svg')));
     ok(icons.every(Boolean), '줄마다 오른쪽에 그림이 선다 — 카톡과 같은 배치다');
 
@@ -1499,20 +1524,20 @@ console.log('\n── 메뉴 줄과 선택 복사 ──');
     await page.waitForTimeout(200);
 }
 
-/* ── 6-1-1-3-1-15. 공유와 캡쳐 ──────────────────────────────────
+/* ── 6-1-1-3-1-15. 공유 ─────────────────────────────────────────
  *
- * 둘 다 **폰이 해 주는 일을 부르는 것**이라, 되는지 안 되는지가 기기마다
- * 다르다. 여기서 붙들어 두는 것은 딱 두 가지다:
+ * **폰이 해 주는 일을 부르는 것**이라 되는지 안 되는지가 기기마다 다르다.
+ * 여기서 붙들어 두는 것은 하나다 — **공유창이 없는 기기에서 아무 일도
+ * 안 일어나면 안 된다.** 헤드리스 크로미움에는 `navigator.share`가
+ * 없는데, 그때 조용히 돌아서면 사람 눈에는 고장이다 — 복사로 물러나고
+ * 그 사실을 알려야 한다.
  *
- *  - **공유창이 없는 기기에서 아무 일도 안 일어나면 안 된다.** 헤드리스
- *    크로미움에는 `navigator.share`가 없는데, 그때 조용히 돌아서면
- *    사람 눈에는 고장이다 — 복사로 물러나고 그 사실을 알려야 한다.
- *  - **캡쳐가 진짜 그림을 만든다.** 공유창이 없으면 내려받기로 가므로
- *    파일이 실제로 나오는지까지 본다(빈 파일이면 그린 것이 없는 것이다).
+ * **아이폰에서는 공유창으로 간다** — 그 길은 여기서 못 잰다.
  *
- * **아이폰에서는 둘 다 공유창으로 간다** — 그 길은 여기서 못 잰다.
+ * (곁에 `캡쳐`가 있었는데 **사용자 요청으로 통째로 걷어냈다** —
+ * `html-to-image`와 `shareImage`도 함께 지웠다. 되살리지 말 것.)
  */
-console.log('\n── 공유와 캡쳐 ──');
+console.log('\n── 공유 ──');
 {
     await page.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
     await page.waitForTimeout(300);
@@ -1521,24 +1546,6 @@ console.log('\n── 공유와 캡쳐 ──');
     const said = await page.$$eval('.toast', es => es.map(e => e.textContent).join(' | '));
     ok(said.length > 0,
        `공유창이 없는 기기에서는 복사로 물러나고 그 사실을 알린다 (실제 ${said || '아무 말도 없음'})`);
-
-    await page.click('[data-mid="m1"] .chat-bubble', { button: 'right' });
-    await page.waitForTimeout(300);
-    const dl = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
-    await page.click('.chat-menu-item:text-is("캡쳐")');
-    const file = await dl;
-    ok(!!file, '캡쳐를 누르면 그림 파일이 나온다');
-    if (file) {
-        const path = '/tmp/behave-capture.png';
-        await file.saveAs(path);
-        const { statSync } = await import('node:fs');
-        const n = statSync(path).size;
-        ok(n > 5000, `그린 것이 있는 그림이다 (실제 ${n}바이트)`);
-        /* **이름이 영문인 것이 곧 이 검사다.** 한글 이름을 주면 브라우저가
-           통째로 버리고 `download`로 저장해 여러 장이 서로 덮어쓴다. */
-        ok(/^kkakkung-\d{4}-\d{6}\.png$/.test(file.suggestedFilename()),
-           `파일 이름에 시각이 붙는다 — 여러 장 찍어도 안 덮어쓴다 (실제 ${file.suggestedFilename()})`);
-    }
     await page.waitForTimeout(300);
 }
 
@@ -1822,7 +1829,7 @@ ok(await page.$('[data-mid="m1"] .chat-reacts') === null,
    '칩을 다시 누르면 떼어지고, 마지막 하나가 빠지면 줄도 사라진다');
 /* **가린 글에는 안 붙인다** — 덮어 둔 글에 좋다고 누를 일이 없다
    (복사·답장을 안 붙이는 것과 같은 잣대다). */
-const hid = await page.$('[data-mid="m17"] .chat-bubble');
+const hid = await page.$('[data-mid="m17"] .chat-hidden');
 await hid.click({ button: 'right' });
 await page.waitForTimeout(300);
 ok(await page.$('.chat-menu-react') === null, '가린 글에는 반응 줄이 없다');

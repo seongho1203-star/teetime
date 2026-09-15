@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { askNativeConfirm, canNativeConfirm } from '../lib/composer';
 import { setConfirmUp } from '../lib/overlay';
 import './Confirm.css';
 
@@ -12,6 +13,13 @@ import './Confirm.css';
 interface Ask {
     title: string;
     detail?: ReactNode;
+    /**
+     * 같은 말을 **글자로만** 적은 것 — 앱이 띄울 때 쓴다(아래 참고).
+     *
+     * `detail`이 이미 글자면 안 적어도 된다. **꾸민 글(JSX)일 때만**
+     * 필요하고, 안 적어 두면 그 창은 앱으로 안 넘어가 웹 확인창이 뜬다.
+     */
+    detailText?: string;
     confirmLabel?: string;
     danger?: boolean;
 }
@@ -22,7 +30,35 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     const [ask, setAsk] = useState<Ask | null>(null);
     const [resolver, setResolver] = useState<((v: boolean) => void) | null>(null);
 
-    const confirm = useCallback((next: Ask) => {
+    /**
+     * **앱 목록이 화면을 덮고 있으면 앱에게 맡긴다**(30판 · `lib/composer.ts`).
+     *
+     * 이 창은 웹이 그리는 것이라 **앱 목록과 입력칸 뒤에 통째로 깔린다** —
+     * 그래서 그동안 대화 화면이 `useConfirmUp`을 보고 **앱 목록을 감추고
+     * 웹 목록을 도로 내보이는 바꿔치기**를 했는데, 두 목록은 굴린 자리가
+     * 따로라 **대화가 맨 아래로 툭 내려갔다가 닫으면 도로 올라왔다**
+     * (사용자 제보 · 사진). 27판에서 길게 누른 창으로 배운 그대로,
+     * 값을 맞추는 대신 **바꿔치기 자체를 없앤다.**
+     *
+     * **못 띄우면(`null`) 그 자리에서 웹으로 그린다** — 취소(`false`)와
+     * 반드시 갈라야 한다. 앱이 답을 못 주는 판에서 `취소`로 접어 버리면
+     * **사용자가 고르지도 않은 답이 된다.**
+     *
+     * **꾸민 글(JSX)은 앱에 못 넘긴다** — `detailText`가 함께 적혀 있을
+     * 때만 앱으로 가고, 없으면 예전처럼 웹 확인창이 뜬다.
+     */
+    const confirm = useCallback(async (next: Ask) => {
+        const plain = next.detailText
+            ?? (typeof next.detail === 'string' ? next.detail : undefined);
+        if (canNativeConfirm() && (plain !== undefined || next.detail === undefined)) {
+            const r = await askNativeConfirm({
+                title: next.title,
+                ...(plain !== undefined ? { detail: plain } : {}),
+                ...(next.confirmLabel ? { confirmLabel: next.confirmLabel } : {}),
+                danger: !!next.danger,
+            });
+            if (r !== null) return r;
+        }
         setAsk(next);
         return new Promise<boolean>(resolve => setResolver(() => resolve));
     }, []);

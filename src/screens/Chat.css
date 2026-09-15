@@ -901,24 +901,27 @@
     background: #ffdf47;
     clip-path: polygon(0 0, 100% 0, 0 100%);
 }
-/* 가린 글은 바탕색이 다르므로 뿔도 그 색을 따른다.
-   **`:not()`을 그대로 되풀이해 적는다** — 빼면 위 규칙보다 셈이 약해
-   흰 뿔이 그대로 남는다(실제로 그랬다). */
-.chat-row:not(.grouped) .chat-bubble.chat-hidden:not(.emoji-only):not(.chat-cap)::before,
-.chat-row.mine:not(.grouped) .chat-bubble.chat-hidden:not(.emoji-only):not(.chat-cap)::before {
-    background: var(--chat-chip);
-}
+/* **운영진이 가린 글**(카톡의 '가리기').
+   **말풍선을 벗기고 흐린 한 줄로만 그린다**(사용자가 고른 모양이다 —
+   카톡의 `삭제된 메시지입니다`가 그 자리다). 말풍선을 두르면 **덮어 둔
+   글이 오히려 여느 말보다 도드라진다** — 지운 것도 아니고 읽을 것도 없는
+   줄이므로 조용히 지나가는 편이 맞다. 그래서 **`.chat-bubble`을 아예
+   안 붙인다**: 뿔(`::before`)도 안여백도 저절로 빠진다.
 
-/* **운영진이 가린 글**(카톡의 '가리기'). 내 글이든 남의 글이든 같은 모양이라
-   노란 바탕도 덮는다 — 가린 글이 사람마다 다른 색이면 무슨 뜻인지 흐려진다.
-   글자를 흐리게 눕혀 '내용이 아니라 안내'라는 것을 알린다. */
-.chat-bubble.chat-hidden,
-.chat-row.mine .chat-bubble.chat-hidden {
-    background: var(--chat-chip);
-    border-color: transparent;
-    color: var(--chat-on);
+   내 글이든 남의 글이든 같은 모양이다 — 가린 글이 사람마다 다른 색이면
+   무슨 뜻인지 흐려진다. 글자를 눕혀 '내용이 아니라 안내'라는 것을 알리고,
+   말은 `HIDDEN_LINE`(lib/chatlist.ts) 한 곳에서 온다.
+
+   **높이는 한 줄 말풍선과 같게 둔다**(`padding` 세로 7.5px + 테두리 몫 2px).
+   줄이 통째로 줄어들면 가릴 때마다 읽던 자리가 위아래로 튄다. */
+.chat-hidden {
+    padding: 8.5px 2px;
+    color: var(--chat-faint);
     font-style: italic;
-    font-weight: 400;
+    /* 말풍선과 **같은 15px**이다(위 `.chat-bubble` 참고) — 한 줄 높이 셈이
+       그 값에 매여 있고, 카톡의 그 줄도 본문과 같은 크기다. */
+    font-size: 15px;
+    line-height: 1.2;
 }
 
 /* **손가락으로 쓰는 기기에서는 글자 고르기를 막는다.**

@@ -299,7 +299,7 @@ export const messages = [
     { id: 'm19', room_id: 'room1', user_id: uid(2), body: '',
       image_url: 'sticker:mvp12', created_at: iso(0, 9, 44) },
     /* **운영진이 가린 글**(카톡의 '가리기'). 글도 사진도 안 보이고
-       `운영진이 가린 메시지입니다` 한 줄만 남아야 한다 — 여기로 내용이
+       `가려진 메시지입니다` 한 줄만 남아야 한다 — 여기로 내용이
        새어 나가면 가린 뜻이 없다. */
     { id: 'm17', room_id: 'room1', user_id: uid(10), body: '여기 광고 글이 있었습니다',
       hidden_at: iso(0, 9, 45), hidden_by: uid(1), created_at: iso(0, 9, 45) },
