@@ -629,16 +629,23 @@
    가운데라 같은 카드가 두 곳에서 달라 보였다 — 글이 두세 줄이라 왼쪽이 맞다.
 
    **크기는 앱 목록(`ChatList.swift`의 카드)과 같은 값이어야 한다** —
-   길게 누르는 창이 뜰 때 웹 목록으로 바꿔치기하는 판이 아직 남아 있다
-   (28판 아래 앱). 한쪽만 고치지 말 것. */
+   길게 누르는 창이 뜰 때 웹 목록으로 바꿔치기하는 판이 아직 남아 있고
+   (28판 아래 앱), **뒤로 끌어 대화방으로 돌아올 때 손을 따라 나오는
+   그림도 이 웹 카드다**(`tabs.ts`의 `cloneShot`). 한쪽만 고치지 말 것.
+
+   **폭은 글 길이와 상관없이 늘 같다** — 목록 안폭에서 18px을 뺀 것과
+   320px 중 작은 쪽(앱의 `cardWidth()`와 같은 셈이다). 한동안
+   `fit-content`라 글이 짧은 카드(`테스트1` 투표)만 좁아졌고, 그러면
+   아랫줄 `○○님이 …했습니다`가 두 줄로 접혔다 — 앱 목록에서는 한 줄인
+   그 카드가 **뒤로 끌어 돌아오는 동안만 모양이 바뀌었다 돌아왔다**
+   (사용자 제보 · 사진 두 장). */
 .chat-result {
     position: relative;
     display: grid;
     grid-template-columns: auto 1fr;
     gap: 0 10px;
     align-self: center;
-    width: fit-content;
-    max-width: min(88%, 320px);
+    width: min(calc(100% - 18px), 320px);
     margin: var(--gap-sm) auto 2px;
     padding: 13px;
     border-radius: 16px;
@@ -654,7 +661,10 @@
     box-shadow: 0 1px 2px rgba(27, 31, 25, 0.10), 0 4px 12px rgba(27, 31, 25, 0.10);
 }
 /* 오른쪽에 깔리는 그림. **글 뒤로 깔릴 뿐 자리를 안 뺏는다** — 카드에
-   `overflow: hidden`이 있어 밖으로도 안 나간다(`audit.mjs`의 삐져나옴). */
+   `overflow: hidden`이 있어 밖으로도 안 나간다(`audit.mjs`의 삐져나옴).
+   **앱 목록도 같은 자리에 같은 옅기로 그린다**(37판의 `cardDeco` —
+   한동안 웹에만 있어 뒤로 끌어 돌아올 때 그림이 나타났다 사라졌다).
+   자리·크기·옅기를 고치면 `ChatList.swift`도 함께 고칠 것. */
 .chat-result-deco {
     position: absolute;
     right: 0;

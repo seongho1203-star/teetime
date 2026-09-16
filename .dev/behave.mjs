@@ -780,6 +780,24 @@ ok(shareCard && shareCard.아래인가
    `\`○○님이 …했습니다\`는 맨 아래 줄이다 (실제 ${JSON.stringify(shareCard)})`);
 ok(shareCard && !/rgba\(0, 0, 0, 0\)|transparent/.test(shareCard.단추칠),
    `\`보러 가기\`가 꽉 찬 알약 단추다 (실제 ${shareCard?.단추칠})`);
+/* **카드 폭은 글 길이와 상관없이 늘 같다** — 앱 목록의 `cardWidth()`
+   (목록 폭 − 36 · 320 중 작은 쪽)와 같은 셈이다. 한동안 `fit-content`라
+   글이 짧은 카드만 좁아져 아랫줄이 두 줄로 접혔고, 뒤로 끌어 대화방으로
+   돌아오는 동안(웹 카드를 찍은 그림)만 모양이 바뀌었다 돌아왔다
+   (사용자 제보 · 사진 두 장). 클래스 이름만 보면 안 잡히므로 **값을 잰다.** */
+const cardWidths = await page.evaluate(() => {
+    const list = document.querySelector('.chat-list');
+    const cs = list && getComputedStyle(list);
+    const inner = list ? list.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) : 0;
+    return {
+        기대: Math.round(Math.min(inner - 18, 320)),
+        폭: [...document.querySelectorAll('.chat-result')]
+            .map(x => Math.round(x.getBoundingClientRect().width)),
+    };
+});
+ok(cardWidths.폭.length >= 3
+    && cardWidths.폭.every(w => Math.abs(w - cardWidths.기대) <= 1),
+   `카드 폭이 글 길이와 상관없이 앱 목록과 같다 (실제 ${JSON.stringify(cardWidths)})`);
 /* **투표·공지는 줄 수를 안 센다** — 둘째 줄이 제목이고 나머지는 있는 대로
    곁줄이다. 라운드 규칙(알약)을 여기까지 끌고 오면 **공지의 본문 첫 줄이
    제목 자리에 앉는다**(실제로 그렇게 짜 봤다가 갈아엎은 자리다). */

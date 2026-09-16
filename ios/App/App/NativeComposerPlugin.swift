@@ -263,10 +263,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        보낸다** — 35판을 든 폰은 25판처럼 곧바로 넘어가고, 거기에는
     ///        그 자국이 없다.
     ///
+    ///   - **37판** 눌리는 카드 오른쪽에 **웹과 같은 흐린 그림**이 깔린다
+    ///        (`BubbleCell.cardDeco`). 웹에만 있어서, 뒤로 끌어 대화방으로
+    ///        돌아오는 동안(웹 카드를 찍은 그림) 그림이 보였다가 앱 목록이
+    ///        드러나면 사라졌다(사용자 제보). **`canNativeList()`의 문은
+    ///        안 올렸다** — 옛 판은 그림 없는 카드를 그릴 뿐 깨질 자리가 없다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 36
+    private static let version = 37
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

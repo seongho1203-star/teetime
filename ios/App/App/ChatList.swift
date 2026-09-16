@@ -1445,6 +1445,8 @@ final class BubbleCell: UITableViewCell {
     private let capBubble = UIView()
     private let capLabel = UILabel()
     private let cardView = UIView()
+    /// 오른쪽에 흐리게 깔리는 그림(37판 · 웹의 `.chat-result-deco`).
+    private let cardDeco = UIImageView()
     private let cardBadge = UIView()
     private let cardIcon = UIImageView()
     /// 곳 이름 알약 · 큰 제목 · 곁줄 · `○○님이 …했습니다` · 알약 단추(34판).
@@ -1541,6 +1543,16 @@ final class BubbleCell: UITableViewCell {
         cardView.layer.shadowRadius = 6
         cardView.layer.shadowOffset = CGSize(width: 0, height: 2)
         cardIcon.contentMode = .scaleAspectFit
+        /* 오른쪽에 흐리게 깔리는 그림(37판). **웹의 `.chat-result-deco`와
+           같은 자리·같은 옅기다**(오른쪽 끝 · 아래에서 36px · 80×56 · 0.14).
+           한동안 웹에만 있어서, 뒤로 끌어 대화방으로 돌아오는 동안(웹 카드를
+           찍은 그림) 그림이 나타났다가 앱 목록이 드러나면 사라졌다(사용자
+           제보 · 사진 두 장). **글 뒤에 깔려야 하므로 맨 먼저 넣는다.**
+           그림글자를 쓰지 말 것 — SF Symbol이다(`cardDecoSymbol`). */
+        cardDeco.contentMode = .scaleAspectFit
+        cardDeco.alpha = 0.14
+        cardDeco.isUserInteractionEnabled = false
+        cardView.addSubview(cardDeco)
         cardBadge.addSubview(cardIcon)
         cardView.addSubview(cardBadge)
         cardView.addSubview(cardRule)
@@ -1838,6 +1850,10 @@ final class BubbleCell: UITableViewCell {
             cardIcon.tintColor = s.card
             cardIcon.image = UIImage(systemName: BubbleCell.cardSymbol(r.icon))?
                 .withRenderingMode(.alwaysTemplate)
+            /* 흐린 그림은 웹처럼 `--grass` 색이다(`cardBadge`와 같은 값). */
+            cardDeco.tintColor = s.cardBadge
+            cardDeco.image = UIImage(systemName: BubbleCell.cardDecoSymbol(r.icon))?
+                .withRenderingMode(.alwaysTemplate)
 
             let parts = CardParts.parse(r.body, icon: r.icon)
             cardParts = parts
@@ -1990,6 +2006,21 @@ final class BubbleCell: UITableViewCell {
         }
     }
 
+    /**
+     * 카드 오른쪽에 흐리게 깔리는 그림(37판). 웹의 `CARD_DECO`와 같은 뜻으로
+     * 고른다 — 라운드는 깃발, 투표는 표가 쌓인 막대, 공지는 확성기.
+     * 웹은 선 SVG이고 여기는 SF Symbol이라 생김새는 조금 다르지만 **옅기가
+     * 0.14라 그 차이는 눈에 안 걸린다** — 있고 없고가 걸렸다.
+     */
+    static func cardDecoSymbol(_ name: String?) -> String {
+        switch name {
+        case "round": return "flag.fill"
+        case "poll": return "chart.bar.fill"
+        case "post": return "megaphone.fill"
+        default: return "bell.fill"
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let r = row else { return }
@@ -2025,6 +2056,9 @@ final class BubbleCell: UITableViewCell {
             let box = cardBox(cardParts, go: r.go ?? "", skin: skin, width: cardW)
             cardView.frame = CGRect(x: (w - cardW) / 2, y: y,
                                     width: cardW, height: box.height)
+            /* 웹 `.chat-result-deco` — `right: 0; bottom: 36px; 80×56`. */
+            cardDeco.frame = CGRect(x: cardW - 80, y: box.height - 36 - 56,
+                                    width: 80, height: 56)
             cardBadge.frame = box.badge
             cardIcon.frame = cardBadge.bounds.insetBy(dx: box.badge.width * 0.2,
                                                       dy: box.badge.height * 0.2)
