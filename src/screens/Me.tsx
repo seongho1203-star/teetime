@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
-import { dragOn, listOn, listStat, setDragOn, setListOn, spotStat } from '../lib/chatlist';
+import { dragOn, listOn, listStat, paintStat, setDragOn, setListOn, spotStat } from '../lib/chatlist';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -607,6 +607,14 @@ export function Me() {
                     카드를 눌러 들어갔다 나오면 여기에 적힌다.
                     **까닭이 가려지면 이 줄을 걷어낼 것.** */}
                 {spotStat().map(line => <span key={line}><br />{line}</span>)}
+                {/* **덮개를 잰 값**(진단 · `lib/chatlist.ts`의 `paintLog` 주석).
+                    탭바로 대화에 들어갈 때 웹 목록이 잠깐 보이는 자리라
+                    헤드리스로는 한 줄도 확인할 수 없다 — `찍음`이 안 늘면
+                    앱이 못 찍는 것, 느는데 `덮음`이 안 늘면 웹이 그 그림을
+                    못 찾는 것, 둘 다 느는데 그대로 보이면 덮개가 안 그려지거나
+                    너무 일찍 걷히는 것이다.
+                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
+                {paintStat() && <span><br />{paintStat()}</span>}
             </p>
         </div>
     );

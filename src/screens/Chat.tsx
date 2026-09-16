@@ -29,6 +29,7 @@ import {
     GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canBackDrag, canNativeList, chatListSkin, closeListMenu,
     dayChip, edgeColor, isNewDay, listAttach, listDetach, listMenu, listOn, listRows,
     lastPaint, listScrollTo, listSet, onListBack, onListHold, onListMenuPick, onListState,
+    paintLog,
     onListTap, sameBlock, spotLog, spotNote,
     type ChatSpot, type HoldItem, type ListPaint, type ListRow,
 } from '../lib/chatlist';
@@ -394,6 +395,8 @@ export function Chat() {
      * 갈아 끼워지는 것이 안 보인다. 드러나는 순간(`listUp`) 걷는다.
      */
     const [cover, setCover] = useState<ListPaint | null>(null);
+    /** 덮개를 깐 때(진단 — `paintStat`의 `살음`). 걷을 때 셈하고 0으로 둔다. */
+    const coverAt = useRef(0);
     /** 이번에 세운 목록을 이미 드러냈는가(한 번만 한다). 세울 때마다 오른다. */
     const revealSeq = useRef(0);
     /* **`jumpTo`는 `useCallback`이라 그 안에서 읽는 state는 처음 값에 굳는다**
@@ -3623,13 +3626,22 @@ export function Chat() {
         const p = lastPaint(roomId);
         if (!p) return;
         setCover(p);
+        coverAt.current = Date.now();
         const t = window.setTimeout(() => setCover(null), COVER_MAX);
         return () => window.clearTimeout(t);
     }, [roomId]);
 
     /** 앱 목록이 드러난 그 프레임에 걷는다 — 둘이 함께 바뀌어 틈이 없다. */
     useEffect(() => {
-        if (listUp) setCover(null);
+        if (!listUp) return;
+        /* 진단 — 덮개가 얼마나 버텼는가(`paintStat`). 이 값이 0에 가까우면
+           **덮을 새도 없이 걷힌 것**이고, 2500ms이면 앱 목록이 끝내 안 선
+           것이다. 까닭이 가려지면 함께 걷어낼 것. */
+        if (coverAt.current) {
+            paintLog.살음 = Date.now() - coverAt.current;
+            coverAt.current = 0;
+        }
+        setCover(null);
     }, [listUp]);
 
     /* ── 대화 목록을 앱이 그린다(17판) ─────────────────────────

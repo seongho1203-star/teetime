@@ -909,7 +909,15 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = scale
         fmt.opaque = true
-        let img = UIGraphicsImageRenderer(bounds: bounds, format: fmt).image { _ in
+        let img = UIGraphicsImageRenderer(bounds: bounds, format: fmt).image { ctx in
+            /* **먼저 목록 바탕색으로 한 번 칠한다.** `opaque = true`인 판은
+               **검정으로 시작**하는데, `afterScreenUpdates: false`는 **이미
+               화면에 그려져 있는 것만** 떠 오므로 방금 늘어난 자리처럼 아직
+               안 그려진 곳이 있으면 **그대로 검은 띠로 남는다**(사용자 제보 ·
+               사진 — `밑에 까맣게 화면 나왔다가 내려가는 증상`). 칠해 두면
+               그런 자리도 보라로 남아 눈에 안 띈다. */
+            (backgroundColor ?? UIColor(white: 0.45, alpha: 1)).setFill()
+            ctx.fill(bounds)
             /* `afterScreenUpdates: false` — 이미 그려져 있는 것을 그대로 뜬다.
                참으로 두면 한 판 더 그리느라 나가는 길이 그만큼 늦어진다. */
             drawHierarchy(in: bounds, afterScreenUpdates: false)

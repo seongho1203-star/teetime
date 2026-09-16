@@ -517,6 +517,10 @@ export async function listDetach(room?: string): Promise<ChatSpot | null> {
         }
     } catch { /* 옛 앱 — 자리를 모르면 맨 아래로 본다 */ }
     if (room && paint) keepPaint(room, paint);
+    /* 진단 — **그림이 안 왔다**(옛 앱이거나 앱이 못 찍은 때). 세워 둔
+       목록이 없으면 그 자리는 애초에 안 찍으므로(들어오자마자 한 번 도는
+       `listDetach`가 그렇다) `room`이 있을 때만 센다. */
+    else if (room) paintLog.놓침++;
     tellDetached(spot ? { bottom: false, ...spot } : { bottom: true }, paint);
     return spot;
 }
@@ -543,11 +547,45 @@ let paintShot: ListPaint | null = null;
 function keepPaint(room: string, p: ListPaint): void {
     paintRoom = room;
     paintShot = p;
+    paintLog.찍음++;
+    paintLog.잰것 = `${p.top}+${p.h}`;
+    /* **미리 풀어 둔다**(`lib/tabs.ts`의 `warmPaint`와 같은 결). 받는 때
+       (나갈 때)와 까는 때(다시 들어올 때)가 한참 떨어져 있어 공짜인데,
+       안 하면 **깔리는 첫 한두 프레임이 빈 채로 지나간다** — 수백 KB짜리
+       base64를 그 자리에서 풀어야 하기 때문이다. */
+    try {
+        const img = new Image();
+        img.src = p.url;
+        void img.decode?.().catch(() => {});
+    } catch { /* 못 풀어도 그림만 한 박자 늦게 뜬다 */ }
 }
 
 /** 그 방의 마지막 그림. 없으면 `null`(옛 앱·처음 들어가는 길·못 찍은 때). */
 export function lastPaint(room: string): ListPaint | null {
-    return paintRoom === room ? paintShot : null;
+    const p = paintRoom === room ? paintShot : null;
+    if (p) paintLog.덮음++; else paintLog.없음++;
+    return p;
+}
+
+/**
+ * **덮개를 폰에서 재는 값**(진단 · `spotLog`·`ncStatus`와 같은 자리).
+ *
+ * 앱이 그림을 찍어 주는 것도, 그것으로 덮는 것도 **헤드리스로는 한 줄도
+ * 확인할 수 없다.** `탭바로 들어가면 여전히 웹 화면이 보인다`는 제보가
+ * 오면 이 줄 하나로 갈린다 — `찍음`이 안 늘면 **앱이 못 찍는 것**이고,
+ * 느는데 `덮음`이 안 늘면 **웹이 그 그림을 못 찾는 것**이며, 둘 다 느는데
+ * 그대로 보이면 **덮개가 안 그려지거나 너무 일찍 걷히는 것**이다.
+ *
+ * **까닭이 가려지면 이 줄을 걷어낼 것.**
+ */
+export const paintLog = { 찍음: 0, 놓침: 0, 덮음: 0, 없음: 0, 잰것: '', 살음: 0 };
+
+/** `내 정보` 맨 아래에 적는 한 줄. 아직 아무 일도 없으면 빈 글자다. */
+export function paintStat(): string {
+    const p = paintLog;
+    if (!p.찍음 && !p.놓침 && !p.덮음 && !p.없음) return '';
+    return `덮개 찍음${p.찍음} 놓침${p.놓침} 덮음${p.덮음} 없음${p.없음}`
+        + (p.잰것 ? ` · ${p.잰것}` : '') + (p.살음 ? ` · ${p.살음}ms` : '');
 }
 
 /**
