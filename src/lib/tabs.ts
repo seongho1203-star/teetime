@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
-import { listOn, onListDetached, type ListSpot } from './chatlist';
+import { listOn, onListDetached, type ListPaint, type ListSpot } from './chatlist';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -102,10 +102,15 @@ function taken(from: EventTarget | null): boolean {
  * 목록은 감춰져 있고 굴린 자리도 앱 목록과 따로라, 그림에서는 그 감춤을 풀고
  * **앱이 알려 주는 자리**(`spot`)로 굴려 둔다. 그 값은 찍는 순간에는 아직
  * 없고 `listDetach`가 **뒤늦게** 준다(아래 `onListDetached`).
+ *
+ * **`paint`는 앱이 제 목록을 찍어 준 그림이다**(39판). 그것이 오면 웹 목록은
+ * 감춘 채로 두고 그 자리에 그림을 깐다 — **웹 사본과 앱 목록이 갈아 끼워지는
+ * 자리 자체가 없어진다**(위 `cloneShot`을 볼 것). 이것도 `listDetach`가
+ * 뒤늦게 준다.
  */
 type Shot = {
     path: string; node: HTMLElement; scroll: number;
-    list: number; native: boolean; spot?: ListSpot;
+    list: number; native: boolean; spot?: ListSpot; paint?: ListPaint;
 };
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
@@ -133,6 +138,13 @@ function takeShot(el: HTMLElement): Shot {
  *
  * 굴린 자리는 **붙인 뒤에** 잡아야 한다(`placeChatList`) — 아직 문서에
  * 없는 칸은 높이가 없어 `scrollTop`이 안 먹는다.
+ *
+ * **다만 앱이 제 목록을 찍어 줬으면 그 감춤을 안 푼다**(39판 · `paint`).
+ * 웹 사본은 Pretendard, 앱 목록은 폰 기본 글꼴이라 **여러 줄 말풍선의
+ * 줄 바뀌는 자리와 높이가 달라**, 돌아온 순간 둘이 갈아 끼워지는 것이
+ * 그대로 보였다(사용자 제보 — `뭔가 2개화면이 왔다갔다하는 느낌`).
+ * 38판까지 자리를 하나씩 맞춰 왔지만 **글꼴은 맞출 길이 없어**, 값이 아니라
+ * **그림 자체를 앱 것으로 바꾸는 쪽**을 골랐다(26 → 27판의 그 답이다).
  */
 function cloneShot(shot: Shot): { c: HTMLElement; list: HTMLElement | null } {
     const c = shot.node.cloneNode(true) as HTMLElement;
@@ -140,8 +152,46 @@ function cloneShot(shot: Shot): { c: HTMLElement; list: HTMLElement | null } {
        늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
     if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
     const list = c.querySelector<HTMLElement>('.chat-list');
+    /* 그림이 그 자리를 덮으므로 굴려 둘 것도 없다 — `list`를 안 돌려준다. */
+    if (shot.paint) return { c, list: null };
     list?.classList.remove('nc-list');
     return { c, list };
+}
+
+/**
+ * 앱이 찍어 준 목록 그림을 **그 자리에 그대로** 깐다(39판).
+ *
+ * **막(`dim`) 앞에 넣는다** — 뒤에 넣으면 어두워지는 막이 그림에 안 걸려
+ * 목록만 밝은 채로 남는다. 나갈 때 쓰는 `.exit-ghost`는 막이 형제가 아니라
+ * 몸통에 따로 붙으므로(`runPop`) 그냥 맨 뒤에 붙인다.
+ *
+ * 여러 번 불려도 한 장만 남는다 — 그림이 뒤늦게 올 때 이미 깔린 것에
+ * 다시 부르기 때문이다(`onListDetached`).
+ */
+/**
+ * 그림을 **미리 풀어 둔다** — 깔 때 한두 프레임 비어 보이지 않게.
+ *
+ * 받는 때(대화방을 떠날 때)와 까는 때(끌어 돌아올 때)가 한참 떨어져 있어
+ * 미리 해 두면 공짜다. 못 풀어도 탈이 없다 — 깔 때 브라우저가 다시 한다.
+ */
+function warmPaint(url: string): void {
+    const img = new Image();
+    img.src = url;
+    void img.decode?.().catch(() => { /* 그때 가서 다시 푼다 */ });
+}
+
+function layPaint(g: HTMLElement, paint: ListPaint): void {
+    g.querySelector('.ghost-paint')?.remove();
+    /* 웹 목록은 감춘 채로 둔다 — 그림이 뒤늦게 온 판에서는 이미 풀려 있다. */
+    g.querySelector('.chat-list')?.classList.add('nc-list');
+    const img = document.createElement('img');
+    img.className = 'ghost-paint';
+    img.src = paint.url;
+    img.alt = '';
+    img.style.top = `${paint.top}px`;
+    img.style.height = `${paint.h}px`;
+    const dim = g.querySelector('.back-ghost-dim');
+    if (dim) g.insertBefore(img, dim); else g.appendChild(img);
 }
 
 /**
@@ -176,14 +226,22 @@ function placeChatList(list: HTMLElement, shot: Shot): void {
 /** 깔린 그림이 어느 장에서 왔는지 — 아래에서 다시 굴릴 때 찾는다. */
 const ghostShots = new WeakMap<HTMLElement, Shot>();
 
-onListDetached(spot => {
+onListDetached((spot, paint) => {
+    if (paint) warmPaint(paint.url);
     for (const s of [...shots, exiting]) {
-        if (s && s.native && !s.spot) s.spot = spot;
+        if (s && s.native && !s.spot) {
+            s.spot = spot;
+            if (paint) s.paint = paint;
+        }
     }
     for (const g of document.querySelectorAll<HTMLElement>('.back-ghost, .exit-ghost')) {
-        const list = g.querySelector<HTMLElement>('.chat-list');
         const shot = ghostShots.get(g);
-        if (list && shot && shot.native) placeChatList(list, shot);
+        if (!shot || !shot.native) continue;
+        /* 그림이 왔으면 그것으로 덮는다(39판) — 눌러서 들어가는 연출은
+           그보다 먼저 깔리므로 한두 프레임은 웹 사본이 보였다 바뀐다. */
+        if (shot.paint) { layPaint(g, shot.paint); continue; }
+        const list = g.querySelector<HTMLElement>('.chat-list');
+        if (list) placeChatList(list, shot);
     }
 });
 
@@ -482,6 +540,7 @@ function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElem
     const dim = document.createElement('div');
     dim.className = 'back-ghost-dim';
     g.appendChild(dim);
+    if (shot?.paint) layPaint(g, shot.paint);
     document.body.insertBefore(g, document.body.firstChild);
     /* 대화 목록은 **붙인 뒤에** 굴려야 먹는다(위 `cloneShot`). */
     if (shot && list) placeChatList(list, shot);
@@ -542,6 +601,7 @@ function runPop(el: HTMLElement, shot: Shot): void {
     gx.className = 'exit-ghost';
     const { c, list } = cloneShot(shot);
     gx.appendChild(c);
+    if (shot.paint) layPaint(gx, shot.paint);
     ghostShots.set(gx, shot);
     document.body.appendChild(dim);
     document.body.appendChild(gx);

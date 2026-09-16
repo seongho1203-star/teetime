@@ -410,7 +410,10 @@ type Bridge = {
         id: string; place?: string; flash?: boolean; off?: number;
     }): Promise<{ ok?: boolean }>;
     listMenu(o: Record<string, unknown>): Promise<{ ok?: boolean }>;
-    listDetach(): Promise<{ atBottom?: boolean; topId?: string; off?: number }>;
+    listDetach(): Promise<{
+        atBottom?: boolean; topId?: string; off?: number;
+        shot?: string; shotTop?: number; shotH?: number;
+    }>;
     addListener(
         n: 'listState',
         cb: (e: { atBottom: boolean; atTop: boolean; far: boolean }) => void,
@@ -499,13 +502,21 @@ export async function listSet(o: Record<string, unknown>): Promise<void> {
  */
 export async function listDetach(): Promise<ChatSpot | null> {
     let spot: ChatSpot | null = null;
+    let paint: ListPaint | null = null;
     try {
         const r = await bridge.listDetach();
         if (r && r.atBottom === false && r.topId) {
             spot = { id: r.topId, off: Math.max(0, Math.round(r.off ?? 0)) };
         }
+        if (r && typeof r.shot === 'string' && r.shot && (r.shotH ?? 0) > 0) {
+            paint = {
+                url: `data:image/jpeg;base64,${r.shot}`,
+                top: Math.round(r.shotTop ?? 0),
+                h: Math.round(r.shotH ?? 0),
+            };
+        }
     } catch { /* 옛 앱 — 자리를 모르면 맨 아래로 본다 */ }
-    tellDetached(spot ? { bottom: false, ...spot } : { bottom: true });
+    tellDetached(spot ? { bottom: false, ...spot } : { bottom: true }, paint);
     return spot;
 }
 
@@ -524,15 +535,28 @@ export async function listDetach(): Promise<ChatSpot | null> {
  */
 export type ListSpot = { bottom: true } | { bottom: false; id: string; off: number };
 
-let detachedCb: ((spot: ListSpot) => void) | null = null;
+/**
+ * **앱 목록을 걷기 직전에 찍은 그림**(39판 · `ChatList.paint`).
+ *
+ * 끌어 돌아올 때 웹이 까는 앞 화면 그림에서 **말풍선 자리를 이것으로 덮는다.**
+ * 그러면 웹 사본(Pretendard)과 앱 목록(폰 기본 글꼴)이 갈아 끼워지는 자리가
+ * 아예 없어진다 — 38판까지 자리를 맞춰 온 것의 마지막 조각이다.
+ *
+ * `top`·`h`는 창(화면) 좌표의 CSS px다 — 목록이 머리말 아래부터 바 윗변까지
+ * 차지하던 그 자리. **없을 수 있다** — 옛 앱, 목록이 감춰져 있던 때,
+ * 못 찍은 때. 그때는 예전처럼 DOM 사본을 깐다.
+ */
+export type ListPaint = { url: string; top: number; h: number };
+
+let detachedCb: ((spot: ListSpot, paint: ListPaint | null) => void) | null = null;
 
 /** 앱 목록이 걷힐 때 그 자리를 받아 볼 곳을 건다(한 곳뿐이다 — `lib/tabs.ts`). */
-export function onListDetached(cb: (spot: ListSpot) => void): void {
+export function onListDetached(cb: (spot: ListSpot, paint: ListPaint | null) => void): void {
     detachedCb = cb;
 }
 
-function tellDetached(spot: ListSpot): void {
-    try { detachedCb?.(spot); } catch { /* 그림 굴리기가 실패해도 나가는 길은 막지 않는다 */ }
+function tellDetached(spot: ListSpot, paint: ListPaint | null): void {
+    try { detachedCb?.(spot, paint); } catch { /* 그림 굴리기가 실패해도 나가는 길은 막지 않는다 */ }
 }
 
 /**

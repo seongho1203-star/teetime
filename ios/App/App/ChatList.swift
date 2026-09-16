@@ -887,6 +887,38 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     /**
+     * **앱이 그린 그대로 한 장 찍는다**(39판) — 끌어 돌아올 때 웹이 깔 그림이다.
+     *
+     * 라운드·투표에서 대화방으로 **끌어 돌아오는 길은 웹 화면이라** 앞 화면
+     * 그림을 웹이 깔아야 하는데, 그 그림은 떠날 때 찍어 둔 **웹 DOM**이다.
+     * 웹 말풍선은 Pretendard이고 앱 목록은 폰 기본 글꼴이라 줄 바뀌는 자리와
+     * 높이가 달라, 돌아온 순간 **두 화면이 오가는 것처럼 보였다**(사용자 제보 —
+     * `뭔가 2개화면이 왔다갔다하는 느낌`). 값을 하나씩 맞추는 길로는 끝이
+     * 없으므로(26 → 27판의 그 답) **그림 자체를 앱 것으로 바꾼다.**
+     *
+     * **목록만 찍는다 — 화면 통째로 찍으면 안 된다.** 이 함수가 불리는
+     * `listDetach`는 리액트가 **목적지를 이미 그린 뒤**라, `root`를 찍으면
+     * 바뀐 웹 화면 위에 앱 목록이 얹힌 그림이 나온다. 앱 목록은 웹뷰 위에
+     * 얹힌 앱 부품이라 저 혼자 찍어도 말풍선이 다 들어 있다.
+     *
+     * **감춰져 있으면 안 찍는다**(`isHidden`) — 빈 그림이 나온다. 그때는
+     * 웹이 예전처럼 DOM 사본을 깐다.
+     */
+    func paint(scale: CGFloat = 2, quality: CGFloat = 0.7) -> (b64: String, h: CGFloat)? {
+        guard !isHidden, bounds.width > 1, bounds.height > 1 else { return nil }
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = scale
+        fmt.opaque = true
+        let img = UIGraphicsImageRenderer(bounds: bounds, format: fmt).image { _ in
+            /* `afterScreenUpdates: false` — 이미 그려져 있는 것을 그대로 뜬다.
+               참으로 두면 한 판 더 그리느라 나가는 길이 그만큼 늦어진다. */
+            drawHierarchy(in: bounds, afterScreenUpdates: false)
+        }
+        guard let data = img.jpegData(compressionQuality: quality) else { return nil }
+        return (data.base64EncodedString(), bounds.height)
+    }
+
+    /**
      * 그 글로 뛴다 — 인용을 누르거나 검색 결과를 골랐을 때다(5판).
      *
      * **못 찾으면 거짓을 돌려준다.** 지난 묶음에 있어 아직 안 받아 온 글이라,

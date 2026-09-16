@@ -278,10 +278,20 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 자리만 조금
     ///        다를 뿐 깨질 자리가 없다.
     ///
+    ///   - **39판** 나가면서 **앱 목록을 한 장 찍어 함께 준다**
+    ///        (`listDetach`의 `shot`·`shotTop`·`shotH` · `ChatList.paint`).
+    ///        38판까지 맞춘 것은 자리였고 **남은 것은 글꼴이었다** — 웹 사본은
+    ///        Pretendard, 앱 목록은 폰 기본 글꼴이라 여러 줄 말풍선의 줄
+    ///        바뀌는 자리가 달라 끌어 돌아오는 순간 갈아 끼워지는 것이
+    ///        그대로 보였다(사용자 제보 — `뭔가 2개화면이 왔다갔다하는 느낌`).
+    ///        그림을 앱 것으로 바꾸면 **갈아 끼우는 자리 자체가 없어진다.**
+    ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 그 칸을 안 보낼
+    ///        뿐이고 웹이 예전처럼 DOM 사본을 깐다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 38
+    private static let version = 39
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -726,6 +736,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             if let s = self.list?.topSpot() {
                 spot["topId"] = s.id
                 spot["off"] = Double(s.off)
+            }
+            /* **앱 목록을 그대로 한 장 찍어 함께 준다**(39판 · `ChatList.paint`).
+               끌어 돌아올 때 웹이 깔 앞 화면 그림에서 말풍선 자리를 이것으로
+               덮으면 **웹 사본과 앱 목록이 갈아 끼워지는 자리 자체가 없어진다.**
+               걷기 **전에** 찍어야 한다 — 걷고 나면 창에서 빠져 빈 그림이 된다.
+               못 찍으면 그 칸을 아예 안 보내고, 웹은 예전처럼 DOM 사본을 깐다. */
+            if let list = self.list, let root = list.superview, let p = list.paint() {
+                spot["shot"] = p.b64
+                spot["shotTop"] = Double(list.convert(list.bounds, to: root).minY)
+                spot["shotH"] = Double(p.h)
             }
             self.list?.removeFromSuperview()
             self.listTopC = nil
