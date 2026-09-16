@@ -3566,6 +3566,12 @@ export function Chat() {
                 document.documentElement.classList.remove('nc');
                 document.documentElement.classList.remove('kb-follow');
                 setNativeBar(false);
+                /* **바가 끝내 안 섰으면 붙들어 둔 앞 그림도 여기서 푼다**
+                   (`lib/tabs.ts`의 `holdGhost`). 바가 없으면 앱 목록도 못
+                   세우는데, 아래 효과는 `nativeBar`가 거짓 → 거짓이라 다시
+                   안 돌아 아무도 못 푼다 — `HOLD_MAX`(2.5초)까지 죽은 그림이
+                   화면을 덮고 있게 된다. */
+                releaseGhost();
                 void hush(NativeComposer.detach());
             }, 1500);
         })();
@@ -3603,7 +3609,16 @@ export function Chat() {
         /* **앱 목록을 안 세우는 판이면 붙들어 둔 앞 그림을 여기서 푼다**
            (`lib/tabs.ts`의 `holdGhost`). 웹 목록이 곧 화면이라 덮어 둘
            까닭이 없고, 안 풀면 옛 그림을 `HOLD_MAX`까지 들고 있다가 툭 바뀐다. */
-        if (!nativeBar || !canNativeList()) { releaseGhost(); return; }
+        if (!canNativeList()) { releaseGhost(); return; }
+        /* **바가 아직 안 선 것은 `안 세운다`가 아니다 — 여기서 풀지 말 것.**
+           `nativeBar`는 `attach`가 끝나야 참이 되므로 **첫 렌더에서는 늘
+           거짓**인데, 거기서 풀어 버려 **손을 놓는 순간 웹 목록이 한 번
+           비쳤다가 앱 목록으로 바뀌었다**(사용자 제보 — `끌어서 손을 놓으면
+           순간 웹화면으로 바꼈다가 앱화면으로 돌아와`). 끄는 동안에는 그림이
+           덮고 있어 멀쩡했으므로 **끌 때는 되는데 놓으면 바뀐다면 늘 이
+           자리다.** 바가 서면 이 효과가 다시 도니 그때 이어서 세우면 되고,
+           끝내 안 서면 `watchdog`이 풀고 그것도 못 하면 `HOLD_MAX`가 걷는다. */
+        if (!nativeBar) return;
         let dead = false;
         let drop: (() => void) | null = null;
         void (async () => {
