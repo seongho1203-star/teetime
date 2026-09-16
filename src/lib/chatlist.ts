@@ -500,7 +500,7 @@ export async function listSet(o: Record<string, unknown>): Promise<void> {
  * **그 값을 모르는 옛 앱에서는 `null`이다** — 그때는 예전처럼 최근 대화로
  * 내려놓을 뿐이라 깨질 자리가 없다(`canNativeList()`의 문을 안 올린 까닭).
  */
-export async function listDetach(): Promise<ChatSpot | null> {
+export async function listDetach(room?: string): Promise<ChatSpot | null> {
     let spot: ChatSpot | null = null;
     let paint: ListPaint | null = null;
     try {
@@ -516,8 +516,38 @@ export async function listDetach(): Promise<ChatSpot | null> {
             };
         }
     } catch { /* 옛 앱 — 자리를 모르면 맨 아래로 본다 */ }
+    if (room && paint) keepPaint(room, paint);
     tellDetached(spot ? { bottom: false, ...spot } : { bottom: true }, paint);
     return spot;
+}
+
+/**
+ * **마지막으로 받아 둔 앱 목록 그림을 방 하나만큼 들고 있는다**(탭바로
+ * 다시 들어올 때의 덮개다).
+ *
+ * 대화방에 들어가면 화면이 밀려 들어오는 동안 **웹 목록이 보이고**, 앱
+ * 목록은 그 뒤에 감춘 채로 서서 줄과 자리를 다 잡은 뒤에 드러난다 —
+ * 그 순간 Pretendard(웹)에서 폰 기본 글꼴(앱)로 **갈아 끼워지는 것이
+ * 그대로 보였다**(사용자 제보 — `탭바에서 대화를 눌러서 들어가면 웹화면이
+ * 잠깐 보였다 앱으로 바뀌는거처럼 보여`). 39판이 끌어 돌아올 때 쓴 그림을
+ * 여기서도 덮개로 쓰면 **갈아 끼우는 자리 자체가 없어진다** — 값을 하나씩
+ * 맞추는 길로 가지 않는다는 26 → 27판·39판의 그 답이다.
+ *
+ * **한 칸만 둔다.** 방이 사실상 하나이고 base64 JPEG이라 한 장이 수백 KB다.
+ * 처음 들어가는 길에는 그림이 없어 예전처럼 웹 목록이 보인다 — 그때
+ * 나가면서 한 장 받아 두므로 그다음부터 덮인다.
+ */
+let paintRoom = '';
+let paintShot: ListPaint | null = null;
+
+function keepPaint(room: string, p: ListPaint): void {
+    paintRoom = room;
+    paintShot = p;
+}
+
+/** 그 방의 마지막 그림. 없으면 `null`(옛 앱·처음 들어가는 길·못 찍은 때). */
+export function lastPaint(room: string): ListPaint | null {
+    return paintRoom === room ? paintShot : null;
 }
 
 /**

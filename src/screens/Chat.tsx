@@ -28,9 +28,9 @@ import {
 import {
     GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canBackDrag, canNativeList, chatListSkin, closeListMenu,
     dayChip, edgeColor, isNewDay, listAttach, listDetach, listMenu, listOn, listRows,
-    listScrollTo, listSet, onListBack, onListHold, onListMenuPick, onListState, onListTap,
-    sameBlock, spotLog, spotNote,
-    type ChatSpot, type HoldItem, type ListRow,
+    lastPaint, listScrollTo, listSet, onListBack, onListHold, onListMenuPick, onListState,
+    onListTap, sameBlock, spotLog, spotNote,
+    type ChatSpot, type HoldItem, type ListPaint, type ListRow,
 } from '../lib/chatlist';
 
 /**
@@ -235,6 +235,9 @@ function stampSpot(spot: ChatSpot | null, list: Message[]): ChatSpot | null {
 /** 방이 비어 있어 첫 묶음이 영영 안 오면 이만큼 기다렸다 앱 목록을 드러낸다. */
 const EMPTY_WAIT = 1200;
 
+/** 앱 목록이 끝내 안 서면 덮개를 이만큼 뒤에 걷는다(죽은 그림을 안 남긴다). */
+const COVER_MAX = 2500;
+
 const TEMP_ID = 'tmp:';
 const isTemp = (id: string) => id.startsWith(TEMP_ID);
 
@@ -383,6 +386,14 @@ export function Chat() {
      * 아래 `대화 목록을 앱이 그린다` 효과의 주석을 볼 것.
      */
     const [listReady, setListReady] = useState(false);
+    /**
+     * **들어올 때 웹 목록을 덮어 두는 앱 그림**(`lastPaint` — `lib/chatlist.ts`).
+     *
+     * 앱 목록이 드러나기 전까지 그 자리를 **지난번에 앱이 찍어 둔 그림**으로
+     * 덮는다. 그러면 웹 목록(Pretendard)에서 앱 목록(폰 기본 글꼴)으로
+     * 갈아 끼워지는 것이 안 보인다. 드러나는 순간(`listUp`) 걷는다.
+     */
+    const [cover, setCover] = useState<ListPaint | null>(null);
     /** 이번에 세운 목록을 이미 드러냈는가(한 번만 한다). 세울 때마다 오른다. */
     const revealSeq = useRef(0);
     /* **`jumpTo`는 `useCallback`이라 그 안에서 읽는 state는 처음 값에 굳는다**
@@ -3592,6 +3603,35 @@ export function Chat() {
            바를 다시 세우는 일은 없다. */
     }, [settleList]);
 
+    /* ── 들어올 때 웹 목록을 앱 그림으로 덮는다 ────────────────────
+     *
+     * 사용자 제보 — `탭바에서 대화를 눌러서 들어가면 웹화면이 잠깐 보였다
+     * 앱으로 바뀌는거처럼 보여`. 화면이 밀려 들어오는 0.5초 동안은 웹
+     * 목록이 보이고(그래야 빈 판이 안 지나간다) 앱 목록은 그 뒤에 감춘
+     * 채로 서서 줄과 자리를 다 잡은 뒤에 드러나는데, **그 순간 글꼴이
+     * Pretendard에서 폰 기본 글꼴로 갈아 끼워지는 것이 그대로 보인다.**
+     *
+     * 39판이 끌어 돌아올 때 쓴 그 그림을 여기서도 덮개로 쓴다 —
+     * **갈아 끼우는 자리 자체를 없애는 것**이 26 → 27판·39판의 답이다.
+     * 처음 들어가는 길에는 그림이 없어 예전 그대로다.
+     *
+     * **끝내 안 서면 스스로 걷는다**(`COVER_MAX`). 죽은 그림이 화면을
+     * 덮은 채로 남으면 앱이 멈춘 것처럼 보인다(`sweepGhosts`의 그 규칙).
+     */
+    useEffect(() => {
+        if (!roomId || !canNativeList()) { setCover(null); return; }
+        const p = lastPaint(roomId);
+        if (!p) return;
+        setCover(p);
+        const t = window.setTimeout(() => setCover(null), COVER_MAX);
+        return () => window.clearTimeout(t);
+    }, [roomId]);
+
+    /** 앱 목록이 드러난 그 프레임에 걷는다 — 둘이 함께 바뀌어 틈이 없다. */
+    useEffect(() => {
+        if (listUp) setCover(null);
+    }, [listUp]);
+
     /* ── 대화 목록을 앱이 그린다(17판) ─────────────────────────
      *
      * **줄만 만들어 넘긴다.** 누가 보냈는지 · 이름을 붙일지 · 시각을 적을지는
@@ -3609,7 +3649,7 @@ export function Chat() {
         /* **앱 목록을 안 세우는 판이면 붙들어 둔 앞 그림을 여기서 푼다**
            (`lib/tabs.ts`의 `holdGhost`). 웹 목록이 곧 화면이라 덮어 둘
            까닭이 없고, 안 풀면 옛 그림을 `HOLD_MAX`까지 들고 있다가 툭 바뀐다. */
-        if (!canNativeList()) { releaseGhost(); return; }
+        if (!canNativeList()) { releaseGhost(); setCover(null); return; }
         /* **바가 아직 안 선 것은 `안 세운다`가 아니다 — 여기서 풀지 말 것.**
            `nativeBar`는 `attach`가 끝나야 참이 되므로 **첫 렌더에서는 늘
            거짓**인데, 거기서 풀어 버려 **손을 놓는 순간 웹 목록이 한 번
@@ -3646,7 +3686,9 @@ export function Chat() {
                    25판처럼 곧바로 넘어간다. */
                 drag: canBackDrag() && hasBackShot(),
             });
-            if (dead || !ok) { releaseGhost(); return; }
+            /* 못 세우면 웹 목록이 곧 화면이라 덮개도 걷는다 — 안 걷으면
+               지난번 그림이 화면을 덮은 채로 남는다. */
+            if (dead || !ok) { releaseGhost(); setCover(null); return; }
             const h = await onListState(e => {
                 /* 굴린 자리는 이제 앱이 안다 — 우리 `atBottom`도 그 값을 따른다
                    (새 글이 왔을 때 따라 내릴지를 가르는 값이다). */
@@ -3713,7 +3755,9 @@ export function Chat() {
                답이 늦게 와도 `SPOTS`는 모듈에 있어 그대로 남는다. */
             const room = roomRef.current;
             const list = msgsRef.current;
-            void listDetach().then(spot => {
+            /* **방 번호를 함께 준다** — 앱이 찍어 준 그림을 그 방 몫으로
+               들고 있다가 다시 들어올 때 덮개로 쓴다(`lastPaint`). */
+            void listDetach(room ?? undefined).then(spot => {
                 const 적을것 = stampSpot(spot, list);
                 if (room) keepSpot(room, 적을것);
                 /* 진단(`spotLog`) — 앱 목록이 그린 방에서는 `saveSpot`이
@@ -4231,6 +4275,17 @@ export function Chat() {
                     );
                 })}
             </div>
+
+            {/* **앱 목록이 드러나기 전까지 그 자리를 앱 그림으로 덮는다.**
+                웹 목록(Pretendard)에서 앱 목록(폰 기본 글꼴)으로 갈아
+                끼워지는 것이 보이지 않게 하는 덮개다 — 위 `cover` 참고.
+                아래를 바닥까지 늘여 두는 것은 그림 밑에 웹 목록 끝자락이
+                비치지 않게 하려는 것이고, 그 아래는 곧 네이티브 바가 덮는다. */}
+            {cover && !listUp && (
+                <div className="chat-paint" style={{ top: cover.top }} aria-hidden="true">
+                    <img src={cover.url} alt="" style={{ height: cover.h }} />
+                </div>
+            )}
 
             {/* **옛 글을 보는 중이라는 표이자, 돌아오는 길이다.** 검색으로
                 옮겨 가면 목록이 그 언저리만 담고 있어 아래로 끝까지 굴려도

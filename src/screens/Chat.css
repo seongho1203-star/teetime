@@ -2226,3 +2226,31 @@ html.nc .sticker-tray { margin-bottom: 0; }
     visibility: hidden;
     pointer-events: none;
 }
+
+/* **들어올 때 웹 목록을 덮는 앱 그림**(`Chat.tsx`의 `cover`).
+   대화방에 들어가면 화면이 밀려 들어오는 동안 웹 목록이 보이고, 앱 목록은
+   그 뒤에 감춘 채로 서서 줄과 자리를 다 잡은 뒤에 드러난다 — 그 순간
+   글꼴이 Pretendard에서 폰 기본 글꼴로 **갈아 끼워지는 것이 그대로
+   보였다**(사용자 제보). 39판이 끌어 돌아올 때 쓰는 그 그림으로 덮으면
+   갈아 끼우는 자리 자체가 없어진다.
+
+   **바닥까지 늘이고 바탕을 목록 색으로 깐다** — 그림은 지난번 목록 자리
+   (바 윗변까지)라 웹 목록보다 조금 짧을 수 있는데, 그 틈으로 흰 웹
+   입력칸이나 말풍선 끝자락이 비치면 덮는 뜻이 없어진다. 그 아래는 곧
+   네이티브 바가 덮는다.
+   **누름을 안 받는다**(`pointer-events: none`) — 덮개일 뿐이라 그 아래
+   웹 목록이 그대로 눌리고 굴려진다. 층은 `.chat-recent`(5)보다 아래다. */
+.chat-paint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    overflow: hidden;
+    background: var(--chat-bg);
+    pointer-events: none;
+}
+.chat-paint img {
+    display: block;
+    width: 100%;
+}
