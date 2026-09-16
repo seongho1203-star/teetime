@@ -288,10 +288,17 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 그 칸을 안 보낼
     ///        뿐이고 웹이 예전처럼 DOM 사본을 깐다.
     ///
+    ///   - **40판** 그 그림을 **끌기 시작할 때 미리 찍어 둔다**(`backShot`).
+    ///        39판은 **한 장도 못 찍고 있었다** — 손가락을 따라 뒤로 가는 판은
+    ///        `BackDrag.begin()`이 목록을 감춘 뒤에야 `listDetach`가 돌고,
+    ///        `paint()`는 `guard !isHidden`에서 그냥 돌아선다. 웹 진단 줄이
+    ///        그것을 그대로 보여 줬다(`덮개 찍음0 놓침5`). 끌기가 이 대화방을
+    ///        나가는 가장 흔한 길이라 사실상 늘 빈손이었던 셈이다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 39
+    private static let version = 40
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -304,6 +311,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     private var live = false
     /// 붙들어 두기가 몇 번째인가. 겹쳐 불려도 **늦게 부른 쪽**이 이긴다.
     private var holdSeq = 0
+
+    /**
+     * 끌기 시작할 때 미리 찍어 둔 목록 그림(40판 · 39판의 `shot` 몫).
+     *
+     * **손가락을 따라 뒤로 가는 판은 `listDetach`가 돌 때 목록이 이미
+     * 감춰져 있다** — `BackDrag.begin()`이 감추고, 넘어가는 판의 `drop()`은
+     * 일부러 안 되돌린다(옛 말풍선이 새 화면 위에 되살아나지 않게).
+     * 그래서 거기서 `paint()`를 부르면 `guard !isHidden`에 걸려 **늘 빈손**
+     * 이었다(진단 줄 `덮개 찍음0 놓침5`). 감추기 **전에** 한 장 찍어 두고
+     * 나갈 때 그것을 준다.
+     */
+    private var backShot: (b64: String, h: CGFloat, top: CGFloat)?
 
     // ── 웹이 부르는 것들 ──────────────────────────────────
 
@@ -571,6 +590,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
                들어올 때 목록이 통째로 안 보인다**(바는 `composerSkin`이
                늘 `hidden: false`를 함께 보내 저절로 풀린다). */
             list.isHidden = false
+            /* 새로 세우는 자리라 찍어 둔 그림은 이미 낡았다(40판) — 남겨 두면
+               다음에 나갈 때 엉뚱한 방의 그림을 넘긴다. */
+            self.backShot = nil
 
             if list.superview !== root {
                 list.removeFromSuperview()
@@ -741,11 +763,20 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
                끌어 돌아올 때 웹이 깔 앞 화면 그림에서 말풍선 자리를 이것으로
                덮으면 **웹 사본과 앱 목록이 갈아 끼워지는 자리 자체가 없어진다.**
                걷기 **전에** 찍어야 한다 — 걷고 나면 창에서 빠져 빈 그림이 된다.
-               못 찍으면 그 칸을 아예 안 보내고, 웹은 예전처럼 DOM 사본을 깐다. */
+               못 찍으면 그 칸을 아예 안 보내고, 웹은 예전처럼 DOM 사본을 깐다.
+
+               **끌어서 나가는 판은 여기서 못 찍는다**(40판) — 목록이 이미
+               감춰져 있어(`BackDrag.begin`) `paint()`가 그냥 돌아선다.
+               그때는 **끌기 시작할 때 찍어 둔 것**(`backShot`)을 준다. */
+            var shot = self.backShot
+            self.backShot = nil
             if let list = self.list, let root = list.superview, let p = list.paint() {
-                spot["shot"] = p.b64
-                spot["shotTop"] = Double(list.convert(list.bounds, to: root).minY)
-                spot["shotH"] = Double(p.h)
+                shot = (b64: p.b64, h: p.h, top: list.convert(list.bounds, to: root).minY)
+            }
+            if let s = shot {
+                spot["shot"] = s.b64
+                spot["shotTop"] = Double(s.top)
+                spot["shotH"] = Double(s.h)
             }
             self.list?.removeFromSuperview()
             self.listTopC = nil
@@ -846,7 +877,18 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
            (창이 떠 있으면 그 위에서 손짓이 시작되지 않는다). */
         var cover: [UIView] = [list]
         if let bar = bar, bar.superview === root { cover.append(bar) }
+        /* **감추기 전에 목록을 한 장 찍어 둔다**(40판 · `backShot`).
+           나갈 때(`listDetach`) 목록은 이미 감춰져 있어 그 자리에서는
+           못 찍는다 — 끌기가 이 화면을 나가는 가장 흔한 길이라, 39판은
+           그 바람에 그림을 한 장도 못 넘기고 있었다. */
+        let shot = list.paint()
+        let top = list.convert(list.bounds, to: root).minY
         guard backDrag.begin(root: root, web: web, cover: cover) else { return false }
+        if let s = shot {
+            backShot = (b64: s.b64, h: s.h, top: top)
+        } else {
+            backShot = nil
+        }
         notifyListeners("listBack", data: ["phase": "start"])
         return true
     }
@@ -855,6 +897,9 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool) {
         let go = !cancelled && backDrag.wants(dx: dx, vx: vx)
+        /* 안 넘어가면 목록이 도로 보이므로(`end()`) 나갈 때 그 자리에서
+           새로 찍으면 된다 — 찍어 둔 것은 그때 이미 낡은 그림이다. */
+        if !go { backShot = nil }
         backDrag.finish(go: go) { [weak self] in
             guard let self = self else { return }
             self.notifyListeners("listBack", data: ["phase": go ? "commit" : "cancel"])
