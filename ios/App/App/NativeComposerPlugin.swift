@@ -269,10 +269,19 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        드러나면 사라졌다(사용자 제보). **`canNativeList()`의 문은
     ///        안 올렸다** — 옛 판은 그림 없는 카드를 그릴 뿐 깨질 자리가 없다.
     ///
+    ///   - **38판** 얼굴이 **줄 맨 위, 이름과 나란히** 선다(웹의 `.chat-row`가
+    ///        `align-items: flex-start`인 그대로). 37판까지는 말풍선 옆에
+    ///        두어 이름 줄만큼 내려앉았고, 이름 줄 높이도 웹(13.5 × 1.5 + 2)보다
+    ///        3.75px 짧았다 — 뒤로 끌어 돌아올 때 웹 그림에서 앱 목록으로
+    ///        바뀌는 순간 얼굴이 내려가고 말풍선이 밀려 **두 화면이 오가는
+    ///        것처럼** 보였다(사용자 제보). `ChatList.swift`의 `nameLine`.
+    ///        **`canNativeList()`의 문은 안 올렸다** — 옛 판은 자리만 조금
+    ///        다를 뿐 깨질 자리가 없다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 37
+    private static let version = 38
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.

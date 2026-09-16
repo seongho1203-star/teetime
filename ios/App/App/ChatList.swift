@@ -215,6 +215,13 @@ struct ChatSkin {
     var padH: CGFloat = 11        // 말풍선 가로 안여백(테두리 1 포함)
     var padV: CGFloat = 8.5       // 세로 안여백(테두리 1 포함) — 한 줄 35px
     var nameSize: CGFloat = 13.5
+    /// 이름 줄이 차지하는 높이(38판). **웹과 같은 셈이다** — `.chat-who`는
+    /// 뿌리 `line-height: 1.5`를 물려받아 `13.5 × 1.5`이고, 그 아래
+    /// `.chat-col`의 `gap: 2px`이 말풍선과의 사이다. 예전에는 `+5`(18.5)로
+    /// 두어 웹(22.25)보다 이름 있는 줄마다 3.75px씩 짧았고, 뒤로 끌어
+    /// 돌아올 때 웹 그림과 앱 목록이 바뀌는 순간 말풍선이 그만큼 튀었다.
+    /// 글꼴과 무관한 값이라(줄 높이 배율) 여기서 맞춰도 폰에서 어긋나지 않는다.
+    var nameLine: CGFloat { nameSize * 1.5 + 2 }
     var stampSize: CGFloat = 10
     /// 말풍선 최대 폭의 비율. 345px에서 236px을 잰 값이다(236/345).
     var maxRatio: CGFloat = 0.684
@@ -1048,7 +1055,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
             h += cardBox(CardParts.parse(row.body, icon: row.icon),
                          go: row.go ?? "", skin: skin, width: cardWidth()).height + 2
         case .photo, .sticker:
-            if row.name != nil { h += skin.nameSize + 5 }
+            if row.name != nil { h += skin.nameLine }
             h += quoteHeight(row, above: true)
             h += row.kind == .sticker ? skin.sticker : photoBox(row.image).height
             if let c = row.cap, !c.isEmpty {
@@ -1056,7 +1063,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
                     + skin.padV * 2 + 2
             }
         case .text, .other:
-            if row.name != nil { h += skin.nameSize + 5 }
+            if row.name != nil { h += skin.nameLine }
             h += quoteHeight(row, above: false)
             /* **가린 글은 말풍선을 벗긴다**(웹의 `.chat-hidden`과 같은 모양).
                세로 안여백은 그대로라 **높이는 한 줄 말풍선과 같다** — 줄이
@@ -2076,10 +2083,20 @@ final class BubbleCell: UITableViewCell {
             return
         }
 
+        /* **얼굴은 줄의 맨 위, 이름 줄과 나란히 선다**(38판). 웹의 `.chat-row`가
+           `align-items: flex-start`라 얼굴(`.chat-avatar`)은 이름(`.chat-who`)과
+           같은 높이에서 시작하고 말풍선은 그 아래다. 37판까지는 얼굴을
+           말풍선 옆에 두어 이름 줄만큼 내려앉았고, 뒤로 끌어 돌아올 때 웹
+           그림(얼굴이 이름 옆)에서 앱 목록(얼굴이 말풍선 옆)으로 바뀌는
+           순간 얼굴이 툭 내려가 **두 화면이 오가는 것처럼** 보였다
+           (사용자 제보 — `채팅 프로필도 닉네임에있었는데 말풍선옆에있어`). */
+        let rowTop = y
         if !nameLabel.isHidden {
             let x = skin.pad + skin.avatar + skin.avatarGap
-            nameLabel.frame = CGRect(x: x, y: y, width: w - x - skin.pad, height: skin.nameSize + 4)
-            y = nameLabel.frame.maxY + 1
+            /* 웹 `.chat-who`의 줄 높이(13.5 × 1.5)와 `.chat-col`의 `gap: 2px`. */
+            nameLabel.frame = CGRect(x: x, y: y, width: w - x - skin.pad,
+                                     height: skin.nameSize * 1.5)
+            y = nameLabel.frame.maxY + 2
         }
 
         /* 그림이 있는 줄(사진·이모티콘)은 **말풍선을 안 두른다** — 그림이 곧
@@ -2123,9 +2140,9 @@ final class BubbleCell: UITableViewCell {
             y += quoteUp + 2
         }
         if !r.mine, !avatarView.isHidden {
-            /* 얼굴은 **말풍선(또는 그림)과 나란히** 선다 — 위에 인용 쪽지가
-               붙는 줄에서는 그만큼 내려온다. */
-            avatarView.frame = CGRect(x: skin.pad, y: y,
+            /* 줄 맨 위(`rowTop`) — 이름 줄·인용 쪽지가 있어도 안 내려온다.
+               웹의 `.chat-avatar`가 그렇다(위 주석). */
+            avatarView.frame = CGRect(x: skin.pad, y: rowTop,
                                       width: skin.avatar, height: skin.avatar)
         }
         if hasImage {

@@ -1382,6 +1382,31 @@ await go('/#/chat', 1200);
        `줄 위 자리 10px — 앱 목록의 \`top\`과 같은 값 (실제 ${gap.보통})`);
     ok(gap.잇따라 === '2px',
        `같은 사람이 잇따라 보낸 줄은 2px (실제 ${gap.잇따라})`);
+
+    /* **얼굴 자리와 이름 줄 높이도 앱 목록(38판)이 그대로 베낀 값이다.**
+       웹의 `.chat-row`는 `align-items: flex-start`라 얼굴이 **이름과 같은
+       높이(줄 맨 위)**에 서고, 이름 줄은 `13.5 × 1.5`(뿌리 line-height)에
+       `.chat-col`의 `gap 2px`을 더한 만큼 말풍선을 밀어 내린다. 앱이
+       얼굴을 말풍선 옆에 두고 이름 줄을 3.75px 짧게 잡아, 뒤로 끌어
+       돌아올 때 웹 그림 → 앱 목록으로 바뀌는 순간 **얼굴이 내려가고
+       말풍선이 밀려 두 화면이 오가는 것처럼** 보였다(사용자 제보 —
+       `채팅 프로필도 닉네임에있었는데 말풍선옆에있어`). 줄 높이는 글꼴과
+       무관한 배율이라 헤드리스에서 잰 값이 폰에서도 같다. */
+    const face = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('.chat-row:not(.mine):not(.grouped)')]
+            .find(r => r.querySelector('.chat-who') && r.querySelector(':scope > .chat-col > .chat-line > .chat-bubble'));
+        if (!row) return null;
+        const top = row.getBoundingClientRect().top;
+        return {
+            얼굴: +(row.querySelector('.avatar').getBoundingClientRect().top - top).toFixed(2),
+            이름: +(row.querySelector('.chat-who').getBoundingClientRect().top - top).toFixed(2),
+            말풍선: +(row.querySelector('.chat-line > .chat-bubble').getBoundingClientRect().top - top).toFixed(2),
+        };
+    });
+    ok(face && Math.abs(face.얼굴) <= 1 && Math.abs(face.이름) <= 1,
+       `얼굴은 줄 맨 위, 이름과 나란히 선다 — 앱 목록의 \`rowTop\` (실제 ${JSON.stringify(face)})`);
+    ok(face && Math.abs(face.말풍선 - (13.5 * 1.5 + 2)) <= 1,
+       `이름 줄이 말풍선을 22.25px 밀어 내린다 — 앱 목록의 \`nameLine\` (실제 ${face?.말풍선})`);
 }
 
 /* ── 6-1-1-3-1-11-2. 말풍선 꼬리 ──────────────────────────────
