@@ -9,6 +9,8 @@ tests.build_configurations.each do |c|
   c.base_configuration_reference = app.build_configurations.find { |a| a.name == c.name }.base_configuration_reference
   c.build_settings.merge!({
     'PRODUCT_BUNDLE_IDENTIFIER' => 'com.kkakkung.app.NativeChatTests',
+    'PRODUCT_NAME' => 'NativeChatTests',
+    'PRODUCT_MODULE_NAME' => 'NativeChatTests',
     'GENERATE_INFOPLIST_FILE' => 'YES',
     'SWIFT_VERSION' => '5.0',
     'TEST_HOST' => '$(BUILT_PRODUCTS_DIR)/App.app/App',
