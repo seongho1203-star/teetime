@@ -2271,7 +2271,7 @@ export function Chat() {
         if (!roomId || !el) return;
         /* 앱 목록이 서 있으면 굴린 자리는 앱이 안다 — 나갈 때 물어본다
            (`listDetach`). 여기서 감춰 둔 웹 목록을 재 봐야 헛값이다. */
-        if (listUpRef.current) return;
+        if (listReadyRef.current || listUpRef.current) return;
         /* **맨 아래를 보고 있었으면 지운다** — 되돌려 놓을 자리가 '맨 아래'인데,
            글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다. */
         const 적을것 = stampSpot(atBottom.current ? null : webSpot(el), msgsRef.current);
@@ -2318,6 +2318,8 @@ export function Chat() {
     }, []);
 
     const onScroll = () => {
+        // 숨겨진 웹 목록의 스크롤 이벤트가 UIKit의 위치 상태를 덮어쓰지 않는다.
+        if (listReadyRef.current || listUpRef.current) return;
         const el = listRef.current;
         if (!el) return;
         spotSoon();
@@ -3674,7 +3676,7 @@ export function Chat() {
            덮고 있어 멀쩡했으므로 **끌 때는 되는데 놓으면 바뀐다면 늘 이
            자리다.** 바가 서면 이 효과가 다시 도니 그때 이어서 세우면 되고,
            끝내 안 서면 `watchdog`이 풀고 그것도 못 하면 `HOLD_MAX`가 걷는다. */
-        if (!nativeBar) return;
+        if (!nativeBar || !roomId) return;
         let dead = false;
         let drop: (() => void) | null = null;
         void (async () => {
@@ -3689,7 +3691,8 @@ export function Chat() {
             const left = slideLeft();
             if (left > 0) await new Promise(r => setTimeout(r, left + 40));
             if (dead) return;
-            const ok = await listAttach({
+            const attached = await listAttach({
+                session: `${me}:${roomId}`,
                 top: Math.round(listRef.current?.getBoundingClientRect().top ?? 0),
                 skin: chatListSkin(listRef.current),
                 /* **감춘 채로 세운다.** 줄을 넘기고 읽던 자리까지 잡은 뒤에
@@ -3704,7 +3707,13 @@ export function Chat() {
             });
             /* 못 세우면 웹 목록이 곧 화면이라 덮개도 걷는다 — 안 걷으면
                지난번 그림이 화면을 덮은 채로 남는다. */
-            if (dead || !ok) { releaseGhost(); setCover(null); return; }
+            if (dead || !attached.ok) { releaseGhost(); setCover(null); return; }
+            // 42판은 UIKit에 보관한 위치로 복귀한다. 웹의 복원/안읽음 이동을 중복 실행하지 않는다.
+            if (attached.resumed) {
+                spotDone.current = 'app';
+                unreadDone.current = true;
+                spotLog.놓음 = '앱 보관 위치';
+            }
             const h = await onListState(e => {
                 /* 굴린 자리는 이제 앱이 안다 — 우리 `atBottom`도 그 값을 따른다
                    (새 글이 왔을 때 따라 내릴지를 가르는 값이다). */
@@ -3783,7 +3792,7 @@ export function Chat() {
                 spotNote(적을것 ? `${적을것.id.slice(-4)}/${적을것.off}앱` : '맨아래앱');
             });
         };
-    }, [nativeBar]);
+    }, [nativeBar, roomId, me]);
 
     /**
      * 앱에 넘길 줄 목록. **묶는 규칙은 웹 목록이 쓰는 것과 같은 함수다**

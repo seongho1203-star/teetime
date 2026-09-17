@@ -569,7 +569,53 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
             guard ip.row < rows.count else { return nil }
             return (rows[ip.row].id, y - table.rectForRow(at: ip).minY)
         }
-        return Viewport(bottom: atBottom(), offset: y, anchors: anchors)
+        return Viewport(bottom: below() <= 1, offset: y, anchors: anchors)
+    }
+
+    // 42판: 탭을 떠나기 전의 위치는 UIKit이 보관한다. 웹 픽셀값으로 재해석하지 않는다.
+    private var sessionKey: String?
+    private var pausedViewport: Viewport?
+    private var pendingViewport: Viewport?
+    private var pausedPosition: [String: Any]?
+
+    func pauseSession() {
+        guard pausedViewport == nil, superview != nil,
+              !rows.isEmpty || pendingViewport != nil else { return }
+        dropSpot()
+        let saved = pendingViewport ?? viewport()
+        pausedViewport = saved
+        var position: [String: Any] = ["atBottom": saved.bottom]
+        if let spot = saved.anchors.first {
+            position["topId"] = spot.id
+            position["off"] = Double(spot.offset + table.adjustedContentInset.top)
+        }
+        pausedPosition = position
+    }
+
+    func departurePosition() -> [String: Any] {
+        pauseSession()
+        return pausedPosition ?? ["atBottom": true]
+    }
+
+    func beginSession(_ key: String?) -> Bool {
+        let resume = key != nil && key == sessionKey && pausedViewport != nil
+        pendingViewport = resume ? pausedViewport : nil
+        pausedViewport = nil
+        pausedPosition = nil
+        if key != sessionKey {
+            dropSpot()
+            rows = []
+            heights.removeAll()
+            table.reloadData()
+        }
+        sessionKey = key
+        return resume
+    }
+
+    func restoreSession() {
+        guard let saved = pendingViewport else { return }
+        table.layoutIfNeeded()
+        restore(saved)
     }
 
     private func placeOffset(_ y: CGFloat) {
@@ -795,6 +841,12 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
             heights.removeAll()
             table.reloadData()
         }
+        // 최신 메시지/읽음선으로 높이가 바뀐 뒤에도 같은 메시지를 같은 위치에 둔다.
+        if pendingViewport != nil && !next.isEmpty {
+            restoreSession()
+            pendingViewport = nil
+            report()
+        }
     }
 
     /**
@@ -892,7 +944,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      */
     private func putAt(_ ip: IndexPath, off: CGFloat) {
         table.layoutIfNeeded()
-        placeOffset(table.rectForRow(at: ip).minY + off)
+        placeOffset(table.rectForRow(at: ip).minY + off - table.adjustedContentInset.top)
     }
 
     func atBottom() -> Bool {
@@ -918,7 +970,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         guard let ip = (table.indexPathsForVisibleRows ?? []).sorted()
             .first(where: { table.rectForRow(at: $0).maxY > y + 1 }),
             ip.row < rows.count else { return nil }
-        return (rows[ip.row].id, max(0, y - table.rectForRow(at: ip).minY))
+        return (rows[ip.row].id, y - table.rectForRow(at: ip).minY)
     }
 
     /**

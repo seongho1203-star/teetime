@@ -298,7 +298,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 41
+    private static let version = 42
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -393,6 +393,8 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     @objc func detach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            // 입력창 제약과 키보드를 걷기 전에 읽던 위치를 고정한다.
+            self.list?.pauseSession()
             self.bar?.nativeViewport = false
             self.live = false
             self.release()
@@ -585,6 +587,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             let list = self.list ?? ChatList(frame: root.bounds)
             list.listDelegate = self
             self.list = list
+            let resumed = list.beginSession(call.getString("session"))
             /* **다시 설 때는 늘 보인다**(35판). 감추는 것은 덮는 창이 떠
                있는 동안만인데(`listSet({hidden})`), 손가락을 따라 뒤로 간
                판에서는 감춰 둔 채로 걷히므로 여기서 안 되돌리면 **다음에
@@ -614,12 +617,13 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
             }
             self.applyList(call, on: list)
             root.layoutIfNeeded()
+            list.restoreSession()
             /* **들어올 때 미끄러져 들어온다**(25판). 웹이 *남은* 시간을
                알려 주므로(`slideLeft()`) 머리말과 **같이 끝난다** — 앱
                목록은 웹 화면이 그려진 뒤에 서서 늘 한두 프레임 늦는다.
                값이 0이면(들어오는 참이 아니면) 아무 일도 안 한다. */
             if let ms = call.getDouble("slide") { list.slideIn(ms: ms) }
-            call.resolve(["ok": true])
+            call.resolve(["ok": true, "resumed": resumed])
         }
     }
 
@@ -756,11 +760,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
                참이라, 여기서 도로 내보이면 옛 말풍선이 새 화면 위에 한두
                프레임 되살아난다. */
             self.backDrag.drop()
-            var spot: [String: Any] = ["atBottom": self.list?.atBottom() ?? true]
-            if let s = self.list?.topSpot() {
-                spot["topId"] = s.id
-                spot["off"] = Double(s.off)
-            }
+            var spot = self.list?.departurePosition() ?? ["atBottom": true]
             /* **앱 목록을 그대로 한 장 찍어 함께 준다**(39판 · `ChatList.paint`).
                끌어 돌아올 때 웹이 깔 앞 화면 그림에서 말풍선 자리를 이것으로
                덮으면 **웹 사본과 앱 목록이 갈아 끼워지는 자리 자체가 없어진다.**

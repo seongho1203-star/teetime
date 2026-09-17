@@ -406,7 +406,7 @@ export function edgeColor(gender: string | null | undefined): string | undefined
 /* ── 다리 ────────────────────────────────────────────────── */
 
 type Bridge = {
-    listAttach(o: Record<string, unknown>): Promise<{ ok?: boolean }>;
+    listAttach(o: Record<string, unknown>): Promise<{ ok?: boolean; resumed?: boolean }>;
     listRows(o: { rows: ListRow[]; stickBottom: boolean }): Promise<{ ok?: boolean; n?: number }>;
     listSet(o: Record<string, unknown>): Promise<void>;
     listScrollTo(o: {
@@ -491,7 +491,7 @@ async function restoreResize(): Promise<void> {
 }
 
 /** 목록을 세운다. **바가 먼저 서 있어야 한다** — 안 서 있으면 앱이 거절한다. */
-export async function listAttach(o: Record<string, unknown>): Promise<boolean> {
+export async function listAttach(o: Record<string, unknown>): Promise<{ ok: boolean; resumed: boolean }> {
     return ordered(async () => {
         try {
             if (ncLog.v >= 41) {
@@ -500,10 +500,10 @@ export async function listAttach(o: Record<string, unknown>): Promise<boolean> {
                 await Keyboard.setResizeMode({ mode: KeyboardResize.None });
             }
             const r = await bridge.listAttach(o);
-            if (r?.ok === true) return true;
+            if (r?.ok === true) return { ok: true, resumed: r.resumed === true };
         } catch { /* 준비하지 못하면 웹 목록을 유지한다. */ }
         await restoreResize().catch(() => {});
-        return false;
+        return { ok: false, resumed: false };
     });
 }
 
@@ -539,7 +539,7 @@ export async function listDetach(room?: string): Promise<ChatSpot | null> {
             finally { await restoreResize(); }
         });
         if (r && r.atBottom === false && r.topId) {
-            spot = { id: r.topId, off: Math.max(0, Math.round(r.off ?? 0)) };
+            spot = { id: r.topId, off: r.off ?? 0 };
         }
         if (r && typeof r.shot === 'string' && r.shot && (r.shotH ?? 0) > 0) {
             paint = {
