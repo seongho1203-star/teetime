@@ -177,12 +177,13 @@ final class NativeChatRealtime {
     private var retry: Task<Void, Never>?
     private var active = false
     private var ref = 0
+    private var heartbeatPending = false
     var changed: ((ChatJSON) -> Void)?
     var connected: (() -> Void)?
     var status: ((Bool) -> Void)?
     init(service: NativeChatService, room: String) { self.service = service; self.room = room }
     func start() {
-        stop(); active = true
+        stop(); active = true; heartbeatPending = false
         var url = URLComponents(url: service.config.url, resolvingAgainstBaseURL: false)!
         url.scheme = "wss"; url.path = "/realtime/v1/websocket"
         url.queryItems = [URLQueryItem(name: "apikey", value: service.config.key), URLQueryItem(name: "vsn", value: "1.0.0")]
@@ -206,12 +207,15 @@ final class NativeChatRealtime {
                     guard let d = try JSONSerialization.jsonObject(with: data) as? ChatJSON else { continue }
                     let event = d["event"] as? String
                     let payload = d["payload"] as? ChatJSON ?? [:]
+                    if event == "phx_reply", d["topic"] as? String == "phoenix" { self.heartbeatPending = false }
                     if event == "phx_reply", d["topic"] as? String != "phoenix" {
                         if payload["status"] as? String == "ok" { self.status?(true); self.connected?() }
                         else { throw NativeChatError(message: "실시간 연결을 확인하고 있습니다.") }
                     }
                     if event == "postgres_changes", let change = payload["data"] as? ChatJSON { self.changed?(change) }
-                    if event == "phx_error" || event == "phx_close" { throw URLError(.networkConnectionLost) }
+                    if event == "phx_error" || event == "phx_close" || (event == "system" && payload["status"] as? String == "error") {
+                        throw URLError(.networkConnectionLost)
+                    }
                 }
             } catch { if !Task.isCancelled { self.reconnect() } }
         }
@@ -219,7 +223,10 @@ final class NativeChatRealtime {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(nanoseconds: 20_000_000_000)
-                    try await self?.send("heartbeat", payload: [:], topic: "phoenix")
+                    guard let self = self else { return }
+                    if self.heartbeatPending { self.reconnect(); return }
+                    self.heartbeatPending = true
+                    try await self.send("heartbeat", payload: [:], topic: "phoenix")
                 } catch { if !Task.isCancelled { self?.reconnect() }; return }
             }
         }

@@ -19,6 +19,8 @@ on:
       - 'ios/**'
       - 'capacitor.config.ts'
       - '.github/workflows/ios.yml'
+      - '.dev/NativeChatTests.swift'
+      - '.dev/native-chat-tests.rb'
 
 permissions:
   contents: read
