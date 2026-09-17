@@ -16,7 +16,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func open(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            guard let config = NativeChatConfig(call.options), let screen = call.getString("screen"),
+            guard let config = NativeChatConfig(call.options as? ChatJSON ?? [:]), let screen = call.getString("screen"),
                   let root = self.bridge?.viewController else { call.reject("채팅을 열 수 없습니다."); return }
             if self.chat?.service.config.user != config.user { self.remove(clear: true) }
             let chat = self.chat ?? NativeChatViewController(service: NativeChatService(config))
@@ -62,7 +62,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func reset(_ call: CAPPluginCall) {
         DispatchQueue.main.async { self.remove(clear: true); call.resolve() }
     }
-    private func remove(clear: Bool) {
+    @MainActor private func remove(clear: Bool) {
         chat?.pause()
         chat?.dismiss(animated: false)
         chat?.willMove(toParent: nil); chat?.view.removeFromSuperview(); chat?.removeFromParent()

@@ -129,6 +129,11 @@ final class NativeChatTests: XCTestCase {
         composer.textView.becomeFirstResponder(); composer.text = "Native send"
         await settle(0.5)
         XCTAssertTrue(composer.textView.isFirstResponder)
+        let list = try XCTUnwrap(find(chat.view, ChatList.self))
+        let listFrame = list.convert(list.bounds, to: window)
+        let inputFrame = composer.convert(composer.bounds, to: window)
+        XCTAssertEqual(listFrame.maxY, inputFrame.minY, accuracy: 1)
+        XCTAssertGreaterThan(listFrame.height, 100)
         chat.composerSend(text: composer.text)
         await settle(0.5)
         XCTAssertTrue(composer.textView.isFirstResponder)
@@ -138,6 +143,9 @@ final class NativeChatTests: XCTestCase {
         XCTAssertEqual(sent.value(forHTTPHeaderField: "Authorization"), "Bearer test-member-token")
         XCTAssertEqual(sent.value(forHTTPHeaderField: "apikey"), "test-anon")
         XCTAssertNotNil(UUID(uuidString: ChatFixtureProtocol.rows.last?["id"] as? String ?? ""))
+        composer.textView.resignFirstResponder(); await settle(0.5)
+        XCTAssertTrue(list.atBottom())
+        XCTAssertEqual(list.convert(list.bounds, to: window).maxY, composer.convert(composer.bounds, to: window).minY, accuracy: 1)
     }
 
     func testRejectedSendPreservesDraftAndDoesNotAddMessage() async throws {
