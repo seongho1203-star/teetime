@@ -12,7 +12,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private let composer = ComposerBar()
     private let header = UIStackView()
     private let titleButton = UIButton(type: .system)
-    private let tabs = UIStackView()
     private let context = UIStackView()
     private let mentions = UIStackView()
     private let status = UIButton(type: .system)
@@ -44,6 +43,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private var mentionRange: NSRange?
     private var observers: [NSObjectProtocol] = []
     private var navigating = false
+    private var revision = 0
+    private var changedAt: [String: Int] = [:]
 
     init(service: NativeChatService) { self.service = service; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError() }
@@ -76,26 +77,13 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         header.addArrangedSubview(button("line.3.horizontal", "대화 메뉴", "native-chat-menu") { [weak self] in self?.showMenu() })
         context.axis = .vertical; context.spacing = 4; context.isHidden = true
         mentions.axis = .vertical; mentions.isHidden = true
-        tabs.axis = .horizontal; tabs.distribution = .fillEqually
-        for (label, icon, path) in [("홈", "house", "/"), ("라운드", "flag", "/rounds"),
-                                   ("투표", "chart.bar", "/polls"), ("공지", "list.bullet", "/board"), ("대화", "bubble.left", "/chat")] {
-            var cfg = UIButton.Configuration.plain(); cfg.title = label; cfg.image = UIImage(systemName: icon)
-            cfg.imagePlacement = .top; cfg.imagePadding = 3
-            cfg.baseForegroundColor = path == "/chat" ? composer.cBrand : .secondaryLabel
-            let b = UIButton(configuration: cfg); b.titleLabel?.font = .systemFont(ofSize: 11)
-            b.accessibilityIdentifier = "native-tab-\(label)"
-            b.addAction(UIAction { [weak self] _ in if path != "/chat" { self?.navigate(path) } }, for: .touchUpInside)
-            tabs.addArrangedSubview(b)
-        }
         let input = UIStackView(arrangedSubviews: [mentions, context, composer]); input.axis = .vertical
-        for child in [header, list, tabs, input, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
+        for child in [header, list, input, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
         let safe = view.safeAreaLayoutGuide
-        composerBottom = input.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -56)
+        composerBottom = input.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: safe.topAnchor), header.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 8),
             header.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -8), header.heightAnchor.constraint(equalToConstant: 52),
-            tabs.leadingAnchor.constraint(equalTo: safe.leadingAnchor), tabs.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
-            tabs.bottomAnchor.constraint(equalTo: safe.bottomAnchor), tabs.heightAnchor.constraint(equalToConstant: 56),
             input.leadingAnchor.constraint(equalTo: safe.leadingAnchor), input.trailingAnchor.constraint(equalTo: safe.trailingAnchor), composerBottom,
             list.topAnchor.constraint(equalTo: header.bottomAnchor), list.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
             list.trailingAnchor.constraint(equalTo: safe.trailingAnchor), list.bottomAnchor.constraint(equalTo: input.topAnchor),
@@ -109,10 +97,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(backSwipe(_:)))
         edge.edges = .left; view.addGestureRecognizer(edge)
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self = self, self.visible else { return }; self.realtime?.start(); self.sync()
+            Task { @MainActor [weak self] in
+                guard let self = self, self.visible else { return }; self.realtime?.start(); self.sync()
+            }
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.realtime?.stop()
+            Task { @MainActor [weak self] in self?.realtime?.stop() }
         })
     }
 
@@ -207,6 +197,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
     private func sync() {
         guard visible, loaded, syncTask == nil else { return }
+        let catchUpFrom = messages.last
         syncTask = Task { [weak self] in
             guard let self = self else { return }; defer { self.syncTask = nil }
             do {
@@ -214,19 +205,21 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 let ids = self.messages.map { $0.id }
                 for offset in stride(from: 0, to: ids.count, by: 50) {
                     let chunk = Array(ids[offset..<min(ids.count, offset + 50)])
+                    let revision = self.revision
                     let fresh = try await self.service.messages(self.room, filters: [("id", "in.(\(chunk.joined(separator: ",")))")], limit: 50)
                     try Task.checkCancellation()
                     let returned = Set(fresh.map { $0.id })
-                    self.messages.removeAll { chunk.contains($0.id) && !returned.contains($0.id) }
-                    self.merge(fresh)
+                    self.messages.removeAll { chunk.contains($0.id) && !returned.contains($0.id) && (self.changedAt[$0.id] ?? 0) <= revision }
+                    self.merge(fresh.filter { (self.changedAt[$0.id] ?? 0) <= revision })
                 }
                 if !self.windowed {
                     var more = true
+                    var tail = catchUpFrom
                     while more {
-                        let tail = self.messages.last
                         let filters = tail.map { [("or", "(created_at.gt.\($0.at),and(created_at.eq.\($0.at),id.gt.\($0.id)))")] } ?? []
                         let add = try await self.service.messages(self.room, filters: filters, ascending: true, limit: 100)
                         try Task.checkCancellation(); self.merge(add); more = add.count == 100
+                        tail = add.last ?? tail
                     }
                 }
                 self.reads = try await self.service.reads(self.room)
@@ -241,6 +234,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         if table == "messages" {
             let raw = d["record"] as? ChatJSON ?? [:]
             let old = d["old_record"] as? ChatJSON ?? [:]
+            revision += 1
+            if let id = (raw["id"] ?? old["id"]) as? String { changedAt[id] = revision }
             if d["type"] as? String == "DELETE" { messages.removeAll { $0.id == old["id"] as? String } }
             else if let id = raw["id"] as? String, raw["room_id"] as? String == room,
                     !windowed || messages.contains(where: { $0.id == id }) { merge([NativeChatMessage(raw: raw)]) }
@@ -424,7 +419,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func composerFocus(_ on: Bool) {}
     func composerResized(_ height: Double, y: Double, fr: Bool, kb: Bool) {}
     func composerKeyboard(on: Bool, dur: Double, at: Double, chatH: Double, pad: Double, s: Double, slide: Bool) {
-        composerBottom.constant = on ? 0 : -56; tabs.isHidden = on
         UIView.animate(withDuration: dur, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) { self.view.layoutIfNeeded() }
     }
     func composerFrame(bottom: Double, h: Double, p: Double, end: Bool, chatH: Double, pad: Double) {}

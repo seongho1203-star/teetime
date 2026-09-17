@@ -267,6 +267,12 @@ enum NativeChatRows {
         let year = (person["birth_year"] as? Int).map { String(format: "%02d", $0 % 100) }
         return [year, person["name"] as? String, person["region"] as? String].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "/")
     }
+    static func emojiOnly(_ text: String) -> Bool {
+        let chars = text.filter { !$0.isWhitespace }
+        return !chars.isEmpty && chars.count <= 3 && chars.allSatisfy { c in
+            c.unicodeScalars.contains { $0.properties.isEmojiPresentation || $0.value == 0xFE0F || $0.value == 0x20E3 }
+        }
+    }
     static func make(_ messages: [NativeChatMessage], user: String, people: [ChatJSON], reads: [String: String],
                      reactions: [ChatJSON], unread: String?) -> [ChatRow] {
         let who = Dictionary(people.compactMap { p -> (String, ChatJSON)? in
@@ -286,6 +292,7 @@ enum NativeChatRows {
             var d: ChatJSON = ["id": m.id, "body": m.body, "kind": "text", "mine": m.user == user,
                 "top": grouped(prev, m) ? 2.0 : 10.0, "mark": m.id == unread]
             if prev == nil || format(prev!, "yyyy-MM-dd") != format(m, "yyyy-MM-dd") { d["date"] = format(m, "M월 d일 (E)") }
+            d["big"] = m.reply == nil && m.image == nil && emojiOnly(m.body)
             if m.hidden { d["kind"] = "system"; d["body"] = "가려진 메시지입니다"; return ChatRow(d) }
             if m.system {
                 d["kind"] = "system"
