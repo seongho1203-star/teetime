@@ -59,6 +59,10 @@ final class NativeChatService {
                  body: Any? = nil, bytes: Data? = nil) async throws -> Any {
         var parts = URLComponents(url: config.url.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.map { URLQueryItem(name: $0.0, value: $0.1) }
+        // `+` is legal in a query, so URLComponents leaves it raw — but PostgREST decodes
+        // it as a space. A timestamp filter (`created_at.gt.…+00:00`) then arrives as an
+        // invalid timestamp and the whole request comes back 400.
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = parts.url else { throw NativeChatError(message: "요청 주소를 만들 수 없습니다.") }
         for attempt in 0...1 {
             let token = config.token

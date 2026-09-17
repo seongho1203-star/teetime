@@ -26,6 +26,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private var syncTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var metadataTask: Task<Void, Never>?
+    private var offlineTask: Task<Void, Never>?
     private var readTask: Task<Void, Never>?
     private var hasMore = true
     private var loadingMore = false
@@ -116,6 +117,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func pause() {
         visible = false; list.pauseSession(); view.endEditing(true)
         realtime?.stop(); syncTask?.cancel(); readTask?.cancel(); searchTask?.cancel(); metadataTask?.cancel()
+        offlineTask?.cancel(); offlineTask = nil
         if !loaded { loadTask?.cancel(); loadTask = nil }
     }
     func updateToken(_ token: String) { service.config.token = token; realtime?.updateToken() }
@@ -169,13 +171,21 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
     private func installRealtime() {
         guard service.liveUpdates else { return }
-        realtime?.stop()
+        realtime?.stop(); offlineTask?.cancel(); offlineTask = nil
         let channel = NativeChatRealtime(service: service, room: room)
         channel.changed = { [weak self] d in self?.changed(d) }
         channel.connected = { [weak self] in self?.sync() }
         channel.status = { [weak self] connected in
             guard let self = self, self.loaded else { return }
-            if !connected { self.notice("연결을 복구하고 있습니다…") }
+            // A socket dropped by a lock screen or a tunnel is back in three seconds, and
+            // saying so every time is noise. Speak up only when it stays down.
+            self.offlineTask?.cancel(); self.offlineTask = nil
+            guard !connected else { return }
+            self.offlineTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled, let self = self, self.visible else { return }
+                self.notice("연결을 복구하고 있습니다…")
+            }
         }
         realtime = channel; if visible { channel.start() }
     }
