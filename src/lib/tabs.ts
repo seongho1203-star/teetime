@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
-import { listOn, onListDetached, type ListPaint, type ListSpot } from './chatlist';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -97,21 +96,8 @@ function taken(from: EventTarget | null): boolean {
  * `scroll`은 창을 굴린 자리이고, **`list`는 대화 목록(`.chat-list`)을 굴린
  * 자리다** — `cloneNode`는 굴린 자리를 안 가져오므로 따로 적어 둔다. 안 적으면
  * 대화방 그림이 늘 **맨 위 글**부터 보인다.
- *
- * **`native`는 그 목록을 앱이 그리고 있었다는 표다**(`.nc-list`). 그때 웹
- * 목록은 감춰져 있고 굴린 자리도 앱 목록과 따로라, 그림에서는 그 감춤을 풀고
- * **앱이 알려 주는 자리**(`spot`)로 굴려 둔다. 그 값은 찍는 순간에는 아직
- * 없고 `listDetach`가 **뒤늦게** 준다(아래 `onListDetached`).
- *
- * **`paint`는 앱이 제 목록을 찍어 준 그림이다**(39판). 그것이 오면 웹 목록은
- * 감춘 채로 두고 그 자리에 그림을 깐다 — **웹 사본과 앱 목록이 갈아 끼워지는
- * 자리 자체가 없어진다**(위 `cloneShot`을 볼 것). 이것도 `listDetach`가
- * 뒤늦게 준다.
  */
-type Shot = {
-    path: string; node: HTMLElement; scroll: number;
-    list: number; native: boolean; spot?: ListSpot; paint?: ListPaint;
-};
+type Shot = { path: string; node: HTMLElement; scroll: number; list: number };
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
 
@@ -123,127 +109,27 @@ function takeShot(el: HTMLElement): Shot {
         node: el.cloneNode(true) as HTMLElement,
         scroll: window.scrollY,
         list: list?.scrollTop ?? 0,
-        native: !!list?.classList.contains('nc-list'),
     };
 }
 
 /**
  * 찍어 둔 그림을 화면에 깔 사본으로 만든다.
  *
- * **대화방 그림은 손을 봐야 한다.** 말풍선을 앱이 그리던 판이면 웹 목록이
- * `.nc-list`로 감춰져 있어, 그대로 깔면 **머리말만 있고 아래가 텅 빈 회색
- * 판이 손을 따라 나온다**(사용자 제보 · 사진 — `다시 채팅으로 올때는
- * 뒷배경이 안보임`). 그 감춤을 풀면 웹 목록에도 말풍선이 다 들어 있다 —
- * 앱이 그리는 동안에도 웹 목록은 자리를 지키느라 통째로 그려져 있다.
- *
  * 굴린 자리는 **붙인 뒤에** 잡아야 한다(`placeChatList`) — 아직 문서에
  * 없는 칸은 높이가 없어 `scrollTop`이 안 먹는다.
- *
- * **다만 앱이 제 목록을 찍어 줬으면 그 감춤을 안 푼다**(39판 · `paint`).
- * 웹 사본은 Pretendard, 앱 목록은 폰 기본 글꼴이라 **여러 줄 말풍선의
- * 줄 바뀌는 자리와 높이가 달라**, 돌아온 순간 둘이 갈아 끼워지는 것이
- * 그대로 보였다(사용자 제보 — `뭔가 2개화면이 왔다갔다하는 느낌`).
- * 38판까지 자리를 하나씩 맞춰 왔지만 **글꼴은 맞출 길이 없어**, 값이 아니라
- * **그림 자체를 앱 것으로 바꾸는 쪽**을 골랐다(26 → 27판의 그 답이다).
  */
 function cloneShot(shot: Shot): { c: HTMLElement; list: HTMLElement | null } {
     const c = shot.node.cloneNode(true) as HTMLElement;
     /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
        늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
     if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
-    const list = c.querySelector<HTMLElement>('.chat-list');
-    /* 그림이 그 자리를 덮으므로 굴려 둘 것도 없다 — `list`를 안 돌려준다. */
-    if (shot.paint) return { c, list: null };
-    list?.classList.remove('nc-list');
-    return { c, list };
+    return { c, list: c.querySelector<HTMLElement>('.chat-list') };
 }
 
-/**
- * 앱이 찍어 준 목록 그림을 **그 자리에 그대로** 깐다(39판).
- *
- * **막(`dim`) 앞에 넣는다** — 뒤에 넣으면 어두워지는 막이 그림에 안 걸려
- * 목록만 밝은 채로 남는다. 나갈 때 쓰는 `.exit-ghost`는 막이 형제가 아니라
- * 몸통에 따로 붙으므로(`runPop`) 그냥 맨 뒤에 붙인다.
- *
- * 여러 번 불려도 한 장만 남는다 — 그림이 뒤늦게 올 때 이미 깔린 것에
- * 다시 부르기 때문이다(`onListDetached`).
- */
-/**
- * 그림을 **미리 풀어 둔다** — 깔 때 한두 프레임 비어 보이지 않게.
- *
- * 받는 때(대화방을 떠날 때)와 까는 때(끌어 돌아올 때)가 한참 떨어져 있어
- * 미리 해 두면 공짜다. 못 풀어도 탈이 없다 — 깔 때 브라우저가 다시 한다.
- */
-function warmPaint(url: string): void {
-    const img = new Image();
-    img.src = url;
-    void img.decode?.().catch(() => { /* 그때 가서 다시 푼다 */ });
-}
-
-function layPaint(g: HTMLElement, paint: ListPaint): void {
-    g.querySelector('.ghost-paint')?.remove();
-    /* 웹 목록은 감춘 채로 둔다 — 그림이 뒤늦게 온 판에서는 이미 풀려 있다. */
-    g.querySelector('.chat-list')?.classList.add('nc-list');
-    const img = document.createElement('img');
-    img.className = 'ghost-paint';
-    img.src = paint.url;
-    img.alt = '';
-    img.style.top = `${paint.top}px`;
-    img.style.height = `${paint.h}px`;
-    const dim = g.querySelector('.back-ghost-dim');
-    if (dim) g.insertBefore(img, dim); else g.appendChild(img);
-}
-
-/**
- * 그림 속 대화 목록을 **보던 자리**로 굴려 둔다.
- *
- * 웹이 그리던 목록이면 찍을 때의 `scrollTop` 그대로다. 앱이 그리던 목록이면
- * 앱이 알려 준 자리다 — 맨 아래를 보고 있었으면 맨 아래, 아니면 그 글이
- * 위로 `off`만큼 지나간 자리(`listScrollTo`의 `at`과 같은 셈). **아직
- * 못 받았으면 맨 아래로 둔다** — 대개 거기를 보고 있었고, 값이 오면
- * `onListDetached`가 다시 굴려 준다.
- */
+/** 그림 속 대화 목록을 **보던 자리**로 굴려 둔다. */
 function placeChatList(list: HTMLElement, shot: Shot): void {
-    if (!shot.native) { list.scrollTop = shot.list; return; }
-    const spot = shot.spot;
-    if (!spot || spot.bottom) { list.scrollTop = list.scrollHeight; return; }
-    const row = list.querySelector<HTMLElement>(`[data-mid="${spot.id}"]`);
-    if (!row) { list.scrollTop = list.scrollHeight; return; }
-    list.scrollTop = 0;
-    list.scrollTop = row.getBoundingClientRect().top - list.getBoundingClientRect().top + spot.off;
+    list.scrollTop = shot.list;
 }
-
-/**
- * 앱 목록이 걷히며 자리를 알려 왔다 — **자리를 아직 모르던 그림에 적어 두고**,
- * 이미 깔려 있는 그림이면 그 자리로 다시 굴려 둔다.
- *
- * 순서가 이렇다: 카드를 눌러 라운드로 가면 `pushState`에서 대화방을 찍고 →
- * 리액트가 라운드를 그리며 대화 화면을 걷고(`listDetach`) → 그 답이 몇 ms
- * 뒤에 온다. 눌러서 들어가는 연출(`runPush`)은 그 사이에 그림을 깔므로
- * 처음 한두 프레임은 맨 아래로 보였다가 여기서 제자리로 온다. 손가락으로
- * 끌어 돌아올 때는 한참 뒤라 처음부터 제자리다.
- */
-/** 깔린 그림이 어느 장에서 왔는지 — 아래에서 다시 굴릴 때 찾는다. */
-const ghostShots = new WeakMap<HTMLElement, Shot>();
-
-onListDetached((spot, paint) => {
-    if (paint) warmPaint(paint.url);
-    for (const s of [...shots, exiting]) {
-        if (s && s.native && !s.spot) {
-            s.spot = spot;
-            if (paint) s.paint = paint;
-        }
-    }
-    for (const g of document.querySelectorAll<HTMLElement>('.back-ghost, .exit-ghost')) {
-        const shot = ghostShots.get(g);
-        if (!shot || !shot.native) continue;
-        /* 그림이 왔으면 그것으로 덮는다(39판) — 눌러서 들어가는 연출은
-           그보다 먼저 깔리므로 한두 프레임은 웹 사본이 보였다 바뀐다. */
-        if (shot.paint) { layPaint(g, shot.paint); continue; }
-        const list = g.querySelector<HTMLElement>('.chat-list');
-        if (list) placeChatList(list, shot);
-    }
-});
 
 /** **떠나는** 화면 그림(뒤로 갈 때 오른쪽으로 빠져나가는 그것).
  *  위 `shots`는 **뒤에 깔리는 앞 화면**이라 서로 다른 것이다. */
@@ -326,94 +212,6 @@ const MOVING = ['back-drag', 'back-ease', 'screen-push', 'screen-pop', 'screen-e
 /** 끄는 동안에만 세로 굴리기를 막는다(아래 `block` 주석). */
 function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
 
-/** 앱이 끄는 동안 감춰 둔 지금 화면(35판 · 아래 `nativeBackStart`). */
-let backPage: HTMLElement | null = null;
-
-/* ── 대화방 그림을 앱 목록이 뜰 때까지 붙들어 둔다 ────────────────
- *
- * 라운드·투표에서 **손가락으로 끌어 대화방으로 돌아오면** 화면이 세 번
- * 바뀌어 보였다(사용자 제보 · 사진 셋 — `되돌아가기하면 사진 순서대로
- * 바껴서돼`): ① 끄는 동안의 그림(웹 목록 사본) → ② 진짜 대화 화면의
- * **웹 목록**(글꼴이 Pretendard라 줄 바뀜이 다르고, 읽음 표가 아직 안 와
- * 안 읽은 수가 `4`) → ③ **앱 목록**(폰 글꼴 · `1`). ②는 앱 목록이 감춘
- * 채로 서서 줄과 자리를 다 잡을 때까지의 그 틈에 잠깐 드러나는 것이다.
- *
- * **그래서 그 틈 동안 그림을 안 걷는다.** 그림을 화면(`z-index` 2)보다
- * 위로 올려 붙들고(`.hold`), 대화 화면이 앱 목록을 드러낸 뒤에
- * `releaseGhost()`로 풀어 달라고 한다. 앱 목록은 웹뷰 **위에 얹힌 앱
- * 부품**이라 그림보다도 위에 그려지므로, 드러나는 순간 ① 위에 곧바로
- * ③이 앉는다 — ②가 끼어들 자리가 없다.
- *
- * - **앱 목록을 쓰는 판에서만 붙든다**(`holdsChat`). 웹 목록 그대로인
- *   판에서는 그 틈이 아예 없다.
- * - **대화 화면이 앱 목록을 안 세우기로 하면 그 자리에서 푼다** —
- *   플러그인이 없는 판(웹으로 열었을 때)이 그렇다. 안 풀면 옛 그림을
- *   `HOLD_MAX`까지 들고 있다가 툭 바뀐다.
- * - **그래도 못 풀면 `HOLD_MAX` 뒤에 스스로 푼다** — 그림은 죽은 사본이라
- *   영영 남으면 앱이 죽은 것처럼 보인다(`sweepGhosts`의 그 규칙이다).
- * - 붙드는 동안 `back-drag`도 그대로 둔다 — 그 표가 화면에 바탕색을
- *   깔아 두므로(`global.css`) 걷으면 뒤가 비친다. 푸는 자리에서 함께 걷는다.
- */
-/** 이만큼 지나면 풀어 달라는 말이 없어도 푼다. */
-const HOLD_MAX = 2500;
-let holdRelease: (() => void) | null = null;
-let holdTimer = 0;
-
-/** 이 그림이 **앱 목록이 그리던 대화방**이라 붙들어야 하는가. */
-function holdsChat(shot: Shot | undefined): boolean {
-    return !!shot && shot.native && shot.path.startsWith('/chat') && listOn();
-}
-
-/**
- * 깔아 둔 그림을 붙든다. 걷는 일은 `releaseGhost()`(또는 `HOLD_MAX`)가
- * 맡는다 — 부른 쪽은 그 그림에서 손을 뗄 것.
- */
-function holdGhost(g: HTMLElement): void {
-    g.classList.add('hold');
-    /* 붙드는 때부터 다시 센다 — 천천히 끌어 `GHOST_MAX`가 지났으면 화면이
-       바뀌는 순간의 `sweepGhosts()`가 방금 붙든 것을 도로 걷는다. */
-    ghostAt = Date.now();
-    window.clearTimeout(holdTimer);
-    const fin = () => {
-        if (holdRelease !== fin) return;
-        holdRelease = null;
-        window.clearTimeout(holdTimer);
-        g.remove();
-        document.documentElement.classList.remove('back-drag', 'back-ease');
-        const el = pageEl();
-        if (el) { el.style.transform = ''; el.style.transition = ''; }
-        ghostAt = 0;
-    };
-    holdRelease = fin;
-    holdTimer = window.setTimeout(fin, HOLD_MAX);
-}
-
-/** 붙들어 둔 그림이 있는가(`.dev`의 검사가 본다). */
-export function ghostHeld(): boolean {
-    return holdRelease !== null;
-}
-
-/**
- * 붙들어 둔 그림을 걷는다 — 대화 화면이 **앱 목록을 드러낸 뒤에**, 또는
- * 앱 목록을 안 세우기로 한 그 자리에서 부른다. 붙든 것이 없으면 아무 일도
- * 안 한다.
- */
-export function releaseGhost(): void {
-    holdRelease?.();
-}
-
-/**
- * 감춰 둔 화면을 도로 내보인다.
- *
- * **잡아 둔 것과 지금 것을 둘 다 본다** — 리액트가 같은 자리의 DOM을 다시
- * 쓰는 일이 있어, 잡아 둔 것만 되돌리면 **새 화면이 안 보인 채로 굳는다**
- * (`clean()`이 `transform`을 그렇게 지우는 그 자리다).
- */
-function showBackPage(): void {
-    for (const el of [backPage, pageEl()]) if (el) el.style.visibility = '';
-    backPage = null;
-}
-
 /**
  * 남은 그림·클래스·`transform`을 걷는다.
  * @param force 지금 막 깐 것까지 걷는다(손짓이 끝난 것이 확실할 때만).
@@ -425,18 +223,11 @@ function sweepGhosts(force = false): void {
     if (!left.length && !MOVING.some(c => root.classList.contains(c))) return;
     for (const g of left) g.remove();
     root.classList.remove(...MOVING);
-    /* 붙들어 둔 것도 함께 걷은 셈이다(위 `holdGhost`). */
-    holdRelease = null;
-    window.clearTimeout(holdTimer);
     /* 걷었으면 아직 안 돈 `nextFrames`도 없던 일로 한다(위 `moveSeq`). */
     moveSeq++;
     document.removeEventListener('touchmove', blockScroll);
     const el = pageEl();
     if (el) { el.style.transform = ''; el.style.transition = ''; }
-    /* 앱이 끌다 만 것도 여기서 풀린다(35판) — 손짓 도중에 알림을 눌러
-       화면이 바뀌면 `listBack`이 갈 데가 없어져, 감춰 둔 화면이 그대로
-       남으면 **앱이 죽은 것처럼 보인다.** */
-    showBackPage();
     ghostAt = 0;
 }
 
@@ -535,12 +326,10 @@ function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElem
         const made = cloneShot(shot);
         list = made.list;
         g.appendChild(made.c);
-        ghostShots.set(g, shot);
     }
     const dim = document.createElement('div');
     dim.className = 'back-ghost-dim';
     g.appendChild(dim);
-    if (shot?.paint) layPaint(g, shot.paint);
     document.body.insertBefore(g, document.body.firstChild);
     /* 대화 목록은 **붙인 뒤에** 굴려야 먹는다(위 `cloneShot`). */
     if (shot && list) placeChatList(list, shot);
@@ -601,8 +390,6 @@ function runPop(el: HTMLElement, shot: Shot): void {
     gx.className = 'exit-ghost';
     const { c, list } = cloneShot(shot);
     gx.appendChild(c);
-    if (shot.paint) layPaint(gx, shot.paint);
-    ghostShots.set(gx, shot);
     document.body.appendChild(dim);
     document.body.appendChild(gx);
     if (list) placeChatList(list, shot);
@@ -616,63 +403,6 @@ function runPop(el: HTMLElement, shot: Shot): void {
         gx.style.transform = `translate3d(${W}px,0,0)`;
         dim.style.opacity = '0';
     });
-}
-
-/* ── 앱이 끌 때 웹이 하는 일 (35판) ──────────────────────────
- *
- * 대화방은 말풍선 목록과 입력칸을 **앱이 그리므로**(`teetime:nc-list`를
- * 켠 판) 웹이 화면을 밀면 그 둘이 안 따라와 찢어진다 — 그래서 25판까지는
- * `plainBack()`으로 곧바로 넘어갔다. 35판부터는 **끄는 일을 통째로 앱이
- * 맡고**(`ChatList.swift`의 `BackDrag`), 웹은 **뒤에 깔릴 앞 화면만**
- * 그려 준다. 앱은 그 그림을 만들 길이 없기 때문이다(떠날 때 찍어 둔
- * 웹 DOM이다 — 위 `shots`).
- *
- * 그래서 여기 셋은 `useBackSwipe`가 하던 일에서 **손짓과 화면 밀기를 뺀
- * 나머지**다. 값(`PARALLAX`·`DIM`·`TAKE`·`FLICK`)은 앱 쪽에 같은 것이
- * 적혀 있다 — **한쪽만 고치지 말 것.**
- */
-
-/**
- * **뒤에 깔 앞 화면 그림이 있는가.** 없으면 앱이 끌지 않고 곧바로 넘어간다 —
- * 바탕만 깔고 끌면 **빈 화면이 손을 따라 나온다**(`useScreenSlide`가
- * `full`을 가리는 그 잣대와 같다).
- */
-export function hasBackShot(): boolean {
-    return shots.length > 0;
-}
-
-/** 앱이 끌기 시작했다 — 앞 화면을 깔고 지금 화면은 감춘다(앱이 찍어 둔
- *  그림이 그 자리를 대신한다). */
-export function nativeBackStart(): boolean {
-    const shot = shots[shots.length - 1];
-    if (!shot) return false;
-    sweepGhosts(true);
-    layGhost(shot);
-    backPage = pageEl();
-    if (backPage) backPage.style.visibility = 'hidden';
-    return true;
-}
-
-/**
- * 앱이 놓았다. `go`면 넘어간 것이라 **여기서 뒤로 간다** — 앱이 그림을
- * 다 내보낸 뒤에 부르므로 웹 `end()`가 230ms 기다렸다 `nav(-1)`을 부르는
- * 그 차례와 같다.
- *
- * **그림은 새 화면이 한 번 그려진 뒤에 걷는다** — 바로 걷으면 그 한
- * 프레임에 옛 화면이 비친다. `rAF`는 앱을 덮어 두면 안 도므로 예비
- * 타이머를 함께 건다(위 `end()`와 같은 한 쌍이다).
- */
-export function nativeBackEnd(go: boolean, nav: () => void): void {
-    if (!go) {
-        showBackPage();
-        sweepGhosts(true);
-        return;
-    }
-    skipSlide = true;
-    nav();
-    const done = () => { showBackPage(); sweepGhosts(true); };
-    requestAnimationFrame(() => requestAnimationFrame(done));
-    window.setTimeout(done, 600);
 }
 
 export function useBackSwipe(): void {
@@ -792,35 +522,17 @@ export function useBackSwipe(): void {
             dx = go ? W : 0;
             paint();
             const mine = ghost;
-            /* **앱 목록이 그리던 대화방으로 돌아가는 참이면 그림을 안 걷고
-               붙들어 둔다**(위 `holdGhost`) — 대화 화면이 앱 목록을 드러낸
-               뒤에 `releaseGhost()`로 걷는다. */
-            const hold = go && !!mine && holdsChat(ghostShots.get(mine));
             window.setTimeout(() => {
                 if (go) { skipSlide = true; nav(-1); }
-                if (hold && mine) {
-                    /* 여기서부터는 그 그림의 임자가 `holdGhost`다 — 이 손짓의
-                       뒷정리(`clean`)가 못 걷게 손을 뗀다. 굴리기를 막던
-                       듣기만 떼어 두고, 밀려 나간 화면은 그림 뒤로 돌려놓는다
-                       (그림이 위(`.hold`)라 안 보인다). */
-                    document.removeEventListener('touchmove', block);
-                    holdGhost(mine);
-                    for (const el of [page, pageEl()]) {
-                        if (el) { el.style.transform = ''; el.style.transition = ''; }
-                    }
-                    ghost = dim = null; page = null; live = false;
-                    return;
-                }
                 /* 새 화면이 한 번 그려진 **뒤에** 걷는다 — 바로 걷으면
                    그 한 프레임에 옛 화면이 비친다. */
                 requestAnimationFrame(() => requestAnimationFrame(clean));
             }, 230);
             /* **rAF에만 매달지 않는다.** 앱을 덮어 두면 위의 rAF가 아예
                안 돌아 그림이 화면에 남는다(`setTimeout`은 그래도 돈다).
-               같은 그림이 아직 붙어 있고 새 손짓도 없을 때만 걷는다 —
-               **붙들어 둔 것은 빼고**(그건 `releaseGhost`가 걷는다). */
+               같은 그림이 아직 붙어 있고 새 손짓도 없을 때만 걷는다. */
             window.setTimeout(() => {
-                if (!live && mine && mine.isConnected && !mine.classList.contains('hold')) clean();
+                if (!live && mine && mine.isConnected) clean();
             }, 600);
         };
 
@@ -899,29 +611,6 @@ const SPINNER = '.center-fill';
 const SCREEN_MS = 500;
 
 /**
- * **앱이 그리는 것이 있어 통째로 못 미는 화면인가.**
- *
- * 웹뷰 **위에 따로 얹힌 앱 부품**은 `transform`을 안 따라와, 웹만 화면
- * 폭만큼 밀면 **찢어져 보인다**(`plainBack()`과 똑같은 까닭이다).
- *
- * **지금 걸리는 것은 대화 목록 하나뿐이다**(`teetime:nc-list`를 켜 둔 판).
- * `ChatList.slideIn`이 40px으로 못박혀 있어 웹만 390px을 밀면 말풍선
- * 자리만 안 따라온다 — 그 스위치가 켜져 있으면 예전 40px짜리로 물러난다.
- *
- * **입력칸 바는 여기 안 든다** — `Chat.tsx`가 **전환이 끝난 뒤에** 세우기
- * 때문이다(`slideLeft()`만큼 기다린다). 나올 때는 화면이 접히며 바가 먼저
- * 걷힌다.
- *
- * **표(`html.nc`)가 아니라 경로로 가린다.** `nc`는 대화가 열리고 바가 선
- * **뒤에** 붙어서, 들어가는 그 순간에는 아직 없다 — 그것으로 가리면
- * 들어갈 때만 통째로 밀었다가 바가 서면서 찢어진다(`owns6()`의 그 함정).
- * 스위치(`listOn()`)는 **누르기 전부터 정해져 있는 값**이라 그 틈이 없다.
- */
-function hasNative(path: string): boolean {
-    return path.startsWith('/chat') && listOn();
-}
-
-/**
  * 마지막으로 화면을 미끄러뜨리기 시작한 때.
  *
  * **앱 목록(`ChatList.swift`)이 이 값을 보고 따라 들어온다.** 그 목록은
@@ -966,15 +655,14 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
         const cls = how === 'POP' ? 'slide-back'   // 뒤로 — 왼쪽에서 들어온다
                                   : 'slide-in';    // 들어감 — 오른쪽에서 들어온다
 
-        /* **화면을 통째로 밀 수 있는 자리인가**(아래 `hasNative`).
+        /* **화면을 통째로 밀 수 있는 자리인가.**
            들어갈 때는 뒤에 깔 앞 화면이 있어야 하고(`snap`은 탭으로 가는
            길을 안 찍는다), 뒤로 갈 때는 방금 찍어 둔 떠나는 화면이 있어야
            한다. 없으면 예전 40px짜리로 물러난다 — **바탕만 깔고 밀면
            빈 화면이 통째로 지나간다.** */
         const leaving = how === 'POP' && exitFresh() ? exiting : null;
         const entering = how !== 'POP' && !isTab ? shots[shots.length - 1] : undefined;
-        const full = !hasNative(from) && !hasNative(pathname)
-            && (leaving !== null || entering !== undefined);
+        const full = leaving !== null || entering !== undefined;
 
         let off = 0;
         let moving = false;

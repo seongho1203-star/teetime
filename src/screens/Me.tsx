@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { supabase, signOut } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { canPickNative, composerReady, kbStat, pickNativePhoto } from '../lib/composer';
-import { dragOn, listOn, listStat, paintStat, setDragOn, setListOn, spotStat } from '../lib/chatlist';
 import { Avatar } from '../components/Avatar';
 import { TopBar } from '../components/TopBar';
 import { useConfirm } from '../components/Confirm';
@@ -171,11 +170,6 @@ export function Me() {
        **토스트로만 알리지 말 것** — 몇 초 뒤 사라져 사진으로 못 찍는다. */
     const [step, setStep] = useState('');
     const [why, setWhy] = useState('');
-
-    /** 대화 목록을 앱이 그릴지(17판 시험 스위치). 값은 이 기기에만 남는다. */
-    const [ncList, setNcList] = useState(listOn());
-    /** 대화방 뒤로 가기가 손가락을 따라올지(35판 시험 스위치). */
-    const [ncDrag, setNcDrag] = useState(dragOn());
 
     useEffect(() => {
         pushState().then(async s => {
@@ -502,60 +496,6 @@ export function Me() {
                 </div>
             )}
 
-            {/* **시험 스위치 — 대화 목록을 앱이 그린다**(17판).
-                `docs/네이티브로-바꾸기.md`의 B로 가는 첫 걸음이고, **여기는
-                헤드리스로 한 줄도 확인할 수 없는 자리**라 기본을 꺼짐으로 두고
-                폰에서 켜 보게 한다(14판 `ListSlider`와 같은 잣대다).
-
-                **스위치가 화면에 있어야 하는 까닭**은 저장 열쇠(`teetime:nc-list`)
-                를 폰에서 손으로 적을 길이 없기 때문이다 — `nc-slide`를 그렇게
-                두었다가 사용자가 켜 볼 수가 없었다.
-
-                아직 **말풍선만 그린다** — 사진·이모티콘·인용·반응은 `사진`처럼
-                무슨 줄인지만 적히고, `지난 대화 더 보기`는 맨 위에 닿으면
-                저절로 받아 온다. 어긋나면 스위치를 도로 내리면 된다. */}
-            {!editing && IS_NATIVE && (
-                <div className="card">
-                    <div className="section-title">시험 중</div>
-                    <div className="switch-row">
-                        <div className="grow">
-                            <div className="switch-label">대화 목록을 앱이 그리기</div>
-                            <div className="switch-desc">
-                                {ncList
-                                    ? '켜짐 — 대화를 나갔다 들어와야 바뀝니다. 앱이 옛 판이면 저절로 예전 화면으로 돌아갑니다'
-                                    : '꺼짐 — 지금까지처럼 웹 화면이 그립니다'}
-                            </div>
-                        </div>
-                        <Switch label="대화 목록을 앱이 그리기"
-                                on={ncList}
-                                onChange={v => { setListOn(v); setNcList(v); }} />
-                    </div>
-
-                    {/* **손가락을 따라 뒤로 가기**(35판 · 사용자 요청 —
-                        `되돌아가기할때 손따라 오면서 되는건 안되는거야?`).
-                        대화방만 밀면 곧바로 넘어갔다 — 말풍선과 입력칸이
-                        앱 부품이라 웹이 화면을 밀면 안 따라와 찢어지기
-                        때문이다. 이제 끄는 일을 통째로 앱이 맡는다.
-                        **위 스위치가 켜져 있어야 뜻이 있다** — 앱 목록이
-                        안 서면 애초에 그 손짓을 앱이 안 잡는다. */}
-                    {ncList && (
-                        <div className="switch-row">
-                            <div className="grow">
-                                <div className="switch-label">뒤로 가기를 손가락 따라</div>
-                                <div className="switch-desc">
-                                    {ncDrag
-                                        ? '켜짐 — 대화방에서 오른쪽으로 밀면 앞 화면이 손을 따라 나옵니다'
-                                        : '꺼짐 — 밀면 곧바로 넘어갑니다'}
-                                </div>
-                            </div>
-                            <Switch label="뒤로 가기를 손가락 따라"
-                                    on={ncDrag}
-                                    onChange={v => { setDragOn(v); setNcDrag(v); }} />
-                        </div>
-                    )}
-                </div>
-            )}
-
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
             {/* **찾기 쉬운 자리에 둔다.** 애플은 계정을 지우는 길이 앱 안에
@@ -593,28 +533,6 @@ export function Me() {
                 {kbStat().split('\n').filter(Boolean).map(line => (
                     <span key={line}><br />{line}</span>
                 ))}
-                {/* **앱 목록이 보낸 손짓을 센 값**(진단 · `lib/chatlist.ts`의
-                    `listLog` 주석). 여기는 손짓을 잡는 것이 앱이라 헤드리스로
-                    한 줄도 확인할 수 없어, 안 먹는다는 제보가 오면 이 줄
-                    하나로 갈린다 — 눌렀는데 `탭`이 안 늘면 **앱이 안 보내는
-                    것**이고, 느는데 화면이 안 움직이면 **웹이 안 받는 것**이다.
-                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
-                {listStat() && <span><br />{listStat()}</span>}
-                {/* **읽던 자리 되돌리기를 잰 값**(진단 · `lib/chatlist.ts`의
-                    `spotLog` 주석). 되풀이해 드나들면 말풍선이 조금씩
-                    내려간다는 제보를 쫓는 자리인데 **헤드리스로는 한 픽셀도
-                    안 밀려** 폰에서 재는 수밖에 없다. 대화방에서 조금 올린 뒤
-                    카드를 눌러 들어갔다 나오면 여기에 적힌다.
-                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
-                {spotStat().map(line => <span key={line}><br />{line}</span>)}
-                {/* **덮개를 잰 값**(진단 · `lib/chatlist.ts`의 `paintLog` 주석).
-                    탭바로 대화에 들어갈 때 웹 목록이 잠깐 보이는 자리라
-                    헤드리스로는 한 줄도 확인할 수 없다 — `찍음`이 안 늘면
-                    앱이 못 찍는 것, 느는데 `덮음`이 안 늘면 웹이 그 그림을
-                    못 찾는 것, 둘 다 느는데 그대로 보이면 덮개가 안 그려지거나
-                    너무 일찍 걷히는 것이다.
-                    **까닭이 가려지면 이 줄을 걷어낼 것.** */}
-                {paintStat() && <span><br />{paintStat()}</span>}
             </p>
         </div>
     );

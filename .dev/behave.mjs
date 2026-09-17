@@ -1227,16 +1227,15 @@ ok(!await page.evaluate(() => document.documentElement.classList.contains('confi
    **헤드리스에는 그 부품이 없으므로 표만 손으로 붙여 규칙을 본다**
    (댓글 바의 `nc-typing`에서 쓴 그 수다).
 
-   **잣대 셋을 다 본다** — 29판부터 앱이 직접 띄우므로 여기는 예비 길인데,
-   그 잣대(`canNativeToast()`)는 `html.nc`·`body.nc-typing`이다. `nc-list`만
-   보고 있으면 **웹 목록을 쓰는 앱**에서 그대로 바 뒤에 깔린다. */
+   **잣대 둘을 다 본다** — 29판부터 앱이 직접 띄우므로 여기는 예비 길인데,
+   그 잣대(`canNativeToast()`)는 `html.nc`·`body.nc-typing`이다. */
 const toastY = await page.evaluate(() => {
     const el = document.querySelector('.toast-stack');
     if (!el) return null;
     const y = () => Math.round(el.getBoundingClientRect().top);
     const root = document.documentElement;
     const out = { off: y(), h: window.innerHeight };
-    for (const [k, node, cls] of [['nc', root, 'nc'], ['list', root, 'nc-list'],
+    for (const [k, node, cls] of [['nc', root, 'nc'],
                                   ['typing', document.body, 'nc-typing']]) {
         node.classList.add(cls);
         out[k] = y();
@@ -1247,7 +1246,7 @@ const toastY = await page.evaluate(() => {
 /* **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜬다** — 실제 자리를 잰다.
    평소에는 화면 아래(탭바 위)이고, 표가 붙으면 머리말 자리로 올라간다. */
 ok(toastY !== null && toastY.off > toastY.h / 2
-   && toastY.nc < 60 && toastY.list < 60 && toastY.typing < 60,
+   && toastY.nc < 60 && toastY.typing < 60,
    `바가 덮고 있으면 토스트가 머리말 자리로 올라간다 (실제 ${JSON.stringify(toastY)})`);
 
 /* 이미 가린 글은 **푸는 쪽**이 나온다. 지운 것이 아니므로 되돌릴 수 있다. */
@@ -3104,18 +3103,14 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     ok(moved === 0, `화면을 옮기면 남은 그림이 걷힌다 (${moved}장)`);
 
     /* ── 대화방으로 돌아올 때 뒷배경에 말풍선이 들어 있는가 ─────────
-       말풍선을 앱이 그리던 판이면 떠날 때 찍힌 웹 목록은 `.nc-list`로
-       감춰져 있다 — 그대로 깔면 **머리말만 있고 아래가 텅 빈 회색 판**이
-       손을 따라 나온다(사용자 제보 · 사진 — `다시 채팅으로 올때는 뒷배경이
-       안보임`). 그림에서는 그 감춤을 풀고 맨 아래(보던 자리)로 굴려 둬야 한다.
-       헤드리스에는 앱 목록이 없으므로 **그 표만 손으로 붙여** 같은 길을 탄다. */
+       대화방을 떠날 때 찍는 그림은 **굴린 자리를 안 가져온다**(`cloneNode`) —
+       안 적어 두면 그 그림이 늘 맨 위 글부터 보인다. `Shot.list`에 그때의
+       `scrollTop`을 적고 `placeChatList()`가 붙인 뒤에 굴려 놓는다. */
     await bp.goto(`${BASE}/#/chat`);
     await bp.waitForSelector('.chat-list [data-mid]', { timeout: 20000 });
     await bp.waitForTimeout(500);
-    await bp.evaluate(() => document.querySelector('.chat-list').classList.add('nc-list'));
     /* **카드를 눌러 들어간다** — 해시만 바꾸면 `pushState`를 안 거쳐 그림이
-       안 찍힌다. 가려진 목록은 `pointer-events: none`이라 카드를 누를 수
-       없으므로 그 안의 링크를 코드로 누른다. */
+       안 찍힌다. */
     await bp.evaluate(() => {
         const a = [...document.querySelectorAll('.chat-list .chat-result')]
             .map(c => c.closest('a') || c.querySelector('a') || c).find(Boolean);
@@ -3130,88 +3125,17 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
         const r = list.getBoundingClientRect();
         return {
             있나: true,
-            감춤: getComputedStyle(list).visibility,
             줄: list.querySelectorAll('[data-mid]').length,
             아래: Math.abs(list.scrollHeight - list.clientHeight - list.scrollTop),
             높이: Math.round(r.height),
         };
     });
-    ok(back.있나 && back.감춤 === 'visible' && back.줄 > 0,
-       `대화방 그림에 말풍선이 들어 있다 (${back.줄}줄 · ${back.감춤})`);
+    ok(back.있나 && back.줄 > 0,
+       `대화방 그림에 말풍선이 들어 있다 (${back.줄}줄)`);
     ok(back.있나 && back.높이 > 100 && back.아래 <= 2,
        `그 목록은 보던 자리(맨 아래)로 굴려져 있다 (끝에서 ${back.아래}px)`);
     await touchAt('touchend', 128, 420);
     await bp.waitForTimeout(600);
-
-    /* ── 돌아올 때 그림을 앱 목록이 뜰 때까지 붙들어 두는가 ────────
-       사용자 제보 · 사진 셋 — `되돌아가기하면 사진 순서대로 바껴서돼`:
-       끄는 동안의 그림 → **진짜 화면의 웹 목록**(글꼴이 달라 줄이 다르고
-       안 읽은 수가 `4`) → 앱 목록. 그 가운데 것이 비치지 않게 그림을
-       화면 위에 붙들어 두고(`.back-ghost.hold`), 대화 화면이 앱 목록을
-       드러낸 뒤에 푼다(`releaseGhost`). 헤드리스에는 앱 목록이 없으므로
-       **스위치만 켜고** 같은 길을 탄다 — 그때 대화 화면은 앱 목록을 안
-       세우기로 하는 그 자리에서 곧바로 푼다. 그러니 볼 것은 셋이다:
-       ① 대화 화면이 서는 **그 순간** 그림이 위에 덮여 있는가 ② 그 뒤에
-       걷히는가(영영 남으면 앱이 죽은 것처럼 보인다) ③ 첫 그림의 안 읽은
-       수가 나갈 때 값과 같은가(읽음 표를 방마다 들고 있는 `READS_KEPT`). */
-    await bp.evaluate(() => localStorage.setItem('teetime:nc-list', 'on'));
-    await bp.goto(`${BASE}/#/chat`);
-    await bp.waitForSelector('.chat-list [data-mid]', { timeout: 20000 });
-    await bp.waitForTimeout(500);
-    const nBefore = await bp.evaluate(() =>
-        [...document.querySelectorAll('.chat-list .chat-unread-n')].map(e => e.textContent).join(','));
-    await bp.evaluate(() => document.querySelector('.chat-list').classList.add('nc-list'));
-    await bp.evaluate(() => {
-        const a = [...document.querySelectorAll('.chat-list .chat-result')]
-            .map(c => c.closest('a') || c.querySelector('a') || c).find(Boolean);
-        a?.click();
-    });
-    await bp.waitForTimeout(900);
-    ok(bp.url().includes('/rounds/'), `다시 카드로 들어간다 (${bp.url().split('#')[1]})`);
-    /* 대화 화면이 DOM에 서는 것과 그림이 걷히는 것의 **차례**를 관찰자로
-       잡는다 — 그림이 걷히는 것이 대화 화면이 선 **뒤**여야 한다. (헤드리스에서는
-       대화 화면의 효과가 그 자리에서 곧바로 풀므로, 순간을 찍어 보면 둘이
-       한 미세작업 안에 있어 안 갈린다 — 기록의 차례로 본다.)
-       첫 줄들이 들어온 순간의 안 읽은 수도 함께 적는다. */
-    await bp.evaluate(() => {
-        window.__hold = { 섰음: null, 걷힘: null, 첫숫자: null, 붙듦: false };
-        let seq = 0;
-        const mo = new MutationObserver(recs => {
-            for (const r of recs) {
-                if (r.type === 'attributes' && r.target.matches?.('.back-ghost.hold')) window.__hold.붙듦 = true;
-                for (const n of r.addedNodes) {
-                    if (n.nodeType === 1 && n.matches('.chat') && n.parentElement?.matches('.app')
-                        && window.__hold.섰음 === null) window.__hold.섰음 = seq++;
-                }
-                for (const n of r.removedNodes) {
-                    if (n.nodeType === 1 && n.matches('.back-ghost') && window.__hold.걷힘 === null)
-                        window.__hold.걷힘 = seq++;
-                }
-            }
-            const chat = document.querySelector('.app > .chat');
-            if (chat && window.__hold.첫숫자 === null) {
-                const ns = chat.querySelectorAll('.chat-list .chat-unread-n');
-                if (ns.length) window.__hold.첫숫자 = [...ns].map(e => e.textContent).join(',');
-            }
-        });
-        mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-        window.__holdMo = mo;
-    });
-    await draw(300);
-    await bp.waitForTimeout(900);
-    const held = await bp.evaluate(() => {
-        window.__holdMo?.disconnect();
-        return { ...window.__hold, 남음: document.querySelectorAll('.back-ghost').length,
-                 끌기: document.documentElement.className.includes('back-drag'),
-                 어디: location.hash };
-    });
-    ok(held.어디 === '#/chat', `대화방으로 돌아온다 (${held.어디})`);
-    ok(held.붙듦 && held.섰음 !== null && held.걷힘 !== null && held.걷힘 > held.섰음,
-       `그림은 대화 화면이 선 뒤에야 걷힌다 (붙듦 ${held.붙듦} · 섰음 ${held.섰음} → 걷힘 ${held.걷힘})`);
-    ok(held.남음 === 0 && !held.끌기, `앱 목록을 안 세우는 판이면 그 자리에서 걷는다 (${held.남음}장)`);
-    ok(held.첫숫자 !== null && held.첫숫자 === nBefore,
-       `첫 그림의 안 읽은 수가 나갈 때와 같다 (${nBefore} → ${held.첫숫자})`);
-    await bp.evaluate(() => localStorage.removeItem('teetime:nc-list'));
 
     await bCtx2.close();
 }

@@ -31,14 +31,9 @@
    **잣대는 `lib/composer.ts`의 `canNativeToast()`와 같아야 한다** —
    `html.nc`(대화) · `body.nc-typing`(댓글 바)이 곧 '바가 덮고 있다'이다.
    한쪽만 고치면 앱이 안 띄운 자리에서 웹도 아래에 그려 또 가려진다.
-   (`html.nc-list`는 대화에서 `nc`와 늘 함께 서지만, 앱 목록이 머리말
-   아래까지 덮는다는 뜻이라 함께 적어 둔다.)
-
-   앱 목록의 윗변은 머리말 바로 아래라(`listTop`), **머리말 자리만이 웹이
-   그릴 수 있는 곳이다.** 잠깐 덮지만 `pointer-events: none`이라 뒤의 `←`·
+   잠깐 머리말을 덮지만 `pointer-events: none`이라 뒤의 `←`·
    🔍·☰은 그대로 눌린다 — 안 보이는 것보다 낫다. */
 html.nc .toast-stack,
-html.nc-list .toast-stack,
 body.nc-typing .toast-stack {
     top: calc(var(--safe-t) + 2px);
     bottom: auto;

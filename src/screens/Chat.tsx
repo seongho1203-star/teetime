@@ -20,19 +20,21 @@ import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
-import { hasBackShot, nativeBackEnd, nativeBackStart, releaseGhost, slideLeft } from '../lib/tabs';
+import { slideLeft } from '../lib/tabs';
 import {
     NativeComposer, canNativeShare, canPickNative, canSlide, composerReady, composerSkin, hush,
     kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeText,
 } from '../lib/composer';
-import {
-    GROUPED_TOP, HIDDEN_LINE, ROW_TOP, canBackDrag, canNativeList, chatListSkin, closeListMenu,
-    dayChip, edgeColor, isNewDay, listAttach, listDetach, listMenu, listOn, listRows,
-    lastPaint, listScrollTo, listSet, onListBack, onListHold, onListMenuPick, onListState,
-    paintLog,
-    onListTap, sameBlock, spotLog, spotNote,
-    type ChatSpot, type HoldItem, type ListPaint, type ListRow,
-} from '../lib/chatlist';
+import { HIDDEN_LINE, isNewDay, sameBlock, type ChatSpot } from '../lib/chatlist';
+import type { HoldIconName } from '../components/HoldIcons';
+
+/** 길게 누른 창에 서는 줄 하나. */
+type HoldItem = {
+    name: string;
+    label: string;
+    icon: HoldIconName;
+    danger?: boolean;
+};
 
 /**
  * 네이티브 바가 마지막으로 알려 온 높이 — **화면을 나갔다 와도 남는다.**
@@ -233,12 +235,6 @@ function stampSpot(spot: ChatSpot | null, list: Message[]): ChatSpot | null {
  * 진짜 id는 uuid라, 섞여 나가면 그 조회가 통째로 400으로 막힌다
  * (반응 받아 오는 자리가 그렇다).
  */
-/** 방이 비어 있어 첫 묶음이 영영 안 오면 이만큼 기다렸다 앱 목록을 드러낸다. */
-const EMPTY_WAIT = 1200;
-
-/** 앱 목록이 끝내 안 서면 덮개를 이만큼 뒤에 걷는다(죽은 그림을 안 남긴다). */
-const COVER_MAX = 2500;
-
 const TEMP_ID = 'tmp:';
 const isTemp = (id: string) => id.startsWith(TEMP_ID);
 
@@ -378,33 +374,6 @@ export function Chat() {
      * `useCallback`으로 붙박아 둔 함수들이 의존성 없이 읽으려고 있다.
      */
     const [nativeBar, setNativeBar] = useState(false);
-    /** **앱 목록이 실제로 섰는가**(17판). 이게 참일 때만 웹 목록을 감춘다 —
-        안 서면 예전 그대로다(바의 `watchdog`과 같은 결이다). */
-    const [listUp, setListUp] = useState(false);
-    /**
-     * **앱 목록이 섰지만 아직 감춰 둔 상태**(37판 몫의 웹 쪽). 줄을 넘기고
-     * 읽던 자리까지 잡은 **뒤에** 드러내고, 그때 비로소 `listUp`이 된다 —
-     * 아래 `대화 목록을 앱이 그린다` 효과의 주석을 볼 것.
-     */
-    const [listReady, setListReady] = useState(false);
-    /**
-     * **들어올 때 웹 목록을 덮어 두는 앱 그림**(`lastPaint` — `lib/chatlist.ts`).
-     *
-     * 앱 목록이 드러나기 전까지 그 자리를 **지난번에 앱이 찍어 둔 그림**으로
-     * 덮는다. 그러면 웹 목록(Pretendard)에서 앱 목록(폰 기본 글꼴)으로
-     * 갈아 끼워지는 것이 안 보인다. 드러나는 순간(`listUp`) 걷는다.
-     */
-    const [cover, setCover] = useState<ListPaint | null>(null);
-    /** 덮개를 깐 때(진단 — `paintStat`의 `살음`). 걷을 때 셈하고 0으로 둔다. */
-    const coverAt = useRef(0);
-    /** 이번에 세운 목록을 이미 드러냈는가(한 번만 한다). 세울 때마다 오른다. */
-    const revealSeq = useRef(0);
-    /* **`jumpTo`는 `useCallback`이라 그 안에서 읽는 state는 처음 값에 굳는다**
-       (말풍선이 `memo`라 붙박아 둔 값이다 — `windowedRef`와 같은 수다). */
-    const listUpRef = useRef(false);
-    listUpRef.current = listUp;
-    const listReadyRef = useRef(false);
-    listReadyRef.current = listReady;
     const ncOn = useRef(false);
     /** 네이티브 바가 마지막으로 알려 준 제 높이. **`--composer`를 다시 적을
         때 쓴다** — 그 값을 지우는 곳이 따로 있어서다(아래 `write()` 주석). */
@@ -495,9 +464,6 @@ export function Chat() {
            되돌릴 자리를 못 찾아도 **맨 아래**로 끝난다: 예전 그대로다. */
         setMessages(kept.list);
         setHasMore(kept.more);
-        spotLog.판++;
-        spotLog.깜 = `줄 ${kept.list.length}`;
-        spotLog.놓음 = '아직';
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keptKey]);
 
@@ -1090,27 +1056,26 @@ export function Chat() {
     const spotNow = useCallback((list: Message[]): ChatSpot | null => {
         if (!roomId || !list.length) return null;
         const spot = SPOTS.get(roomId);
-        // 아이폰은 돌아온 위치를 먼저 복원한다. 웹의 기존 안 읽음 동작은 유지한다.
-        if (unreadFrom && !canNativeList()) {
+        /* **`여기까지 읽으셨습니다` 줄이 이긴다** — 밀린 글이 있는 사람에게는
+           그 줄이 먼저 답해야 할 물음이다. */
+        if (unreadFrom) {
             spotDone.current = 'skip';
             return null;
         }
         if (!spot || !list.some(m => m.id === spot.id)) {
             if (!spot) spotDone.current = 'skip';
-            spotLog.놓음 = !spot ? '건너뜀(적은게없음)' : '기다림(그글없음)';
             return null;
         }
         return spot;
     }, [roomId, unreadFrom]);
 
     useLayoutEffect(() => {
-        if (listUp || spotDone.current) return;   // 앱 목록 몫은 아래에 따로 있다.
+        if (spotDone.current) return;
         const spot = spotNow(messages);
         const el = listRef.current;
         if (!spot || !el || !el.querySelector(`[data-mid="${spot.id}"]`)) return;
         spotDone.current = 'web';
         atBottom.current = false;
-        spotLog.놓음 = `놓음 ${spot.id.slice(-4)}/${spot.off}`;
 
         const put = () => {
             const row = el.querySelector<HTMLElement>(`[data-mid="${spot.id}"]`);
@@ -1139,14 +1104,10 @@ export function Chat() {
             if (h !== last || fit !== lastFit) { last = h; lastFit = fit; put(); }
             if (performance.now() < until) { raf = requestAnimationFrame(tick); return; }
             raf = 0;
-            /* **손을 뗄 때의 실제 자리를 적어 둔다**(진단 · `spotLog`).
-               놓아 준 자리와 여기가 다르면 그 사이에 무엇이 밀었다는 뜻이다. */
-            const row = webSpot(el);
-            spotLog.놓음 += row ? ` → 끝 ${row.id.slice(-4)}/${row.off}` : ' → 끝?';
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [messages, listUp, spotNow]);
+    }, [messages, spotNow]);
 
     /* **줄이 그어진 자리로 옮겨 준다.** 100~200개가 밀린 사람을 맨 아래에
        내려놓으면 어디부터 읽어야 할지 스스로 찾아 올라가야 한다.
@@ -1155,16 +1116,6 @@ export function Chat() {
     useLayoutEffect(() => {
         const el = listRef.current;
         if (!unreadFrom || unreadDone.current || !el) return;
-        if (listReadyRef.current || (canNativeList() && spotDone.current === 'web')) return;
-        /* **앱 목록이 서 있으면 거기로 옮겨 달라고 한다**(5판). 감춰 둔 웹
-           목록을 굴려 봐야 보이는 것은 앱 목록이다 — 그쪽이 못 찾으면
-           (아직 안 받아 온 지난 묶음) 그냥 넘어간다. */
-        if (listUp) {
-            unreadDone.current = true;
-            atBottom.current = false;
-            void listScrollTo(unreadFrom, 'top');
-            return;
-        }
         const line = el.querySelector<HTMLElement>('.chat-unread');
         if (!line) return;
         unreadDone.current = true;
@@ -1172,7 +1123,7 @@ export function Chat() {
         /* 줄 위로 한 뼘 남겨 둔다 — 마지막으로 읽은 글이 한 줄 보여야
            '여기서부터'가 어디인지 눈에 들어온다. */
         el.scrollTop = line.offsetTop - 100;
-    }, [unreadFrom, messages, listUp]);
+    }, [unreadFrom, messages]);
 
     // 이 화면을 보고 있으면 안 읽음이 쌓이지 않는다. 새 글이 들어올 때마다
     // 다시 남겨 두어야 탭바의 빨간 숫자가 곧바로 사라진다.
@@ -1269,12 +1220,10 @@ export function Chat() {
      * (네이티브 바가 자랄 때가 그렇다 — 위 `height` 주석).
      */
     const settleList = useCallback((force?: boolean) => {
-        if (listReadyRef.current) return;
         const el = listRef.current;
         if (!el) return;
         const stick = force ?? atBottom.current;
         const drop = () => {
-            if (listReadyRef.current) return;
             const box = listRef.current;
             if (!box) return;
             const max = box.scrollHeight - box.clientHeight;   // 안 넘치면 0이다
@@ -1293,7 +1242,7 @@ export function Chat() {
             /* 손을 떼면서 '맨 아래인가'를 한 번 다시 잰다 — 앉히는 동안에는
                `onScroll`이 그 값을 안 고쳤으므로(위 주석) 여기서 맞춰 둔다. */
             const box = listRef.current;
-            if (box && !listReadyRef.current) atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+            if (box) atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
         }, 600);
     }, []);
 
@@ -2269,16 +2218,10 @@ export function Chat() {
     const saveSpot = () => {
         const el = listRef.current;
         if (!roomId || !el) return;
-        /* 앱 목록이 서 있으면 굴린 자리는 앱이 안다 — 나갈 때 물어본다
-           (`listDetach`). 여기서 감춰 둔 웹 목록을 재 봐야 헛값이다. */
-        if (listReadyRef.current || listUpRef.current) return;
         /* **맨 아래를 보고 있었으면 지운다** — 되돌려 놓을 자리가 '맨 아래'인데,
            글 id로 못박아 두면 그 사이 온 새 글을 안 따라간다. */
         const 적을것 = stampSpot(atBottom.current ? null : webSpot(el), msgsRef.current);
         keepSpot(roomId, 적을것);
-        spotNote(적을것
-            ? `${적을것.id.slice(-4)}/${적을것.off}${적을것.at ? '' : '(시각없음)'}`
-            : '맨아래');
     };
     const spotSoon = () => {
         if (spotTimer.current) return;
@@ -2318,8 +2261,6 @@ export function Chat() {
     }, []);
 
     const onScroll = () => {
-        // 숨겨진 웹 목록의 스크롤 이벤트가 UIKit의 위치 상태를 덮어쓰지 않는다.
-        if (listReadyRef.current || listUpRef.current) return;
         const el = listRef.current;
         if (!el) return;
         spotSoon();
@@ -2352,9 +2293,6 @@ export function Chat() {
         atBottom.current = true;
         jumpShown.current = false;
         setShowJump(false);
-        /* 앱 목록이 서 있으면 그쪽에 내려 달라고 한다(5판) — 감춰 둔 웹
-           목록을 굴려 봐야 보이는 것은 앱 목록이다. */
-        if (listUpRef.current) { void listSet({ toBottom: true }); return; }
         const el = listRef.current;
         if (!el) return;
         el.scrollTop = el.scrollHeight;
@@ -2578,16 +2516,6 @@ export function Chat() {
 
     /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
     const jumpTo = useCallback((id: string) => {
-        /* **앱 목록이 서 있으면 거기로 뛴다**(5판) — 감춰 둔 웹 목록을
-           굴려 봐야 보이는 것은 앱 목록이다. 못 찾았다는 답은 웹 목록과
-           같은 뜻이라(아직 안 받아 온 지난 묶음) 같은 말로 알린다. */
-        if (listUpRef.current) {
-            atBottom.current = false;
-            void listScrollTo(id, 'center', true).then(ok => {
-                if (!ok) toast('지난 대화에 있습니다. 위로 올려 주세요.');
-            });
-            return;
-        }
         const el = listRef.current?.querySelector<HTMLElement>(`[data-mid="${id}"]`);
         if (!el) { toast('지난 대화에 있습니다. 위로 올려 주세요.'); return; }
         atBottom.current = false;
@@ -2825,86 +2753,6 @@ export function Chat() {
         if (overlayUp) void hush(NativeComposer.blur());
     }, [overlayUp]);
 
-    /**
-     * **덮는 창이 뜨면 앱 목록도 감춘다**(4판).
-     *
-     * 앱 목록은 웹 화면 **위에 얹힌 앱 부품**이라 **웹의 `z-index`로는 못
-     * 덮는다** — 네이티브 바에서 겪은 그 자리와 똑같다(사진을 크게 봤는데
-     * 그 위로 입력칸이 그대로 보였다). 감추는 동안에는 **웹 목록을 도로
-     * 내보여** 창 뒤가 휑하지 않게 한다(`.nc-list`를 떼는 것이 그 일이다).
-     *
-     * **바를 감추는 `overlayUp`보다 넓다**(`listCovered`) — 서랍(☰)과 검색
-     * 결과는 **목록 자리를 통째로 덮는 웹 창**이라 앱 목록이 그대로 가린다.
-     * 바는 그때 물러날 이유가 없으므로 둘을 갈라 둔다.
-     */
-    const listCovered = overlayUp || peopleOn || searchOn;
-    useEffect(() => {
-        if (!listUp) return;
-        void listSet({ hidden: listCovered });
-    }, [listUp, listCovered]);
-
-    /**
-     * **앱 목록이 화면을 덮고 있다는 표를 뿌리에 붙인다**(`html.nc-list`).
-     *
-     * 토스트가 그것 때문에 **한 줄도 안 보였다.** `.toast-stack`은 화면
-     * 아래에 붙는데(`bottom`), 그 자리는 앱 목록과 네이티브 바가 덮고 있는
-     * 자리다 — 웹의 `z-index`로는 앱 부품을 못 덮으므로 `복사했습니다` ·
-     * `가렸습니다` 같은 말이 통째로 증발했다. 그래서 대화 화면에서만
-     * **머리말 자리로 올려** 띄운다(`components/Toast.css`) — 앱 목록의
-     * 윗변(`listTop`)이 머리말 아래라 **거기만이 웹이 그릴 수 있는 자리다.**
-     *
-     * **`.chat-list`의 `.nc-list`와 다른 표다** — 그쪽은 웹 목록을 감추는
-     * 것이고 이것은 '앱이 화면을 덮고 있다'는 사실이다. 뿌리에 있어야
-     * 토스트처럼 화면 아무 데나 붙는 것이 읽을 수 있다.
-     */
-    useEffect(() => {
-        const on = listUp && !listCovered;
-        document.documentElement.classList.toggle('nc-list', on);
-        return () => document.documentElement.classList.remove('nc-list');
-    }, [listUp, listCovered]);
-
-    /**
-     * **앱이 그린 창은 웹이 닫을 때도 함께 걷는다**(27판).
-     *
-     * 고른 그 자리에서는 앱이 스스로 닫으므로 대개 할 일이 없는데, 웹이
-     * 먼저 닫는 판이 있다 — 방을 옮기거나 창이 떠 있는 채로 화면이 다시
-     * 그려질 때다. 안 걷으면 **앱 창만 덩그러니 남아** 화면이 잠긴 것처럼
-     * 보인다(화면을 떠날 때는 `listDetach`가 함께 걷는다).
-     */
-    const nativeMenuUp = useRef(false);
-    useEffect(() => {
-        const up = !!menuFor?.native;
-        if (nativeMenuUp.current && !up) void closeListMenu();
-        nativeMenuUp.current = up;
-    }, [menuFor]);
-
-    /**
-     * `최근 대화로` 줄. **앱 목록이 서 있으면 앱이 그린다.**
-     *
-     * 그 단추는 목록 **위에 떠 있는데**, 앱 목록은 웹 화면 위에 얹힌 앱
-     * 부품이라 **웹이 그리면 통째로 가려진다** — 네이티브 바에서 겪은
-     * 그 자리다(사용자 제보 — `최신대화로 버튼 안나옴`). 값은 웹이 그대로
-     * 주고 앱은 그리기와 누르기만 맡는다(`listTap('jump')`).
-     *
-     * **걷을 때도 `null`을 보내지 말 것 — `show: false`다.** Capacitor의
-     * `hasOption`이 **`null`을 `안 보냄`으로 보아**(`!(value is NSNull)`)
-     * `{jump: null}`이 통째로 무시됐고, 그래서 **줄이 영영 안 걷혔다**
-     * (사용자 제보 — `최신대화로 와도 저 버튼이 안사라져`).
-     * 앞으로 만들 칸에도 그대로 걸리는 함정이다.
-     */
-    useEffect(() => {
-        if (!listUp) return;
-        const show = !windowed && showJump && !!lastMsg;
-        void listSet({
-            jump: {
-                show,
-                name: lastWho?.name ?? '',
-                avatar: lastWho?.avatar_url ?? '',
-                edge: edgeColor(lastWho?.gender) ?? '',
-                text: lastMsg ? preview(lastMsg) : '',
-            },
-        });
-    }, [listUp, showJump, windowed, lastMsg, lastWho]);
     /** 올해 몇 번 나갔나. 함수가 없는 저장소에서는 `null`이라 그 줄을 안 적는다. */
     const [attend, setAttend] = useState<Record<string, number> | null>(null);
     const attendTried = useRef(false);
@@ -3378,79 +3226,14 @@ export function Chat() {
     /** 바가 알려 올 때 부를 것들. **늘 최신 함수를 가리키게 해 둔다** —
         붙이는 일은 화면이 열릴 때 한 번뿐이라, 그때의 함수를 그대로 들고
         있으면 옛 값을 보고 돈다. */
-    /**
-     * 앱 목록에서 온 손짓을 웹의 일로 옮긴다(4판).
-     *
-     * **글은 id로 되찾는다** — 앱은 무엇을 눌렀는지만 알려 주고, 그 글로
-     * 무엇을 할지는 여기 이미 있는 길(`openCard`·`startReply`·`openMenu`)이
-     * 그대로 맡는다. 두 벌로 만들면 한쪽만 고치게 된다.
-     */
-    const fromList = {
-        face: (id: string) => {
-            const m = messages.find(x => x.id === id);
-            const p = m ? names[m.user_id ?? ''] : undefined;
-            if (p) openCard(p);
-        },
-        reply: (id: string) => {
-            const m = messages.find(x => x.id === id);
-            if (m) startReply(m);
-        },
-        hold: (e: { id: string; mine: boolean; x: number; y: number; w: number; h: number }) => {
-            const m = messages.find(x => x.id === e.id);
-            if (!m) return;
-            /* **27판부터는 창도 앱이 그린다.**
-               26판까지는 웹이 그렸는데, 웹 창은 앱 목록을 못 덮으므로 그동안
-               **앱 목록을 감추고 웹 목록을 도로 내보이는 바꿔치기**를 했다.
-               두 목록은 **글꼴이 달라**(앱은 폰 기본 글꼴, 웹은 Pretendard)
-               줄 높이와 줄 바뀌는 자리가 어긋나고 아래로 갈수록 쌓여서,
-               창이 뜨는 순간 말풍선과 얼굴이 통째로 움찔했다(사용자 제보 ·
-               사진). **줄 간격을 맞춰도(26판) 그대로였다** — 값을 하나씩
-               맞추는 길로는 끝이 없어 바꿔치기 자체를 없앤 것이다.
-               **무엇이 뜨는지는 그대로 웹이 정한다**(`holdItems`). */
-            const items = holdItems(m);
-            if (!items.length) return;
-            setMenuFor({ m, at: new DOMRect(e.x, e.y, e.w, e.h), mine: e.mine, native: true });
-            void listMenu({
-                at: { x: e.x, y: e.y, w: e.w, h: e.h },
-                mine: e.mine,
-                items,
-                /* 가린 글에는 알약을 안 붙인다 — 덮어 둔 글에 좋다고 누를
-                   일이 없다(복사·댓글을 안 붙이는 것과 같은 잣대다). */
-                reacts: m.hidden_at ? [] : [...REACTIONS],
-                skin: chatListSkin(listRef.current),
-            });
-        },
-        /**
-         * 앱 창에서 무엇인가를 골랐다(27판).
-         * **하는 일은 웹이 정한다** — 줄은 `runHoldItem`, 알약은 `toggleReact`로
-         * 가고 둘 다 웹 창이 쓰던 그 길 그대로다.
-         */
-        menuPick: (e: { kind: string; name: string }) => {
-            const held = menuFor?.m;
-            setMenuFor(null);
-            if (!held || e.kind === 'close') return;
-            if (e.kind === 'react') { void toggleReact(held.id, e.name); return; }
-            runHoldItem(held, e.name);
-        },
-        /* 인용을 누르면 원본으로 뛴다(웹 목록과 같은 길 — `jumpTo`가
-           앱 목록까지 챙긴다). **못 찾으면 거기서 `지난 대화에 있습니다`가
-           뜬다** — 여기서 또 가릴 것이 없다. */
-        quote: (to: string) => { if (to) jumpTo(to); },
-        jumpLatest: () => jumpToLatest(),
-        /* 오른쪽으로 밀어 나가기(25판). **앱 목록 자리의 손짓은 웹에 아예
-           안 닿으므로**(웹뷰 위에 얹힌 앱 부품이다) 앱이 잡아 넘겨 준다 —
-           `←`와 완전히 같은 길이라 히스토리가 비었으면 홈으로 간다. */
-        back: () => goBack(),
-    };
-
     const nc = useRef({
         send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-        photo, loadMore, nav, toggleReact, ...fromList,
+        photo, toggleReact,
     });
     useEffect(() => {
         nc.current = {
             send, toggleTray, onComposerFocus, onComposerBlur, syncMention, markText,
-            photo, loadMore, nav, toggleReact, ...fromList,
+            photo, toggleReact,
         };
     });
 
@@ -3541,13 +3324,8 @@ export function Chat() {
                `transform`을 안 따라온다 — 도중에 서면 **아직 미끄러지는
                화면 위에 입력칸만 제자리에 붙어 찢어져 보인다.**
                끝나고 세우면 그 틈이 아예 없다(`slideLeft()`는 안 움직이는
-               참이면 0이라 평소에는 그냥 지나간다).
-               **앱 목록을 켜 두었으면 안 기다린다**(`listOn()` — `hasNative()`와
-               같은 잣대다). 그때 대화는 통째로 안 밀리고 40px만 들썩이므로
-               기다려서 얻는 것이 없는데, **그 0.5초 동안 흰 웹 입력칸이
-               그대로 보였다**(사용자 제보 — `채팅들어가면 흰색배경 칸이
-               올라왔다 사라져`). 네이티브 바가 덮기 전의 그 칸이다. */
-            const left = listOn() ? 0 : slideLeft();
+               참이면 0이라 평소에는 그냥 지나간다). */
+            const left = slideLeft();
             if (left > 0) await new Promise(r => setTimeout(r, left + 40));
             if (dead) return;
 
@@ -3587,12 +3365,6 @@ export function Chat() {
                 document.documentElement.classList.remove('nc');
                 document.documentElement.classList.remove('kb-follow');
                 setNativeBar(false);
-                /* **바가 끝내 안 섰으면 붙들어 둔 앞 그림도 여기서 푼다**
-                   (`lib/tabs.ts`의 `holdGhost`). 바가 없으면 앱 목록도 못
-                   세우는데, 아래 효과는 `nativeBar`가 거짓 → 거짓이라 다시
-                   안 돌아 아무도 못 푼다 — `HOLD_MAX`(2.5초)까지 죽은 그림이
-                   화면을 덮고 있게 된다. */
-                releaseGhost();
                 void hush(NativeComposer.detach());
             }, 1500);
         })();
@@ -3612,457 +3384,6 @@ export function Chat() {
         /* `settleList`는 `useCallback([])`이라 안 바뀐다 — 여기에 적어도
            바를 다시 세우는 일은 없다. */
     }, [settleList]);
-
-    /* ── 들어올 때 웹 목록을 앱 그림으로 덮는다 ────────────────────
-     *
-     * 사용자 제보 — `탭바에서 대화를 눌러서 들어가면 웹화면이 잠깐 보였다
-     * 앱으로 바뀌는거처럼 보여`. 화면이 밀려 들어오는 0.5초 동안은 웹
-     * 목록이 보이고(그래야 빈 판이 안 지나간다) 앱 목록은 그 뒤에 감춘
-     * 채로 서서 줄과 자리를 다 잡은 뒤에 드러나는데, **그 순간 글꼴이
-     * Pretendard에서 폰 기본 글꼴로 갈아 끼워지는 것이 그대로 보인다.**
-     *
-     * 39판이 끌어 돌아올 때 쓴 그 그림을 여기서도 덮개로 쓴다 —
-     * **갈아 끼우는 자리 자체를 없애는 것**이 26 → 27판·39판의 답이다.
-     * 처음 들어가는 길에는 그림이 없어 예전 그대로다.
-     *
-     * **끝내 안 서면 스스로 걷는다**(`COVER_MAX`). 죽은 그림이 화면을
-     * 덮은 채로 남으면 앱이 멈춘 것처럼 보인다(`sweepGhosts`의 그 규칙).
-     */
-    useEffect(() => {
-        if (!roomId || !canNativeList()) { setCover(null); return; }
-        const p = lastPaint(roomId);
-        if (!p) return;
-        setCover(p);
-        coverAt.current = Date.now();
-        const t = window.setTimeout(() => setCover(null), COVER_MAX);
-        return () => window.clearTimeout(t);
-    }, [roomId]);
-
-    /** 앱 목록이 드러난 그 프레임에 걷는다 — 둘이 함께 바뀌어 틈이 없다. */
-    useEffect(() => {
-        if (!listUp) return;
-        /* 진단 — 덮개가 얼마나 버텼는가(`paintStat`). 이 값이 0에 가까우면
-           **덮을 새도 없이 걷힌 것**이고, 2500ms이면 앱 목록이 끝내 안 선
-           것이다. 까닭이 가려지면 함께 걷어낼 것. */
-        if (coverAt.current) {
-            paintLog.살음 = Date.now() - coverAt.current;
-            coverAt.current = 0;
-        }
-        setCover(null);
-    }, [listUp]);
-
-    /* ── 대화 목록을 앱이 그린다(17판) ─────────────────────────
-     *
-     * **줄만 만들어 넘긴다.** 누가 보냈는지 · 이름을 붙일지 · 시각을 적을지는
-     * 여기서 이미 셈해 두었고, 앱은 그것을 그리고 굴리기만 한다
-     * (`ios/App/App/ChatList.swift` 머리말 참고).
-     *
-     * 41판부터 앱 목록이 기본이다. 내 정보에서 명시적으로 끄거나,
-     * 준비에 실패하면 웹 목록으로 돌아간다.
-     *
-     * **앱 목록이 실제로 선 뒤에만 웹 목록을 감춘다**(`listUp`). 안 서면
-     * 예전 그대로다 — 바가 안 설 때 되돌리는 것(`watchdog`)과 같은 결이다.
-     */
-    useEffect(() => {
-        /* **앱 목록을 안 세우는 판이면 붙들어 둔 앞 그림을 여기서 푼다**
-           (`lib/tabs.ts`의 `holdGhost`). 웹 목록이 곧 화면이라 덮어 둘
-           까닭이 없고, 안 풀면 옛 그림을 `HOLD_MAX`까지 들고 있다가 툭 바뀐다. */
-        if (!canNativeList()) { releaseGhost(); setCover(null); return; }
-        /* **바가 아직 안 선 것은 `안 세운다`가 아니다 — 여기서 풀지 말 것.**
-           `nativeBar`는 `attach`가 끝나야 참이 되므로 **첫 렌더에서는 늘
-           거짓**인데, 거기서 풀어 버려 **손을 놓는 순간 웹 목록이 한 번
-           비쳤다가 앱 목록으로 바뀌었다**(사용자 제보 — `끌어서 손을 놓으면
-           순간 웹화면으로 바꼈다가 앱화면으로 돌아와`). 끄는 동안에는 그림이
-           덮고 있어 멀쩡했으므로 **끌 때는 되는데 놓으면 바뀐다면 늘 이
-           자리다.** 바가 서면 이 효과가 다시 도니 그때 이어서 세우면 되고,
-           끝내 안 서면 `watchdog`이 풀고 그것도 못 하면 `HOLD_MAX`가 걷는다. */
-        if (!nativeBar || !roomId) return;
-        let dead = false;
-        let drop: (() => void) | null = null;
-        void (async () => {
-            /* **화면이 밀려 들어오는 동안에는 세우지 않는다.** 그동안은 웹
-               목록이 보이고(읽던 자리도 웹 쪽이 이미 잡아 두었다) 그것이
-               머리말과 함께 밀려 들어온다. 25판까지는 그 도중에 앱 목록을
-               세우고 40px을 따라 들어오게 했는데, **세우는 순간 웹 목록을
-               감추고 빈 앱 목록이 알파 0에서 뜨며 줄이 채워지고 맨 아래로
-               붙었다가 읽던 자리로 튀는 것**이 미끄러지는 끝자락에 겹쳐
-               `떠는 듯한 느낌`과 `대화가 위로 올라감`으로 보였다(사용자
-               제보). 끝난 뒤에 갈아 끼우면 그 셋이 한 프레임에 끝난다. */
-            const left = slideLeft();
-            if (left > 0) await new Promise(r => setTimeout(r, left + 40));
-            if (dead) return;
-            const attached = await listAttach({
-                session: `${me}:${roomId}`,
-                top: Math.round(listRef.current?.getBoundingClientRect().top ?? 0),
-                skin: chatListSkin(listRef.current),
-                /* **감춘 채로 세운다.** 줄을 넘기고 읽던 자리까지 잡은 뒤에
-                   드러낸다(아래 `드러내기` 효과) — 그래야 빈 보라 판도,
-                   맨 아래 → 읽던 자리로 튀는 것도 눈에 안 띈다. */
-                hidden: true,
-                /* **손가락을 따라 뒤로 갈 것인가**(35판). 스위치와, 뒤에
-                   깔 앞 화면이 있는지는 **웹만 안다** — 그 그림은 떠날 때
-                   찍어 둔 웹 DOM이라 앱이 만들 길이 없다. 거짓이면 앱이
-                   25판처럼 곧바로 넘어간다. */
-                drag: canBackDrag() && hasBackShot(),
-            });
-            /* 못 세우면 웹 목록이 곧 화면이라 덮개도 걷는다 — 안 걷으면
-               지난번 그림이 화면을 덮은 채로 남는다. */
-            if (dead || !attached.ok) { releaseGhost(); setCover(null); return; }
-            // 42판은 UIKit에 보관한 위치로 복귀한다. 웹의 복원/안읽음 이동을 중복 실행하지 않는다.
-            if (attached.resumed) {
-                spotDone.current = 'app';
-                unreadDone.current = true;
-                spotLog.놓음 = '앱 보관 위치';
-            }
-            const h = await onListState(e => {
-                /* 굴린 자리는 이제 앱이 안다 — 우리 `atBottom`도 그 값을 따른다
-                   (새 글이 왔을 때 따라 내릴지를 가르는 값이다). */
-                atBottom.current = e.atBottom;
-                /* `최근 대화로` 줄. **뒤집힐 때만 알려 오므로**(앱 쪽
-                   `report`) 여기서 또 거를 것이 없다 — 굴릴 때마다 state를
-                   건드리면 긴 대화에서 그대로 끊긴다. */
-                if (e.far !== jumpShown.current) {
-                    jumpShown.current = e.far;
-                    setShowJump(e.far);
-                }
-                if (e.atTop) void nc.current.loadMore();
-            });
-            /* **누르면 하는 일은 웹이 정한다**(19판) — 앱은 무엇을 눌렀는지만
-               알려 준다. 사진 크게 보기도 카드가 가는 곳도 이미 여기 길이
-               있고, 두 벌로 만들면 한쪽만 고치게 된다. */
-            const t = await onListTap(e => {
-                if (e.kind === 'photo' && e.to) setZoom(e.to);
-                else if (e.kind === 'card' && e.to) nc.current.nav(e.to);
-                else if (e.kind === 'react' && e.to) void nc.current.toggleReact(e.id, e.to);
-                else if (e.kind === 'face') nc.current.face(e.id);
-                else if (e.kind === 'reply') nc.current.reply(e.id);
-                else if (e.kind === 'quote') nc.current.quote(e.to);
-                else if (e.kind === 'jump') nc.current.jumpLatest();
-                else if (e.kind === 'back') nc.current.back();
-            });
-            /* **27판부터 창도 앱이 그린다** — 앱은 누른 말풍선의 자리를
-               알려 주고(`listHold`), 웹은 줄 목록을 실어 보내며
-               (`listMenu`), 고른 것이 `listMenuPick`으로 돌아온다.
-               그 자리 값은 곧 `getBoundingClientRect`와 같은 창 좌표다. */
-            const d = await onListHold(e => nc.current.hold(e));
-            const p = await onListMenuPick(e => nc.current.menuPick(e));
-            /* **손가락을 따라 뒤로 가기**(35판). 끄는 그림은 앱이 옮기고
-               (`BackDrag`) 웹은 **뒤에 깔릴 앞 화면만** 그린다 — 그 그림은
-               떠날 때 찍어 둔 웹 DOM이라 앱이 만들 길이 없다.
-               **넘어갈 때 뒤로 가는 것도 여기서 한다** — 앱이 그림을 다
-               내보낸 뒤에 알려 오므로, 목적지가 그 0.23초 동안 반쯤 그려진
-               채로 지나가지 않는다(웹 `end()`의 그 차례와 같다). */
-            const b = await onListBack(e => {
-                if (e.phase === 'start') nativeBackStart();
-                else nativeBackEnd(e.phase === 'commit', () => nc.current.back());
-            });
-            const off = () => {
-                void h.remove(); void t.remove(); void d.remove();
-                void p.remove(); void b.remove();
-            };
-            if (dead) { off(); return; }
-            drop = off;
-            revealSeq.current++;
-            listReadyRef.current = true;
-            setListReady(true);
-        })();
-        return () => {
-            dead = true;
-            drop?.();
-            /* 아직 안 끝난 `드러내기` 약속을 없던 일로 한다(일부러 뒷정리에서
-               ref를 올린다 — 값이 아니라 '지금 세대'를 보는 것이다). */
-            // oxlint-disable-next-line react-hooks/exhaustive-deps
-            revealSeq.current++;
-            listReadyRef.current = false;
-            setListReady(false);
-            setListUp(false);
-            /* **나가면서 읽던 자리를 받아 적는다**(32판 · 위 `SPOTS`).
-               굴린 자리는 앱이 들고 있어 물어볼 길이 이 순간뿐이다 —
-               굴릴 때마다 알려 오게 하면 다리를 쉼 없이 건너게 된다.
-               답이 늦게 와도 `SPOTS`는 모듈에 있어 그대로 남는다. */
-            const room = roomRef.current;
-            const list = msgsRef.current;
-            /* **방 번호를 함께 준다** — 앱이 찍어 준 그림을 그 방 몫으로
-               들고 있다가 다시 들어올 때 덮개로 쓴다(`lastPaint`). */
-            void listDetach(room ?? undefined).then(spot => {
-                const 적을것 = stampSpot(spot, list);
-                if (room) keepSpot(room, 적을것);
-                /* 진단(`spotLog`) — 앱 목록이 그린 방에서는 `saveSpot`이
-                   일찍 돌아서므로 적어 두는 자리가 여기 하나뿐이다. */
-                spotNote(적을것 ? `${적을것.id.slice(-4)}/${적을것.off}앱` : '맨아래앱');
-            });
-        };
-    }, [nativeBar, roomId, me]);
-
-    /**
-     * 앱에 넘길 줄 목록. **묶는 규칙은 웹 목록이 쓰는 것과 같은 함수다**
-     * (`lib/chatlist.ts`의 `sameBlock`·`isNewDay`).
-     *
-     * **그림 주소도 여기서 짓는다**(`stickerSrc`) — 글에 남는 값은
-     * `sticker:<id>`이고 주소 짓는 규칙은 웹에만 있다. 앱이 그 규칙을 또
-     * 들고 있으면 형식을 바꿀 때 한쪽만 고치게 된다.
-     *
-     * **아직 못 그리는 것은 `other`로 넘긴다** — 지금은 가린 글뿐이다.
-     * 자리는 그대로 잡고 `사진`처럼 무슨 줄인지만 적는다(`preview`와 같은
-     * 말이라 인용에서 보던 것과 어긋나지 않는다).
-     *
-     * **인용·반응·`여기까지 읽으셨습니다` 줄도 여기서 만든다**(3판).
-     * 무엇을 적을지는 웹 목록이 쓰는 값 그대로다 — `preview()`(가린 글은
-     * `가려진 메시지`로 이미 바뀐다) · `countReacts()`(먼저 달린 순서) ·
-     * `unreadFrom`(줄 자리는 한 번 정하고 안 바꾼다). **두 벌로 셈하지 말 것.**
-     */
-    const listData = useMemo<ListRow[]>(() => {
-        if (!listReady) return [];
-        const who = byId(data?.people ?? []);
-        const byMid = new Map(messages.map(m => [m.id, m]));
-        return messages.map((m, i) => {
-            const prev = messages[i - 1];
-            const next = messages[i + 1];
-            const newDay = isNewDay(prev, m);
-            const grouped = !newDay && sameBlock(prev, m);
-            const showTime = !sameBlock(m, next);
-            const mine = m.user_id === me;
-            const p = who[m.user_id ?? ''];
-            const date = newDay ? dayChip(m) : undefined;
-
-            /* **안내 줄 가운데 갈 곳이 있는 것은 눌리는 카드다**(웹의
-               `LinkCard`와 같은 다섯 자리). 갈 곳이 없으면 가운데 한 줄이다. */
-            if (m.system) {
-                /* `icon`은 머리에 서는 배지다(웹의 `CARD_PATHS`) — 앱은 같은
-                   이름을 제 SF Symbol로 옮겨 그린다. **한쪽만 고치지 말 것.** */
-                const card: Pick<ListRow, 'to' | 'go' | 'icon'> | null = m.round_id
-                    ? { to: `/rounds/${m.round_id}`, go: '라운드 보러 가기 ›', icon: 'round' }
-                    : m.poll_id
-                        ? { to: `/polls/${m.poll_id}`, go: '투표 보러 가기 ›', icon: 'poll' }
-                        : m.post_id
-                            ? { to: `/board/${m.post_id}`, go: '공지 보러 가기 ›', icon: 'post' }
-                            : null;
-                /* 안내 줄에도 `여기까지 읽으셨습니다`는 그어야 한다 —
-                   그 줄이 곧 안 읽은 것의 첫 줄일 수 있다. */
-                const mark = m.id === unreadFrom;
-                /* 안내 줄·카드는 웹에서 `margin: 10px auto 2px`이다
-                   (`.chat-notice`·`.chat-result`) — 줄 위 자리는 늘 10px. */
-                return card
-                    ? { id: m.id, kind: 'card', body: m.body, date, mark,
-                        top: ROW_TOP, ...card }
-                    : { id: m.id, kind: 'system', body: m.body, date, mark,
-                        top: ROW_TOP };
-            }
-
-            /* **가린 글은 날짜 칸처럼 가운데 한 줄이다**(사용자 요청 —
-               `가릴때 누가썼는지 모르게 프로필도 없애고 가려진 메시지입니다를
-               가운데로 표시해줘. 날짜와요일 표시되는거처럼`).
-               얼굴·이름·시각·안 읽은 수를 통째로 뺀다 — **누가 썼는지를
-               지우는 것이 이 줄의 뜻**이라, 옆에 얼굴이 남아 있으면 그 뜻이
-               반쯤 없어진다.
-
-               **`system`으로 넘기는 것이 이 자리의 전부다** — 앱이 안내 줄과
-               같은 칩으로 그려 주므로 **앱에 손댈 것이 없다**(웹의
-               `.chat-hidden`이 `.chat-notice`와 같은 모양인 것과 짝이다).
-               **원문은 아예 안 넘긴다** — 덮어 둔 것이 그리로 새면 안 된다. */
-            if (m.hidden_at) {
-                return {
-                    id: m.id, kind: 'system', body: HIDDEN_LINE, date,
-                    mark: m.id === unreadFrom, top: ROW_TOP,
-                };
-            }
-
-            const head = !mine && !grouped;
-            const head3 = {
-                name: head ? (personLabel(p) || '알 수 없음') : undefined,
-                avatar: head ? (p?.avatar_url ?? undefined) : undefined,
-                edge: head ? edgeColor(p?.gender) : undefined,
-            };
-            const rows = countReacts(reacts[m.id] ?? [], me);
-            const stamp = {
-                /* **줄 위 자리를 웹이 정해서 넘긴다**(`.chat-row`의
-                   `margin-top`). 앱이 셈하면 규칙이 두 곳이 되어 어긋난다 —
-                   실제로 앱은 모든 줄에 4px을 박아 두어 줄마다 6px씩
-                   밀렸다(사용자 제보 · 사진 — `팝업이 있을때와 없을때
-                   프로필이나 말풍선 위치가 틀어져`). */
-                top: grouped ? GROUPED_TOP : ROW_TOP,
-                time: showTime ? formatTime(m.created_at) : undefined,
-                unread: unreadBy[m.id] ?? 0,
-                date,
-                mark: m.id === unreadFrom,
-                reacts: rows.length
-                    ? rows.map(([emoji, n, mineOn]) => ({ emoji, n, mine: mineOn }))
-                    : undefined,
-            };
-
-            /* 인용(답장). 원본이 아직 안 불러온 지난 묶음에 있으면
-               `지난 대화에 댓글`이 된다. (가린 글은 위에서 이미 가운데
-               한 줄로 빠졌으므로 여기까지 오지 않는다.) */
-            const quoted = m.reply_to ? byMid.get(m.reply_to) : undefined;
-            const quote = m.reply_to
-                ? {
-                    quoteWho: quoted
-                        ? `${who[quoted.user_id ?? '']?.name ?? '알 수 없음'}에게 댓글`
-                        : '지난 대화에 댓글',
-                    quoteText: quoted ? preview(quoted) : '원본을 찾지 못했습니다',
-                    /* **누르면 갈 곳을 함께 싣는다** — 이 값이 없으면 앱은
-                       어디로 뛸지 알 길이 아예 없어 인용이 통째로 안 눌린다
-                       (20판에서 실제로 그랬다 — 사용자 제보 `답장 인용
-                       원본이동안됨`). 원본이 아직 안 불러온 지난 묶음에
-                       있으면 비워 둔다(웹 목록에서도 안 움직인다). */
-                    quoteTo: quoted ? m.reply_to : undefined,
-                }
-                : {};
-
-            if (m.image_url) {
-                /* **`image_url`이 이미 `sticker:<id>`다 — `stickerRef()`를 또
-                   거치지 말 것.** 그러면 `sticker:sticker:<id>`가 되어
-                   `stickerSrc()`가 `./stickers/sticker:<id>.png`를 내놓는다.
-                   없는 파일이라 앱 목록에서 **그림만 안 들어간 118px 빈
-                   자리**가 되고(자리는 잡히니 고장으로도 안 보인다),
-                   게다가 `sticker:mv…`는 `mv`로 시작하지 않아 **움직이는
-                   것까지 `.png`로** 찾는다. 웹 말풍선은 `image_url`을 그대로
-                   넘겨 왔다(`<StickerImg mark={message.image_url!} />`) —
-                   앱 목록만 어긋나 있었다(사용자 제보 — `이모티콘 안나옴`).
-                   `stickerRef()`는 **맨 id**를 받는 함수다. */
-                const sticker = isSticker(m.image_url);
-                return {
-                    id: m.id, kind: sticker ? 'sticker' : 'photo', mine,
-                    ...head3, ...stamp, ...quote,
-                    body: '',
-                    image: sticker ? stickerSrc(m.image_url) : m.image_url,
-                    cap: m.body || undefined,
-                };
-            }
-            return {
-                id: m.id,
-                kind: 'text',
-                mine,
-                ...head3, ...stamp, ...quote,
-                body: m.body,
-                /* **인용이 붙으면 이모지만 보낸 글이라도 말풍선을 안 벗긴다** —
-                   벗기면 머리말과 가는 선이 허공에 뜬다(웹과 같은 규칙이다). */
-                big: !m.reply_to ? emojiOnly(m.body) : false,
-            };
-        });
-    }, [listReady, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
-
-    // 줄 수신 → 위치 복원 → 공개를 한 흐름으로 처리한다.
-    // 다른 효과의 호출 순서나 브리지 응답 속도를 가정하지 않는다.
-    useEffect(() => {
-        if (!listReady) return;
-        let cancelled = false;
-        const seq = revealSeq.current;
-        let timer = 0;
-        const current = () => !cancelled && revealSeq.current === seq && listReadyRef.current;
-        const failed = () => {
-            if (!current()) return;
-            listReadyRef.current = false;
-            setListReady(false);
-            setListUp(false);
-            void listDetach();
-            releaseGhost();
-            setCover(null);
-        };
-        void (async () => {
-            const ok = await listRows(listData, true);
-            if (!current()) return;
-            if (!ok) {
-                // 실패한 빈 네이티브 화면으로 웹을 덮지 않는다.
-                listReadyRef.current = false;
-                setListReady(false);
-                setListUp(false);
-                await listDetach();
-                releaseGhost();
-                setCover(null);
-                return;
-            }
-            if (spotDone.current !== 'app' && spotDone.current !== 'skip') {
-                const spot = spotNow(messages);
-                if (spot) {
-                    const restored = await listScrollTo(spot.id, 'at', false, spot.off);
-                    if (!current()) return;
-                    spotLog.놓음 = `앱 ${spot.id.slice(-4)}/${spot.off}${restored ? '' : ' 못찾음'}`;
-                    if (restored) {
-                        spotDone.current = 'app';
-                        atBottom.current = false;
-                    }
-                }
-            }
-            if (listUp || loading || !current()) return;
-            const reveal = async () => {
-                if (!current()) return;
-                if (unreadFrom && spotDone.current !== 'app') {
-                    atBottom.current = false;
-                    await listScrollTo(unreadFrom, 'top');
-                    if (!current()) return;
-                }
-                if (!await listSet({ hidden: false })) throw new Error('native list reveal failed');
-                if (!current()) return;
-                setListUp(true);
-                requestAnimationFrame(() => {
-                    if (revealSeq.current === seq && listReadyRef.current) releaseGhost();
-                });
-            };
-            if (messages.length) await reveal();
-            else timer = window.setTimeout(() => { void reveal().catch(failed); }, EMPTY_WAIT);
-        })().catch(failed);
-        return () => { cancelled = true; window.clearTimeout(timer); };
-    }, [listReady, listData, listUp, loading, messages, unreadFrom, spotNow]);
-
-    /**
-     * 목록이 시작하는 자리를 알려 준다 — 앱 목록의 윗변이 그 자리에 선다.
-     * **방 공지가 붙었다 떨어지면 그만큼 움직이므로** 다시 재서 알린다
-     * (감춰 둔 웹 목록이 자리는 그대로 차지하고 있어 그 값이 맞는다).
-     */
-    useEffect(() => {
-        /* **`loading`을 함께 본다** — 불러오는 동안에는 스피너만 있어
-           `.chat-list`가 없다. 빈 배열로 두면 그때 한 번 돌고 말아 목록이
-           생겨도 영영 안 재는데, 아래로 끌어 키보드를 내리는 기능이 예전에
-           꼭 그렇게 죽어 있었다. */
-        if (!listReady || loading) return;
-        const el = listRef.current;
-        if (!el) return;
-        /**
-         * **바 위에 웹이 그리는 것의 높이**(`lift`) — 인용(답장) · 언급 목록 ·
-         * 이모티콘 미리보기 · 서랍이다. 바가 맡는 것은 한 줄뿐이라 그 넷은
-         * 그대로 웹이 그리는데, **앱 목록은 웹 화면 위에 얹힌 앱 부품이라**
-         * 아랫변을 바 윗변에 붙여 두면 넷이 통째로 뒤에 깔려 **아예 안 보인다**
-         * (사용자 제보 — `@언급 안됨` · `이모티콘 안나옴` · `답장 안걸림`이
-         * 셋 다 이 한 자리였다). 그만큼 목록을 올려 비운다.
-         *
-         * `.chat-input`은 네이티브 바를 쓰는 동안 **위 여백과 테두리가 0**이고
-         * 아래 여백이 곧 바가 가리는 자리라(`html.nc .chat-input`), **높이에서
-         * 아래 여백을 빼면** 그것이 웹이 그린 몫이다.
-         */
-        const lift = () => {
-            const box = barRef.current;
-            if (!box) return 0;
-            const pad = parseFloat(getComputedStyle(box).paddingBottom) || 0;
-            return Math.max(0, Math.round(box.getBoundingClientRect().height - pad));
-        };
-        let previous = '';
-        const tell = () => {
-            const top = Math.round(el.getBoundingClientRect().top);
-            const extra = lift();
-            const key = `${top}:${extra}`;
-            if (key === previous) return;
-            previous = key;
-            void listSet({ top, lift: extra });
-        };
-        /* **색도 여기서 한 번 더 보낸다.** `listAttach`가 도는 순간에는
-           불러오는 중이라 `.chat-list`가 아직 없을 수 있고, 그때 읽으면
-           대화 팔레트가 아니라 예비값이 간다(색 토큰은 `:root`가 아니라
-           그 칸에 달려 있다). */
-        void listSet({ skin: chatListSkin(el) });
-        tell();
-        const ro = new ResizeObserver(tell);
-        ro.observe(el);
-        /* 입력칸도 함께 본다 — 인용·언급 목록·서랍이 뜨고 지는 자리다.
-           (목록이 `flex: 1`이라 대개 같이 움직이지만, 여기만 바뀌는
-           판이 있으면 `lift`가 옛 값으로 굳는다.) */
-        if (barRef.current) ro.observe(barRef.current);
-        window.addEventListener('resize', tell);
-        return () => {
-            ro.disconnect();
-            window.removeEventListener('resize', tell);
-        };
-    }, [listReady, loading]);
 
     /** 서랍이 열렸는지와 이모티콘을 골랐는지를 바에 알린다. */
     useEffect(() => {
@@ -4213,10 +3534,7 @@ export function Chat() {
                 </div>
             )}
 
-            {/* **앱 목록이 섰으면 감추기만 한다** — `display: none`으로 지우지
-                말 것: 자리가 없어지면 `--chat-h` 셈과 `listTop`이 함께 어긋난다
-                (댓글 칸에서 쓴 그 수와 같다). */}
-            <div className={`chat-list${listUp && !listCovered ? ' nc-list' : ''}`}
+            <div className="chat-list"
                  ref={listRef} onScroll={onScroll} onClick={onPhotoTap}>
                 {hasMore && (
                     <button className="btn ghost sm chat-more" onClick={loadMore} disabled={loadingMore}>
@@ -4290,17 +3608,6 @@ export function Chat() {
                 })}
             </div>
 
-            {/* **앱 목록이 드러나기 전까지 그 자리를 앱 그림으로 덮는다.**
-                웹 목록(Pretendard)에서 앱 목록(폰 기본 글꼴)으로 갈아
-                끼워지는 것이 보이지 않게 하는 덮개다 — 위 `cover` 참고.
-                아래를 바닥까지 늘여 두는 것은 그림 밑에 웹 목록 끝자락이
-                비치지 않게 하려는 것이고, 그 아래는 곧 네이티브 바가 덮는다. */}
-            {cover && !listUp && (
-                <div className="chat-paint" style={{ top: cover.top }} aria-hidden="true">
-                    <img src={cover.url} alt="" style={{ height: cover.h }} />
-                </div>
-            )}
-
             {/* **옛 글을 보는 중이라는 표이자, 돌아오는 길이다.** 검색으로
                 옮겨 가면 목록이 그 언저리만 담고 있어 아래로 끝까지 굴려도
                 최근 대화가 없다 — 이 단추가 없으면 나갔다 다시 들어와야 한다. */}
@@ -4315,9 +3622,7 @@ export function Chat() {
                 밀린 글이 많은 날에는 최근 대화까지 한참을 굴려야 했다.
                 `windowed`일 때는 안 띄운다 — 그때는 목록에 최근 대화가 아예
                 없어 굴려도 소용이 없고, 바로 위 `.chat-recent`가 그 몫이다. */}
-            {/* **앱 목록이 서 있으면 앱이 그린다** — 여기서 그려 봐야 앱
-                목록에 통째로 가린다(바로 위 효과 참고). */}
-            {!listUp && !windowed && showJump && lastMsg && (
+            {!windowed && showJump && lastMsg && (
                 <button className="chat-jump" onClick={jumpToLatest}
                         aria-label="최근 대화로 이동">
                     {/* 안내 줄(`system`)에는 얼굴도 이름도 없다 — 말풍선에서도

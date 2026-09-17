@@ -52,13 +52,6 @@ type Native = {
      */
     toast(o: { text: string; bg?: string; fg?: string; line?: string; size?: number }):
         Promise<{ ok: boolean }>;
-    /**
-     * 한 번 더 묻는 창(30판부터). 아래 `canNativeConfirm()`을 볼 것.
-     * **띄울 데가 없으면 거절한다** — `ok: false`로 답하면 사용자가
-     * 고르지도 않은 `취소`가 되어 버린다.
-     */
-    confirm(o: { title: string; detail?: string; confirmLabel?: string; danger?: boolean }):
-        Promise<{ ok: boolean }>;
     addListener(n: 'change', cb: (e: { text: string; sel: number }) => void): Promise<Handle>;
     addListener(n: 'send', cb: (e: { text: string }) => void): Promise<Handle>;
     addListener(n: 'action', cb: (e: { name: ComposerAction }) => void): Promise<Handle>;
@@ -548,44 +541,3 @@ export async function showNativeToast(text: string, kind: 'ok' | 'error' | 'info
     } catch { return false; }
 }
 
-/* ── 한 번 더 묻는 창도 앱이 띄운다 (30판) ──────────────────────
- *
- * **웹 확인창은 앱 목록과 바 뒤에 깔린다**(웹의 `z-index`로는 앱 부품을
- * 못 덮는다). 그래서 그동안 창이 뜨는 동안만 **앱 목록을 감추고 웹
- * 목록을 도로 내보이는 바꿔치기**를 했는데(`useConfirmUp`), 두 목록은
- * 굴린 자리가 따로라 **대화가 맨 아래로 툭 내려갔다가 닫으면 도로
- * 올라왔다**(사용자 제보 · 사진 — `가리기를 누르면 채팅 맨아래로
- * 내려와서 팝업이뜨고 … 다시 눌렀던 위치로 돌아가`).
- *
- * **27판에서 길게 누른 창으로 배운 그대로다** — 값을 하나씩 맞추는
- * 길로는 끝이 없으므로 **바꿔치기 자체를 없앤다.** 창이 앱 것이면
- * 감출 이유가 아예 없다.
- */
-
-/**
- * 앱에게 확인창을 맡길 수 있는가. false면 웹 확인창이 그대로 뜬다.
- *
- * **앱 목록이 화면을 덮고 있을 때만 참이다**(`html.nc-list`) — 그
- * 바꿔치기가 일어나는 자리가 거기 하나뿐이다. 그 밖의 화면(다른 열아홉
- * 화면과, 앱 목록을 안 켠 대화)에서는 웹 확인창이 멀쩡히 보이므로 굳이
- * 다리를 건너 **모양을 아이폰 것으로 바꿀 이유가 없다.**
- */
-export function canNativeConfirm(): boolean {
-    if (ncLog.ready !== true || ncLog.v < 30) return false;
-    try {
-        return document.documentElement.classList.contains('nc-list');
-    } catch { return false; }
-}
-
-/**
- * 확인창을 앱에 넘긴다. `null`이면 **못 띄운 것이라** 부르는 쪽이 웹
- * 확인창으로 물러난다 — `false`(취소)와 반드시 갈라야 한다.
- */
-export async function askNativeConfirm(
-    o: { title: string; detail?: string; confirmLabel?: string; danger?: boolean },
-): Promise<boolean | null> {
-    try {
-        const r = await NativeComposer.confirm(o);
-        return !!r?.ok;
-    } catch { return null; }
-}

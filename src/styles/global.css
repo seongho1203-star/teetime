@@ -180,24 +180,6 @@ html.back-drag .app > :first-child {
     background: #000;
     opacity: 0.18;
 }
-/* **앱이 찍어 준 대화 목록 그림**(39판 · `lib/tabs.ts`의 `layPaint`).
-   앱 목록을 걷기 직전에 찍은 것이라 글꼴까지 그대로라, 끌어 돌아왔을 때
-   웹 사본과 앱 목록이 갈아 끼워지는 자리가 아예 없어진다.
-   자리(`top`·`height`)는 앱이 알려 주고 가로는 화면 폭 그대로다 —
-   `object-fit: fill`인 것은 찍은 크기가 곧 그 자리라 늘일 일이 없기 때문이다. */
-.ghost-paint {
-    position: absolute;
-    left: 0;
-    width: 100%;
-    object-fit: fill;
-}
-/* **붙들어 둔 그림은 화면(2)보다 위다**(`lib/tabs.ts`의 `holdGhost`).
-   앱 목록이 그리던 대화방으로 돌아올 때, 그 목록이 드러날 때까지 진짜
-   화면(웹 목록)이 비치지 않게 덮어 둔다. 앱 목록은 웹뷰 위에 얹힌 앱
-   부품이라 이 위에 그려진다 — 드러나는 순간 그림 위에 곧바로 앉는다. */
-.back-ghost.hold {
-    z-index: 3;
-}
 /* 손을 뗀 뒤 남은 거리를 마저 간다. **끄는 동안에는 걸지 않는다** —
    손가락을 그대로 따라와야 하므로 그때 전환이 걸리면 늦게 따라온다. */
 html.back-ease .app > :first-child,
