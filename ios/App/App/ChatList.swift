@@ -554,6 +554,52 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     /// **`bottomSlack`과 벌려 놓는다** — 붙어 있으면 바닥 언저리에서 깜빡인다.
     private let jumpAt: CGFloat = 240
     private var lastFar = false
+    // 배치 중 UITableView가 보내는 중간 위치를 사용자 스크롤로 취급하지 않는다.
+    private var changingViewport = false
+
+    private struct Viewport {
+        let bottom: Bool
+        let offset: CGFloat
+        let anchors: [(id: String, offset: CGFloat)]
+    }
+
+    private func viewport() -> Viewport {
+        let y = table.contentOffset.y
+        let anchors = (table.indexPathsForVisibleRows ?? []).sorted().compactMap { ip -> (id: String, offset: CGFloat)? in
+            guard ip.row < rows.count else { return nil }
+            return (rows[ip.row].id, y - table.rectForRow(at: ip).minY)
+        }
+        return Viewport(bottom: atBottom(), offset: y, anchors: anchors)
+    }
+
+    private func placeOffset(_ y: CGFloat) {
+        let low = -table.adjustedContentInset.top
+        let high = max(low, table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)
+        table.setContentOffset(CGPoint(x: 0, y: min(high, max(low, y))), animated: false)
+    }
+
+    private func restore(_ saved: Viewport, followBottom: Bool = true) {
+        if saved.bottom && followBottom {
+            placeOffset(table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)
+        } else if let anchor = saved.anchors.first(where: { a in rows.contains { $0.id == a.id } }),
+                  let index = rows.firstIndex(where: { $0.id == anchor.id }) {
+            placeOffset(table.rectForRow(at: IndexPath(row: index, section: 0)).minY + anchor.offset)
+        } else {
+            placeOffset(saved.offset)
+        }
+    }
+
+    private func preservingViewport(followBottom: Bool = true, _ change: () -> Void) {
+        let saved = viewport()
+        changingViewport = true
+        UIView.performWithoutAnimation {
+            change()
+            table.layoutIfNeeded()
+            restore(saved, followBottom: followBottom)
+        }
+        changingViewport = false
+        report()
+    }
     /// 아래로 이만큼 끌면 키보드를 내린다(웹의 `dy > 40`과 같은 값).
     private let dragToHide: CGFloat = 40
     /// 오른쪽으로 이만큼 밀면 뒤로 간다(웹 `plainBack`의 `PLAIN_TAKE`와 같은 값).
@@ -692,6 +738,9 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         let before = table.frame.size
+        let saved = viewport()
+        let wasChanging = changingViewport
+        changingViewport = true
         table.frame = bounds
         /* **폭이 바뀌면 높이를 다시 잰다**(가로세로 돌리기). 같은 폭이면
            담아 둔 값을 그대로 쓴다 — 굴릴 때마다 다시 재면 그것이 곧 끊김이다. */
@@ -702,9 +751,12 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         /* **키보드가 올라와 목록이 짧아지면 굴러간 자리를 따라 내린다.**
            웹에서 `settleList`가 하던 일인데, 여기서는 높이가 바뀌는 그
            자리에서 바로 할 수 있다 — 맨 아래를 보고 있었을 때만이다. */
-        if before.height != bounds.height, lastAtBottom {
-            scrollToBottom(animated: false)
+        if before != bounds.size {
+            table.layoutIfNeeded()
+            restore(saved)
         }
+        changingViewport = wasChanging
+        if !wasChanging { report() }
         /* `최근 대화로` 줄은 **목록 맨 아래에 떠 있다**(웹의 `.chat-jump`가
            입력칸 바로 위에 뜨는 그 자리다 — 여기서는 목록 아랫변이 곧
            바 윗변이라 같은 자리가 된다). 좌우 여백은 웹의 `--gap`(16)이다. */
@@ -719,10 +771,12 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     // MARK: 웹이 부르는 것
 
     func apply(skin d: [String: Any]) {
-        skin.apply(d)
-        backgroundColor = skin.bg
-        heights.removeAll()
-        table.reloadData()
+        preservingViewport {
+            skin.apply(d)
+            backgroundColor = skin.bg
+            heights.removeAll()
+            table.reloadData()
+        }
     }
 
     /**
@@ -734,29 +788,13 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      * 맨 위로 튄다.
      */
     func apply(rows next: [ChatRow], stickBottom: Bool) {
-        let wasBottom = atBottom()
-        let oldFirst = rows.first?.id
-        let oldOffset = table.contentOffset.y
-
-        rows = next
-        toldTop = false
-
-        // 앞에 붙은 줄이 있으면 그 높이만큼
-        var added: CGFloat = 0
-        if let oldFirst = oldFirst,
-           let at = next.firstIndex(where: { $0.id == oldFirst }), at > 0 {
-            for i in 0..<at { added += height(next[i]) }
+        preservingViewport(followBottom: stickBottom) {
+            rows = next
+            toldTop = false
+            // 같은 id라도 답장·반응·삭제·날짜 묶음이 바뀌면 높이가 달라진다.
+            heights.removeAll()
+            table.reloadData()
         }
-
-        table.reloadData()
-        table.layoutIfNeeded()
-
-        if (wasBottom && stickBottom) || rows.count <= 1 {
-            scrollToBottom(animated: false)
-        } else if added > 0 {
-            table.contentOffset.y = oldOffset + added
-        }
-        report()
     }
 
     /**
@@ -853,11 +891,8 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      * 지나가 있던 `off`만큼 더 내린다. 끝을 넘지 않게 자른다.
      */
     private func putAt(_ ip: IndexPath, off: CGFloat) {
-        table.scrollToRow(at: ip, at: .top, animated: false)
-        let maxY = max(-table.adjustedContentInset.top,
-                       table.contentSize.height - table.bounds.height
-                           + table.adjustedContentInset.bottom)
-        table.contentOffset.y = min(maxY, table.contentOffset.y + off)
+        table.layoutIfNeeded()
+        placeOffset(table.rectForRow(at: ip).minY + off)
     }
 
     func atBottom() -> Bool {
@@ -880,7 +915,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      */
     func topSpot() -> (id: String, off: CGFloat)? {
         let y = table.contentOffset.y + table.adjustedContentInset.top
-        guard let ip = (table.indexPathsForVisibleRows ?? [])
+        guard let ip = (table.indexPathsForVisibleRows ?? []).sorted()
             .first(where: { table.rectForRow(at: $0).maxY > y + 1 }),
             ip.row < rows.count else { return nil }
         return (rows[ip.row].id, max(0, y - table.rectForRow(at: ip).minY))
@@ -1040,19 +1075,17 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     fileprivate func noteSize(_ url: String, _ size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         if let had = photoSizes[url], had == size { return }
-        photoSizes[url] = size
-        guard let at = rows.firstIndex(where: { $0.image == url }) else { return }
-        let key = "\(rows[at].id)|\(Int(bounds.width))"
-        let before = heights[key] ?? 0
-        heights.removeValue(forKey: key)
-        let after = height(rows[at])
-        let grew = after - before
-        guard abs(grew) > 0.5 else { return }
-        let above = table.rectForRow(at: IndexPath(row: at, section: 0)).maxY
-            <= table.contentOffset.y
-        UIView.performWithoutAnimation {
-            table.reloadRows(at: [IndexPath(row: at, section: 0)], with: .none)
-            if above { table.contentOffset.y += grew }
+        if changingViewport {
+            DispatchQueue.main.async { [weak self] in self?.noteSize(url, size) }
+            return
+        }
+        preservingViewport {
+            photoSizes[url] = size
+            let affected = rows.indices.filter { rows[$0].image == url }
+            for at in affected {
+                heights.removeValue(forKey: "\(rows[at].id)|\(Int(bounds.width))")
+            }
+            table.reloadRows(at: affected.map { IndexPath(row: $0, section: 0) }, with: .none)
         }
     }
 
@@ -1153,6 +1186,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     // MARK: 굴리기
 
     func scrollViewDidScroll(_ sv: UIScrollView) {
+        guard !changingViewport else { return }
         /* **아래로 끌면 키보드가 함께 내려간다** — 카톡이 그렇다.
            `keyboardDismissMode = .onDrag`으로 하지 말 것: 그것은 **어느
            쪽으로 끌든** 내리므로, 옛 글을 읽으려고 위로 훑을 때마다 키보드가
@@ -1167,11 +1201,13 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ sv: UIScrollView) {
+        dropSpot()
         dragFrom = sv.contentOffset.y
         dragHid = false
     }
 
     private func report() {
+        guard !changingViewport else { return }
         let bottom = atBottom()
         let top = table.contentOffset.y < topSlack && rows.count > 0
         /* **`최근 대화로` 화살표는 뒤집힐 때만 알린다**(웹의 `jumpShown`과

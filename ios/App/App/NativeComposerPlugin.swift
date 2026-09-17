@@ -298,7 +298,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 40
+    private static let version = 41
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -393,6 +393,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     @objc func detach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.bar?.nativeViewport = false
             self.live = false
             self.release()
             /* 떠 있던 안내창은 함께 걷는다(29판) — 바 위에 얹혀 있던 것이라
@@ -746,6 +747,7 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
      */
     @objc func listDetach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.bar?.nativeViewport = false
             self.menu?.hide()
             /* 끌던 것이 남아 있으면 걷는다(35판) — 손짓 도중에 알림을 눌러
                화면이 바뀌면 찍어 둔 그림이 그대로 남는다(웹의 `sweepGhosts`와
@@ -798,16 +800,14 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         if let v = call.getDouble("lift") {
             let lift = -CGFloat(max(0, v))
             if listBotC?.constant != lift {
-                let wasBottom = list.atBottom()
                 listBotC?.constant = lift
-                if wasBottom {
-                    /* 제약이 바깥(바)에 걸려 있어 **윗자리에서** 다시 잰다. */
-                    list.superview?.layoutIfNeeded()
-                    list.scrollToBottom(animated: false)
-                }
+                // 목록의 layoutSubviews가 읽던 메시지를 보존한다.
+                list.superview?.layoutIfNeeded()
             }
         }
         if let v = call.getBool("hidden") { list.isHidden = v }
+        bar?.nativeViewport = !list.isHidden && list.superview != nil
+            && (listBotC?.constant ?? 0) == 0
         /* 손가락을 따라 뒤로 갈 수 있는가(35판). **웹이 정한다** — 스위치와,
            뒤에 깔 앞 화면이 있는지를 웹만 안다(`hasBackShot()`). */
         if let v = call.getBool("drag") { backOn = v }

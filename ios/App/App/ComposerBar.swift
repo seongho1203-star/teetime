@@ -296,6 +296,19 @@ final class ComposerBar: UIView, UITextViewDelegate {
      * 먼저 와서 내려가는 길에는 늘 거짓이 된다.
      */
     private var kbOwner = false
+    // 41판: 목록과 바가 모두 앱 부품이면 키보드 애니메이션을 웹으로 왕복하지 않는다.
+    // 웹 서랍이나 검색이 덮인 동안에는 기존 웹 배치 보고가 필요하다.
+    var nativeViewport = false {
+        didSet {
+            guard nativeViewport != oldValue else { return }
+            if nativeViewport {
+                link?.invalidate()
+                link = nil
+                slider?.cancel()
+            }
+            report(end: true)
+        }
+    }
 
     /// 칠하고 누를 수 있는 곳의 아래 끝.
     private func innerBottom() -> CGFloat {
@@ -372,7 +385,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
            한 번 더 옮긴다**(`slideKb`의 `s`). 상태가 그대로면 웹은 이미
            끝값을 들고 있으므로 13판 길(`follow`)로 보내면 된다. */
         let same = kbUp == on
-        let slide = !same && bounds.height > 1 && kbOwner && superview != nil
+        let slide = !nativeViewport && !same && bounds.height > 1 && kbOwner && superview != nil
             && (slider?.begin(from: fromTop, to: toTop, dur: dur, opts: opts) ?? false)
 
         /* **웹에 먼저 알린다 — 아래 `guard`보다 앞이다.** 아래 것은 바가
@@ -475,6 +488,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
      * 준다 — 키보드가 내려가 있을 때만 그 자리가 화면 안에 있다.
      */
     private func follow(dur: Double, info: [AnyHashable: Any]?) {
+        guard !nativeViewport else { return }
         guard let sv = superview else { return }
         restBottom = sv.bounds.maxY - sv.safeAreaInsets.bottom
         if let end = info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {

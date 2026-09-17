@@ -1090,12 +1090,14 @@ export function Chat() {
     const spotNow = useCallback((list: Message[]): ChatSpot | null => {
         if (!roomId || !list.length) return null;
         const spot = SPOTS.get(roomId);
-        /* 밀린 글이 있는 사람에게는 `여기까지 읽으셨습니다` 줄이 먼저
-           답해야 할 물음이다 — 그 효과가 바로 아래에 있어 이쪽이 비켜 준다. */
-        if (!spot || unreadFrom || !list.some(m => m.id === spot.id)) {
+        // 아이폰은 돌아온 위치를 먼저 복원한다. 웹의 기존 안 읽음 동작은 유지한다.
+        if (unreadFrom && !canNativeList()) {
             spotDone.current = 'skip';
-            spotLog.놓음 = !spot ? '건너뜀(적은게없음)'
-                : unreadFrom ? '건너뜀(안읽음줄)' : '건너뜀(그글없음)';
+            return null;
+        }
+        if (!spot || !list.some(m => m.id === spot.id)) {
+            if (!spot) spotDone.current = 'skip';
+            spotLog.놓음 = !spot ? '건너뜀(적은게없음)' : '기다림(그글없음)';
             return null;
         }
         return spot;
@@ -1153,6 +1155,7 @@ export function Chat() {
     useLayoutEffect(() => {
         const el = listRef.current;
         if (!unreadFrom || unreadDone.current || !el) return;
+        if (listReadyRef.current || (canNativeList() && spotDone.current === 'web')) return;
         /* **앱 목록이 서 있으면 거기로 옮겨 달라고 한다**(5판). 감춰 둔 웹
            목록을 굴려 봐야 보이는 것은 앱 목록이다 — 그쪽이 못 찾으면
            (아직 안 받아 온 지난 묶음) 그냥 넘어간다. */
@@ -1266,10 +1269,12 @@ export function Chat() {
      * (네이티브 바가 자랄 때가 그렇다 — 위 `height` 주석).
      */
     const settleList = useCallback((force?: boolean) => {
+        if (listReadyRef.current) return;
         const el = listRef.current;
         if (!el) return;
         const stick = force ?? atBottom.current;
         const drop = () => {
+            if (listReadyRef.current) return;
             const box = listRef.current;
             if (!box) return;
             const max = box.scrollHeight - box.clientHeight;   // 안 넘치면 0이다
@@ -1288,7 +1293,7 @@ export function Chat() {
             /* 손을 떼면서 '맨 아래인가'를 한 번 다시 잰다 — 앉히는 동안에는
                `onScroll`이 그 값을 안 고쳤으므로(위 주석) 여기서 맞춰 둔다. */
             const box = listRef.current;
-            if (box) atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+            if (box && !listReadyRef.current) atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
         }, 600);
     }, []);
 
@@ -3650,9 +3655,8 @@ export function Chat() {
      * 여기서 이미 셈해 두었고, 앱은 그것을 그리고 굴리기만 한다
      * (`ios/App/App/ChatList.swift` 머리말 참고).
      *
-     * **기본은 꺼짐이다**(`내 정보`의 `대화 목록을 앱이 그리기` 스위치).
-     * 여기는 헤드리스로 한 줄도 확인할 수 없는 자리라 14판 `ListSlider`와
-     * 같은 잣대를 쓴다 — 매일 쓰는 화면을 짐작으로 갈아 끼우지 않는다.
+     * 41판부터 앱 목록이 기본이다. 내 정보에서 명시적으로 끄거나,
+     * 준비에 실패하면 웹 목록으로 돌아간다.
      *
      * **앱 목록이 실제로 선 뒤에만 웹 목록을 감춘다**(`listUp`). 안 서면
      * 예전 그대로다 — 바가 안 설 때 되돌리는 것(`watchdog`)과 같은 결이다.
@@ -3750,6 +3754,7 @@ export function Chat() {
             if (dead) { off(); return; }
             drop = off;
             revealSeq.current++;
+            listReadyRef.current = true;
             setListReady(true);
         })();
         return () => {
@@ -3759,6 +3764,7 @@ export function Chat() {
                ref를 올린다 — 값이 아니라 '지금 세대'를 보는 것이다). */
             // oxlint-disable-next-line react-hooks/exhaustive-deps
             revealSeq.current++;
+            listReadyRef.current = false;
             setListReady(false);
             setListUp(false);
             /* **나가면서 읽던 자리를 받아 적는다**(32판 · 위 `SPOTS`).
@@ -3927,84 +3933,68 @@ export function Chat() {
         });
     }, [listReady, messages, unreadBy, data?.people, me, reacts, unreadFrom]);
 
+    // 줄 수신 → 위치 복원 → 공개를 한 흐름으로 처리한다.
+    // 다른 효과의 호출 순서나 브리지 응답 속도를 가정하지 않는다.
     useEffect(() => {
         if (!listReady) return;
-        void listRows(listData, true);
-    }, [listReady, listData]);
-
-    /**
-     * **앱 목록에도 같은 자리로 되돌려 놓는다**(32판 · 위 `SPOTS` 참고).
-     *
-     * **줄을 넘긴 뒤에 해야 한다** — 앱 목록은 방금 섰고 아직 비어 있어,
-     * 먼저 부르면 `못 찾음`으로 돌아온다. 그래서 웹 목록 쪽(`useLayoutEffect`)과
-     * 갈라 `listRows` 바로 뒤에 두었다.
-     *
-     * **못 찾으면 표를 안 남긴다** — 다음 묶음에서 다시 해 본다.
-     */
-    useEffect(() => {
-        if (!listReady) return;
-        if (spotDone.current === 'app' || spotDone.current === 'skip') return;
-        const spot = spotNow(messages);
-        if (!spot) return;
-        void listScrollTo(spot.id, 'at', false, spot.off).then(ok => {
-            /* 진단(`spotLog`) — 웹 목록 쪽이 먼저 적어 둔 값을 덮는다.
-               **눈에 보이는 것은 앱 목록이라 이쪽이 맞는 값이다.** */
-            spotLog.놓음 = `앱 ${spot.id.slice(-4)}/${spot.off}${ok ? '' : ' 못찾음'}`;
-            if (!ok) return;
-            spotDone.current = 'app';
-            atBottom.current = false;
-        });
-    }, [listReady, listData, messages, spotNow]);
-
-    /**
-     * **드러내기** — 줄과 읽던 자리가 앱 목록에 다 들어간 뒤에 감춤을 풀고,
-     * 그제야 웹 목록을 감춘다(`listUp`).
-     *
-     * 위 두 효과가 같은 커밋에서 먼저 돌아 `listRows` → `listScrollTo`를
-     * 실어 보냈고, 다리 호출은 **보낸 차례대로** 앱에 닿으므로 여기서
-     * `hidden: false`를 보내면 그 둘 뒤에 처리된다. 앱 목록이 보이는 순간
-     * 이미 줄이 차 있고 자리도 잡혀 있어 **빈 보라 판도, 맨 아래에서 읽던
-     * 자리로 튀는 것도 없다**(사용자 제보 — `약간 떠는 듯한 느낌` ·
-     * `대화 내용도 위로 자꾸 올라감`. `지난자리`가 그대로였으므로 되돌리는
-     * 셈이 아니라 **그리는 쪽**이었다).
-     *
-     * - **`여기까지 읽으셨습니다` 줄도 여기서 다시 잡는다.** 웹 목록이
-     *   먼저 그 줄로 옮겨 두면 `unreadDone`이 서서 앱 목록 쪽 옮기기가
-     *   안 도는데, 앱 목록은 굴린 자리가 따로라 맨 아래에 남는다.
-     * - **첫 묶음이 오기 전에는 드러내지 않는다** — 빈 앱 목록이 잠깐
-     *   비친다. 방이 정말 비어 있으면 `EMPTY_WAIT` 뒤에 그냥 드러낸다.
-     * - **앱 목록을 먼저 드러내고 웹 목록을 감춘다.** 반대로 하면 그 틈에
-     *   둘 다 안 보이는 프레임이 생긴다. 잠깐 둘 다 보이는 것은 앱 목록이
-     *   위에 얹혀 있어 티가 안 난다.
-     * - `revealSeq`로 가린다 — 드러내는 사이에 화면을 떠났다 다시 들어오면
-     *   옛 약속이 새 목록에 `listUp`을 세워 **빈 채로 웹 목록만 감춘다.**
-     */
-    useEffect(() => {
-        if (!listReady || listUp || loading) return;
+        let cancelled = false;
         const seq = revealSeq.current;
         let timer = 0;
-        const reveal = () => {
-            if (revealSeq.current !== seq) return;
-            revealSeq.current++;   // 이번 목록은 한 번만 드러낸다
-            void (async () => {
-                if (unreadFrom) {
+        const current = () => !cancelled && revealSeq.current === seq && listReadyRef.current;
+        const failed = () => {
+            if (!current()) return;
+            listReadyRef.current = false;
+            setListReady(false);
+            setListUp(false);
+            void listDetach();
+            releaseGhost();
+            setCover(null);
+        };
+        void (async () => {
+            const ok = await listRows(listData, true);
+            if (!current()) return;
+            if (!ok) {
+                // 실패한 빈 네이티브 화면으로 웹을 덮지 않는다.
+                listReadyRef.current = false;
+                setListReady(false);
+                setListUp(false);
+                await listDetach();
+                releaseGhost();
+                setCover(null);
+                return;
+            }
+            if (spotDone.current !== 'app' && spotDone.current !== 'skip') {
+                const spot = spotNow(messages);
+                if (spot) {
+                    const restored = await listScrollTo(spot.id, 'at', false, spot.off);
+                    if (!current()) return;
+                    spotLog.놓음 = `앱 ${spot.id.slice(-4)}/${spot.off}${restored ? '' : ' 못찾음'}`;
+                    if (restored) {
+                        spotDone.current = 'app';
+                        atBottom.current = false;
+                    }
+                }
+            }
+            if (listUp || loading || !current()) return;
+            const reveal = async () => {
+                if (!current()) return;
+                if (unreadFrom && spotDone.current !== 'app') {
                     atBottom.current = false;
                     await listScrollTo(unreadFrom, 'top');
+                    if (!current()) return;
                 }
-                await listSet({ hidden: false });
-                if (revealSeq.current === seq + 1 && listReadyRef.current) setListUp(true);
-                /* **붙들어 둔 앞 그림을 이제 걷는다**(`lib/tabs.ts`의 `holdGhost`).
-                   손가락으로 끌어 돌아온 참이면 그 그림이 아직 화면을 덮고
-                   있고, 방금 드러난 앱 목록이 그 위에 앉아 있다 — 웹 목록이
-                   비칠 틈이 없게 **드러낸 뒤에** 푼다. 한 프레임 뒤에 푸는
-                   것은 앱이 그린 것이 화면에 실제로 닿은 다음이게 하려는 것이다. */
-                requestAnimationFrame(() => releaseGhost());
-            })();
-        };
-        if (messages.length) reveal();
-        else timer = window.setTimeout(reveal, EMPTY_WAIT);
-        return () => window.clearTimeout(timer);
-    }, [listReady, listUp, loading, messages, unreadFrom]);
+                if (!await listSet({ hidden: false })) throw new Error('native list reveal failed');
+                if (!current()) return;
+                setListUp(true);
+                requestAnimationFrame(() => {
+                    if (revealSeq.current === seq && listReadyRef.current) releaseGhost();
+                });
+            };
+            if (messages.length) await reveal();
+            else timer = window.setTimeout(() => { void reveal().catch(failed); }, EMPTY_WAIT);
+        })().catch(failed);
+        return () => { cancelled = true; window.clearTimeout(timer); };
+    }, [listReady, listData, listUp, loading, messages, unreadFrom, spotNow]);
 
     /**
      * 목록이 시작하는 자리를 알려 준다 — 앱 목록의 윗변이 그 자리에 선다.
@@ -4037,11 +4027,14 @@ export function Chat() {
             const pad = parseFloat(getComputedStyle(box).paddingBottom) || 0;
             return Math.max(0, Math.round(box.getBoundingClientRect().height - pad));
         };
+        let previous = '';
         const tell = () => {
-            void listSet({
-                top: Math.round(el.getBoundingClientRect().top),
-                lift: lift(),
-            });
+            const top = Math.round(el.getBoundingClientRect().top);
+            const extra = lift();
+            const key = `${top}:${extra}`;
+            if (key === previous) return;
+            previous = key;
+            void listSet({ top, lift: extra });
         };
         /* **색도 여기서 한 번 더 보낸다.** `listAttach`가 도는 순간에는
            불러오는 중이라 `.chat-list`가 아직 없을 수 있고, 그때 읽으면

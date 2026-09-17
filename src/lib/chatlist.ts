@@ -1,3 +1,4 @@
+import type { KeyboardResize } from '@capacitor/keyboard';
 import { formatChatDay, kstDate, kstMinute } from './format';
 import { NativeComposer, hush, ncLog } from './composer';
 import type { Message } from './types';
@@ -24,12 +25,11 @@ import type { HoldIconName } from '../components/HoldIcons';
  * 그리는 곳이 둘(웹 목록 · 앱 목록)이 되었으므로, 규칙까지 둘이 되면
  * 언젠가 어긋난다.
  *
- * ## 되물러남 — 기본은 꺼짐이다
+ * ## 되물러남 — 41판부터 앱 목록을 기본으로 쓴다
  *
- * **`teetime:nc-list`를 `on`으로 적어야 켜진다**(`내 정보`의 스위치).
- * 여기는 **헤드리스로 한 줄도 확인할 수 없는 자리**라(맥도 아이폰도 없다)
- * 14판 `ListSlider`와 같은 잣대를 쓴다 — 매일 쓰는 화면을 짐작으로 갈아
- * 끼우지 않는다.
+ * 41판부터 기본으로 켜지고, `내 정보`에서 끄면 `off`를 저장한다.
+ * 40판 이하에서는 예전처럼 `on`으로 직접 켠 경우에만 쓴다.
+ * Swift의 실제 키보드 움직임은 TestFlight 실기기에서 확인한다.
  *
  * 켜 두어도 **앱 목록이 실제로 서서 줄을 받아 그렸다고 알려 줄 때만** 웹이
  * 제 목록을 감춘다(`visibility: hidden` — 자리는 그대로 둔다).
@@ -37,15 +37,18 @@ import type { HoldIconName } from '../components/HoldIcons';
 
 const KEY = 'teetime:nc-list';
 
-/** 켜 두었는가(스위치 하나만 본다 — 화면에서 그대로 보여 준다). */
+/** 41판부터 기본 켜짐. 사용자가 명시한 off는 버전이 올라가도 유지한다. */
 export function listOn(): boolean {
-    try { return localStorage.getItem(KEY) === 'on'; } catch { return false; }
+    try {
+        const choice = localStorage.getItem(KEY);
+        return choice === 'on' || (choice !== 'off' && ncLog.v >= 41);
+    } catch { return ncLog.v >= 41; }
 }
 
 export function setListOn(on: boolean): void {
     try {
         if (on) localStorage.setItem(KEY, 'on');
-        else localStorage.removeItem(KEY);
+        else localStorage.setItem(KEY, 'off');
     } catch { /* 사파리 잠금 */ }
 }
 
@@ -471,22 +474,49 @@ export type ChatSpot = { id: string; off: number; at?: string };
 
 const bridge = NativeComposer as unknown as Bridge;
 
+// 이전 화면의 해제와 다음 화면의 준비도 같은 순서로 처리한다.
+let commands: Promise<unknown> = Promise.resolve();
+function ordered<T>(run: () => Promise<T>): Promise<T> {
+    const next = commands.then(run);
+    commands = next.catch(() => {});
+    return next;
+}
+let previousResize: KeyboardResize | undefined;
+async function restoreResize(): Promise<void> {
+    if (previousResize === undefined) return;
+    const mode = previousResize;
+    const { Keyboard } = await import('@capacitor/keyboard');
+    await Keyboard.setResizeMode({ mode });
+    previousResize = undefined;
+}
+
 /** 목록을 세운다. **바가 먼저 서 있어야 한다** — 안 서 있으면 앱이 거절한다. */
 export async function listAttach(o: Record<string, unknown>): Promise<boolean> {
-    try {
-        const r = await bridge.listAttach(o);
-        return r?.ok === true;
-    } catch {
+    return ordered(async () => {
+        try {
+            if (ncLog.v >= 41) {
+                const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
+                if (previousResize === undefined) previousResize = (await Keyboard.getResizeMode()).mode;
+                await Keyboard.setResizeMode({ mode: KeyboardResize.None });
+            }
+            const r = await bridge.listAttach(o);
+            if (r?.ok === true) return true;
+        } catch { /* 준비하지 못하면 웹 목록을 유지한다. */ }
+        await restoreResize().catch(() => {});
         return false;
-    }
+    });
 }
 
-export async function listRows(rows: ListRow[], stickBottom: boolean): Promise<void> {
-    await hush(bridge.listRows({ rows, stickBottom }));
+export async function listRows(rows: ListRow[], stickBottom: boolean): Promise<boolean> {
+    return ordered(async () => {
+        try { return (await bridge.listRows({ rows, stickBottom }))?.ok === true; }
+        catch { return false; }
+    });
 }
 
-export async function listSet(o: Record<string, unknown>): Promise<void> {
-    await hush(bridge.listSet(o));
+export async function listSet(o: Record<string, unknown>): Promise<boolean> {
+    try { await ordered(() => bridge.listSet(o)); return true; }
+    catch { return false; }
 }
 
 /**
@@ -504,7 +534,10 @@ export async function listDetach(room?: string): Promise<ChatSpot | null> {
     let spot: ChatSpot | null = null;
     let paint: ListPaint | null = null;
     try {
-        const r = await bridge.listDetach();
+        const r = await ordered(async () => {
+            try { return await bridge.listDetach(); }
+            finally { await restoreResize(); }
+        });
         if (r && r.atBottom === false && r.topId) {
             spot = { id: r.topId, off: Math.max(0, Math.round(r.off ?? 0)) };
         }
@@ -679,7 +712,7 @@ export async function listScrollTo(
     id: string, place: 'center' | 'top' | 'at' = 'center', flash = false, off = 0,
 ): Promise<boolean> {
     try {
-        const r = await bridge.listScrollTo({ id, place, flash, off });
+        const r = await ordered(() => bridge.listScrollTo({ id, place, flash, off }));
         return r?.ok === true;
     } catch {
         return false;
