@@ -24,7 +24,8 @@ import { PollEdit } from './screens/PollEdit';
 import { Board } from './screens/Board';
 import { PostDetail } from './screens/PostDetail';
 import { PostEdit } from './screens/PostEdit';
-import { Chat } from './screens/Chat';
+import { ChatRoute } from './screens/NativeChat';
+import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
 import { Members } from './screens/Members';
 import { Settle } from './screens/Settle';
@@ -45,6 +46,9 @@ import { Help } from './screens/Help';
 
 function Gate() {
     const { session, profile, isMember, loading } = useAuth();
+    useEffect(() => {
+        if (!loading && !session && hasNativeChat()) void resetNativeChat();
+    }, [loading, session]);
 
     /* **오른쪽으로 밀면 뒤로 가고**, 화면에 들고 날 때 미끄러져 들어온다
        (`lib/tabs.ts`). 탭 사이를 미는 기능은 사용자 요청으로 걷어냈다 —
@@ -92,7 +96,7 @@ function Gate() {
                 <Route path="/board/new" element={<PostEdit />} />
                 <Route path="/board/:id" element={<PostDetail />} />
                 <Route path="/board/:id/edit" element={<PostEdit />} />
-                <Route path="/chat" element={<Chat />} />
+                <Route path="/chat" element={<ChatRoute />} />
                 <Route path="/me" element={<Me />} />
                 <Route path="/members" element={<Members />} />
                 <Route path="/settle" element={<Settle />} />

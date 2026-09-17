@@ -21,6 +21,10 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */; };
+		CB3000000000000000000000 /* NativeChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000 /* NativeChatService.swift */; };
+		CB3000000000000000000001 /* NativeChatPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000001 /* NativeChatPanels.swift */; };
+		CB3000000000000000000002 /* NativeChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000002 /* NativeChatViewController.swift */; };
+		CB3000000000000000000003 /* NativeChatPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000003 /* NativeChatPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +46,10 @@
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
 		FC68EB0AF532CFC21C3344DD /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
+		CB2000000000000000000000 /* NativeChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatService.swift; sourceTree = "<group>"; };
+		CB2000000000000000000001 /* NativeChatPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatPanels.swift; sourceTree = "<group>"; };
+		CB2000000000000000000002 /* NativeChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000003 /* NativeChatPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,6 +100,10 @@
 				CB1000000000000000000A05 /* MainViewController.swift */,
 				CB1000000000000000000A09 /* ListSlider.swift */,
 				CB1000000000000000000A0B /* ChatList.swift */,
+				CB2000000000000000000003 /* NativeChatPlugin.swift */,
+				CB2000000000000000000002 /* NativeChatViewController.swift */,
+				CB2000000000000000000001 /* NativeChatPanels.swift */,
+				CB2000000000000000000000 /* NativeChatService.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -234,6 +246,10 @@
 				CB1000000000000000000A06 /* MainViewController.swift in Sources */,
 				CB1000000000000000000A0A /* ListSlider.swift in Sources */,
 				CB1000000000000000000A0C /* ChatList.swift in Sources */,
+				CB3000000000000000000003 /* NativeChatPlugin.swift in Sources */,
+				CB3000000000000000000002 /* NativeChatViewController.swift in Sources */,
+				CB3000000000000000000001 /* NativeChatPanels.swift in Sources */,
+				CB3000000000000000000000 /* NativeChatService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

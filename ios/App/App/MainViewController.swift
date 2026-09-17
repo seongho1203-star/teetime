@@ -28,6 +28,7 @@ class MainViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeComposerPlugin())
+        bridge?.registerPluginInstance(NativeChatPlugin())
         hushChatBanner()
     }
 
