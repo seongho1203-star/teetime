@@ -140,6 +140,15 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         composer.cField = ChatSkin().bubble
         composer.cIcon = ChatSkin().on
         composer.cBrand = UIColor(red: 0.91, green: 0.29, blue: 0.50, alpha: 1)
+        /* **글칸 한 줄 높이는 카톡 화면을 픽셀로 재서 맞춘 값이다**(사용자
+           요청 — `메시지입력창 크기를 카톡하고 똑같이해주고`). 1206×2622 ·
+           배율 3.0에서 카톡 알약이 **145픽셀 = 48px**이었고 우리 것은
+           114픽셀 = 38px이라 그만큼 납작해 보였다. 꽉 둥근 알약이라
+           반지름은 그 절반이다. **눈대중으로 고치지 말 것.**
+           웹 `Chat.css`의 `.chat-input .textarea`·`lib/composer.ts`의
+           `chatBarSkin()`과 **같은 값이라 한쪽만 고치지 말 것.**
+           (댓글 바는 38px 그대로다 — 밝은 화면 위에 잠깐 뜨는 줄이다.) */
+        composer.minH = 48; composer.radius = 24
         composer.paint(); composer.watchKeyboard()
         composer.textView.accessibilityIdentifier = "native-chat-input"
         composer.sendBtn.accessibilityIdentifier = "native-chat-send"

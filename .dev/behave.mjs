@@ -2008,10 +2008,13 @@ const barPaint = await page.evaluate(() => {
     const plus = document.querySelector('.chat-photo');
     if (!inp || !chat || !field) return null;
     const cs = getComputedStyle(inp);
+    const fs = getComputedStyle(field);
     return {
         칠: cs.backgroundColor,
         대화칠: getComputedStyle(chat).backgroundColor,
         선: cs.borderTopColor,
+        한줄: Math.round(field.getBoundingClientRect().height),
+        둥글기: Math.round(parseFloat(fs.borderBottomLeftRadius)),
         글칸: getComputedStyle(field).backgroundColor,
         말풍선: getComputedStyle(document.querySelector('.chat')).getPropertyValue('--chat-bubble').trim(),
         더하기: plus ? getComputedStyle(plus).color : '',
@@ -2025,6 +2028,14 @@ ok(barPaint && barPaint.글칸 === 'rgb(245, 245, 245)' && barPaint.말풍선 ==
    `글칸은 말풍선과 같은 흰 알약이다 (실제 ${barPaint?.글칸} · 토큰 ${barPaint?.말풍선})`);
 ok(barPaint && /rgba?\(255, 255, 255/.test(barPaint.더하기),
    `\`+\`의 획은 보라 위에서 읽히는 흰색이다 (실제 ${barPaint?.더하기})`);
+/* **글칸 한 줄 높이는 카톡을 픽셀로 재서 맞춘 값이다**(사용자 요청 —
+   `메시지입력창 크기를 카톡하고 똑같이해주고`). 1206×2622 · 배율 3.0에서
+   카톡 알약이 145픽셀 = 48px이었고 우리 것은 114픽셀 = 38px이었다.
+   **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 값을 잰다.** */
+ok(barPaint && barPaint.한줄 === 48,
+   `글칸 한 줄은 카톡과 같은 48px이다 (실제 ${barPaint?.한줄}px)`);
+ok(barPaint && barPaint.둥글기 === 24,
+   `그 알약은 꽉 둥글다 — 반지름이 높이의 절반 (실제 ${barPaint?.둥글기}px)`);
 
 /* **골라서 들어가는 글자는 이름표가 아니라 닉네임이다.** 발송기의
    `mentionedIds`가 글에서 `@<닉네임>`을 찾아 누구를 부른 것인지 가리므로,

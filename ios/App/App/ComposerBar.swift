@@ -209,6 +209,20 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// 바탕칠. **바 전체가 아니라 위쪽만 칠한다** — 아래 탭바 자리는
     /// 비워 두어야 밑에 있는 웹 탭바가 보인다(`tabH` 주석 참고).
     private let fill = UIView()
+    /**
+     * **홈 인디케이터 자리의 바탕칠**(사용자 요청 — `메시 입력창 아래
+     * 흰색배경은 카톡처럼 삭제해줘`).
+     *
+     * 예전에는 `fill`이 안전 영역 위에서 끝나 그 아래 34px이 **투명**이었다.
+     * 대화 화면의 바탕은 크림색(`--bg`)이라 보라 목록 밑에 **흰 띠**가
+     * 그대로 드러났다 — 카톡의 그 줄은 보라가 화면 끝까지 내려간다
+     * (사진에서 재 보니 카톡은 알약 아래 102픽셀이 통째로 보라였다).
+     *
+     * **`fill`을 그냥 늘리지 않고 칸을 따로 둔 것은 탭바 자리 때문이다** —
+     * 그 몫(`tabH`)은 칠하면 안 되고(밑의 웹 탭바가 보여야 한다) 안전
+     * 영역은 그 **아래**에 있어, 한 덩어리로는 가운데만 비울 수가 없다.
+     */
+    private let foot = UIView()
 
     /// 마지막으로 알려 준 높이. 같은 값을 되풀이해 보내지 않는다.
     private var toldHeight: CGFloat = 0
@@ -239,6 +253,9 @@ final class ComposerBar: UIView, UITextViewDelegate {
         fill.isUserInteractionEnabled = false
         addSubview(fill)
 
+        foot.isUserInteractionEnabled = false
+        addSubview(foot)
+
         topLine.isUserInteractionEnabled = false
         addSubview(topLine)
 
@@ -248,8 +265,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
         textView.showsVerticalScrollIndicator = false
         textView.layer.cornerRadius = radius
         textView.layer.masksToBounds = true
-        // 웹 글칸(`padding: 7px 40px 7px 14px`)과 같은 안여백.
-        textView.textContainerInset = UIEdgeInsets(top: 7, left: 9, bottom: 7, right: 34)
+        // 안여백은 `paint()`가 `minH`에 맞춰 준다(아래 `insetV()`).
         textView.textContainer.lineFragmentPadding = 5
         textView.keyboardType = .default
         textView.returnKeyType = .default
@@ -285,6 +301,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// 색과 그림을 다시 입힌다. 값이 바뀔 때마다 부른다.
     func paint() {
         fill.backgroundColor = cBg
+        foot.backgroundColor = cBg
         topLine.backgroundColor = cLine
 
         textView.backgroundColor = cField
@@ -292,6 +309,14 @@ final class ComposerBar: UIView, UITextViewDelegate {
         textView.tintColor = cBrand
         textView.font = .systemFont(ofSize: fontSize)
         textView.layer.cornerRadius = radius
+        /* **위아래 안여백은 못박지 않고 `minH`에서 낸다**(웹 `.chat-input
+           .textarea`의 `padding: 11px …`과 같은 자리다). 7px으로 못박혀
+           있었는데, 대화방 글칸을 48px으로 키우니 한 줄이 **위로 7.5px
+           치우쳐** 보였다 — 한 줄 높이를 만질 때마다 여기도 함께 고쳐야
+           하는 자리라 아예 셈으로 두었다. 댓글 바(38px)에서는 9px이라
+           예전(7px)보다 되레 가운데에 온다(높이는 그대로다). */
+        let iv = insetV()
+        textView.textContainerInset = UIEdgeInsets(top: iv, left: 9, bottom: iv, right: 34)
 
         paintMentions()
 
@@ -357,6 +382,12 @@ final class ComposerBar: UIView, UITextViewDelegate {
     private func fieldWidth() -> CGFloat {
         let w = totalWidth() - padH * 2 - plusWidth() - sendW - gap * 2
         return max(60, w)
+    }
+
+    /// 글칸 위아래 안여백. **한 줄이 `minH` 가운데에 오게** 낸다.
+    private func insetV() -> CGFloat {
+        let line = ceil(textView.font?.lineHeight ?? fontSize * 1.25)
+        return max(6, ((minH - line) / 2).rounded())
     }
 
     /// 적은 글에 맞춘 글칸 높이. 한 줄(minH)과 한도(maxH) 사이다.
@@ -686,6 +717,10 @@ final class ComposerBar: UIView, UITextViewDelegate {
         let inner = innerBottom()
 
         fill.frame = CGRect(x: 0, y: 0, width: w, height: max(0, inner))
+        /* 탭바 자리는 건너뛰고 **홈 인디케이터 자리만** 같은 색으로 칠한다
+           (`foot` 주석 — 안 칠하면 그 34px이 흰 띠로 남는다). */
+        foot.frame = CGRect(x: 0, y: max(0, inner) + (kbUp ? 0 : tabH),
+                            width: w, height: safeAreaInsets.bottom)
         topLine.frame = CGRect(x: 0, y: 0, width: w, height: 1 / UIScreen.main.scale)
 
         let fx = padH + plusWidth() + (showPlus ? gap : 0)
@@ -699,12 +734,18 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
         plusBtn.frame = CGRect(x: padH, y: inner - padV - minH, width: plusW, height: minH)
 
-        iconBtn.frame = CGRect(x: textView.frame.maxX - 4 - iconW,
-                               y: textView.frame.maxY - 4 - iconW,
+        /* 이모티콘 단추와 보내기 단추는 **아래쪽 끝에서 띄워** 놓는다 —
+           한 줄일 때 가운데에 오고, 여러 줄로 늘어나면 그대로 아래를
+           따라간다(웹 `.chat-sticker-btn`의 `bottom`·`.chat-send`의
+           `margin-bottom`과 같은 셈이라 **한쪽만 고치지 말 것**).
+           못박아 두었던 4px·2px은 한 줄이 38px이던 때의 그 값이다. */
+        let iconGap = max(0, (minH - iconW) / 2)
+        iconBtn.frame = CGRect(x: textView.frame.maxX - iconGap - iconW,
+                               y: textView.frame.maxY - iconGap - iconW,
                                width: iconW, height: iconW)
 
         sendBtn.frame = CGRect(x: w - padH - sendW,
-                               y: inner - padV - sendW - 2,
+                               y: inner - padV - sendW - max(0, (minH - sendW) / 2),
                                width: sendW, height: sendW)
 
         tellHeight()

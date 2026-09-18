@@ -466,15 +466,23 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
  * 값은 `.chat` 안에 있는 토큰이라(`--chat-*`) 그 요소에서 읽는다 —
  * `composerSkin()`처럼 뿌리에서 읽으면 빈손이 온다.
  */
-export function chatBarSkin(): Record<string, string> {
-    const fallback = { bg: '#7369a0', line: '#7369a0', field: '#f5f5f5', icon: '#f2f2f2' };
+export function chatBarSkin(): Record<string, unknown> {
+    /* **크기도 여기서 덮어쓴다**(사용자 요청 — `메시지입력창 크기를 카톡하고
+       똑같이해주고`). 카톡 화면을 픽셀로 재서 얻은 값이다 — 1206×2622 ·
+       배율 3.0에서 알약이 **145픽셀 = 48px**이고 꽉 둥글다(반지름 = 높이/2).
+       `Chat.css`의 `.chat-input .textarea`와 **같은 값이라 한쪽만 고치지
+       말 것**(앱 쪽은 `NativeChatViewController.viewDidLoad`가 또 한 벌이다).
+       **댓글 바는 이 덮어쓰기를 안 받아 38px 그대로다** — 밝은 화면 위에
+       잠깐 뜨는 줄이라 카톡을 따를 자리가 아니다. */
+    const size = { minH: 48, radius: 24 };
+    const fallback = { bg: '#7369a0', line: '#7369a0', field: '#f5f5f5', icon: '#f2f2f2', ...size };
     try {
         const el = document.querySelector('.chat');
         if (!el) return fallback;
         const cs = getComputedStyle(el);
         const v = (k: string, or: string) => cs.getPropertyValue(k).trim() || or;
         const bg = v('--chat-bg', fallback.bg);
-        return { bg, line: bg, field: v('--chat-bubble', fallback.field), icon: fallback.icon };
+        return { bg, line: bg, field: v('--chat-bubble', fallback.field), icon: fallback.icon, ...size };
     } catch { return fallback; }
 }
 
