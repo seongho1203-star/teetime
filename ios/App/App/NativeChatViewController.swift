@@ -13,6 +13,20 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     var event: ((String, ChatJSON) -> Void)?
     private let list = ChatList()
     private let composer = ComposerBar()
+    /**
+     * **입력칸 아래 홈 인디케이터 자리의 바탕칠**(사용자 요청 —
+     * `메시 입력창 아래 흰색배경은 카톡처럼 삭제해줘`).
+     *
+     * 그 34px은 **바 밖이다** — 바 아래는 언제나 안전 영역 위에 묶이므로
+     * (`composerBottom`의 `keyboardLayoutGuide`는 기본값이 안전 영역까지다)
+     * 바 안에 칸을 만들어 칠하면 높이가 0이라 **아무것도 안 그려진다**
+     * (그렇게 한 판을 태웠다 — `ComposerBar`의 그 자리 주석을 볼 것).
+     * 드러나던 크림색은 `view.backgroundColor`였다.
+     *
+     * **`view.backgroundColor`를 보라로 바꾸는 길로 가지 말 것** — 그 색은
+     * 머리말 위(노치 자리)가 같이 쓴다. 거기는 밝아야 한다.
+     */
+    private let footPad = UIView()
     private let header = UIStackView()
     /// 창을 붙일 자리(공유·사진 첨부의 팝오버). **제목은 없앴으므로**
     /// ☰이 그 몫이다 — 아래 `viewDidLoad`의 `전체 대화` 꼭지를 볼 것.
@@ -181,7 +195,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
         tray.onPick = { [weak self] item in self?.stickerPicked(item) }
         let input = UIStackView(arrangedSubviews: [mentions, reply, context, composer, findBar]); input.axis = .vertical
-        for child in [header, list, input, tray, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
+        /* `footPad`가 맨 뒤다 — 서랍(`tray`)이 열리면 그 자리를 덮어야 한다. */
+        footPad.backgroundColor = ChatSkin().bg
+        footPad.isUserInteractionEnabled = false
+        for child in [footPad, header, list, input, tray, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
         let safe = view.safeAreaLayoutGuide
         composerBottom = input.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
         /* 서랍은 **입력칸 아래**에 서고 화면 끝까지(홈 인디케이터 자리까지)
@@ -193,6 +210,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             header.topAnchor.constraint(equalTo: safe.topAnchor), header.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 8),
             header.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -8), header.heightAnchor.constraint(equalToConstant: 52),
             input.leadingAnchor.constraint(equalTo: safe.leadingAnchor), input.trailingAnchor.constraint(equalTo: safe.trailingAnchor), composerBottom,
+            /* 입력칸 아래부터 화면 끝까지 — 키보드가 올라와 있으면 그 자리는
+               키보드가 덮으므로 눈에 안 띈다. */
+            footPad.topAnchor.constraint(equalTo: input.bottomAnchor),
+            footPad.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            footPad.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            footPad.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tray.topAnchor.constraint(equalTo: input.bottomAnchor), trayH,
             tray.leadingAnchor.constraint(equalTo: view.leadingAnchor), tray.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             list.topAnchor.constraint(equalTo: header.bottomAnchor), list.leadingAnchor.constraint(equalTo: safe.leadingAnchor),

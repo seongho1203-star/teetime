@@ -209,20 +209,15 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// 바탕칠. **바 전체가 아니라 위쪽만 칠한다** — 아래 탭바 자리는
     /// 비워 두어야 밑에 있는 웹 탭바가 보인다(`tabH` 주석 참고).
     private let fill = UIView()
-    /**
-     * **홈 인디케이터 자리의 바탕칠**(사용자 요청 — `메시 입력창 아래
-     * 흰색배경은 카톡처럼 삭제해줘`).
-     *
-     * 예전에는 `fill`이 안전 영역 위에서 끝나 그 아래 34px이 **투명**이었다.
-     * 대화 화면의 바탕은 크림색(`--bg`)이라 보라 목록 밑에 **흰 띠**가
-     * 그대로 드러났다 — 카톡의 그 줄은 보라가 화면 끝까지 내려간다
-     * (사진에서 재 보니 카톡은 알약 아래 102픽셀이 통째로 보라였다).
-     *
-     * **`fill`을 그냥 늘리지 않고 칸을 따로 둔 것은 탭바 자리 때문이다** —
-     * 그 몫(`tabH`)은 칠하면 안 되고(밑의 웹 탭바가 보여야 한다) 안전
-     * 영역은 그 **아래**에 있어, 한 덩어리로는 가운데만 비울 수가 없다.
-     */
-    private let foot = UIView()
+    /* **홈 인디케이터 자리는 이 바가 칠할 수 없다 — 여기에 칸을 만들지 말 것.**
+       바 아래는 언제나 **안전 영역 위**에 묶인다(`bottomC` 주석 ·
+       `setKb`의 `rest`, 그리고 대화 화면의 `keyboardLayoutGuide`도
+       기본값이 그렇다). 그러니 이 바의 `safeAreaInsets.bottom`은 **늘 0**이고
+       그 34px은 애초에 바 밖이다 — 실제로 `foot`이라는 칸을 두어 칠해 봤지만
+       높이가 0이라 아무것도 안 그려졌고, 폰에서는 흰 띠가 그대로였다
+       (사용자 제보 — `메시지 입력창 아래 하얀 띠가 그대로 있는데?`).
+       칠하는 자리는 **바를 세운 화면**이다 —
+       `NativeChatViewController`의 `footPad`를 볼 것. */
 
     /// 마지막으로 알려 준 높이. 같은 값을 되풀이해 보내지 않는다.
     private var toldHeight: CGFloat = 0
@@ -252,9 +247,6 @@ final class ComposerBar: UIView, UITextViewDelegate {
         backgroundColor = .clear
         fill.isUserInteractionEnabled = false
         addSubview(fill)
-
-        foot.isUserInteractionEnabled = false
-        addSubview(foot)
 
         topLine.isUserInteractionEnabled = false
         addSubview(topLine)
@@ -301,7 +293,6 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// 색과 그림을 다시 입힌다. 값이 바뀔 때마다 부른다.
     func paint() {
         fill.backgroundColor = cBg
-        foot.backgroundColor = cBg
         topLine.backgroundColor = cLine
 
         textView.backgroundColor = cField
@@ -717,10 +708,6 @@ final class ComposerBar: UIView, UITextViewDelegate {
         let inner = innerBottom()
 
         fill.frame = CGRect(x: 0, y: 0, width: w, height: max(0, inner))
-        /* 탭바 자리는 건너뛰고 **홈 인디케이터 자리만** 같은 색으로 칠한다
-           (`foot` 주석 — 안 칠하면 그 34px이 흰 띠로 남는다). */
-        foot.frame = CGRect(x: 0, y: max(0, inner) + (kbUp ? 0 : tabH),
-                            width: w, height: safeAreaInsets.bottom)
         topLine.frame = CGRect(x: 0, y: 0, width: w, height: 1 / UIScreen.main.scale)
 
         let fx = padH + plusWidth() + (showPlus ? gap : 0)
