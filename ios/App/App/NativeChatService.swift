@@ -27,6 +27,12 @@ struct NativeChatConfig {
     var token: String
     let seen: String
     let stickers: [ChatJSON]
+    /// **뒤에 깔 앞 화면 그림이 웹에 있는가**(`hasBackShot()`). 없으면 끌지
+    /// 않고 곧바로 넘어간다 — 빈 화면이 손을 따라 나오면 안 된다.
+    let back: Bool
+    /// 반응 그림글자 다섯 — **웹이 정한다**(`REACTIONS`). 앱에 또 적으면
+    /// 한쪽만 고치게 된다.
+    let reactions: [String]
     init?(_ d: ChatJSON) {
         guard let user = d["user"] as? String, !user.isEmpty,
               let base = d["url"] as? String, let url = URL(string: base), url.scheme == "https",
@@ -35,6 +41,9 @@ struct NativeChatConfig {
         self.user = user; self.url = url; self.key = key; self.token = token
         seen = d["seen"] as? String ?? "1970-01-01T00:00:00Z"
         stickers = d["stickers"] as? [ChatJSON] ?? []
+        back = d["back"] as? Bool ?? false
+        let five = d["reactions"] as? [String] ?? []
+        reactions = five.isEmpty ? ["👍", "❤️", "😂", "😮", "😢"] : five
     }
 }
 

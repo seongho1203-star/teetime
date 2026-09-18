@@ -311,6 +311,79 @@ function plainBack(): boolean {
         || document.documentElement.classList.contains('nc');
 }
 
+/* ── 앱이 끌 때 웹이 하는 일 ────────────────────────────────
+ *
+ * **아이폰의 대화방은 앱이 통째로 그린다**(`screens/NativeChat.tsx` →
+ * `NativeChatViewController`). 그 화면은 웹뷰 **위에 얹힌 앱 부품**이라
+ * 웹이 `transform`으로 밀어도 안 따라오고, 반대로 **앱은 앞 화면을 만들
+ * 길이 없다** — 그것은 떠날 때 찍어 둔 웹 DOM이기 때문이다(위 `shots`).
+ *
+ * 그래서 일을 나눈다: **끄는 것은 앱**(`ChatList.swift`의 `BackDrag`),
+ * **뒤에 깔 앞 화면은 웹**. 아래 셋은 `useBackSwipe`가 하던 일에서
+ * **손짓과 화면 밀기를 뺀 나머지**다. 값(`PARALLAX`·`DIM`·`TAKE`·`FLICK`)은
+ * 앱 쪽에 같은 것이 적혀 있다 — **한쪽만 고치지 말 것.**
+ *
+ * (17~40판의 잡종을 걷어내면서 한 번 같이 지웠는데, 그러자 **대화방에서
+ * 뒤로 끌 때 뒷배경이 아예 안 나왔다** — 앱이 끄는 동안 웹뷰에는 대화
+ * 자리를 지키는 스피너 한 장뿐이기 때문이다. 사용자 제보 —
+ * `뒤로 되돌아오기 할때 뒷배경이 안 나오거든`.)
+ */
+
+/** 앱이 끄는 동안 감춰 둔 지금 화면. */
+let backPage: HTMLElement | null = null;
+
+/**
+ * **뒤에 깔 앞 화면 그림이 있는가.** 없으면 앱이 끌지 않고 곧바로 넘어간다 —
+ * 바탕만 깔고 끌면 **빈 화면이 손을 따라 나온다.**
+ */
+export function hasBackShot(): boolean {
+    return shots.length > 0;
+}
+
+/** 앱이 끌기 시작했다 — 앞 화면을 깔고 지금 화면은 감춘다(앱이 찍어 둔
+ *  그림이 그 자리를 대신한다). */
+export function nativeBackStart(): boolean {
+    const shot = shots[shots.length - 1];
+    if (!shot) return false;
+    sweepGhosts(true);
+    layGhost(shot);
+    backPage = pageEl();
+    if (backPage) backPage.style.visibility = 'hidden';
+    return true;
+}
+
+/**
+ * 앱이 놓았다. `go`면 넘어간 것이라 **여기서 뒤로 간다** — 앱이 그림을
+ * 다 내보낸 뒤에 부르므로, 웹 `end()`가 230ms 기다렸다 `nav(-1)`을
+ * 부르는 그 차례와 같다.
+ *
+ * **걷는 것은 목적지가 한 번 그려진 뒤다**(rAF 두 번 · 예비 타이머).
+ * 먼저 걷으면 그 한 프레임에 옛 화면이 비친다.
+ */
+export function nativeBackEnd(go: boolean, nav: () => void): void {
+    if (!go) {
+        showBackPage();
+        sweepGhosts(true);
+        return;
+    }
+    skipSlide = true;
+    nav();
+    const done = () => { showBackPage(); sweepGhosts(true); };
+    requestAnimationFrame(() => requestAnimationFrame(done));
+    window.setTimeout(done, 600);
+}
+
+/**
+ * 감춰 둔 화면을 도로 내보인다.
+ *
+ * **잡아 둔 것과 지금 것을 둘 다 본다** — 리액트가 같은 자리의 DOM을 다시
+ * 쓰는 일이 있어, 잡아 둔 것만 되돌리면 **새 화면이 안 보인 채로 굳는다.**
+ */
+function showBackPage(): void {
+    for (const el of [backPage, pageEl()]) if (el) el.style.visibility = '';
+    backPage = null;
+}
+
 /**
  * **뒤에 깔리는 앞 화면**을 만들어 body 맨 앞에 넣는다.
  * 찍어 둔 것이 없으면 바탕만 깐다.

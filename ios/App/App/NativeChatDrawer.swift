@@ -1,0 +1,583 @@
+import UIKit
+
+/**
+ * 대화 서랍(☰)과 전체화면 프로필.
+ *
+ * **둘 다 화면에 올리는 뷰다 — 따로 띄우는 화면(`present`)이 아니다.**
+ * 대화 화면 안에 얹어야 네이티브 글칸 바와 말풍선 목록을 그대로 덮는다
+ * (웹의 `z-index`로 앱 부품을 못 덮는 그 자리와 같은 까닭이다).
+ *
+ * 값은 **카톡 서랍 사진을 픽셀로 재서 맞춘 것**이다(그 폰 1206×2622 ·
+ * 배율 3.0 — 대화 화면을 맞출 때와 같은 자다). 한 장 192픽셀 → 64px,
+ * 사이 12픽셀 → 4px, 모서리 7픽셀 → 4px. 참여자 줄은 150 → 50px
+ * (36 + 7×2) · 얼굴 108 → 36px · 얼굴에서 이름까지 39 → 13px.
+ * **눈대중으로 고치지 말 것.**
+ */
+
+/// 직책 — 이름과 색이 **회원 명단(`ROLE_TAG` → `.role-*`)과 같아야 한다.**
+enum ChatRole {
+    static func label(_ role: String?) -> String {
+        return ["superadmin": "앱관리자", "admin": "운영자",
+                "staff": "부운영자", "treasurer": "총무"][role ?? ""] ?? ""
+    }
+
+    static func color(_ role: String?) -> UIColor? {
+        switch role ?? "" {
+        case "superadmin": return UIColor(hexString: "#b41f72")
+        case "admin": return UIColor(hexString: "#e84a7f")
+        case "staff": return UIColor(hexString: "#2c7bd4")
+        case "treasurer": return UIColor(hexString: "#b97c00")
+        default: return nil
+        }
+    }
+
+    /// 운영진인가 — **DB의 `is_admin()`과 같은 잣대다**(총무는 안 든다).
+    static func isAdmin(_ role: String?) -> Bool {
+        return ["staff", "admin", "superadmin"].contains(role ?? "")
+    }
+
+    /**
+     * 서랍의 차례 — **운영진이 맨 위, 그다음 총무, 그다음 일반회원**이고
+     * 묶음 안에서는 **연장자가 앞**이다(사용자 요청 — `운영진이 맨위에오고
+     * 그 다음은 나이순으로 정렬되게해줘`).
+     *
+     * **모르는 값은 늘 뒤로 보낸다** — 태어난 해가 `null`인 것은 0이 아니라
+     * **아직 안 적음**이다. 같은 값끼리는 이름순이다.
+     */
+    static func order(_ a: ChatJSON, _ b: ChatJSON) -> Bool {
+        let ra = a["role"] as? String, rb = b["role"] as? String
+        let ga = isAdmin(ra) ? 0 : (ra == "treasurer" ? 1 : 2)
+        let gb = isAdmin(rb) ? 0 : (rb == "treasurer" ? 1 : 2)
+        if ga != gb { return ga < gb }
+        let ya = a["birth_year"] as? Int ?? 9999
+        let yb = b["birth_year"] as? Int ?? 9999
+        if ya != yb { return ya < yb }
+        return (a["name"] as? String ?? "") < (b["name"] as? String ?? "")
+    }
+}
+
+// MARK: - 서랍 (☰)
+
+/**
+ * 위에서부터 **`최근 사진` · `참여자 N명`**이다(사용자 요청 — 카톡 서랍
+ * 사진을 받아 맞췄다). **맨 윗줄에는 `닫기` 하나만 둔다** — 방 이름은 바로
+ * 위 대화 머리말에 그대로 보이므로 두 군데에 적지 않는다.
+ */
+final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
+
+    /// 사람이 이만큼을 넘으면 **늘어놓지 않고 찾게 한다**(웹의 `FIND_AT`).
+    private static let findAt = 12
+    private static let thumb: CGFloat = 64
+    private static let thumbGap: CGFloat = 4
+    private static let rowH: CGFloat = 50
+
+    var onClose: (() -> Void)?
+    var onPerson: ((String) -> Void)?
+    var onPhoto: ((String) -> Void)?
+
+    private let dim = UIView()
+    private let panel = UIView()
+    private let closeBtn = UIButton(type: .system)
+    private let shotsHead = UILabel()
+    private let shotsRow = UIScrollView()
+    private let peopleHead = UILabel()
+    private let find = UITextField()
+    private let table = UITableView()
+
+    private var me = ""
+    private var people: [ChatJSON] = []
+    private var shown: [ChatJSON] = []
+    private var photos: [(id: String, url: String)] = []
+    /// 저장 기간(90일)이 지나 지워진 사진 — **참·거짓이 아니라 그 글의 id다**
+    /// (`Avatar`의 `bad`와 같은 결이다). 네모난 빈칸이 되므로 아예 안 그린다.
+    private var gone: Set<String> = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        dim.backgroundColor = UIColor(white: 0, alpha: 0.32)
+        dim.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(closeTapped)))
+        addSubview(dim)
+
+        panel.backgroundColor = .systemBackground
+        addSubview(panel)
+
+        closeBtn.setTitle("닫기", for: .normal)
+        closeBtn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        closeBtn.accessibilityIdentifier = "native-chat-drawer-close"
+        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+
+        /* **`사진/동영상`이 아니라 `최근 사진`인 것은 일부러다** — 동영상은
+           우리가 못 보내고, 서른 장만 보여 준다. 다 있는 것처럼 적으면
+           거짓말이 된다. */
+        shotsHead.text = "최근 사진"
+        shotsHead.font = .systemFont(ofSize: 14, weight: .semibold)
+        shotsHead.textColor = .secondaryLabel
+        /* **가로로만 굴러간다** — 세로로 쌓으면 사진 서른 장이 서랍을 통째로
+           먹어 참여자 목록이 저 아래로 밀린다. */
+        shotsRow.showsHorizontalScrollIndicator = false
+        shotsRow.accessibilityIdentifier = "native-chat-drawer-photos"
+
+        peopleHead.font = .systemFont(ofSize: 14, weight: .semibold)
+        peopleHead.textColor = .secondaryLabel
+
+        find.borderStyle = .roundedRect
+        find.font = .systemFont(ofSize: 16)
+        find.clearButtonMode = .whileEditing
+        find.returnKeyType = .done
+        find.accessibilityLabel = "참여자 찾기"
+        find.addTarget(self, action: #selector(findChanged), for: .editingChanged)
+        find.addTarget(self, action: #selector(findDone), for: .editingDidEndOnExit)
+
+        table.dataSource = self
+        table.delegate = self
+        table.rowHeight = Self.rowH
+        /* **줄을 가르는 선이 없다** — 얼굴이 이미 줄을 갈라 준다(카톡 사진을
+           픽셀로 훑어 확인했다). **되살리지 말 것.** */
+        table.separatorStyle = .none
+        table.keyboardDismissMode = .onDrag
+        table.register(ChatPersonCell.self, forCellReuseIdentifier: "p")
+        table.accessibilityIdentifier = "native-chat-drawer-people"
+
+        for v in [closeBtn, shotsHead, shotsRow, peopleHead, find, table] as [UIView] {
+            panel.addSubview(v)
+        }
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func closeTapped() { onClose?() }
+    @objc private func findDone() { find.resignFirstResponder() }
+    @objc private func findChanged() { filter(); table.reloadData() }
+
+    /// 서랍을 연다. **명단을 새로 안 받아 온다** — 대화 화면이 이미 들고
+    /// 있는 값이고, 방에 있는 사람이 곧 회원이다.
+    func show(people list: [ChatJSON], me id: String) {
+        me = id
+        people = list.sorted(by: ChatRole.order)
+        filter()
+        table.reloadData()
+        peopleHead.text = "참여자 \(people.count)명"
+        find.isHidden = people.count <= Self.findAt
+        isHidden = false
+        setNeedsLayout()
+        layoutIfNeeded()
+        dim.alpha = 0
+        panel.transform = CGAffineTransform(translationX: panel.bounds.width, y: 0)
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
+            self.dim.alpha = 1
+            self.panel.transform = .identity
+        }
+    }
+
+    func hide() {
+        find.resignFirstResponder()
+        isHidden = true
+        panel.transform = .identity
+    }
+
+    /**
+     * 최근 사진을 늘어놓는다. **한 장도 없으면 묶음째 안 그린다** —
+     * 글만 오간 방에 빈 칸이 덩그러니 남지 않게.
+     */
+    func setPhotos(_ list: [(id: String, url: String)]) {
+        photos = list
+        for v in shotsRow.subviews { v.removeFromSuperview() }
+        var x: CGFloat = 0
+        for p in photos where !gone.contains(p.id) {
+            let b = ChatThumb(id: p.id, url: p.url)
+            b.frame = CGRect(x: x, y: 0, width: Self.thumb, height: Self.thumb)
+            b.addTarget(self, action: #selector(thumbTapped(_:)), for: .touchUpInside)
+            b.onGone = { [weak self] id in self?.dropPhoto(id) }
+            /* **받아 오는 것은 손잡이를 단 뒤에 시작한다** — 담아 둔 그림은
+               그 자리에서 곧바로 답하므로, 만들 때 시작하면 지워진 사진을
+               알려 줄 데가 없다. */
+            b.load()
+            shotsRow.addSubview(b)
+            x += Self.thumb + Self.thumbGap
+        }
+        shotsRow.contentSize = CGSize(width: max(0, x - Self.thumbGap), height: Self.thumb)
+        setNeedsLayout()
+    }
+
+    /// 저장 기간이 지난 사진을 목록에서 뺀다. **다시 그리는 것은 다음
+    /// 차례로 미룬다** — 그리는 도중에 또 그리면 서로를 물고 돈다.
+    private func dropPhoto(_ id: String) {
+        guard !gone.contains(id) else { return }
+        gone.insert(id)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.setPhotos(self.photos)
+        }
+    }
+
+    @objc private func thumbTapped(_ b: ChatThumb) { onPhoto?(b.url) }
+
+    private func filter() {
+        let q = (find.text ?? "").trimmingCharacters(in: .whitespaces)
+        shown = q.isEmpty ? people : people.filter {
+            NativeChatRows.label($0).localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    private var hasPhotos: Bool { return !shotsRow.subviews.isEmpty }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        dim.frame = bounds
+        let w = min(bounds.width - 40, 360)
+        panel.frame = CGRect(x: bounds.width - w, y: 0, width: w, height: bounds.height)
+        let pad: CGFloat = 16
+        let top = safeAreaInsets.top
+        closeBtn.frame = CGRect(x: w - pad - 60, y: top + 6, width: 60, height: 44)
+        var y = top + 56
+        if hasPhotos {
+            shotsHead.isHidden = false
+            shotsRow.isHidden = false
+            shotsHead.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: 20)
+            y += 24
+            shotsRow.frame = CGRect(x: pad, y: y, width: w - pad, height: Self.thumb)
+            y += Self.thumb + 18
+        } else {
+            shotsHead.isHidden = true
+            shotsRow.isHidden = true
+        }
+        peopleHead.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: 20)
+        y += 26
+        if !find.isHidden {
+            find.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: 40)
+            y += 48
+        }
+        table.frame = CGRect(x: 0, y: y, width: w, height: max(0, bounds.height - y - safeAreaInsets.bottom))
+    }
+
+    func tableView(_ t: UITableView, numberOfRowsInSection s: Int) -> Int { return shown.count }
+
+    func tableView(_ t: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
+        let cell = t.dequeueReusableCell(withIdentifier: "p", for: ip) as! ChatPersonCell
+        cell.fill(shown[ip.row], me: me)
+        return cell
+    }
+
+    func tableView(_ t: UITableView, didSelectRowAt ip: IndexPath) {
+        t.deselectRow(at: ip, animated: true)
+        onPerson?(shown[ip.row]["id"] as? String ?? "")
+    }
+}
+
+/// 서랍의 사진 한 장. **못 받아 오면 알려 준다** — 저장 기간이 지난 사진은
+/// 주소만 남아 있어 네모난 빈칸이 되므로 그 줄을 아예 뺀다.
+final class ChatThumb: UIControl {
+    let id: String
+    let url: String
+    var onGone: ((String) -> Void)?
+    private let image = UIImageView()
+
+    init(id i: String, url u: String) {
+        id = i
+        url = u
+        super.init(frame: .zero)
+        layer.cornerRadius = 4
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        backgroundColor = .secondarySystemFill
+        image.contentMode = .scaleAspectFill
+        image.isUserInteractionEnabled = false
+        addSubview(image)
+        accessibilityLabel = "사진"
+    }
+
+    func load() {
+        ImageStore.shared.load(url) { [weak self] shot in
+            guard let self = self else { return }
+            if let img = shot?.first { self.image.image = img } else { self.onGone?(self.id) }
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        image.frame = bounds
+    }
+}
+
+/// 참여자 한 줄 — 얼굴 · 이름표 · 직책 표.
+final class ChatPersonCell: UITableViewCell {
+    private let face = AvatarView()
+    private let mark = UIImageView()
+    private let name = UILabel()
+    private let mine = PadLabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .default
+        name.font = .systemFont(ofSize: 16)
+        name.lineBreakMode = .byTruncatingTail
+        /* **`나`는 이름 앞에 붙는 동그란 표다**(카톡과 같다). 뒤에 두면
+           긴 이름표에 밀려 화면 밖으로 나간다. */
+        mine.text = "나"
+        mine.font = .systemFont(ofSize: 11, weight: .bold)
+        mine.textColor = .white
+        mine.backgroundColor = UIColor(white: 0, alpha: 0.35)
+        mine.layer.cornerRadius = 8
+        mine.layer.masksToBounds = true
+        mine.inset = UIEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
+        /* **직책은 글자가 아니라 얼굴에 붙는 작은 표다**(사용자 요청).
+           **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다. */
+        mark.contentMode = .scaleAspectFit
+        mark.tintColor = .white
+        mark.layer.cornerRadius = 8
+        mark.layer.masksToBounds = true
+        for v in [face, mark, mine, name] as [UIView] { contentView.addSubview(v) }
+        contentView.accessibilityIdentifier = "native-chat-person"
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func fill(_ p: ChatJSON, me: String) {
+        let role = p["role"] as? String
+        let gender = p["gender"] as? String
+        face.show(url: p["avatar_url"] as? String,
+                  letter: p["name"] as? String ?? "",
+                  /* 남녀는 **얼굴 테두리 색**으로 가른다(웹의 `--male`·
+                     `--female`). 이 두 색은 얼굴에만 쓴다. */
+                  edge: gender == "f" ? UIColor(hexString: "#ef6ba8")
+                      : (gender == "m" ? UIColor(hexString: "#2f8fd6") : nil),
+                  size: 36)
+        name.text = NativeChatRows.label(p)
+        mine.isHidden = (p["id"] as? String) != me
+        if let color = ChatRole.color(role) {
+            /* 운영진 셋은 왕관이고 색만 다르다 — **총무는 왕관이 아니라
+               `₩`다**(앱의 다른 모든 자리에서 총무는 운영진이 아니다). */
+            let crown = UIImage(systemName: "crown.fill") ?? UIImage(systemName: "star.fill")
+            mark.image = role == "treasurer" ? UIImage(systemName: "wonsign") : crown
+            mark.backgroundColor = color
+            mark.isHidden = false
+            mark.accessibilityLabel = ChatRole.label(role)
+        } else {
+            mark.isHidden = true
+        }
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let pad: CGFloat = 16
+        face.frame = CGRect(x: pad, y: 7, width: 36, height: 36)
+        mark.frame = CGRect(x: face.frame.maxX - 14, y: face.frame.maxY - 14, width: 16, height: 16)
+        var x = pad + 36 + 13
+        if !mine.isHidden {
+            let s = mine.sizeThatFits(CGSize(width: 60, height: 20))
+            mine.frame = CGRect(x: x, y: (bounds.height - 18) / 2, width: s.width, height: 18)
+            x += s.width + 6
+        }
+        name.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - pad), height: bounds.height)
+    }
+}
+
+// MARK: - 프로필은 전체화면이다
+
+/**
+ * 얼굴이나 참여자 줄을 누르면 뜬다(사용자 요청 — `프로필 누르면 사진처럼
+ * 전체화면이 나오고 뒤로가기처럼 아래로 내리면 사라지게해줘`).
+ *
+ * **아래에서 올라오는 작은 카드로 되돌리지 말 것** — 100명 방에서 얼굴을
+ * 누르는 까닭은 `83/신성호/광산구`만 보고는 누군지 안 떠올라서인데,
+ * 사진이 작게 뜨면 그 물음에 답이 안 된다.
+ */
+final class ChatProfile: UIView {
+
+    /// 이만큼 내리면 닫힌다(웹의 `SHEET_CLOSE`).
+    private static let close: CGFloat = 120
+    /// **거리 없이 빠르기만 보지 않는다**(웹의 `SHEET_FLICK_MIN`) — 손끝이
+    /// 조금 미끄러진 것까지 닫힘으로 읽히면 사진을 들여다볼 수가 없다.
+    private static let flickMin: CGFloat = 40
+
+    var onClose: (() -> Void)?
+    var onMention: ((String) -> Void)?
+
+    private let back = UIView()
+    private let sheet = UIView()
+    private let photo = UIImageView()
+    private let letter = UILabel()
+    private let foot = UIView()
+    private let name = UILabel()
+    private let role = PadLabel()
+    private let extra = UILabel()
+    private let mention = UIButton(type: .system)
+    private let closeBtn = UIButton(type: .system)
+    private var who = ""
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        back.backgroundColor = .black
+        addSubview(back)
+        sheet.backgroundColor = UIColor(white: 0.07, alpha: 1)
+        sheet.clipsToBounds = true
+        addSubview(sheet)
+
+        /* **사진은 `cover`다**(카톡과 같다) — 어떤 비율이 올지 모른다.
+           없는 사람은 얼굴에 쓰는 그 두 글자를 크게 놓는다. */
+        photo.contentMode = .scaleAspectFill
+        photo.clipsToBounds = true
+        letter.textAlignment = .center
+        letter.textColor = UIColor(white: 1, alpha: 0.5)
+        letter.font = .systemFont(ofSize: 72, weight: .semibold)
+
+        foot.backgroundColor = UIColor(white: 0, alpha: 0.45)
+        name.textColor = .white
+        name.font = .systemFont(ofSize: 20, weight: .bold)
+        name.numberOfLines = 2
+        /* **색만으로 가르지 않는다** — 직책 이름을 글자로 적는다(얼굴
+           테두리의 남녀 구분과 같은 잣대다). **그 글자표는 그대로 둘 것.** */
+        role.textColor = .white
+        role.font = .systemFont(ofSize: 12, weight: .bold)
+        role.layer.cornerRadius = 10
+        role.layer.masksToBounds = true
+        extra.textColor = UIColor(white: 1, alpha: 0.75)
+        extra.font = .systemFont(ofSize: 14)
+
+        /* **분홍을 안 쓴다** — 이 화면에서 '지금 눌러야 할 것'은 보내기
+           단추 하나다(크게 본 사진의 흰 알약과 같은 값이다). */
+        mention.setTitle("@언급하기", for: .normal)
+        mention.setTitleColor(.white, for: .normal)
+        mention.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        mention.backgroundColor = UIColor(white: 1, alpha: 0.3)
+        mention.layer.cornerRadius = 22
+        mention.addTarget(self, action: #selector(mentionTapped), for: .touchUpInside)
+
+        /* **`✕`는 왼쪽 위다**(카톡과 같다) — 화면을 통째로 차지하는 창이다. */
+        closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeBtn.tintColor = .white
+        closeBtn.accessibilityLabel = "닫기"
+        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+
+        /* 두 글자는 **사진 밑에** 둔다 — 사진이 오면 그대로 덮는다. */
+        for v in [letter, photo, foot, name, role, extra, mention, closeBtn] as [UIView] {
+            sheet.addSubview(v)
+        }
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+        sheet.addGestureRecognizer(pan)
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func closeTapped() { onClose?() }
+    @objc private func mentionTapped() { onMention?(who) }
+
+    /// `attend`는 **운영진에게만** 적는 `올해 N회`다 — 모르면 안 적는다
+    /// (0으로 적으면 모두가 `올해 0회`가 되어 거짓말이 된다).
+    func show(_ p: ChatJSON, attend: Int?) {
+        fill(p, attend: attend)
+        isHidden = false
+        setNeedsLayout()
+        layoutIfNeeded()
+        back.alpha = 0
+        sheet.transform = CGAffineTransform(translationX: 0, y: bounds.height)
+        UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut]) {
+            self.back.alpha = 1
+            self.sheet.transform = .identity
+        }
+    }
+
+    /// 참석 횟수만 뒤늦게 적는다 — **다시 띄우지 않는다**(그러면 뜨는
+    /// 연출이 한 번 더 돌아 창이 아래에서 다시 올라온다).
+    func setAttend(_ n: Int?) {
+        extra.text = n.map { "올해 \($0)회" } ?? ""
+        extra.isHidden = n == nil
+        setNeedsLayout()
+    }
+
+    private func fill(_ p: ChatJSON, attend: Int?) {
+        who = p["name"] as? String ?? ""
+        name.text = NativeChatRows.label(p)
+        let r = p["role"] as? String
+        let label = ChatRole.label(r)
+        role.text = label
+        role.isHidden = label.isEmpty
+        /* **직책표만 칠이 된다** — 명단의 직책 색은 흰 바탕에서 읽히라고
+           낮춰 둔 값이라 사진 위에서 죽는다. 색은 명단이 정한 것을
+           그대로 물려받고 글자만 흰색으로 뒤집는다. */
+        role.backgroundColor = ChatRole.color(r) ?? UIColor(white: 1, alpha: 0.25)
+        extra.text = attend.map { "올해 \($0)회" } ?? ""
+        extra.isHidden = attend == nil
+        letter.text = String((p["name"] as? String ?? "?").suffix(2))
+        photo.image = nil
+        photo.isHidden = true
+        if let url = p["avatar_url"] as? String, !url.isEmpty {
+            ImageStore.shared.load(url) { [weak self] shot in
+                guard let self = self, let img = shot?.first else { return }
+                self.photo.image = img
+                self.photo.isHidden = false
+            }
+        }
+    }
+
+    func hide() {
+        isHidden = true
+        sheet.transform = .identity
+        back.alpha = 1
+    }
+
+    /**
+     * 아래로 끌면 손가락을 따라온다(뒤로 가기 손짓과 같은 결).
+     * **위로는 1/3만 따라간다** — 갈 데가 없으니 벽에 닿은 느낌만 준다.
+     * **자리를 상태로 두지 않는다** — 매 프레임 다시 그리면 느린 폰에서
+     * 그대로 끊긴다. `transform`과 `opacity`만 움직인다.
+     */
+    @objc private func dragged(_ g: UIPanGestureRecognizer) {
+        let dy = g.translation(in: self).y
+        switch g.state {
+        case .changed:
+            let d = dy >= 0 ? dy : dy / 3
+            sheet.transform = CGAffineTransform(translationX: 0, y: d)
+            /* **바탕만 걷힌다** — 사진째 흐려지면 '치우는 중'이 아니라
+               '꺼지는 중'으로 보인다. */
+            back.alpha = max(0, 1 - max(0, d) / bounds.height)
+        case .ended, .cancelled, .failed:
+            let vy = g.velocity(in: self).y
+            let go = dy > Self.close || (vy > 900 && dy > Self.flickMin)
+            if go {
+                UIView.animate(withDuration: 0.2, animations: {
+                    self.sheet.transform = CGAffineTransform(translationX: 0, y: self.bounds.height)
+                    self.back.alpha = 0
+                }, completion: { _ in self.onClose?() })
+            } else {
+                UIView.animate(withDuration: 0.2) {
+                    self.sheet.transform = .identity
+                    self.back.alpha = 1
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        back.frame = bounds
+        sheet.frame = bounds
+        photo.frame = bounds
+        letter.frame = bounds
+        closeBtn.frame = CGRect(x: 4, y: safeAreaInsets.top + 4, width: 44, height: 44)
+        let pad: CGFloat = 20
+        let bottom = safeAreaInsets.bottom
+        let h: CGFloat = 168 + bottom
+        foot.frame = CGRect(x: 0, y: bounds.height - h, width: bounds.width, height: h)
+        var y = foot.frame.minY + 20
+        name.frame = CGRect(x: pad, y: y, width: bounds.width - pad * 2, height: 28)
+        y += 32
+        if !role.isHidden {
+            let s = role.sizeThatFits(CGSize(width: 200, height: 24))
+            role.frame = CGRect(x: pad, y: y, width: s.width, height: 20)
+        }
+        if !extra.isHidden {
+            extra.frame = CGRect(x: role.isHidden ? pad : role.frame.maxX + 10, y: y,
+                                 width: bounds.width - pad * 2, height: 20)
+        }
+        y += 30
+        mention.frame = CGRect(x: pad, y: y, width: bounds.width - pad * 2, height: 44)
+    }
+}

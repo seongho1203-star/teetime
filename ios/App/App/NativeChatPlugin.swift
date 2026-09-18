@@ -29,7 +29,8 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard let self = self else { return }
                 self.notifyListeners("event", data: ["screen": self.screen, "type": "auth", "data": [:]])
             }
-            if chat.parent == nil {
+            let fresh = chat.parent == nil
+            if fresh {
                 root.view.endEditing(true)
                 root.addChild(chat); chat.view.translatesAutoresizingMaskIntoConstraints = false
                 root.view.addSubview(chat.view)
@@ -42,6 +43,20 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 chat.didMove(toParent: root)
             }
             root.view.bringSubviewToFront(chat.view); root.view.layoutIfNeeded(); chat.resume()
+            /* **오른쪽에서 통째로 밀려 들어온다**(웹의 `screen-in`과 같은
+               움직임이다). **남은 시간만큼만 간다** — 이 화면은 웹이 먼저
+               그려진 뒤에 서므로 제 시간을 다 쓰면 머리말보다 늦게 끝나
+               두 단계로 보인다(웹의 `slideLeft()`가 그 값이다). */
+            let ms = call.getDouble("slide") ?? 0
+            if fresh, ms > 40 {
+                chat.view.transform = CGAffineTransform(translationX: root.view.bounds.width, y: 0)
+                UIView.animate(withDuration: ms / 1000, delay: 0,
+                               options: [.curveEaseOut, .beginFromCurrentState]) {
+                    chat.view.transform = .identity
+                }
+            } else {
+                chat.view.transform = .identity
+            }
             call.resolve(["ok": true])
         }
     }

@@ -12,6 +12,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private let composer = ComposerBar()
     private let header = UIStackView()
     private let titleButton = UIButton(type: .system)
+    /// 길게 누른 창 — **누른 말풍선 옆에 뜬다**(웹의 `.chat-menu`와 같은 값).
+    private let hold = HoldMenu()
+    /// 서랍(☰)과 전체화면 프로필. **따로 띄우는 화면이 아니라 여기 얹는다** —
+    /// 그래야 네이티브 글칸 바와 말풍선 목록을 그대로 덮는다.
+    private let drawer = ChatDrawer()
+    private let profile = ChatProfile()
+    /// 손가락을 따라 뒤로 가기(`ChatList.swift`의 `BackDrag`). 끄는 것은
+    /// 앱이 맡고 **뒤에 깔 앞 화면은 웹이 그린다**(`nativeBackStart`).
+    private let backDrag = BackDrag()
+    /// 그 손짓의 문지기 — **오른쪽으로 그은 것만** 받는다.
+    private let backGuard = BackGuard()
+    private var backLive = false
     private let context = UIStackView()
     private let mentions = UIStackView()
     private let status = UIButton(type: .system)
@@ -42,6 +54,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private var pickedPhoto: UIImage?
     private var retryRow: ChatJSON?
     private var mentionRange: NSRange?
+    /// 길게 눌러 창을 띄운 글. 고른 것이 돌아올 때 이 값으로 찾는다.
+    private var holdId = ""
     private var observers: [NSObjectProtocol] = []
     private var navigating = false
     private var revision = 0
@@ -68,11 +82,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         composer.sendBtn.accessibilityIdentifier = "native-chat-send"
         composer.plusBtn.accessibilityLabel = "사진 첨부"; composer.iconBtn.accessibilityLabel = "이모티콘"
         header.axis = .horizontal; header.alignment = .center; header.spacing = 8
-        let home = button("chevron.left", "홈으로", "native-chat-back") { [weak self] in self?.navigate("/") }
+        let home = button("chevron.left", "뒤로", "native-chat-back") { [weak self] in self?.goBack(drag: false) }
         home.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        titleButton.titleLabel?.font = .boldSystemFont(ofSize: 21); titleButton.contentHorizontalAlignment = .left
-        titleButton.setTitle("전체 대화", for: .normal); titleButton.setTitleColor(.label, for: .normal)
-        titleButton.addAction(UIAction { [weak self] _ in self?.showPeople() }, for: .touchUpInside)
+        titleButton.contentHorizontalAlignment = .left
+        titleButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        setTitle("전체 대화", n: nil)
+        titleButton.addAction(UIAction { [weak self] _ in self?.showMenu() }, for: .touchUpInside)
         header.addArrangedSubview(home); header.addArrangedSubview(titleButton)
         header.addArrangedSubview(button("magnifyingglass", "대화 검색", "native-chat-search") { [weak self] in self?.showSearch() })
         header.addArrangedSubview(button("line.3.horizontal", "대화 메뉴", "native-chat-menu") { [weak self] in self?.showMenu() })
@@ -95,8 +110,29 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         status.setTitleColor(.white, for: .normal); status.setTitle("대화를 불러오는 중…", for: .normal)
         status.accessibilityIdentifier = "native-chat-status"
         status.addAction(UIAction { [weak self] _ in self?.startLoad() }, for: .touchUpInside)
-        let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(backSwipe(_:)))
-        edge.edges = .left; view.addGestureRecognizer(edge)
+
+        /* 길게 누른 창 · 서랍 · 프로필은 **맨 위에 얹는다** — 이 셋이
+           입력칸(네이티브 바)까지 덮어야 한다. */
+        for v in [hold, drawer, profile] as [UIView] {
+            v.frame = view.bounds
+            v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            view.addSubview(v)
+        }
+        hold.onPick = { [weak self] kind, value in self?.holdPicked(kind, value) }
+        drawer.onClose = { [weak self] in self?.drawer.hide() }
+        drawer.onPerson = { [weak self] id in self?.drawer.hide(); self?.showProfile(id) }
+        drawer.onPhoto = { [weak self] url in self?.showPhoto(url) }
+        profile.onClose = { [weak self] in self?.profile.hide() }
+        profile.onMention = { [weak self] name in self?.mentionFrom(name) }
+
+        /* **머리말에서도 오른쪽으로 밀면 뒤로 간다.** 말풍선 자리는
+           `ChatList`가 제 손짓으로 잡아 같은 다리로 넘긴다
+           (`chatListBackBegan`) — 한 화면에서 둘이 겹치지 않게
+           **목록 밖에만** 붙인다. */
+        let back = UIPanGestureRecognizer(target: self, action: #selector(backPan(_:)))
+        back.delegate = backGuard
+        back.cancelsTouchesInView = false
+        header.addGestureRecognizer(back)
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self, self.visible else { return }; self.realtime?.start(); self.sync()
@@ -116,6 +152,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
     func pause() {
         visible = false; list.pauseSession(); view.endEditing(true)
+        /* 덮는 창은 화면을 떠날 때 함께 걷는다 — 남으면 다시 들어왔을 때
+           엉뚱한 창이 떠 있는 꼴이 된다(토스트도 같다). */
+        hold.hide(); drawer.hide(); profile.hide(); ToastHUD.clear()
         realtime?.stop(); syncTask?.cancel(); readTask?.cancel(); searchTask?.cancel(); metadataTask?.cancel()
         offlineTask?.cancel(); offlineTask = nil
         if !loaded { loadTask?.cancel(); loadTask = nil }
@@ -128,9 +167,60 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         b.heightAnchor.constraint(equalToConstant: 44).isActive = true
         b.addAction(UIAction { _ in action() }, for: .touchUpInside); return b
     }
-    @objc private func backSwipe(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        if gesture.state == .ended && (gesture.translation(in: view).x > 60 || gesture.velocity(in: view).x > 600) { navigate("/") }
+    /**
+     * 머리말 제목 — **`전체 대화` 옆에 사람 수를 흐리게 붙인다**(웹의
+     * `.chat-title-n`). ☰ 위에 얹지 않고 여기 한 군데에만 적는다.
+     */
+    private func setTitle(_ text: String, n: Int?) {
+        let s = NSMutableAttributedString(string: text, attributes: [
+            .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
+            .foregroundColor: UIColor.label,
+        ])
+        if let n = n {
+            s.append(NSAttributedString(string: "  \(n)", attributes: [
+                .font: UIFont.systemFont(ofSize: 13),
+                .foregroundColor: UIColor.secondaryLabel,
+            ]))
+        }
+        titleButton.setAttributedTitle(s, for: .normal)
     }
+
+    /**
+     * 오른쪽으로 밀어 뒤로 가기 — **손가락을 따라 앞 화면이 나온다.**
+     *
+     * **갈래가 둘이다.** 웹이 뒤에 깔 그림을 갖고 있으면(`config.back`)
+     * 끌 준비를 하고 움직임마다 화면이 따라오고, 없으면 놓을 때 한 번만
+     * 보고 **곧바로 넘어간다**(그때 끌면 빈 화면이 손을 따라 나온다).
+     */
+    @objc private func backPan(_ g: UIPanGestureRecognizer) {
+        let t = g.translation(in: view)
+        switch g.state {
+        case .began:
+            backLive = chatListBackBegan()
+        case .changed:
+            if backLive { chatListBackMoved(dx: max(0, t.x)) }
+        case .ended, .cancelled, .failed:
+            if backLive {
+                backLive = false
+                chatListBackEnded(dx: max(0, t.x), vx: g.velocity(in: view).x, cancelled: g.state != .ended)
+            } else if g.state == .ended, t.x >= 60, t.x > abs(t.y) {
+                goBack(drag: false)
+            }
+        default:
+            break
+        }
+    }
+
+    /**
+     * 뒤로 간다 — **어디로 갈지는 웹이 안다**(히스토리가 비었으면 홈으로).
+     * `drag`면 이미 화면을 다 내보낸 뒤라 웹이 곧바로 옮긴다.
+     */
+    private func goBack(drag: Bool) {
+        guard !navigating else { return }; navigating = true
+        list.pauseSession(); view.endEditing(true)
+        event?("back", ["phase": drag ? "commit" : "plain"])
+    }
+
     private func navigate(_ path: String) {
         guard !navigating else { return }; navigating = true
         list.pauseSession(); view.endEditing(true); event?("navigate", ["path": path])
@@ -145,7 +235,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 async let r = self.service.room(); async let p = self.service.people()
                 let (room, people) = try await (r, p); try Task.checkCancellation()
                 self.room = room["id"] as? String ?? ""; self.people = people
-                self.titleButton.setTitle("\(room["name"] as? String ?? "전체 대화") \(self.members.count)", for: .normal)
+                self.setTitle(room["name"] as? String ?? "전체 대화", n: self.members.count)
                 let latest = try await self.service.messages(self.room, limit: 100)
                 try Task.checkCancellation()
                 self.messages = latest.reversed(); self.hasMore = latest.count == 100
@@ -320,7 +410,11 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     if let reply = reply { row["reply_to"] = reply.id }
                     if let id = chosen?["id"] as? String { row["image_url"] = "sticker:\(id)" }
                     if let image = image {
-                        let size = image.size; let scale = min(1, 1600 / max(size.width, size.height))
+                        /* **2560px · JPEG 82%** — 웹의 `lib/image.ts`와 같은
+                           값이다(`MAX_EDGE`·`QUALITY`). **한쪽만 고치지 말 것** —
+                           갈리면 어느 길로 올렸느냐에 따라 화질이 달라진다.
+                           저장 공간이 곧 사진 장수라 **사용자에게 묻고 바꿀 것.** */
+                        let size = image.size; let scale = min(1, 2560 / max(size.width, size.height))
                         let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
                         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
                         let jpg = UIGraphicsImageRenderer(size: target, format: fmt).image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }.jpegData(compressionQuality: 0.82)
@@ -440,15 +534,47 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         if atTop { loadMore() }; if atBottom { markRead() }
     }
     func chatListDismissKeyboard() { view.endEditing(true) }
-    func chatListBackBegan() -> Bool { false }
-    func chatListBackMoved(dx: CGFloat) {}
-    func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool) {}
+
+    /* ── 손가락을 따라 뒤로 가기 ─────────────────────────────
+     *
+     * 짜임과 까닭은 `ChatList.swift`의 `BackDrag` 머리말에 있다 — 여기는
+     * **화면과 웹뷰를 아는 다리**일 뿐이다.
+     *
+     * **이 화면은 웹뷰 위에 얹힌 앱 부품이다.** 그래서 찍은 그림은 창에
+     * 얹고(그래야 웹뷰를 밀 때 같이 안 밀린다) 이 화면은 감춘다 —
+     * 웹은 그 뒤에서 앞 화면 그림만 깔아 준다(`nativeBackStart`).
+     */
+    func chatListBackBegan() -> Bool {
+        guard service.config.back, !navigating, hold.isHidden, drawer.isHidden, profile.isHidden,
+              let web = view.superview else { return false }
+        guard backDrag.begin(root: view, web: web, cover: [view]) else { return false }
+        event?("back", ["phase": "start"])
+        return true
+    }
+
+    func chatListBackMoved(dx: CGFloat) { backDrag.move(dx: dx) }
+
+    func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool) {
+        let go = !cancelled && backDrag.wants(dx: dx, vx: vx)
+        backDrag.finish(go: go) { [weak self] in
+            guard let self = self else { return }
+            if go { self.goBack(drag: true) } else { self.event?("back", ["phase": "cancel"]) }
+            /* **웹이 손을 쓴 뒤에 걷는다.** 되돌아오는 판에서는 감춰 둔
+               화면을 다시 내보이는 데 한 프레임이면 되고, 넘어가는 판에서는
+               목적지가 그려질 때까지 기다린다 — 먼저 걷으면 옛 화면이
+               새 화면 위에 잠깐 되살아난다. */
+            DispatchQueue.main.asyncAfter(deadline: .now() + (go ? 0.4 : 0.05)) {
+                self.backDrag.end()
+            }
+        }
+    }
+
     func chatListTap(kind: String, id: String, to: String?) {
         switch kind {
-        case "back": navigate("/")
+        case "back": goBack(drag: false)
         case "jump": latest()
         case "card": if let to = to { navigate(to) }
-        case "photo": if let to = to { showPanel(NativeChatPhoto(to)) }
+        case "photo": if let to = to { showPhoto(to) }
         case "face": if let message = messages.first(where: { $0.id == id }) { showProfile(message.user) }
         case "reply": if let m = messages.first(where: { $0.id == id }), !m.hidden { quoted = m; updateContext(); composer.textView.becomeFirstResponder() }
         case "quote": if let to = to { jumpToID(to) }
@@ -456,23 +582,58 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         default: break
         }
     }
+    /**
+     * 말풍선을 길게 눌렀다 — **누른 자리에 카톡과 같은 창이 뜬다**
+     * (화면 아래에서 올라오는 액션시트가 아니다. 사용자 요청 —
+     * `누른 자리에서 나오도록해줘`).
+     *
+     * **줄 차례는 사용자가 정해 준 그대로다** — `복사 · 선택 복사 · 댓글 ·
+     * 공유`, 그 뒤에 운영진의 `가리기`, 쓴 사람의 `삭제`.
+     * **누구에게 무엇이 붙는지가 규칙의 전부다**: 앞 넷은 누구나,
+     * `가리기`는 운영진, `삭제`는 쓴 사람(제 글에만) — **남의 글은
+     * 운영진에게도 안 열었다**(되돌릴 수 없는 일이라 `가리기`로 끈다).
+     * 가린 글에는 `복사`·`선택 복사`·`댓글`과 반응 알약을 안 붙인다 —
+     * 덮어 둔 내용이 그리로 샌다.
+     */
     func chatListHold(id: String, mine: Bool, rect: CGRect) {
         guard let m = messages.first(where: { $0.id == id }) else { return }
-        let menu = UIAlertController(title: m.hidden ? "가려진 메시지" : String(m.preview.prefix(80)), message: nil, preferredStyle: .actionSheet)
+        var items: [HoldMenu.Item] = []
+        func add(_ name: String, _ label: String, _ icon: String, danger: Bool = false) {
+            if let it = HoldMenu.Item(["name": name, "label": label, "icon": icon, "danger": danger]) {
+                items.append(it)
+            }
+        }
         if !m.hidden {
             if !m.body.isEmpty {
-                menu.addAction(UIAlertAction(title: "복사", style: .default) { _ in UIPasteboard.general.string = m.body })
-                menu.addAction(UIAlertAction(title: "선택 복사", style: .default) { [weak self] _ in self?.showPanel(NativeChatText(m.body)) })
+                add("copy", "복사", "copy")
+                add("pick", "선택 복사", "pick")
             }
-            menu.addAction(UIAlertAction(title: "댓글", style: .default) { [weak self] _ in self?.quoted = m; self?.updateContext(); self?.composer.textView.becomeFirstResponder() })
-            menu.addAction(UIAlertAction(title: "공유", style: .default) { [weak self] _ in self?.share(m) })
-            menu.addAction(UIAlertAction(title: "반응 남기기", style: .default) { [weak self] _ in self?.reactionMenu(m.id) })
+            add("reply", "댓글", "reply")
+            add("share", "공유", "share")
         }
-        if isAdmin {
-            menu.addAction(UIAlertAction(title: m.hidden ? "가리기 풀기" : "가리기", style: .default) { [weak self] _ in self?.confirmChange(m, hide: true) })
+        if isAdmin { add("hide", m.hidden ? "가리기 풀기" : "가리기", "hide") }
+        if m.user == me { add("trash", "삭제", "trash", danger: true) }
+        holdId = m.id
+        view.bringSubviewToFront(hold)
+        /* 반응 알약은 **가린 글에는 안 붙인다.** 그림글자 다섯은 웹이 준다. */
+        hold.show(at: rect, mine: mine, items: items,
+                  reacts: m.hidden ? [] : service.config.reactions)
+    }
+
+    /// 창에서 고른 것 — `item`(줄) · `react`(알약) · `close`(바탕을 누름).
+    private func holdPicked(_ kind: String, _ value: String) {
+        hold.hide()
+        guard kind != "close", let m = messages.first(where: { $0.id == holdId }) else { return }
+        if kind == "react" { toggleReaction(m.id, value); return }
+        switch value {
+        case "copy": UIPasteboard.general.string = m.body; notice("복사했습니다.")
+        case "pick": showPanel(NativeChatText(m.body))
+        case "reply": quoted = m; updateContext(); composer.textView.becomeFirstResponder()
+        case "share": share(m)
+        case "hide": confirmChange(m, hide: true)
+        case "trash": confirmChange(m, hide: false)
+        default: break
         }
-        if m.user == me { menu.addAction(UIAlertAction(title: "삭제", style: .destructive) { [weak self] _ in self?.confirmChange(m, hide: false) }) }
-        menu.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(menu)
     }
     private func confirmChange(_ m: NativeChatMessage, hide: Bool) {
         let title = hide ? (m.hidden ? "가리기를 풀까요?" : "이 메시지를 가릴까요?") : "메시지를 삭제할까요?"
@@ -492,13 +653,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 } catch { self.notice(error.localizedDescription) }
             }
         }); present(alert, animated: true)
-    }
-    private func reactionMenu(_ id: String) {
-        let alert = UIAlertController(title: "반응", message: nil, preferredStyle: .actionSheet)
-        for emoji in ["👍", "❤️", "😂", "😮", "😢", "🙏"] {
-            alert.addAction(UIAlertAction(title: emoji, style: .default) { [weak self] _ in self?.toggleReaction(id, emoji) })
-        }
-        alert.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(alert)
     }
     private func toggleReaction(_ id: String, _ emoji: String) {
         let mine = reactions.contains { $0["message_id"] as? String == id && $0["user_id"] as? String == me && $0["emoji"] as? String == emoji }
@@ -520,67 +674,93 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         menu.popoverPresentationController?.sourceRect = titleButton.bounds
         present(menu, animated: true)
     }
+    /// 사진은 **머리말 없이 통째로** 띄운다 — 검은 바탕에 `✕`와 알약 둘뿐이다.
+    private func showPhoto(_ url: String) {
+        view.endEditing(true)
+        present(NativeChatPhoto(url), animated: true)
+    }
     private func showPanel(_ panel: UIViewController) {
         view.endEditing(true)
         let nav = UINavigationController(rootViewController: panel); nav.modalPresentationStyle = .fullScreen
         present(nav, animated: true)
     }
+    /**
+     * 안내창(토스트) — **입력칸 바로 위**다(`ToastHUD`).
+     *
+     * 화면 맨 위에 두었더니 **눈에 잘 안 띈다**고 했다(사용자 제보) —
+     * 대화방에서 눈이 가 있는 곳은 방금 누른 말풍선과 입력칸 언저리이지
+     * 화면 맨 위가 아니다. **되돌리지 말 것.**
+     */
     private func notice(_ message: String) {
         guard visible else { return }
-        let label = UILabel(); label.text = message; label.numberOfLines = 0; label.textAlignment = .center
-        label.font = .systemFont(ofSize: 14); label.textColor = .white; label.backgroundColor = UIColor.black.withAlphaComponent(0.82)
-        label.layer.cornerRadius = 12; label.clipsToBounds = true; label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
-        NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 22),
-            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -22),
-            label.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: 72), label.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { label.removeFromSuperview() }
+        ToastHUD.show(message, skin: ToastHUD.Skin(), in: view, above: composer)
     }
 
-    // MARK: Search, members, profile, and gallery
+    // MARK: 서랍 · 프로필 · 검색
+
+    /**
+     * ☰ — **서랍이 옆에서 나온다**(액션시트가 아니다). 위에서부터
+     * `최근 사진` · `참여자 N명`이고 맨 윗줄에는 `닫기` 하나만 둔다.
+     */
     private func showMenu() {
-        let menu = UIAlertController(title: "대화", message: nil, preferredStyle: .actionSheet)
-        menu.addAction(UIAlertAction(title: "참여자 \(members.count)명", style: .default) { [weak self] _ in self?.showPeople() })
-        menu.addAction(UIAlertAction(title: "사진 모아보기", style: .default) { [weak self] _ in self?.showGallery() })
-        menu.addAction(UIAlertAction(title: "최근 대화로", style: .default) { [weak self] _ in self?.latest() })
-        menu.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(menu)
+        view.endEditing(true)
+        view.bringSubviewToFront(drawer)
+        drawer.show(people: members, me: me)
+        loadShots()
     }
-    private func showPeople() {
-        let panel = NativeChatPicker(title: "참여자 \(members.count)명")
-        panel.items = members.map { p in
-            NativeChatPicker.Item(title: NativeChatRows.label(p), detail: roleName(p["role"] as? String), image: p["avatar_url"] as? String) { [weak self, weak panel] in
-                panel?.dismiss(animated: true) { self?.showProfile(p["id"] as? String ?? "") }
-            }
-        }; showPanel(panel)
+
+    /**
+     * 최근 사진 — **서랍을 열 때만 나가는 조회다.** 대화 화면이 늘 들고
+     * 있을 값이 아니고(통신량 규칙) 여는 일이 드물어 그때 한 번 물어보는
+     * 값이 싸다. 마지막 서른 장만 받는다.
+     *
+     * **이모티콘은 서버에서 걸러 낸다**(`not.ilike.sticker:%`) — 사진과
+     * 같은 칸을 쓰므로 안 거르면 서른 칸이 죄다 이모티콘으로 찬다.
+     * **오류는 그냥 삼킨다** — 못 받으면 이 묶음만 안 그린다.
+     */
+    private func loadShots() {
+        Task { [weak self] in
+            guard let self = self else { return }
+            let rows = (try? await self.service.messages(self.room, filters: [
+                ("image_url", "not.is.null"), ("image_url", "not.ilike.sticker:%"), ("hidden_at", "is.null"),
+            ], limit: 30)) ?? []
+            self.drawer.setPhotos(rows.compactMap { m in m.image.map { (id: m.id, url: $0) } })
+        }
     }
-    private func roleName(_ role: String?) -> String {
-        ["superadmin": "앱관리자", "admin": "운영자", "staff": "부운영자", "treasurer": "총무"][role ?? ""] ?? "회원"
-    }
+
+    /**
+     * 프로필은 **전체화면이고 아래로 내리면 사라진다**(사용자 요청).
+     * 아래에서 올라오는 작은 카드로 되돌리지 말 것 — 100명 방에서 얼굴을
+     * 누르는 까닭은 누군지 안 떠올라서인데, 사진이 작으면 답이 안 된다.
+     *
+     * **참석 횟수는 운영진에게만 적는다.** 못 받았으면 그 줄을 아예 안
+     * 그린다 — 0으로 적으면 모두가 `올해 0회`가 되어 거짓말이 된다.
+     */
     private func showProfile(_ id: String) {
         guard let p = people.first(where: { $0["id"] as? String == id }) else { return }
-        let panel = NativeChatPicker(title: NativeChatRows.label(p), searchable: false)
-        var items = [NativeChatPicker.Item(title: NativeChatRows.label(p), detail: roleName(p["role"] as? String), image: p["avatar_url"] as? String, choose: {})]
-        if let image = p["avatar_url"] as? String {
-            items.append(NativeChatPicker.Item(title: "프로필 사진", detail: "크게 보기") { [weak self, weak panel] in
-                panel?.dismiss(animated: true) { self?.showPanel(NativeChatPhoto(image)) }
-            })
-        }
-        items.append(NativeChatPicker.Item(title: "언급하기", detail: "@\(p["name"] as? String ?? "")") { [weak self, weak panel] in
-            panel?.dismiss(animated: true) {
-                guard let self = self else { return }
-                self.composer.text += "@\(p["name"] as? String ?? "") "; self.composer.textView.becomeFirstResponder()
-            }
-        })
-        panel.items = items; showPanel(panel)
+        view.endEditing(true)
+        view.bringSubviewToFront(profile)
+        profile.show(p, attend: nil)
         guard isAdmin else { return }
-        Task { [weak panel] in
+        Task { [weak self] in
+            guard let self = self else { return }
             let since = Calendar.current.date(from: Calendar.current.dateComponents([.year], from: Date())) ?? Date()
             let f = ISO8601DateFormatter()
-            if let counts = try? await service.request("rest/v1/rpc/attendance_counts", method: "POST", body: ["p_since": f.string(from: since)]) as? [ChatJSON],
-               let count = counts.first(where: { $0["user_id"] as? String == id }) {
-                panel?.items.append(NativeChatPicker.Item(title: "올해 라운드", detail: "\(count["n"] ?? 0)회", choose: {}))
+            if let counts = try? await self.service.request("rest/v1/rpc/attendance_counts", method: "POST",
+                                                            body: ["p_since": f.string(from: since)]) as? [ChatJSON],
+               let count = counts.first(where: { $0["user_id"] as? String == id }),
+               !self.profile.isHidden {
+                self.profile.setAttend(count["n"] as? Int ?? 0)
             }
         }
+    }
+
+    /// 프로필에서 `@언급하기` — 창을 닫고 글칸에 이름을 넣는다.
+    private func mentionFrom(_ name: String) {
+        profile.hide()
+        guard !name.isEmpty else { return }
+        composer.text += "@\(name) "
+        composer.textView.becomeFirstResponder()
     }
     private func showSearch() {
         let panel = NativeChatPicker(title: "대화 검색")
@@ -628,31 +808,5 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 list.apply(jump: ["name": "", "text": "최근 대화로"])
             } catch { notice(error.localizedDescription) }
         }
-    }
-    private func showGallery() {
-        let panel = NativeChatPicker(title: "사진 모아보기", searchable: false)
-        var cursor: NativeChatMessage?
-        var fetching = false
-        var done = false
-        let fetch: () -> Void = { [weak self, weak panel] in
-            guard let self = self, let panel = panel, !fetching, !done else { return }; fetching = true
-            Task {
-                defer { fetching = false }
-                do {
-                    var filters = [("image_url", "not.is.null"), ("image_url", "not.like.sticker:*"), ("hidden_at", "is.null")]
-                    if let last = cursor { filters.append(("or", "(created_at.lt.\(last.at),and(created_at.eq.\(last.at),id.lt.\(last.id)))")) }
-                    let photos = try await self.service.messages(self.room, filters: filters, limit: 30)
-                    done = photos.count < 30; cursor = photos.last
-                    panel.items += photos.map { m in
-                        NativeChatPicker.Item(title: self.personName(m.user), detail: m.at, image: m.image) { [weak self, weak panel] in
-                            guard let image = m.image else { return }
-                            panel?.dismiss(animated: true) { self?.showPanel(NativeChatPhoto(image)) }
-                        }
-                    }
-                    if panel.items.isEmpty { panel.items = [NativeChatPicker.Item(title: "사진이 없습니다.", detail: "", choose: {})] }
-                } catch { self.notice(error.localizedDescription) }
-            }
-        }
-        panel.loadNext = fetch; showPanel(panel); fetch()
     }
 }

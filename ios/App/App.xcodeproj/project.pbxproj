@@ -23,6 +23,7 @@
 		A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */; };
 		CB3000000000000000000000 /* NativeChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000 /* NativeChatService.swift */; };
 		CB3000000000000000000001 /* NativeChatPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000001 /* NativeChatPanels.swift */; };
+		CB3000000000000000000002 /* NativeChatDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000002 /* NativeChatDrawer.swift */; };
 		CB3000000000000000000002 /* NativeChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000002 /* NativeChatViewController.swift */; };
 		CB3000000000000000000003 /* NativeChatPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000003 /* NativeChatPlugin.swift */; };
 /* End PBXBuildFile section */
@@ -48,6 +49,7 @@
 		FC68EB0AF532CFC21C3344DD /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
 		CB2000000000000000000000 /* NativeChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatService.swift; sourceTree = "<group>"; };
 		CB2000000000000000000001 /* NativeChatPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatPanels.swift; sourceTree = "<group>"; };
+		CB2000000000000000000002 /* NativeChatDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatDrawer.swift; sourceTree = "<group>"; };
 		CB2000000000000000000002 /* NativeChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000003 /* NativeChatPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -102,6 +104,7 @@
 				CB1000000000000000000A0B /* ChatList.swift */,
 				CB2000000000000000000003 /* NativeChatPlugin.swift */,
 				CB2000000000000000000002 /* NativeChatViewController.swift */,
+				CB2000000000000000000002 /* NativeChatDrawer.swift */,
 				CB2000000000000000000001 /* NativeChatPanels.swift */,
 				CB2000000000000000000000 /* NativeChatService.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
@@ -248,6 +251,7 @@
 				CB1000000000000000000A0C /* ChatList.swift in Sources */,
 				CB3000000000000000000003 /* NativeChatPlugin.swift in Sources */,
 				CB3000000000000000000002 /* NativeChatViewController.swift in Sources */,
+				CB3000000000000000000002 /* NativeChatDrawer.swift in Sources */,
 				CB3000000000000000000001 /* NativeChatPanels.swift in Sources */,
 				CB3000000000000000000000 /* NativeChatService.swift in Sources */,
 			);

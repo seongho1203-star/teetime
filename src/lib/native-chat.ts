@@ -1,7 +1,22 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { Keyboard, type KeyboardResize } from '@capacitor/keyboard';
 
-export type NativeChatEvent = { screen: string; type: 'navigate' | 'read' | 'auth'; data: { path?: string; at?: string } };
+/**
+ * 앱 화면이 웹에 보내는 소식.
+ *
+ * - `navigate` — 카드를 눌렀다(갈 곳이 `path`).
+ * - `read` — 여기까지 읽었다(`at`).
+ * - `auth` — 토큰이 만료됐다.
+ * - `back` — **뒤로 가기 손짓**(`phase`: `start` 끌기 시작 ·
+ *   `commit` 넘어감 · `cancel` 제자리 · `plain` 끌리는 것 없이 곧바로).
+ *   앞 화면 그림은 웹만 만들 수 있어 그 셋을 웹이 받아 깐다
+ *   (`lib/tabs.ts`의 `nativeBackStart`/`nativeBackEnd`).
+ */
+export type NativeChatEvent = {
+    screen: string;
+    type: 'navigate' | 'read' | 'auth' | 'back';
+    data: { path?: string; at?: string; phase?: string };
+};
 export const NativeChat = registerPlugin<{
     open(config: Record<string, unknown>): Promise<{ ok: boolean }>;
     close(config: { screen: string }): Promise<void>;
