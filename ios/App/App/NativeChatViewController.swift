@@ -89,16 +89,20 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 이 값이 있으면 입력칸 위에 `동영상 불러오는 중…`이 먼저 선다.
      */
     private var loadingWhat: String?
-    /// 올리는 중이면 (보낸 바이트, 전체 바이트). 그 칸에 진행률 고리와
-    /// `0.24 / 4.15MB`가 뜬다(카톡과 같은 자리다 — 사용자 요청).
-    private var upload: (sent: Int64, total: Int64)?
-    /// 보내는 일. 올리는 도중에 `✕`를 누르면 이걸 끊는다.
+    /**
+     * **지금 대화방에 먼저 그려 놓고 올라가는 중인 줄**(임시 id → 진행률).
+     *
+     * 카톡처럼 **고르는 순간 그림이 대화방에 뜨고** 그 위에서 고리가
+     * 찬다(사용자 요청 — `사진이나 동영상 선택하고 확인누르면 채팅창에
+     * 사진이나 동영상이 뜨고 내가 올린사진처럼 용량표시되게끔해줘`).
+     */
+    private var uploads: [String: (sent: Int64, total: Int64)] = [:]
+    /// 그 줄을 올리고 있는 일. 가운데 `✕`를 누르면 이걸 끊는다.
+    private var jobs: [String: Task<Void, Never>] = [:]
+    /// 골라 둔 것의 미리보기 열쇠(임시 id → `local:…`). 끝나면 지운다.
+    private var previews: [String: String] = [:]
+    /// 보내는 일(글). 화면을 떠날 때 끊지 않는다 — 보내다 만 글이 사라진다.
     private var sendTask: Task<Void, Never>?
-    /// 지금 화면에 서 있는 진행률 고리와 용량 줄. **신호가 올 때마다 이
-    /// 둘만 갈아 끼운다** — 칸을 통째로 다시 그리면 초에 수십 번 배치가
-    /// 다시 돈다(말풍선을 `memo`로 감싼 것과 같은 결이다).
-    private weak var uploadRing: MediaRing?
-    private weak var uploadLabel: UILabel?
     private var retryRow: ChatJSON?
     private var mentionRange: NSRange?
     /// 길게 눌러 창을 띄운 글. 고른 것이 돌아올 때 이 값으로 찾는다.
@@ -436,19 +440,22 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private func render() {
         guard isViewLoaded else { return }
         list.apply(rows: NativeChatRows.make(messages, user: me, people: people, reads: reads,
-                                            reactions: reactions, unread: unread), stickBottom: true)
+                                            reactions: reactions, unread: unread,
+                                            uploads: uploads), stickBottom: true)
         status.isHidden = !messages.isEmpty
         if messages.isEmpty { status.setTitle("첫 마디를 남겨 보세요.", for: .normal) }
         composer.sendBtn.isEnabled = !busy; composer.plusBtn.isEnabled = !busy
     }
     private func sync() {
         guard visible, loaded, syncTask == nil else { return }
-        let catchUpFrom = messages.last
+        /* **올라가는 중인 임시 줄은 기준이 못 된다** — 그 시각 뒤엣것만
+           받으면 진짜 새 글을 통째로 건너뛴다. */
+        let catchUpFrom = messages.last { !$0.id.hasPrefix("tmp:") }
         syncTask = Task { [weak self] in
             guard let self = self else { return }; defer { self.syncTask = nil }
             do {
                 // Reconcile loaded IDs, including edits/deletions while the screen was away.
-                let ids = self.messages.map { $0.id }
+                let ids = self.realIDs
                 for offset in stride(from: 0, to: ids.count, by: 50) {
                     let chunk = Array(ids[offset..<min(ids.count, offset + 50)])
                     let revision = self.revision
@@ -469,7 +476,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     }
                 }
                 self.reads = try await self.service.reads(self.room)
-                self.reactions = try await self.service.reactions(self.messages.map { $0.id })
+                self.reactions = try await self.service.reactions(self.realIDs)
                 try Task.checkCancellation(); self.render(); self.markRead()
             } catch { if !Task.isCancelled { self.notice(error.localizedDescription) } }
         }
@@ -493,13 +500,15 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 try await Task.sleep(nanoseconds: 250_000_000)
                 guard let self = self else { return }
                 self.reads = try await self.service.reads(self.room)
-                self.reactions = try await self.service.reactions(self.messages.map { $0.id })
+                self.reactions = try await self.service.reactions(self.realIDs)
                 try Task.checkCancellation(); self.render()
             } catch { /* The reconnect sync also refreshes metadata. */ }
         }
     }
     private func markRead() {
-        guard visible, !windowed, bottom, let newest = messages.last?.at, newest != lastRead else { return }
+        guard visible, !windowed, bottom,
+              let newest = messages.last(where: { !$0.id.hasPrefix("tmp:") })?.at,
+              newest != lastRead else { return }
         readTask?.cancel()
         readTask = Task { [weak self] in
             do {
@@ -526,8 +535,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         Task { [weak self] in
             guard let self = self else { return }
             do {
+                let temps = self.messages.filter { $0.id.hasPrefix("tmp:") }
                 self.messages = try await self.service.messages(self.room).reversed()
                 self.windowed = false; self.hasMore = self.messages.count == 50
+                /* 올라가는 중인 줄은 남긴다 — 목록을 갈아 끼웠다고 올리던
+                   것이 화면에서 사라지면 멈춘 줄 안다. */
+                self.merge(temps)
                 self.render(); self.list.scrollToBottom(animated: false); self.markRead()
             } catch { self.notice(error.localizedDescription) }
         }
@@ -535,15 +548,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     // MARK: Native input and attachments
     func composerSend(text: String) {
+        /* **사진·동영상은 제 길로 간다** — 고른 순간 이미 대화방에 떠서
+           올라가고 있고(`sendMedia`), 여기 `picked`가 남아 있는 것은
+           **올리다 실패해 물려 둔 것**뿐이다(다시 보내기). */
+        if let media = picked, retryRow == nil {
+            picked = nil; updateContext(); sendMedia(media); return
+        }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !busy, loaded, !body.isEmpty || sticker != nil || picked != nil || retryRow != nil else { return }
+        guard !busy, loaded, !body.isEmpty || sticker != nil || retryRow != nil else { return }
         guard body.count <= 1000 else { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
         busy = true; composer.sendBtn.isEnabled = false; composer.plusBtn.isEnabled = false
-        let media = picked, chosen = sticker, quote = quoted
-        /* Keep the first responder (and Korean composition/keyboard) alive during I/O.
-           **다만 올릴 것이 있으면 열어 둔다** — 그때는 이 칸에 `✕`(올리기
-           그만두기)가 서고, 그게 유일한 그만둘 길이다(카톡과 같다). */
-        context.isUserInteractionEnabled = media != nil
+        let chosen = sticker, quote = quoted
+        // Keep the first responder (and Korean composition/keyboard) alive during I/O.
+        context.isUserInteractionEnabled = false
         self.reply.isUserInteractionEnabled = false
         sendTask = Task { [weak self] in
             guard let self = self else { return }
@@ -552,7 +569,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 self.reply.isUserInteractionEnabled = true
                 self.composer.sendBtn.isEnabled = true; self.composer.plusBtn.isEnabled = true
                 self.sendTask = nil
-                if self.upload != nil { self.upload = nil; self.updateContext() }
             }
             do {
                 var row: ChatJSON
@@ -561,64 +577,120 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     row = ["id": UUID().uuidString.lowercased(), "room_id": self.room, "user_id": self.me, "body": body]
                     if let quote = quote { row["reply_to"] = quote.id }
                     if let id = chosen?["id"] as? String { row["image_url"] = "sticker:\(id)" }
-                    if let media = media {
-                        /* **원본 그대로 올린다**(사용자 요청) — 줄이지도,
-                           다시 굽지도 않는다. 자세한 것은 `PickedMedia`의
-                           머리말을 볼 것. 저장 공간이 곧 장수라 **저장
-                           기간을 일주일로 줄여** 균형을 맞췄다. */
-                        /* **올리는 동안 얼마나 갔는지 적는다**(사용자 요청 —
-                           카톡처럼). 그림 위의 고리와 `0.24 / 4.15MB`만
-                           갈아 끼운다 — 칸을 통째로 다시 그리면 신호가
-                           올 때마다(초에 수십 번) 배치가 다시 돈다. */
-                        let size = Int64(media.data.count)
-                        self.upload = (0, size); self.updateContext()
-                        row["image_url"] = try await self.service.upload(
-                            media.data, room: self.room, ext: media.ext, type: media.type,
-                            progress: { [weak self] sent, total in
-                                guard let self = self, self.upload != nil else { return }
-                                let all = total > 0 ? total : size
-                                self.upload = (min(sent, all), all)
-                                if let ring = self.uploadRing, let label = self.uploadLabel {
-                                    ring.value = all > 0 ? CGFloat(sent) / CGFloat(all) : 0
-                                    label.text = "\(self.mbText(min(sent, all))) / \(self.mbText(all))MB"
-                                } else { self.updateContext() }
-                            })
-                        self.upload = nil; self.updateContext()
-                    }
                     self.retryRow = row
                 }
                 let sent = try await self.service.send(row)
-                self.retryRow = nil; self.quoted = nil; self.sticker = nil; self.picked = nil
+                self.retryRow = nil; self.quoted = nil; self.sticker = nil
                 if self.composer.text == text { self.composer.text = "" }
                 self.updateContext()
                 if self.windowed {
-                    self.messages = try await self.service.messages(self.room).reversed(); self.windowed = false
+                    let temps = self.messages.filter { $0.id.hasPrefix("tmp:") }
+                    self.messages = try await self.service.messages(self.room).reversed()
+                    self.windowed = false; self.merge(temps)
                 }
                 self.merge([sent]); self.render(); self.list.scrollToBottom(animated: false)
                 self.markRead()
             } catch {
-                /* **그만둔 것은 고장이 아니다** — 사람이 `✕`를 누른 자리라
-                   오류 문구를 띄우면 무엇이 잘못된 줄 안다. 고른 것은
-                   그대로 물려 두어 보내기를 다시 누르면 된다. */
-                if Task.isCancelled || (error as NSError).code == NSURLErrorCancelled {
-                    self.notice("올리기를 그만뒀습니다.")
-                } else {
-                    self.notice("\(error.localizedDescription)\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")
-                }
+                self.notice("\(error.localizedDescription)\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")
             }
         }
     }
-    /// 올리는 도중에 `✕`를 눌렀다. 고른 것은 남겨 둔다 — 다시 보내기를
-    /// 누르면 그 자리에서 이어 간다.
-    private func stopSending() {
-        sendTask?.cancel(); sendTask = nil
-        upload = nil; updateContext()
+
+    /**
+     * **고른 사진·동영상을 그 자리에서 대화방에 띄우고 올린다.**
+     *
+     * 사용자 요청 — `사진이나 동영상 선택하고 확인누르면 채팅창에 사진이나
+     * 동영상이 뜨고 내가 올린사진처럼 용량표시되게끔해줘`(카톡 화면을 받아
+     * 맞췄다). 예전에는 입력칸 위에 물려 두고 **보내기를 눌러야** 올라갔는데,
+     * 올리는 데 몇십 초가 걸리는 동영상에서는 그 작은 칸이 지금 무슨 일이
+     * 벌어지는지 말해 주기에 너무 작았다.
+     *
+     * 규칙 넷:
+     * - **임시 줄은 `tmp:`로 시작한다**(웹의 `TEMP_ID`와 같은 결이다) —
+     *   아직 서버에 없는 id라 **어느 조회에도 실어 보내면 안 된다**
+     *   (`realIDs`가 그 문지기다. 한 줄만 섞여도 그 조회가 400으로 막힌다).
+     * - **보여 줄 그림은 `local-preview/…` 열쇠로 `ImageStore`에 담는다** —
+     *   아직 아무 주소에도 없는 그림이다. 끝나면 지운다.
+     * - **글은 함께 안 실린다**(카톡과 같다). 치던 글은 글칸에 그대로
+     *   남아 따로 보내진다 — 고르자마자 올라가므로 덧붙일 틈이 없다.
+     * - **실패하면 입력칸 위에 도로 물려 둔다**(`picked`) — 파일이
+     *   사라지면 다시 고르러 가야 한다. `✕`로 버릴 수도 있다.
+     */
+    private func sendMedia(_ media: PickedMedia) {
+        guard loaded else { return }
+        let temp = "tmp:" + UUID().uuidString.lowercased()
+        /* **`local:`처럼 스킴을 붙이지 말 것** — `URL(string:)`이 그것을
+           비계층 주소로 보아 `path`가 빈 글자가 되고, 그러면 주소 끝으로
+           동영상을 가리는 `ChatMedia`가 헛돈다. 그냥 경로 모양으로 둔다. */
+        let key = "local-preview/\(UUID().uuidString.lowercased()).\(media.ext)"
+        ImageStore.hold(key, media.preview)
+        previews[temp] = key
+        let quote = quoted
+        var raw: ChatJSON = ["id": temp, "room_id": room, "user_id": me, "body": "",
+                             "created_at": NativeChatRows.now(), "image_url": key]
+        if let quote = quote { raw["reply_to"] = quote.id }
+        quoted = nil; updateContext()
+        let size = Int64(media.data.count)
+        uploads[temp] = (0, size)
+        merge([NativeChatMessage(raw: raw)])
+        render(); list.scrollToBottom(animated: false)
+        jobs[temp] = Task { [weak self] in
+            guard let self = self else { return }
+            defer { self.jobs[temp] = nil }
+            do {
+                let url = try await self.service.upload(
+                    media.data, room: self.room, ext: media.ext, type: media.type,
+                    progress: { [weak self] sent, total in
+                        guard let self = self, self.uploads[temp] != nil else { return }
+                        let all = total > 0 ? total : size
+                        self.uploads[temp] = (min(sent, all), all)
+                        /* **줄을 통째로 다시 만들지 않는다** — 초에 수십 번
+                           오는 값이라 그때마다 높이를 다시 잰다. */
+                        self.list.markUpload(temp, sent: min(sent, all), total: all)
+                    })
+                var row: ChatJSON = ["id": UUID().uuidString.lowercased(), "room_id": self.room,
+                                     "user_id": self.me, "body": "", "image_url": url]
+                if let quote = quote { row["reply_to"] = quote.id }
+                let sent = try await self.service.send(row)
+                self.drop(temp)
+                if self.windowed {
+                    let temps = self.messages.filter { $0.id.hasPrefix("tmp:") }
+                    self.messages = try await self.service.messages(self.room).reversed()
+                    self.windowed = false; self.merge(temps)
+                }
+                self.merge([sent]); self.render(); self.list.scrollToBottom(animated: false)
+                self.markRead()
+            } catch {
+                self.drop(temp)
+                /* **그만둔 것은 고장이 아니다** — 사람이 `✕`를 누른 자리라
+                   오류 문구를 띄우면 무엇이 잘못된 줄 안다. */
+                if Task.isCancelled || (error as NSError).code == NSURLErrorCancelled {
+                    self.render(); self.notice("올리기를 그만뒀습니다.")
+                    return
+                }
+                /* 파일은 물려 둔다 — 다시 고르러 가지 않게. */
+                self.picked = media; self.updateContext(); self.render()
+                self.notice("\(error.localizedDescription)\n\(media.isVideo ? "동영상" : "사진")을 보관했습니다. 보내기를 눌러 다시 시도하세요.")
+            }
+        }
     }
-    /// `4.15`처럼 소수 둘까지의 MB. **카톡이 적는 그 모양이다**(사용자가
-    /// 보여 준 화면 — `0.24 / 4.15MB`).
-    private func mbText(_ n: Int64) -> String {
-        String(format: "%.2f", Double(n) / 1024 / 1024)
+
+    /// 임시 줄을 목록과 표 셋에서 함께 걷는다. **한 곳만 지우지 말 것** —
+    /// 남으면 그 줄이 영영 올라가는 중으로 보이거나 그림이 안 걷힌다.
+    private func drop(_ temp: String) {
+        messages.removeAll { $0.id == temp }
+        uploads[temp] = nil
+        if let key = previews.removeValue(forKey: temp) { ImageStore.drop(key) }
     }
+
+    /// 올리는 중인 그림 가운데의 `✕`를 눌렀다 — 그 줄을 통째로 걷는다.
+    private func cancelUpload(_ temp: String) {
+        jobs[temp]?.cancel()
+    }
+
+    /// **서버에 있는 글만**. `tmp:` 줄을 조회에 실어 보내면 그 조회가
+    /// 통째로 400으로 막힌다(웹의 `TEMP_ID`와 같은 자리다).
+    private var realIDs: [String] { messages.map { $0.id }.filter { !$0.hasPrefix("tmp:") } }
     func composerChanged(text: String, sel: Int) {
         // Changing a failed draft is an explicit new message, never reuse its UUID.
         if let row = retryRow, row["body"] as? String != text.trimmingCharacters(in: .whitespacesAndNewlines) { retryRow = nil }
@@ -789,7 +861,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             notice("\(what)이 너무 큽니다(\(media.data.count / 1024 / 1024)MB).\n50MB까지 올릴 수 있습니다.")
             return
         }
-        picked = media; sticker = nil; retryRow = nil; updateContext()
+        /* **고른 그 자리에서 올린다**(사용자 요청 — 카톡처럼). 입력칸 위에
+           물려 두지 않고 대화방에 먼저 그린다 — `sendMedia`를 볼 것. */
+        picked = nil; sticker = nil; retryRow = nil; updateContext()
+        sendMedia(media)
     }
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { picker.dismiss(animated: true) }
     private func updateContext() {
@@ -801,10 +876,11 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
         if sticker != nil || picked != nil || loadingWhat != nil {
             let row = UIStackView(); row.alignment = .center; row.distribution = .fill; row.spacing = 8
-            /* 그림 칸은 **상자 안에** 둔다 — 그 위에 진행률 고리와 `✕`가
-               겹쳐 앉기 때문이다(카톡의 그 자리). 상자를 안 쓰고 그림에
-               바로 얹으면 `✕`가 눌리지 않는다(`UIImageView`는 손짓을
-               기본으로 안 받는다). */
+            /* 그림 칸은 **상자 안에** 둔다 — 아직 읽어 오는 중이면 그 위에
+               도는 표시가 겹쳐 앉는다(`UIImageView`는 손짓도 겹판도
+               기본으로 안 받는다).
+               **올리는 동안의 고리와 `0.24 / 4.15MB`는 여기 없다** —
+               그건 이제 대화방의 그 말풍선 위에 있다(`sendMedia`). */
             let box = UIView()
             box.widthAnchor.constraint(equalToConstant: 76).isActive = true
             box.heightAnchor.constraint(equalToConstant: 76).isActive = true
@@ -823,37 +899,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             label.text = sticker?["label"] as? String ?? picked?.label ?? "\(loadingWhat ?? "파일") 불러오는 중…"
             row.addArrangedSubview(box); row.addArrangedSubview(label)
 
-            if let job = upload {
-                /* **올리는 동안 — 카톡의 그 화면이다**(사용자 요청 —
-                   `동영상 업로드할때 카톡처럼 저렇게 용량나오고 업로드되는
-                   화면이 있었으면좋겠어`). 그림 위에 어두운 막과 고리를
-                   얹고 가운데에 `✕`(그만두기)를, 옆에 `0.24 / 4.15MB`를
-                   적는다. **적는 것이 곧 `멈춘 게 아니다`라는 말이다.** */
-                let ring = MediaRing(); ring.translatesAutoresizingMaskIntoConstraints = false
-                ring.value = job.total > 0 ? CGFloat(job.sent) / CGFloat(job.total) : 0
-                box.addSubview(ring)
-                NSLayoutConstraint.activate([
-                    ring.leadingAnchor.constraint(equalTo: box.leadingAnchor),
-                    ring.trailingAnchor.constraint(equalTo: box.trailingAnchor),
-                    ring.topAnchor.constraint(equalTo: box.topAnchor),
-                    ring.bottomAnchor.constraint(equalTo: box.bottomAnchor),
-                ])
-                let stop = button("xmark", "올리기 그만두기", "native-upload-cancel") { [weak self] in
-                    self?.stopSending()
-                }
-                /* 크기(44)는 `button()`이 이미 잡아 준다 — 여기서 또 주면
-                   같은 값이 두 벌이 되어 배치가 경고를 낸다. */
-                stop.tintColor = .white
-                stop.translatesAutoresizingMaskIntoConstraints = false
-                box.addSubview(stop)
-                NSLayoutConstraint.activate([
-                    stop.centerXAnchor.constraint(equalTo: box.centerXAnchor),
-                    stop.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-                ])
-                label.text = "\(mbText(job.sent)) / \(mbText(job.total))MB"
-                label.accessibilityIdentifier = "native-upload-size"
-                uploadRing = ring; uploadLabel = label
-            } else if loadingWhat != nil {
+            if loadingWhat != nil {
                 /* 아직 읽어 오는 중이라 보여 줄 그림이 없다 — 도는 것만
                    둔다. 이 자리가 비어 있으면 그것대로 고장으로 보인다. */
                 let spin = UIActivityIndicatorView(style: .medium)
@@ -865,16 +911,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     spin.centerYAnchor.constraint(equalTo: box.centerYAnchor),
                 ])
             }
-            if upload == nil {
-                let remove = button("xmark", "첨부 취소", "native-attachment-cancel") { [weak self] in
-                    self?.sticker = nil; self?.picked = nil; self?.retryRow = nil
-                    self?.loadingWhat = nil; self?.updateContext()
-                }
-                /* 이 줄 뒤는 대화 바탕색(보라)이라 `.label`(먹색)로 두면
-                   안 보인다 — `context.backgroundColor`와 한 쌍이다. */
-                remove.tintColor = ChatSkin().on
-                row.addArrangedSubview(remove)
+            let remove = button("xmark", "첨부 취소", "native-attachment-cancel") { [weak self] in
+                self?.sticker = nil; self?.picked = nil; self?.retryRow = nil
+                self?.loadingWhat = nil; self?.updateContext()
             }
+            /* 이 줄 뒤는 대화 바탕색(보라)이라 `.label`(먹색)로 두면
+               안 보인다 — `context.backgroundColor`와 한 쌍이다. */
+            remove.tintColor = ChatSkin().on
+            row.addArrangedSubview(remove)
             context.addArrangedSubview(row)
         }
         context.isHidden = context.arrangedSubviews.isEmpty
@@ -941,6 +985,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         case "reply": if let m = messages.first(where: { $0.id == id }), !m.hidden { quoted = m; updateContext(); composer.textView.becomeFirstResponder() }
         case "quote": if let to = to { jumpToID(to) }
         case "react": if let to = to { toggleReaction(id, to) }
+        /* 올리는 중인 그림 가운데의 `✕` — 그만두면 그 줄이 통째로 걷힌다. */
+        case "cancel": cancelUpload(id)
         default: break
         }
     }
@@ -1410,6 +1456,9 @@ struct PickedMedia {
 final class MediaRing: UIView {
     private let track = CAShapeLayer()
     private let bar = CAShapeLayer()
+    /// 고리를 바깥에서 얼마나 안으로 들일지. 말풍선 위의 작은 동그라미
+    /// (`BubbleCell`)는 테두리를 거의 다 쓰므로 3, 입력칸 위 미리보기는 9다.
+    var inset: CGFloat = 9 { didSet { setNeedsLayout() } }
     /// 0~1. 값이 들어오면 그 자리에서 고리가 찬다.
     var value: CGFloat = 0 {
         didSet {
@@ -1438,7 +1487,7 @@ final class MediaRing: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let radius = max(min(bounds.width, bounds.height) / 2 - 9, 1)
+        let radius = max(min(bounds.width, bounds.height) / 2 - inset, 1)
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         /* 12시에서 시작해 시계 방향으로 찬다(카톡과 같다). */
         let path = UIBezierPath(arcCenter: center, radius: radius, startAngle: -.pi / 2,

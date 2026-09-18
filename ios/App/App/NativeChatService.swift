@@ -337,8 +337,11 @@ enum NativeChatRows {
             c.unicodeScalars.contains { $0.properties.isEmojiPresentation || $0.value == 0xFE0F || $0.value == 0x20E3 }
         }
     }
+    /// - Parameter uploads: 올라가는 중인 임시 줄(`tmp:`)의 진행률.
+    ///   **그 줄에는 그림 위에 막·고리·`0.24 / 4.15MB`가 얹힌다**(카톡처럼).
     static func make(_ messages: [NativeChatMessage], user: String, people: [ChatJSON], reads: [String: String],
-                     reactions: [ChatJSON], unread: String?) -> [ChatRow] {
+                     reactions: [ChatJSON], unread: String?,
+                     uploads: [String: (sent: Int64, total: Int64)] = [:]) -> [ChatRow] {
         let who = Dictionary(people.compactMap { p -> (String, ChatJSON)? in
             guard let id = p["id"] as? String else { return nil }; return (id, p)
         }, uniquingKeysWith: { _, b in b })
@@ -409,6 +412,7 @@ enum NativeChatRows {
                 if r["user_id"] as? String == user { mine.insert(e) }
             }
             d["reacts"] = emojiOrder.map { ["emoji": $0, "n": counts[$0] ?? 0, "mine": mine.contains($0)] as ChatJSON }
+            if let job = uploads[m.id] { d["upload"] = ["sent": job.sent, "total": job.total] as ChatJSON }
             return ChatRow(d)
         }
     }

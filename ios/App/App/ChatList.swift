@@ -116,6 +116,19 @@ struct ChatReact {
     let mine: Bool
 }
 
+/**
+ * **지금 올라가고 있는 사진·동영상**(보낸 바이트 / 전체 바이트).
+ *
+ * 카톡처럼 **고르는 순간 대화방에 그림이 먼저 뜨고** 그 위에서 진행률이
+ * 찬다(사용자 요청 — `사진이나 동영상 선택하고 확인누르면 채팅창에
+ * 사진이나 동영상이 뜨고 내가 올린사진처럼 용량표시되게끔해줘`).
+ * 이 값이 있는 줄은 **아직 서버에 없는 임시 줄**이다(`tmp:`로 시작한다).
+ */
+struct ChatUpload {
+    var sent: Int64
+    var total: Int64
+}
+
 struct ChatRow {
     enum Kind {
         case text       // 말풍선
@@ -186,6 +199,15 @@ struct ChatRow {
      * 없을때 프로필이나 말풍선 위치가 틀어져`).
      */
     let top: CGFloat
+    /**
+     * 올리는 중이면 그 진행률. **그림 위에 어두운 막과 고리, 가운데에
+     * `✕`(그만두기), 아래에 `0.24 / 4.15MB`가 얹힌다** — 카톡의 그 자리다.
+     *
+     * `var`인 것은 **신호가 올 때마다 줄을 통째로 다시 만들지 않으려는
+     * 것이다**(초에 수십 번 온다). `ChatList.markUpload`가 이 값만 갈아
+     * 끼우고 보이는 칸의 고리·글자만 고친다.
+     */
+    var upload: ChatUpload?
 
     init?(_ d: [String: Any]) {
         guard let id = d["id"] as? String else { return nil }
@@ -222,6 +244,10 @@ struct ChatRow {
         mark = (d["mark"] as? Bool) ?? false
         /* 못 받았으면 예전처럼 군다 — 옛 웹이 붙은 판에서 줄이 겹치면 안 된다. */
         top = CGFloat((d["top"] as? Double) ?? 4)
+        if let job = d["upload"] as? [String: Any],
+           let total = job["total"] as? Int64, total > 0 {
+            upload = ChatUpload(sent: (job["sent"] as? Int64) ?? 0, total: total)
+        }
         /* `@이름` 자리 — **웹은 벌써 파랗게 칠하고 있었는데 앱 말풍선만
            검은 글자였다.** 못 받았으면 빈 배열이라 예전 그대로다. */
         mentions = ((d["mentions"] as? [[String: Any]]) ?? []).compactMap {
@@ -1002,6 +1028,21 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
      * 굴린 자리를 내려 준다. 그게 없으면 `더 보기`를 누를 때마다 화면이
      * 맨 위로 튄다.
      */
+    /**
+     * 올라가는 중인 줄의 **진행률만** 갈아 끼운다.
+     *
+     * 초에 수십 번 오는 값이라 `apply(rows:)`로 줄을 통째로 다시 만들면
+     * 그때마다 높이를 다시 재고 표를 다시 그린다 — 여기서는 담아 둔 줄의
+     * 값 하나와 **보이는 칸의 고리·글자만** 고친다(말풍선을 `memo`로
+     * 감싼 것과 같은 결이다).
+     */
+    func markUpload(_ id: String, sent: Int64, total: Int64) {
+        guard let i = rows.firstIndex(where: { $0.id == id }), rows[i].upload != nil else { return }
+        let job = ChatUpload(sent: sent, total: total)
+        rows[i].upload = job
+        (table.cellForRow(at: IndexPath(row: i, section: 0)) as? BubbleCell)?.setUpload(job)
+    }
+
     func apply(rows next: [ChatRow], stickBottom: Bool) {
         preservingViewport(followBottom: stickBottom) {
             rows = next
@@ -1750,6 +1791,13 @@ final class BubbleCell: UITableViewCell {
     /// 동영상 자리에 얹는 ▶. **그림칸 안에 넣는다** — 사진 자리가 정해지면
     /// 그 가운데로 저절로 따라간다.
     private let playBadge = UIImageView()
+    /* 올리는 동안 그림 위에 얹히는 셋 — 어두운 막 · 진행률 고리(가운데
+       `✕`가 든 동그라미) · `0.24 / 4.15MB`. **그림칸 안에 넣는다**(▶와
+       같은 자리라 사진 상자가 정해지면 저절로 따라간다). */
+    private let upVeil = UIView()
+    private let upRing = MediaRing()
+    private let upStop = UIImageView()
+    private let upSize = UILabel()
     private let capBubble = UIView()
     private let capLabel = UILabel()
     private let cardView = UIView()
@@ -1835,6 +1883,26 @@ final class BubbleCell: UITableViewCell {
         playBadge.layer.shadowRadius = 6
         playBadge.layer.shadowOffset = .zero
         photoView.addSubview(playBadge)
+
+        /* 올리는 동안의 덮개. **막은 사진 전체, 고리는 가운데 동그라미**다
+           (카톡이 그렇다) — 고리를 사진 크기로 키우면 테두리를 도는 실선이
+           되어 진행률로 안 읽힌다. */
+        upVeil.backgroundColor = UIColor(white: 0, alpha: 0.32)
+        upVeil.isUserInteractionEnabled = false
+        upVeil.layer.cornerCurve = .continuous
+        upRing.backgroundColor = UIColor(white: 0, alpha: 0.45)
+        upRing.layer.cornerRadius = 32
+        upRing.inset = 3
+        upStop.image = UIImage(systemName: "xmark",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold))
+        upStop.tintColor = .white
+        upStop.contentMode = .center
+        upStop.isUserInteractionEnabled = false
+        upSize.textAlignment = .center
+        upSize.textColor = .white
+        upSize.font = .systemFont(ofSize: 12, weight: .semibold)
+        upSize.accessibilityIdentifier = "native-upload-size"
+        for v in [upVeil, upRing, upStop, upSize] { v.isHidden = true; photoView.addSubview(v) }
 
         capLabel.numberOfLines = 0
         capBubble.layer.cornerRadius = 11
@@ -1979,6 +2047,14 @@ final class BubbleCell: UITableViewCell {
         if hits(quoteBox), let to = r.quoteTo, !to.isEmpty {
             onTap?("quote", r.id, to); return
         }
+        /* **올리는 중에는 가운데 동그라미가 `그만두기`다.** 그 밖의 자리를
+           눌러도 아무 일이 없다 — 아직 서버에 없는 그림이라 크게 띄울
+           것도, 재생할 것도 없다. */
+        if r.upload != nil, r.kind == .photo, hits(photoView) {
+            let c = CGPoint(x: photoView.frame.midX, y: photoView.frame.midY)
+            if hypot(p.x - c.x, p.y - c.y) <= 34 { onTap?("cancel", r.id, nil) }
+            return
+        }
         if hits(photoView), r.kind == .photo, let u = r.image {
             onTap?("photo", r.id, u); return
         }
@@ -1992,6 +2068,9 @@ final class BubbleCell: UITableViewCell {
      */
     @objc private func heldDown(_ g: UILongPressGestureRecognizer) {
         guard g.state == .began, let r = row else { return }
+        /* **올라가는 중인 줄에는 창을 안 띄운다** — 아직 서버에 없어
+           복사·댓글·삭제가 갈 데가 없다(`tmp:` 줄이다). */
+        guard r.upload == nil else { return }
         held = true
         /* **가린 글은 가운데 칩이다** — 그 줄에서는 `sysChip`이 곧 말풍선
            자리라, 안 넣으면 창이 줄 전체(화면 폭)에 붙어 한쪽 끝에 뜬다. */
@@ -2006,7 +2085,8 @@ final class BubbleCell: UITableViewCell {
        `contentView`는 지금 우리가 밀고 있는 칸이라, 재는 자를 그 위에
        올려 두면 안 된다. */
     @objc private func swiped(_ g: UIPanGestureRecognizer) {
-        guard let r = row else { return }
+        /* 올라가는 중인 줄에는 댓글을 못 단다 — 원본이 아직 서버에 없다. */
+        guard let r = row, r.upload == nil else { return }
         switch g.state {
         case .began:
             held = false
@@ -2053,6 +2133,23 @@ final class BubbleCell: UITableViewCell {
         ImageStore.put(nil, into: photoView)
         photoToken = nil
         playBadge.isHidden = true
+        showUpload(nil)
+    }
+
+    /// 올리는 중 덮개를 켜고 끈다. **`nil`이면 통째로 감춘다.**
+    private func showUpload(_ job: ChatUpload?) {
+        let on = job != nil
+        for v in [upVeil, upRing, upStop, upSize] { v.isHidden = !on }
+        guard let job = job else { return }
+        setUpload(job)
+    }
+
+    /// 진행률만 갈아 끼운다 — **배치는 한 번도 다시 안 돈다**(초에 수십 번
+    /// 오는 값이라 여기서 `setNeedsLayout`을 부르면 그만큼 다시 잰다).
+    func setUpload(_ job: ChatUpload) {
+        upRing.value = job.total > 0 ? CGFloat(job.sent) / CGFloat(job.total) : 0
+        let mb = { (n: Int64) in String(format: "%.2f", Double(n) / 1024 / 1024) }
+        upSize.text = "\(mb(min(job.sent, job.total))) / \(mb(job.total))MB"
     }
 
     func fill(_ r: ChatRow, skin s: ChatSkin, maxBubble mb: CGFloat,
@@ -2251,6 +2348,11 @@ final class BubbleCell: UITableViewCell {
             /* 동영상이면 ▶를 얹는다 — 그림은 첫 장면이라 그것만으로는
                사진과 구별이 안 된다. */
             playBadge.isHidden = !r.video
+            /* 올리는 중에는 ▶를 안 얹는다 — 고리와 겹쳐 무엇을 누르는
+               자리인지가 흐려진다. */
+            if r.upload != nil { playBadge.isHidden = true }
+            upVeil.layer.cornerRadius = r.kind == .sticker ? 0 : s.photoRadius
+            showUpload(r.upload)
             ImageStore.put(nil, into: photoView)
             let mine = UUID()
             photoToken = mine
@@ -2482,6 +2584,17 @@ final class BubbleCell: UITableViewCell {
         if hasImage {
             photoView.frame = CGRect(x: x, y: y, width: bw, height: bh)
             playBadge.frame = photoView.bounds
+            if !upVeil.isHidden {
+                upVeil.frame = photoView.bounds
+                let ring: CGFloat = 64
+                upRing.frame = CGRect(x: (bw - ring) / 2, y: (bh - ring) / 2,
+                                      width: ring, height: ring)
+                upStop.frame = upRing.frame
+                /* 용량 줄은 고리 **아래**다(카톡의 그 자리). 사진이 작으면
+                   아래가 모자라니 상자 안으로 밀어 넣는다. */
+                let sy = min(bh - 18, upRing.frame.maxY + 6)
+                upSize.frame = CGRect(x: 0, y: sy, width: bw, height: 16)
+            }
             if !capBubble.isHidden {
                 let cs = measureBody(capLabel.attributedText?.string ?? "", big: false)
                 let cw = min(maxBubble, cs.width + skin.padH * 2)
@@ -2852,6 +2965,25 @@ final class ImageStore {
     static let shared = ImageStore()
     private let cache = NSCache<NSString, Shot>()
     private var waiting: [String: [(Shot?) -> Void]] = [:]
+    /**
+     * **폰에서 방금 고른 사진·동영상의 미리보기**(`local-preview/…`).
+     *
+     * 올리기 전에 대화방에 먼저 그리려면 보여 줄 그림이 있어야 하는데,
+     * 그건 아직 아무 주소에도 없다 — 골라서 읽어 둔 그 이미지를 여기에
+     * 담아 두고 임시 줄의 `image_url`로 그 열쇠를 쓴다.
+     *
+     * **`cache`(NSCache)에 넣지 않는다** — 그쪽은 무게가 차면 말없이
+     * 버리는데, 버려지면 올리는 중인 그림이 빈 칸이 된다.
+     * 올라가고 나면 `drop()`으로 우리가 지운다.
+     */
+    private var held: [String: Shot] = [:]
+
+    /// 고른 그림을 그 열쇠(`local-preview/<uuid>.<확장자>`)로 담아 둔다.
+    static func hold(_ key: String, _ image: UIImage?) {
+        guard let image = image else { return }
+        shared.held[key] = Shot(frames: [image], duration: 0)
+    }
+    static func drop(_ key: String) { shared.held.removeValue(forKey: key) }
 
     init() {
         /* 움직이는 이모티콘은 푼 프레임이 한 장에 3MB쯤이라(256px × 12장)
@@ -2862,6 +2994,7 @@ final class ImageStore {
     func load(_ raw: String, done: @escaping (Shot?) -> Void) {
         var s = raw
         if s.hasPrefix("http://") { s = "https://" + s.dropFirst("http://".count) }
+        if let mine = held[s] { done(mine); return }
         if let hit = cache.object(forKey: s as NSString) { done(hit); return }
         if waiting[s] != nil { waiting[s]?.append(done); return }
         waiting[s] = [done]
