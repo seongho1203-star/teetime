@@ -1452,6 +1452,52 @@ console.log('\n── 말풍선 꼬리 ──');
     ok(t.넘침 === 0, `뿔이 가로 스크롤을 만들지 않는다 (실제 ${t.넘침}px)`);
 }
 
+/* ── 6-1-1-3-1-11-2-1. `최근 대화로` 동그라미 ─────────────────
+ *
+ * 사용자 요청 — `최근대화로 가는 버튼을 카톡처럼 바꿔줘`(카톡 사진을 받아
+ * 픽셀로 맞췄다. 1206×2622 · 배율 3.0 → 지름 38 · 오른쪽 10 · 바까지 8).
+ * 한동안 **얼굴 · 이름 · 미리보기를 펼친 한 줄**이라 말풍선 한 줄을 통째로
+ * 덮었다 — **그 줄로 되돌리지 말 것.**
+ *
+ * **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨는 자리라 값을 잰다.**
+ */
+console.log('\n── 최근 대화로 동그라미 ──');
+{
+    await page.evaluate(() => {
+        const el = document.querySelector('.chat-list');
+        el.scrollTop = 0; el.dispatchEvent(new Event('scroll'));
+    });
+    await page.waitForTimeout(400);
+    const j = await page.evaluate(() => {
+        const b = document.querySelector('.chat-jump');
+        if (!b) return null;
+        const r = b.getBoundingClientRect();
+        const cs = getComputedStyle(b);
+        const bar = document.querySelector('.chat-input')?.getBoundingClientRect();
+        const mid = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return {
+            w: Math.round(r.width), h: Math.round(r.height),
+            right: Math.round(innerWidth - r.right),
+            gap: bar ? Math.round(bar.top - r.bottom) : null,
+            radius: cs.borderRadius, bg: cs.backgroundColor, border: cs.borderTopWidth,
+            svg: !!b.querySelector('svg'), 글자: b.textContent.trim(),
+            눌림: !!mid?.closest('.chat-jump'),
+        };
+    });
+    ok(j !== null, '위로 훑으면 `최근 대화로` 단추가 뜬다');
+    if (j) {
+        ok(j.w === 38 && j.h === 38 && j.radius === '50%',
+           `카톡에서 잰 지름 38px 동그라미다 (실제 ${j.w}×${j.h} · ${j.radius})`);
+        ok(j.right === 10 && j.gap === 8,
+           `오른쪽 10px · 입력칸까지 8px (실제 ${j.right} · ${j.gap})`);
+        ok(j.bg === 'rgb(255, 255, 255)' && j.border === '0px',
+           `흰 칠에 테두리가 없다 (실제 ${j.bg} · ${j.border})`);
+        ok(j.svg && j.글자 === '',
+           `꺾쇠는 그려서 넣는다 — 그림글자를 쓰면 기기에 따라 두부가 된다 (글자 \`${j.글자}\`)`);
+        ok(j.눌림, '그 자리를 누르면 이 단추가 잡힌다');
+    }
+}
+
 /* ── 6-1-1-3-1-11-3. 답장 인용 — 말풍선 안에 든다 ──────────────
  *
  * 사용자 요청 — `답장 기능을 카카오톡처럼 만들어주고`(카톡 사진을 받아

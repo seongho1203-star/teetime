@@ -803,14 +803,16 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         }
         changingViewport = wasChanging
         if !wasChanging { report() }
-        /* `최근 대화로` 줄은 **목록 맨 아래에 떠 있다**(웹의 `.chat-jump`가
-           입력칸 바로 위에 뜨는 그 자리다 — 여기서는 목록 아랫변이 곧
-           바 윗변이라 같은 자리가 된다). 좌우 여백은 웹의 `--gap`(16)이다. */
+        /* `최근 대화로` 동그라미는 **목록 오른쪽 아래에 떠 있다**(웹의
+           `.chat-jump`가 입력칸 바로 위에 뜨는 그 자리다 — 여기서는 목록
+           아랫변이 곧 바 윗변이라 같은 자리가 된다).
+           **카톡 화면을 픽셀로 재서 맞춘 값이다**(1206×2622 · 배율 3.0):
+           지름 114px → 38 · 오른쪽 30px → 10 · 바까지 25px → 8.
+           눈대중으로 고치지 말 것. */
         if !jumpBar.isHidden {
-            let m: CGFloat = 16
-            jumpBar.frame = CGRect(x: m, y: bounds.height - skin.jumpH - 10,
-                                   width: max(0, bounds.width - m * 2),
-                                   height: skin.jumpH)
+            jumpBar.frame = CGRect(x: bounds.width - skin.jumpH - 10,
+                                   y: bounds.height - skin.jumpH - 8,
+                                   width: skin.jumpH, height: skin.jumpH)
         }
     }
 
@@ -850,28 +852,14 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     /**
-     * `최근 대화로` 줄을 얹거나 걷는다(21판).
+     * `최근 대화로` 동그라미를 얹거나 걷는다(21판).
      *
-     * **앱이 그리는 까닭은 하나다** — 이 단추는 목록 **위에 떠 있는데**
-     * 앱 목록은 웹 화면 위에 얹힌 앱 부품이라, 웹이 그리면 통째로 가려진다
-     * (사용자 제보 — `최신대화로 버튼 안나옴`). 네이티브 바에서 겪은
-     * 그 자리와 같다.
-     *
-     * **띄울지 말지는 웹이 정한다** — 여기서 또 재지 않는다(`far`는 이미
-     * 웹에 알려 주었고, `검색 중`처럼 웹만 아는 사정도 있다).
+     * **띄울지 말지는 화면이 정한다** — 여기서 또 재지 않는다(`far`는 이미
+     * 알려 주었고, `검색 중`처럼 화면만 아는 사정도 있다).
      */
-    func apply(jump d: [String: Any]?) {
-        guard let d = d else {
-            jumpBar.isHidden = true
-            return
-        }
-        jumpBar.isHidden = false
-        jumpBar.show(name: d["name"] as? String ?? "",
-                     text: d["text"] as? String ?? "",
-                     avatar: d["avatar"] as? String,
-                     edge: ChatList.color(d["edge"] as? String),
-                     skin: skin)
-        setNeedsLayout()
+    func apply(jump on: Bool) {
+        jumpBar.isHidden = !on
+        if on { jumpBar.paint(skin: skin); setNeedsLayout() }
     }
 
     @objc private func jumpTapped() {
@@ -2499,77 +2487,49 @@ final class ReactChip: UIControl {
 }
 
 /**
- * `최근 대화로` 줄(21판 · 웹의 `.chat-jump`를 그대로 옮긴 것이다).
+ * `최근 대화로` 동그라미(21판 · 웹의 `.chat-jump`와 같은 것이다).
  *
  * **앱이 그리는 까닭**: 이 단추는 목록 위에 떠 있는데 앱 목록은 웹 화면
  * 위에 얹힌 앱 부품이라, 웹이 그리면 **통째로 가려진다**(사용자 제보 —
  * `최신대화로 버튼 안나옴`). 네이티브 바에서 겪은 그 자리다.
  *
- * 얼굴 · 이름(굵게) · 한 줄 미리보기 · `↓` — **좌우로 펼친 한 줄**이다.
- * 가운데 동그라미로 되돌리지 말 것: 마지막 말풍선을 덮는다.
+ * **카톡처럼 오른쪽 아래의 작은 동그라미다**(사용자 요청 — `최근대화로
+ * 가는 버튼을 카톡처럼 바꿔줘` · 카톡 사진을 받아 픽셀로 맞췄다).
+ * 한동안 **얼굴 · 이름 · 한 줄 미리보기 · `↓`를 펼친 줄**이었는데,
+ * 그 줄은 좌우를 다 써서 말풍선 한 줄을 통째로 덮었다.
+ * 지금 값은 재서 얻은 것이다 — 지름 38 · 흰 칠 · **테두리도 그림자도 없다**
+ * (카톡 사진에서 동그라미 바로 밑이 그냥 대화 바탕색이었다).
  * **분홍을 쓰지 않는다** — 이 화면에서 '지금 눌러야 할 것'은 보내기 하나다.
+ *
+ * **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다.
+ * SF Symbol 꺾쇠다(`HoldRow`와 같은 결).
  */
 final class JumpBar: UIControl {
-    private let face = AvatarView()
-    private let label = UILabel()
-    private let go = UILabel()
+    private let mark = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.cornerRadius = 19
         layer.cornerCurve = .continuous
-        layer.borderWidth = 1
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.12
-        layer.shadowRadius = 8
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-        go.text = "↓"
-        go.font = .systemFont(ofSize: 15, weight: .bold)
-        label.numberOfLines = 1
-        label.lineBreakMode = .byTruncatingTail
-        for v in [face, label, go] { addSubview(v) }
-        /* 안쪽 것들은 터치를 안 받는다 — **줄 전체가 단추다.** */
-        for v in [face, label, go] as [UIView] { v.isUserInteractionEnabled = false }
+        mark.contentMode = .center
+        /* 카톡의 꺾쇠는 재 보니 가로 17 · 세로 7 · 획 2.7이었다 —
+           15pt semibold이 그 자리에 가장 가깝다. */
+        mark.image = UIImage(systemName: "chevron.down", withConfiguration:
+            UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
+        mark.isUserInteractionEnabled = false
+        addSubview(mark)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func show(name: String, text: String, avatar: String?, edge: UIColor?, skin: ChatSkin) {
+    func paint(skin: ChatSkin) {
         backgroundColor = skin.jumpBg
-        layer.borderColor = skin.jumpLine.cgColor
-        go.textColor = skin.text
-        face.isHidden = name.isEmpty
-        if !face.isHidden { face.show(url: avatar, letter: name, edge: edge, size: 26) }
-        /* 이름은 **닉네임 그대로**다(`83/신성호/광산구`가 아니다) — 긴
-           이름표는 목록의 이름 자리 몫이고 이 줄은 문장에 가깝다. */
-        let line = NSMutableAttributedString()
-        if !name.isEmpty {
-            line.append(NSAttributedString(string: name + " ", attributes: [
-                .font: UIFont.systemFont(ofSize: skin.jumpSize, weight: .bold),
-                .foregroundColor: skin.text,
-            ]))
-        }
-        line.append(NSAttributedString(string: text, attributes: [
-            .font: UIFont.systemFont(ofSize: skin.jumpSize),
-            .foregroundColor: skin.jumpDim,
-        ]))
-        label.attributedText = line
-        setNeedsLayout()
+        mark.tintColor = skin.text
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let pad: CGFloat = 12
-        var x = pad
-        if !face.isHidden {
-            face.frame = CGRect(x: x, y: (bounds.height - 26) / 2, width: 26, height: 26)
-            x += 26 + 6
-        }
-        let goW: CGFloat = 14
-        label.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - goW - pad - 6),
-                             height: bounds.height)
-        go.frame = CGRect(x: bounds.width - pad - goW, y: 0, width: goW, height: bounds.height)
-        go.textAlignment = .right
+        mark.frame = bounds
+        layer.cornerRadius = bounds.height / 2
     }
 
     override var isHighlighted: Bool {

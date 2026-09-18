@@ -98,12 +98,15 @@ function taken(from: EventTarget | null): boolean {
  * 자리다** — `cloneNode`는 굴린 자리를 안 가져오므로 따로 적어 둔다. 안 적으면
  * 대화방 그림이 늘 **맨 위 글**부터 보인다.
  *
- * **`stub`은 '이 자리는 앱이 그리는 대화방이다'라는 표다**(아래 `snap`).
- * 그림 자체는 **그 앞 화면**(대개 홈)이라, 그걸 뒤에 깔고 끌면 **엉뚱한
- * 화면이 손을 따라 나온다** — 그래서 `backIsChat()`이 이 표를 보고 끌기를
- * 통째로 넘긴다.
+ * **`chat`은 앱이 떠 준 대화방 그림 한 장이다**(아래 `setChatShot`).
+ * **`stub`은 그 그림마저 없을 때의 표다**(아래 `snap`) — 그림 자체는
+ * **그 앞 화면**(대개 홈)이라, 그걸 뒤에 깔고 끌면 **엉뚱한 화면이 손을
+ * 따라 나온다.** 그래서 `backIsChat()`이 그 표를 보고 끌기를 통째로 넘긴다.
  */
-type Shot = { path: string; node: HTMLElement; scroll: number; list: number; stub?: true };
+type Shot = {
+    path: string; node: HTMLElement; scroll: number; list: number;
+    stub?: true; chat?: true;
+};
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
 
@@ -166,7 +169,31 @@ function routeOf(href: string): string {
     } catch { return '/'; }
 }
 
+/**
+ * **앱이 떠 준 대화방 그림**(`data:image/jpeg;base64,…`).
+ *
+ * 앱이 그리는 대화방은 웹뷰 **위에 얹힌 앱 부품**이라 웹은 그 화면을 만들
+ * 길이 아예 없다 — 그래서 카드를 눌러 나가는 그 순간 앱이 한 장 떠서
+ * 함께 보내 준다(`NativeChatViewController.navigate`). 아래 `snap()`이
+ * **한 번 쓰고 비운다.**
+ */
+let chatShot = '';
+export function setChatShot(url: string): void { chatShot = url; }
+
+/** 그 그림을 뒤에 깔 수 있는 화면 한 장으로 만든다. */
+function chatPlate(): Shot | undefined {
+    if (!chatShot) return undefined;
+    const node = document.createElement('div');
+    node.className = 'chat-plate';
+    node.style.backgroundImage = `url("${chatShot}")`;
+    return { path: routeOf(location.href), node, scroll: 0, list: 0, chat: true };
+}
+
 function snap(toPath: string) {
+    /* 앱이 준 그림은 **이 한 번**을 위한 것이다 — 남겨 두면 다음에 엉뚱한
+       자리에 깔린다. 아래 어느 갈래로 빠지든 여기서 비운다. */
+    const plate = chatPlate();
+    chatShot = '';
     /* **탭으로 가는 길은 안 찍는다** — 탭 화면에서는 뒤로 갈 데가 없어
        그 그림을 쓸 일이 아예 없다(찍는 값만 든다). */
     if (TAB_PATHS.includes(toPath)) return;
@@ -174,18 +201,23 @@ function snap(toPath: string) {
        자리만 지킨다). 그대로 담으면 그 뒤로 뒤에 깔리는 앞 화면이 통째로
        **빈 흰 화면**이 된다 — 대화방에서 카드를 눌러 라운드로 들어갔다가
        끌어서 나올 때 실제로 그랬다.
-       **그렇다고 안 담으면 안 된다** — `shots`는 히스토리 깊이와 짝이라
-       (`popstate`가 하나씩 꺼낸다) 하나만 빠져도 그 뒤가 전부 어긋난다.
-       그래서 **바로 앞 그림을 한 번 더 담되 `stub` 표를 붙인다** — 그
-       그림은 대화방이 아니라 **그 앞 화면**(대개 홈)이라, 표가 없으면
-       라운드에서 끌어 뒤로 갈 때 **홈이 손을 따라 나왔다가 대화방으로
-       바뀐다**(사용자 제보 — `뒤로 가기를 하면 홈이 보였다가 채팅 화면으로
-       돌아와`). 표를 보고 `backIsChat()`이 끌기를 넘긴다. */
+       **그래서 앱이 나가는 그 순간 화면을 한 장 떠서 보내 준다**(`chatShot`).
+       그것이 있으면 여느 화면과 똑같이 끌어서 뒤로 갈 수 있다(사용자 제보 —
+       `채팅에서 공유된 라운드,투표버튼을 눌러서 들어갔다 되돌아오기할때
+       손끌기가 안되네`).
+
+       **못 받았을 때의 예비 길이 `stub`이다**(알림을 눌러 곧바로 나가는
+       길처럼 앱을 안 거치는 자리가 있다). `shots`는 히스토리 깊이와 짝이라
+       (`popstate`가 하나씩 꺼낸다) **한 자리도 비워 둘 수 없어**, 바로 앞
+       그림을 한 번 더 담되 표를 붙인다 — 그 그림은 대화방이 아니라 **그 앞
+       화면**(대개 홈)이라, 표가 없으면 라운드에서 끌어 뒤로 갈 때 **홈이
+       손을 따라 나왔다가 대화방으로 바뀐다**(사용자 제보 — `뒤로 가기를
+       하면 홈이 보였다가 채팅 화면으로 돌아와`). */
     const el = pageEl();
     const blank = hasNativeChat() && routeOf(location.href) === '/chat';
     const prev = shots[shots.length - 1];
     const shot: Shot | undefined = blank
-        ? (prev && { ...prev, stub: true as const })
+        ? (plate ?? (prev && { ...prev, stub: true as const }))
         : el ? takeShot(el) : undefined;
     if (!shot) return;
     shots.push(shot);
@@ -193,14 +225,18 @@ function snap(toPath: string) {
 }
 
 /**
- * **바로 뒤가 앱이 그리는 대화방인가**(위 `Shot.stub`).
+ * **바로 뒤가 앱이 그리는 대화방인데 그 그림이 없는가**(위 `Shot.stub`).
  *
- * 그 자리에는 **대화방 그림이 없다** — 웹 쪽에 남는 것이 자리를 지키는
- * 스피너 한 장뿐이라 `snap()`이 그 앞 화면을 대신 담아 둔다. 그래서 뒤로
- * 가는 그림을 웹이 그리면 **엉뚱한 화면이 나온다**: 끌면 홈이 손을 따라
- * 나오고, 놓으면 그 홈이 그대로 남아 있다가 대화방으로 바뀐다.
- * 그때의 전환은 **앱이 맡는다**(`nativeChatPop` → `NativeChatPlugin.open`의
- * `pop`) — 웹은 끌지 않고 곧바로 뒤로 간다.
+ * 그 자리에는 **대화방 그림이 없을 수 있다** — 웹 쪽에 남는 것이 자리를
+ * 지키는 스피너 한 장뿐이라, 앱이 떠서 넘겨 준 것이 없으면 `snap()`이 그
+ * 앞 화면을 대신 담아 둔다. 그때 뒤로 가는 그림을 웹이 그리면 **엉뚱한
+ * 화면이 나온다**: 끌면 홈이 손을 따라 나오고, 놓으면 그 홈이 그대로 남아
+ * 있다가 대화방으로 바뀐다. 그때의 전환은 **앱이 맡는다**
+ * (`nativeChatPop` → `NativeChatPlugin.open`의 `pop`) — 웹은 끌지 않고
+ * 곧바로 뒤로 간다.
+ *
+ * **그림을 받았으면(`Shot.chat`) 여느 화면과 똑같이 끈다** — 그 길을
+ * 열려고 앱이 나가는 순간 한 장 떠서 보내 준다(위 `setChatShot`).
  */
 export function backIsChat(): boolean {
     return shots[shots.length - 1]?.stub === true;
@@ -342,9 +378,10 @@ const PLAIN_TAKE = 60;
  *     우리가 `transform`으로 화면을 밀어도 **따라오지 않는다** — 위쪽 절반만
  *     손을 따라가고 입력칸은 제자리에 남아 **찢어져 보인다.**
  *     (웹의 `z-index`로 앱 부품을 못 덮는 그 자리와 같은 까닭이다.)
- *  3. **뒤에 깔 것이 앱이 그리는 대화방일 때**(`backIsChat()`). 거기에는
- *     깔 그림이 아예 없어 그 앞 화면(대개 홈)이 대신 담겨 있으므로,
- *     끌면 **홈이 손을 따라 나온다.** 그 전환은 앱이 맡는다.
+ *  3. **뒤가 앱이 그리는 대화방인데 그 그림을 못 받았을 때**(`backIsChat()`).
+ *     그때는 그 앞 화면(대개 홈)이 대신 담겨 있어 끌면 **홈이 손을 따라
+ *     나온다.** 그 전환은 앱이 맡는다. (그림을 받았으면 여느 화면과
+ *     똑같이 끈다 — 위 `setChatShot`.)
  *
  * **손짓이 시작될 때마다 본다.** `nc`는 대화가 열리고 바가 선 **뒤에**
  * 붙으므로, 효과가 걸리는 순간에 잡아 두면 늘 거짓이다
@@ -381,6 +418,11 @@ let heldGhost: HTMLDivElement | null = null;
 /** 라운드·투표에서 대화방으로 **돌아올 때** 잠깐 깔아 두는 떠나는 화면
  *  (아래 `nativeChatPop`). 앱이 그것을 찍어 오른쪽으로 내보낸다. */
 let popPlate: HTMLDivElement | null = null;
+/** **손가락으로 끌어서** 대화방으로 돌아왔는가(`useBackSwipe`의 `fromChat`).
+ *  그때는 대화방 그림이 이미 제자리에 깔려 있으므로 `NativeChat.tsx`가
+ *  들어올 때 아무것도 안 깔고, 앱이 화면을 세운 **뒤에** 갈아 끼운다. */
+let chatDrag = false;
+export function chatDragged(): boolean { const v = chatDrag; chatDrag = false; return v; }
 
 /**
  * 앱이 대화 화면을 통째로 그리는 동안 **웹뷰에는 앞 화면 그림을 깔아 둔다.**
@@ -627,6 +669,9 @@ export function useBackSwipe(): void {
 
         let x0 = 0, y0 = 0, dx = 0, vx = 0, lastX = 0, lastT = 0;
         let cand = false, live = false, plain = false, W = 1;
+        /** 깔아 둔 그림이 **앱이 그리는 대화방**인가(`Shot.chat`) — 넘어가면
+         *  걷지 않고 붙들어 둔다(아래 `end`). */
+        let fromChat = false;
         let page: HTMLElement | null = null;
         let ghost: HTMLDivElement | null = null;
         let dim: HTMLDivElement | null = null;
@@ -640,7 +685,9 @@ export function useBackSwipe(): void {
 
         /** 앞 화면을 뒤에 깐다(위 `layGhost` — 눌러서 들어갈 때와 같은 그림). */
         const build = () => {
-            const laid = layGhost(shots[shots.length - 1]);
+            const shot = shots[shots.length - 1];
+            fromChat = shot?.chat === true;
+            const laid = layGhost(shot);
             ghost = laid.g;
             dim = laid.dim;
         };
@@ -658,7 +705,9 @@ export function useBackSwipe(): void {
         const clean = () => {
             document.removeEventListener('touchmove', block);
             document.documentElement.classList.remove('back-drag', 'back-ease');
-            ghost?.remove();
+            /* **붙들어 둔 그림은 여기서 안 걷는다**(아래 `end`의 `fromChat`) —
+               앱이 대화 화면을 세울 때까지 그 자리를 지켜야 한다. */
+            if (ghost && ghost !== heldGhost) ghost.remove();
             ghost = dim = null;
             ghostAt = 0;
             /* **지금 화면과 우리가 잡아 둔 것을 둘 다 지운다.** 리액트가
@@ -734,7 +783,17 @@ export function useBackSwipe(): void {
             paint();
             const mine = ghost;
             window.setTimeout(() => {
-                if (go) { skipSlide = true; nav(-1); }
+                if (go) {
+                    skipSlide = true;
+                    /* **앱이 그리는 대화방으로 돌아가는 길이면 그림을 붙들어
+                       둔다.** 여기서 걷으면 앱이 화면을 세우기까지 몇 프레임
+                       동안 **그 뒤(대개 홈)가 비친다** — 지금 막 손으로
+                       끌어다 놓은 대화방이 한 번 깜빡이는 꼴이다.
+                       걷는 것은 `NativeChat.tsx`가 다 서고 나서 한다
+                       (`chatDragged` → `nativeChatEnter`). */
+                    if (fromChat && ghost) { chatDrag = true; heldGhost = ghost; }
+                    nav(-1);
+                }
                 /* 새 화면이 한 번 그려진 **뒤에** 걷는다 — 바로 걷으면
                    그 한 프레임에 옛 화면이 비친다. */
                 requestAnimationFrame(() => requestAnimationFrame(clean));
@@ -891,9 +950,11 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
             if (from === '/chat') {
                 if (how === 'POP') return;
                 /* **대화방에서 카드를 눌러 나가는 길은 통째로 안 민다.**
-                   뒤에 깔 앞 화면이 대화방인데 **그 그림이 없다** — 웹 쪽에
-                   남는 것은 스피너 한 장뿐이라, 통째로 밀면 그 자리에
-                   엉뚱한 화면(대화방에 들어오기 전의 것)이 깔린다.
+                   앱이 떠 준 그림이 있어도(`Shot.chat`) 그렇다 — 그 순간
+                   **앱 대화 화면이 아직 걷히는 중**이고, 그것은 웹뷰 위에
+                   얹힌 앱 부품이라 밀려 들어오는 웹 화면을 그대로 덮는다.
+                   그림이 없을 때는 더욱 그렇다: 뒤에 깔리는 것이 대화방이
+                   아니라 **그 앞 화면**이라 엉뚱한 화면이 지나간다.
                    대신 예전 40px짜리로 물러난다 — 뒤에 아무것도 안 깐다. */
                 fromChat = true;
             }

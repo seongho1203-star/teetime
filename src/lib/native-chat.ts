@@ -4,7 +4,11 @@ import { Keyboard, type KeyboardResize } from '@capacitor/keyboard';
 /**
  * 앱 화면이 웹에 보내는 소식.
  *
- * - `navigate` — 카드를 눌렀다(갈 곳이 `path`).
+ * - `navigate` — 카드를 눌렀다(갈 곳이 `path`). **`shot`은 그때의 대화
+ *   화면을 뜬 그림이다**(`data:image/jpeg;base64,…`) — 라운드·투표에서
+ *   손가락으로 끌어 뒤로 올 때 **뒤에 깔 것**이다. 웹 쪽에는 대화 자리를
+ *   지키는 스피너 한 장뿐이라 그림을 만들 길이 아예 없다
+ *   (`lib/tabs.ts`의 `setChatShot`).
  * - `read` — 여기까지 읽었다(`at`).
  * - `auth` — 토큰이 만료됐다.
  * - `back` — **뒤로 가기 손짓**(`phase`: `start` 끌기 시작 ·
@@ -15,7 +19,7 @@ import { Keyboard, type KeyboardResize } from '@capacitor/keyboard';
 export type NativeChatEvent = {
     screen: string;
     type: 'navigate' | 'read' | 'auth' | 'back';
-    data: { path?: string; at?: string; phase?: string };
+    data: { path?: string; at?: string; phase?: string; shot?: string };
 };
 export const NativeChat = registerPlugin<{
     open(config: Record<string, unknown>): Promise<{ ok: boolean }>;

@@ -2280,12 +2280,8 @@ export function Chat() {
         if (far !== jumpShown.current) { jumpShown.current = far; setShowJump(far); }
     };
 
-    /* **화살표에 마지막 대화를 함께 적는다**(사용자 요청 — 카톡의 그 줄).
-       동그란 화살표만 있을 때는 '아래에 뭐가 있나'를 눌러 봐야 알았다.
-       `windowed`일 때는 이 단추 자체가 안 뜨므로(아래 JSX) 목록의 마지막
-       글이 곧 방의 마지막 글이다. */
+    /* 내려갈 글이 하나라도 있을 때만 단추를 낸다(아래 JSX). */
     const lastMsg = messages.length ? messages[messages.length - 1] : undefined;
-    const lastWho = lastMsg && !lastMsg.system ? names[lastMsg.user_id ?? ''] : undefined;
 
     /** 최근 대화로 한 번에 내려간다. **부드럽게 굴리지 않는다** — 300개까지
      *  받아 둔 목록을 훑어 내려가는 일이라 느린 폰에서 그대로 끊긴다. */
@@ -3612,8 +3608,9 @@ export function Chat() {
                 옮겨 가면 목록이 그 언저리만 담고 있어 아래로 끝까지 굴려도
                 최근 대화가 없다 — 이 단추가 없으면 나갔다 다시 들어와야 한다. */}
             {windowed && (
-                <button className="chat-recent" onClick={backToRecent}>
-                    최근 대화로 ↓
+                <button className="chat-recent" onClick={backToRecent}
+                        aria-label="최근 대화로" title="최근 대화로">
+                    <ChevronDown />
                 </button>
             )}
 
@@ -3624,16 +3621,8 @@ export function Chat() {
                 없어 굴려도 소용이 없고, 바로 위 `.chat-recent`가 그 몫이다. */}
             {!windowed && showJump && lastMsg && (
                 <button className="chat-jump" onClick={jumpToLatest}
-                        aria-label="최근 대화로 이동">
-                    {/* 안내 줄(`system`)에는 얼굴도 이름도 없다 — 말풍선에서도
-                        그렇게 그린다. 그때는 글이 줄을 통째로 쓴다. */}
-                    {lastWho && <Avatar name={lastWho.name} url={lastWho.avatar_url}
-                                        gender={lastWho.gender} size="sm" />}
-                    <span className="chat-jump-text">
-                        {lastWho && <b>{lastWho.name}</b>}
-                        <span>{preview(lastMsg)}</span>
-                    </span>
-                    <span className="chat-jump-go" aria-hidden="true">↓</span>
+                        aria-label="최근 대화로 이동" title="최근 대화로 이동">
+                    <ChevronDown />
                 </button>
             )}
 
@@ -4009,6 +3998,20 @@ export function Chat() {
  * 자리를 이모티콘 없는 조각과 같은 크기로 두는 것도 같은 까닭이다:
  * 그림이 없다고 자리가 줄면 읽던 자리가 위아래로 튄다.
  */
+/**
+ * 아래쪽 꺾쇠 — `최근 대화로` 동그라미 둘이 같이 쓴다(`.chat-jump` ·
+ * `.chat-recent`). **그림글자를 쓰지 말 것**: 기기에 없으면 네모난 두부가
+ * 나온다(투표 결과 카드의 `🗳`에서 겪었다).
+ */
+function ChevronDown() {
+    return (
+        <svg className="chat-jump-go" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9l8 8 8-8" fill="none" stroke="currentColor" strokeWidth="2.4"
+                  strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
 function ChatPhoto({ url, onLoad }: {
     url: string;
     onLoad: (e: SyntheticEvent<HTMLImageElement>) => void;

@@ -276,7 +276,39 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     private func navigate(_ path: String) {
         guard !navigating else { return }; navigating = true
-        list.pauseSession(); view.endEditing(true); event?("navigate", ["path": path])
+        /* **나가기 전에 이 화면을 그림 한 장으로 떠서 함께 넘긴다.**
+           라운드·투표에서 손가락으로 끌어 뒤로 올 때 **뒤에 깔 것**이다 —
+           그 끌기는 웹이 하는데(`useBackSwipe`) 웹 쪽에는 대화 자리를
+           지키는 스피너 한 장뿐이라 깔 그림이 없었다. 그래서 여태 그
+           자리에서만 끌기를 통째로 넘겼다(`plainBack`의 `backIsChat`).
+           **재는 것은 `endEditing` 앞이다** — 키보드를 내리면 목록이
+           늘어나 방금 본 화면과 달라진다. */
+        let shot = shotURL()
+        list.pauseSession(); view.endEditing(true)
+        event?("navigate", ["path": path, "shot": shot])
+    }
+
+    /**
+     * 지금 화면을 `data:image/jpeg;base64,…` 한 줄로 만든다.
+     *
+     * **웹이 그릴 수 있는 것은 웹 DOM뿐이라 그림으로 넘기는 것 말고 길이
+     * 없다** — 이 화면은 웹뷰 **위에 얹힌 앱 부품**이라 웹이 `transform`
+     * 으로 밀어도 안 따라오고, 반대로 웹뷰 밑으로 내릴 수도 없다.
+     *
+     * **배율 2 · 품질 0.6**이다. 다리를 한 번 건너는 값이라(한 번에
+     * 200KB 남짓) 3배로 뜨면 그만큼 더 드는데, 이 그림이 제 크기로
+     * 보이는 것은 끌고 있는 0.2초뿐이다.
+     */
+    private func shotURL() -> String {
+        let size = view.bounds.size
+        guard size.width > 1, size.height > 1 else { return "" }
+        let f = UIGraphicsImageRendererFormat.default()
+        f.scale = 2; f.opaque = true
+        let img = UIGraphicsImageRenderer(size: size, format: f).image { _ in
+            view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: false)
+        }
+        guard let data = img.jpegData(compressionQuality: 0.6) else { return "" }
+        return "data:image/jpeg;base64," + data.base64EncodedString()
     }
 
     private func startLoad() {
@@ -586,7 +618,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     // MARK: Native message interactions
     func chatListState(atBottom: Bool, atTop: Bool, far: Bool) {
         bottom = atBottom
-        list.apply(jump: far || windowed ? ["name": "", "text": "최근 대화로"] : nil)
+        list.apply(jump: far || windowed)
         if atTop { loadMore() }; if atBottom { markRead() }
     }
     func chatListDismissKeyboard() { view.endEditing(true) }
@@ -890,7 +922,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 let (a, b) = try await (before, after)
                 messages = []; merge(a + b); windowed = true; hasMore = a.count == 50
                 render(); _ = list.scrollTo(id: message.id, place: "center", flash: true)
-                list.apply(jump: ["name": "", "text": "최근 대화로"])
+                list.apply(jump: true)
             } catch { notice(error.localizedDescription) }
         }
     }

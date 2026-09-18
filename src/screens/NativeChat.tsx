@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
-import { hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, slideLeft } from '../lib/tabs';
+import { chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, setChatShot, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
 import { lastSeen, markSeen } from '../lib/unread';
 import { Chat } from './Chat';
@@ -45,7 +45,11 @@ function NativeChatHost() {
            웹은 떠나는 화면을 **깔아 두기만** 하고(앱 대화 화면이 웹 DOM을
            통째로 덮으므로 웹이 내보낼 수가 없다) 미는 것은 앱이 맡는다. */
         const back = cameBack.current && nativeChatPop();
-        if (!back) nativeChatEnter();
+        /* **손가락으로 끌어서 온 길이면 그림이 이미 제자리에 있다**
+           (`useBackSwipe`가 붙들어 둔 대화방 그림이다). 여기서 갈아 끼우면
+           앱이 화면을 세우기까지 몇 프레임 동안 그 뒤가 비친다. */
+        const dragged = chatDragged();
+        if (!back && !dragged) nativeChatEnter();
         /* **뒤로 갈 데가 없으면 홈으로 간다** — 알림을 눌러 `#/chat`으로
            곧바로 들어오는 길이 있어 그때는 히스토리에 앞 화면이 없다
            (웹 `Chat.tsx`의 `goBack`과 같은 잣대다). */
@@ -56,7 +60,13 @@ function NativeChatHost() {
         void (async () => {
             const listener = await NativeChat.addListener('event', e => {
                 if (dead || e.screen !== screen) return;
-                if (e.type === 'navigate' && e.data.path && /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$)/.test(e.data.path)) navigate(e.data.path);
+                if (e.type === 'navigate' && e.data.path && /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$)/.test(e.data.path)) {
+                    /* **앱이 떠 준 대화방 그림을 먼저 건네고 옮긴다** —
+                       `snap()`이 주소가 바뀌는 그 자리에서 쓴다(`pushState`).
+                       그것이 곧 라운드에서 끌어 뒤로 올 때 뒤에 깔릴 화면이다. */
+                    setChatShot(e.data.shot ?? '');
+                    navigate(e.data.path);
+                }
                 if (e.type === 'read' && e.data.at) markSeen('chat', user, e.data.at);
                 /* 앱이 화면을 끌고, 뒤에 깔 앞 화면만 웹이 그린다. */
                 if (e.type === 'back') {
@@ -90,7 +100,7 @@ function NativeChatHost() {
                 back: hasBackShot(),
                 /* 들어올 때 오른쪽에서 미끄러져 들어올 **남은 시간**
                    (웹의 `CHAT_MS`에서 이미 지난 만큼을 뺀 값이다). */
-                slide: back ? 0 : ms,
+                slide: back || dragged ? 0 : ms,
                 /* **뒤로 온 길**(위 `nativeChatPop`) — 앱이 웹뷰를 찍어
                    오른쪽으로 내보내고 대화 화면은 왼쪽에서 따라 들어온다. */
                 pop: back ? ms : 0,
@@ -103,7 +113,7 @@ function NativeChatHost() {
             /* **깔아 둔 떠나는 화면을 걷고 앞 화면 그림으로 갈아 놓는다** —
                이제부터는 끌어서 뒤로 갈 때 뒤에 깔릴 그림이 필요하다.
                앱이 찍어 둔 그림이 그 사이를 덮고 있어 눈에는 안 보인다. */
-            if (back && !dead) nativeChatEnter();
+            if ((back || dragged) && !dead) nativeChatEnter();
         })().catch(e => {
             if (dead) return;
             /* **못 열었으면 깔아 둔 그림을 걷는다** — 안 걷으면 그 그림이

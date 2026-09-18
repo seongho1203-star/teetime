@@ -444,87 +444,53 @@
     overflow: hidden;
 }
 
-/* **옛 글을 보다가 지금으로 돌아오는 길.** 검색으로 옮겨 가면 목록이 그
-   언저리만 담고 있어, 아래로 끝까지 굴려도 최근 대화가 없다.
-   입력칸 바로 위에 띄운다 — 대화를 가리지 않으면서 눈에 걸리는 자리다.
-   분홍을 쓰지 않는다: 이 화면에서 '지금 눌러야 할 것'은 보내기 단추다. */
+/* **목록을 건너뛰는 단추 둘 — 카톡처럼 오른쪽 아래의 작은 동그라미다**
+   (사용자 요청 — `최근대화로 가는 버튼을 카톡처럼 바꿔줘` · 카톡 사진을
+   받아 픽셀로 맞췄다. 1206×2622 · 배율 3.0 → 지름 114px = 38 ·
+   오른쪽 30px = 10 · 입력칸까지 25px = 8).
+
+   - `.chat-jump` — 맨 아래로 내려간다. 오랜만에 들어오면
+     `여기까지 읽으셨습니다` 줄에 내려놓으므로, 밀린 글이 많은 날에는
+     최근 대화까지 한참을 굴려야 했다.
+   - `.chat-recent` — 검색으로 옛 글에 가 있을 때 지금으로 돌아온다.
+     그때는 목록에 최근 대화가 아예 없어 굴려도 소용이 없다.
+
+   **둘은 함께 뜨지 않는다**(`windowed`가 가른다). 같은 자리에 같은 모양으로
+   두는 것은 **같은 손짓으로 읽히게** 하려는 것이다 — 한쪽만 고치지 말 것.
+
+   **한동안 얼굴 · 이름 · 한 줄 미리보기를 펼친 줄이었다**(`.chat-jump-text`).
+   '아래에 뭐가 있나'를 알려 주는 값이 있었지만 좌우를 다 써서 말풍선 한
+   줄을 통째로 덮었고, 사용자가 카톡 화면을 보여 주며 동그라미로 정했다.
+   **테두리도 그림자도 없다** — 카톡 사진에서 동그라미 바로 밑이 그냥 대화
+   바탕색이었다. **분홍을 쓰지 않는다**: '지금 눌러야 할 것'은 보내기 단추다. */
+.chat-jump,
 .chat-recent {
     position: absolute;
-    left: 50%;
-    bottom: calc(var(--composer, 64px) + 10px);
-    transform: translateX(-50%);
-    z-index: 5;
-    padding: 7px 14px;
-    border: 1px solid var(--line);
-    border-radius: var(--r-pill);
-    background: var(--surface);
-    box-shadow: var(--shadow-lg);
-    font-size: var(--fs-sm);
-    font-weight: 700;
-    color: var(--text);
-    white-space: nowrap;
-    cursor: pointer;
-}
-
-/* **맨 아래로 내려가는 화살표**(카톡에 있는 그것 — 사용자 요청).
-   오랜만에 들어오면 `여기까지 읽으셨습니다` 줄로 옮겨 놓기 때문에, 밀린
-   글이 많은 날에는 최근 대화까지 한참을 굴려 내려가야 했다.
-
-   **마지막 대화를 함께 적는다**(사용자 요청 — 카톡의 그 줄). 동그란 화살표
-   하나였을 때는 '아래에 뭐가 있나'를 눌러 봐야 알았다. 얼굴 · 이름 · 한 줄
-   미리보기 · `↓` 순서다.
-   **`.chat-recent`와 같은 값으로 그린다** — 입력칸 위에 떠서 목록을 건너뛰게
-   하는 단추가 둘인데 다르게 생기면 같은 손짓으로 안 읽힌다(참여자 목록
-   카드를 `.chat-menu`와 같게 둔 것과 같은 이유다).
-   **분홍을 쓰지 않는다**: 이 화면에서 '지금 눌러야 할 것'은 보내기 단추다.
-   **둘은 함께 뜨지 않는다** — `windowed`일 때는 `.chat-recent`가 그 자리를
-   맡는다(그때는 목록에 최근 대화가 아예 없어 굴려도 소용이 없다). */
-.chat-jump {
-    position: absolute;
-    /* **좌우로 펼친다.** 가운데 동그라미였을 때는 마지막 말풍선을 덮었고,
-       글을 적으려면 어차피 줄 하나가 필요하다. `--gap`은 목록의 좌우
-       여백과 같은 값이라 말풍선과 나란히 선다. */
-    left: var(--gap);
-    right: var(--gap);
-    bottom: calc(var(--composer, 64px) + 10px);
+    right: 10px;
+    bottom: calc(var(--composer, 64px) + 8px);
     z-index: 5;
     display: flex;
     align-items: center;
-    gap: var(--gap-xs);
+    justify-content: center;
     /* 38px — `node .dev/audit.mjs`가 30px보다 작은 누름 자리를 잡아낸다. */
-    min-height: 38px;
-    padding: 6px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--r-pill);
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
     background: var(--surface);
-    box-shadow: var(--shadow-lg);
-    text-align: left;
+    color: var(--text);
     cursor: pointer;
 }
-.chat-jump:active { background: var(--surface-2); }
+.chat-jump:active,
+.chat-recent:active { background: var(--surface-2); }
 
-/* **한 줄로 자른다.** 대화 한 마디가 길어도 이 줄은 한 줄이어야 한다 —
-   두 줄이 되면 말풍선을 그만큼 더 덮는다. `min-width: 0`이 없으면
-   flex 칸이 글자 길이만큼 벌어져 말줄임이 아예 안 걸린다. */
-.chat-jump-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--fs-sm);
-    color: var(--text-dim);
-}
-/* 이름은 **닉네임 그대로**다(`83/신성호/광산구`가 아니라) — 긴 이름표는
-   목록의 이름 자리 몫이고 이 줄은 문장에 가깝다(홈의 `내 조` 줄과 같다). */
-.chat-jump-text b { margin-right: 5px; color: var(--text); }
-
+/* 아래쪽 꺾쇠. **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가
+   나온다(투표 결과 카드의 `🗳`에서 겪었다). 카톡의 그것을 재니 가로 17 ·
+   세로 7 · 획 2.7이었다. */
 .chat-jump-go {
-    flex: 0 0 auto;
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--text);
+    width: 24px;
+    height: 24px;
 }
 
 .chat-list {

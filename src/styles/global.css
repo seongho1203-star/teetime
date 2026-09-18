@@ -180,6 +180,19 @@ html.back-drag .app > :first-child {
     background: #000;
     opacity: 0.18;
 }
+
+/* **앱이 그리는 대화방을 뜬 그림 한 장**(`lib/tabs.ts`의 `setChatShot`).
+   그 화면은 웹뷰 위에 얹힌 앱 부품이라 웹이 만들 길이 없어, 카드를 눌러
+   나가는 그 순간 앱이 떠서 넘겨 준다 — 라운드·투표에서 손가락으로 끌어
+   뒤로 올 때 뒤에 깔리는 것이 이것이다.
+   `cover`가 아니라 `100% 100%`인 것은 **화면과 같은 비율로 뜬 그림**이라
+   늘이거나 자를 일이 없기 때문이다(자르면 한 줄씩 어긋나 보인다). */
+.chat-plate {
+    position: absolute;
+    inset: 0;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+}
 /* 손을 뗀 뒤 남은 거리를 마저 간다. **끄는 동안에는 걸지 않는다** —
    손가락을 그대로 따라와야 하므로 그때 전환이 걸리면 늦게 따라온다. */
 html.back-ease .app > :first-child,
