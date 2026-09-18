@@ -365,36 +365,21 @@ let popPlate: HTMLDivElement | null = null;
  * 그래서 들어올 때 한 번 깔고 **나갈 때까지 그대로 둔다** — 끌기가 시작되면
  * 그 그림이 이미 제자리에 있다(`nativeBackStart`).
  *
- * 들어오는 동안에는 그 그림이 **왼쪽으로 1/4만큼 밀리며 어두워진다**
- * (아이폰의 그 전환이다 — 미는 것은 앱이 하는 대화 화면 쪽이다).
- * 다 들어온 뒤에는 **제자리로 되돌려 둔다**(`restHeld`) — 끌 때 앞 화면을
- * 내보내는 것은 **앱이 웹뷰를 옮기는 것**이라, 여기까지 밀려 있으면 두 번
- * 어긋난다.
- *
- * @param ms 대화 화면이 밀려 들어오는 데 쓸 시간(`slideLeft()`). 앱에도
- *           **같은 값**을 넘길 것 — 한쪽만 고치면 두 단계로 보인다.
+ * **그 그림은 가만히 있는다 — 밀지도 어둡게 하지도 않는다**(사용자 요청 —
+ * `대화버튼으로 진입시 뒷배경이 왼쪽으로 밀리고`). 한동안 아이폰의 그
+ * 전환처럼 왼쪽으로 1/4만큼 밀며 어둡게 했는데, **탭바의 `대화`를 눌러
+ * 들어가는 길이 이 화면의 거의 전부**라 그때마다 홈 화면이 한 번 밀렸다
+ * 제자리로 돌아오는 것이 그대로 보였다. 지금은 대화 화면만 오른쪽에서
+ * 들어온다. **`PARALLAX`·`DIM`을 여기에 다시 붙이지 말 것** — 그 둘은
+ * 손가락으로 끌 때(`BackDrag`)와 돌아올 때(`nativeChatPop`) 몫이다.
  */
-export function nativeChatEnter(ms: number): void {
+export function nativeChatEnter(): void {
     sweepGhosts(true);
     const shot = shots[shots.length - 1];
     if (!shot) return;              // 뒤에 깔 것이 없으면 아무것도 안 한다
-    const { g, dim } = layGhost(shot);
-    heldGhost = g;
-    if (ms <= 40) { restHeld(); return; }
-    const W = window.innerWidth || 1;
-    const ease = `transform ${ms}ms cubic-bezier(.32, .72, 0, 1), opacity ${ms}ms linear`;
-    g.style.transform = 'translate3d(0,0,0)';
-    dim.style.opacity = '0';
-    nextFrames(() => {
-        if (heldGhost !== g) return;
-        g.style.transition = ease;
-        dim.style.transition = ease;
-        g.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
-        dim.style.opacity = String(DIM);
-    });
-    /* **넉넉히 기다렸다 되돌린다** — 앱 쪽 움직임은 다리를 한 번 건너가느라
-       늦게 시작하므로, 딱 맞춰 되돌리면 그 사이가 눈에 띈다. */
-    window.setTimeout(() => { if (heldGhost === g) restHeld(); }, ms + 320);
+    heldGhost = layGhost(shot).g;
+    /* 깔자마자 **끌 준비가 된 자리**(제자리 · 막 없음)로 둔다. */
+    restHeld();
 }
 
 /** 깔아 둔 그림을 **끌 준비가 된 자리**(제자리 · 막 없음)로 되돌린다. */

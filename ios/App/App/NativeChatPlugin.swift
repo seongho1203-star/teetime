@@ -38,6 +38,16 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.notifyListeners("event", data: ["screen": self.screen, "type": "auth", "data": [:]])
             }
             let fresh = chat.parent == nil
+            let ms = call.getDouble("slide") ?? 0
+            let pop = call.getDouble("pop") ?? 0
+            /* **떠나는 화면은 대화 화면을 붙이기 _전에_ 찍는다.**
+               `root.view`가 곧 웹뷰이고 대화 화면은 그 자식이라, 붙여 놓고
+               찍으면 **그림 안에 대화 화면이 함께 들어간다** — 뒤로 오는데
+               뒤에서 빠져나가는 것이 방금 들어온 화면이 되어 **엉뚱한
+               화면이 보인다**(사용자 제보 — `되돌아올 때 뒷배경이 엉뚱한
+               화면이 보이고`). 웹이 `.exit-ghost`로 깔아 둔 라운드·투표
+               화면이 아직 혼자 있는 이 자리가 찍을 수 있는 유일한 때다. */
+            let leaving = fresh && pop > 40 ? root.view.snapshotView(afterScreenUpdates: false) : nil
             if fresh {
                 root.view.endEditing(true)
                 root.addChild(chat); chat.view.translatesAutoresizingMaskIntoConstraints = false
@@ -55,9 +65,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                움직임이다). **남은 시간만큼만 간다** — 이 화면은 웹이 먼저
                그려진 뒤에 서므로 제 시간을 다 쓰면 머리말보다 늦게 끝나
                두 단계로 보인다(웹의 `slideLeft()`가 그 값이다). */
-            let ms = call.getDouble("slide") ?? 0
-            let pop = call.getDouble("pop") ?? 0
-            if fresh, pop > 40, self.runPop(chat: chat, root: root, ms: pop) {
+            if fresh, pop > 40, self.runPop(chat: chat, root: root, ms: pop, shot: leaving) {
                 // 뒤로 온 길 — 아래 `runPop`이 자리를 다 잡았다.
             } else if fresh, ms > 40 {
                 chat.view.transform = CGAffineTransform(translationX: root.view.bounds.width, y: 0)
@@ -84,14 +92,17 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
      직접 내보낼 수는 없다. 대화 화면이 **웹뷰의 자식**이라(Capacitor는
      웹뷰를 화면 그 자체로 쓴다) 웹 DOM을 통째로 덮기 때문이다.
 
+     **그 그림은 `open`이 대화 화면을 붙이기 _전에_ 찍어 넘겨준다**(`shot`) —
+     여기서 찍으면 이미 대화 화면이 얹혀 있어 **그것까지 함께 찍힌다.**
+
      **찍은 그림은 창(`UIWindow`)에 얹는다.** 화면 안에 얹으면 그것도
      웹뷰의 자식이 되어 대화 화면 밑에 깔린다.
 
      - Returns: 찍지 못했으면 false — 그때는 부르는 쪽이 여느 길로 간다.
      */
-    @MainActor private func runPop(chat: NativeChatViewController, root: UIViewController, ms: Double) -> Bool {
-        guard let win = root.view.window,
-              let shot = root.view.snapshotView(afterScreenUpdates: false) else { return false }
+    @MainActor private func runPop(chat: NativeChatViewController, root: UIViewController,
+                                   ms: Double, shot: UIView?) -> Bool {
+        guard let win = root.view.window, let shot = shot else { return false }
         let W = root.view.bounds.width
         shot.frame = win.bounds
         let dim = UIView(frame: win.bounds)

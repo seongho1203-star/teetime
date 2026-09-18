@@ -5,7 +5,8 @@ import SafariServices
 /// A retained, opaque native chat screen. The web route supplies only account/config
 /// and receives navigation/read events; it never renders chat or controls its layout.
 final class NativeChatViewController: UIViewController, ChatListDelegate, ComposerBarDelegate,
-    PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
+    UIPopoverPresentationControllerDelegate {
     let service: NativeChatService
     var event: ((String, ChatJSON) -> Void)?
     private let list = ChatList()
@@ -726,11 +727,38 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         sheet.popoverPresentationController?.sourceRect = menuBtn.bounds
         present(sheet, animated: true)
     }
+    /**
+     사진 첨부 창 — **누른 `+` 바로 위에 작은 카드로 띄운다**(사용자 제보 —
+     `파일 추가 눌렀을 때 누른 위치에서 뜨지 않고 화면 한가운데 위에 상단에서 떠`).
+
+     예전에는 ☰(오른쪽 위)에 붙여서, 화면 맨 위에서 창이 떨어졌다 —
+     누른 자리와 멀어 눈이 통째로 옮겨 간다. `NativeComposerPlugin`의
+     9판이 이미 같은 자리를 이렇게 고쳤다(**한쪽만 고치지 말 것**):
+
+     - 붙이는 곳은 **`composer.plusBtn`**이고 화살표는 아래(`.down`)다.
+     - **`delegate`가 `.none`을 돌려주는 것이 한 쌍이다** — 아이폰은
+       `.actionSheet`를 기본으로 화면 아래를 가로지르는 큰 창으로 되바꾼다.
+       그 작은 카드에서는 iOS가 `취소` 줄을 스스로 빼고, 바탕을 누르면 닫힌다.
+     - `+`가 아직 화면에 없으면(있을 수 없지만) 왼쪽 아래를 예비 자리로 둔다 —
+       붙일 자리가 없으면 아이패드에서 그대로 죽는다.
+     */
     private func presentMenu(_ menu: UIAlertController) {
-        menu.popoverPresentationController?.sourceView = menuBtn
-        menu.popoverPresentationController?.sourceRect = menuBtn.bounds
+        if let pop = menu.popoverPresentationController {
+            pop.delegate = self
+            pop.permittedArrowDirections = .down
+            if composer.plusBtn.window != nil {
+                pop.sourceView = composer.plusBtn
+                pop.sourceRect = composer.plusBtn.bounds
+            } else {
+                pop.sourceView = view
+                pop.sourceRect = CGRect(x: 16, y: view.bounds.maxY - 96, width: 44, height: 44)
+            }
+        }
         present(menu, animated: true)
     }
+    /// 위 `presentMenu`의 한 쌍 — 아이폰이 팝오버를 큰 창으로 되바꾸는 것을 막는다.
+    func adaptivePresentationStyle(for controller: UIPresentationController)
+        -> UIModalPresentationStyle { return .none }
     /// 사진은 **머리말 없이 통째로** 띄운다 — 검은 바탕에 `✕`와 알약 둘뿐이다.
     private func showPhoto(_ url: String) {
         view.endEditing(true)
