@@ -81,6 +81,24 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private var sticker: ChatJSON?
     /// 골라 둔 사진·동영상 한 개(`PickedMedia`). 보내기를 누를 때 올린다.
     private var picked: PickedMedia?
+    /**
+     * **고르고 나서 아직 못 읽어 온 것**(`동영상`/`사진`). 사진첩에서
+     * 파일을 꺼내 오는 데 동영상은 몇 초가 걸리는데, 그동안 화면에 아무
+     * 일도 안 일어나 **멈춘 줄 안다**(사용자 제보 — `동영상선택하고
+     * 확인을 누르면 아무반응이없다가 갑자기 나타나서 순간 안되는건가?`).
+     * 이 값이 있으면 입력칸 위에 `동영상 불러오는 중…`이 먼저 선다.
+     */
+    private var loadingWhat: String?
+    /// 올리는 중이면 (보낸 바이트, 전체 바이트). 그 칸에 진행률 고리와
+    /// `0.24 / 4.15MB`가 뜬다(카톡과 같은 자리다 — 사용자 요청).
+    private var upload: (sent: Int64, total: Int64)?
+    /// 보내는 일. 올리는 도중에 `✕`를 누르면 이걸 끊는다.
+    private var sendTask: Task<Void, Never>?
+    /// 지금 화면에 서 있는 진행률 고리와 용량 줄. **신호가 올 때마다 이
+    /// 둘만 갈아 끼운다** — 칸을 통째로 다시 그리면 초에 수십 번 배치가
+    /// 다시 돈다(말풍선을 `memo`로 감싼 것과 같은 결이다).
+    private weak var uploadRing: MediaRing?
+    private weak var uploadLabel: UILabel?
     private var retryRow: ChatJSON?
     private var mentionRange: NSRange?
     /// 길게 눌러 창을 띄운 글. 고른 것이 돌아올 때 이 값으로 찾는다.
@@ -105,7 +123,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         view.isOpaque = true; view.accessibilityIdentifier = "native-chat-screen"
         list.listDelegate = self; list.accessibilityIdentifier = "native-chat-messages"
         composer.barDelegate = self; composer.nativeViewport = true; composer.tabH = 0
-        composer.cBg = view.backgroundColor!; composer.cBrand = UIColor(red: 0.91, green: 0.29, blue: 0.50, alpha: 1)
+        /* **입력칸 뒤에 판을 깔지 않는다 — 대화 바탕색 그대로다**(사용자
+           요청 — `메시지입력하는 창 뒷배경을 카톡처럼 삭제해줘` · 카톡
+           오픈톡 화면을 받아 맞췄다). 예전에는 화면 바탕(크림색)이라
+           목록 아래에 **판이 하나 더 깔린 것처럼** 보였다 — 카톡의 그
+           줄은 글칸 알약 하나만 대화 바탕 위에 떠 있다.
+           웹 `Chat.css`의 `.chat-input`·`lib/composer.ts`의
+           `chatBarSkin()`과 **같은 값이라 한쪽만 고치지 말 것.**
+           위쪽 선은 같은 색으로 덮어 없애고, 글칸은 말풍선과 같은 흰
+           알약이며, `+`의 획만 흰색이다(글자는 그 알약 위라 먹색 그대로). */
+        composer.cBg = ChatSkin().bg; composer.cLine = ChatSkin().bg
+        composer.cField = ChatSkin().bubble
+        composer.cIcon = ChatSkin().on
+        composer.cBrand = UIColor(red: 0.91, green: 0.29, blue: 0.50, alpha: 1)
         composer.paint(); composer.watchKeyboard()
         composer.textView.accessibilityIdentifier = "native-chat-input"
         composer.sendBtn.accessibilityIdentifier = "native-chat-send"
@@ -509,15 +539,20 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         guard !busy, loaded, !body.isEmpty || sticker != nil || picked != nil || retryRow != nil else { return }
         guard body.count <= 1000 else { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
         busy = true; composer.sendBtn.isEnabled = false; composer.plusBtn.isEnabled = false
-        // Keep the first responder (and Korean composition/keyboard) alive during I/O.
-        context.isUserInteractionEnabled = false; self.reply.isUserInteractionEnabled = false
         let media = picked, chosen = sticker, quote = quoted
-        Task { [weak self] in
+        /* Keep the first responder (and Korean composition/keyboard) alive during I/O.
+           **다만 올릴 것이 있으면 열어 둔다** — 그때는 이 칸에 `✕`(올리기
+           그만두기)가 서고, 그게 유일한 그만둘 길이다(카톡과 같다). */
+        context.isUserInteractionEnabled = media != nil
+        self.reply.isUserInteractionEnabled = false
+        sendTask = Task { [weak self] in
             guard let self = self else { return }
             defer {
                 self.busy = false; self.context.isUserInteractionEnabled = true
                 self.reply.isUserInteractionEnabled = true
                 self.composer.sendBtn.isEnabled = true; self.composer.plusBtn.isEnabled = true
+                self.sendTask = nil
+                if self.upload != nil { self.upload = nil; self.updateContext() }
             }
             do {
                 var row: ChatJSON
@@ -531,8 +566,24 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                            다시 굽지도 않는다. 자세한 것은 `PickedMedia`의
                            머리말을 볼 것. 저장 공간이 곧 장수라 **저장
                            기간을 일주일로 줄여** 균형을 맞췄다. */
+                        /* **올리는 동안 얼마나 갔는지 적는다**(사용자 요청 —
+                           카톡처럼). 그림 위의 고리와 `0.24 / 4.15MB`만
+                           갈아 끼운다 — 칸을 통째로 다시 그리면 신호가
+                           올 때마다(초에 수십 번) 배치가 다시 돈다. */
+                        let size = Int64(media.data.count)
+                        self.upload = (0, size); self.updateContext()
                         row["image_url"] = try await self.service.upload(
-                            media.data, room: self.room, ext: media.ext, type: media.type)
+                            media.data, room: self.room, ext: media.ext, type: media.type,
+                            progress: { [weak self] sent, total in
+                                guard let self = self, self.upload != nil else { return }
+                                let all = total > 0 ? total : size
+                                self.upload = (min(sent, all), all)
+                                if let ring = self.uploadRing, let label = self.uploadLabel {
+                                    ring.value = all > 0 ? CGFloat(sent) / CGFloat(all) : 0
+                                    label.text = "\(self.mbText(min(sent, all))) / \(self.mbText(all))MB"
+                                } else { self.updateContext() }
+                            })
+                        self.upload = nil; self.updateContext()
                     }
                     self.retryRow = row
                 }
@@ -545,8 +596,28 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 }
                 self.merge([sent]); self.render(); self.list.scrollToBottom(animated: false)
                 self.markRead()
-            } catch { self.notice("\(error.localizedDescription)\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.") }
+            } catch {
+                /* **그만둔 것은 고장이 아니다** — 사람이 `✕`를 누른 자리라
+                   오류 문구를 띄우면 무엇이 잘못된 줄 안다. 고른 것은
+                   그대로 물려 두어 보내기를 다시 누르면 된다. */
+                if Task.isCancelled || (error as NSError).code == NSURLErrorCancelled {
+                    self.notice("올리기를 그만뒀습니다.")
+                } else {
+                    self.notice("\(error.localizedDescription)\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")
+                }
+            }
         }
+    }
+    /// 올리는 도중에 `✕`를 눌렀다. 고른 것은 남겨 둔다 — 다시 보내기를
+    /// 누르면 그 자리에서 이어 간다.
+    private func stopSending() {
+        sendTask?.cancel(); sendTask = nil
+        upload = nil; updateContext()
+    }
+    /// `4.15`처럼 소수 둘까지의 MB. **카톡이 적는 그 모양이다**(사용자가
+    /// 보여 준 화면 — `0.24 / 4.15MB`).
+    private func mbText(_ n: Int64) -> String {
+        String(format: "%.2f", Double(n) / 1024 / 1024)
     }
     func composerChanged(text: String, sel: Int) {
         // Changing a failed draft is an explicit new message, never reuse its UUID.
@@ -662,7 +733,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         guard let item = results.first?.itemProvider else { return }
         /* 동영상이 먼저다 — 움짤(`.mov`)은 그림으로도 읽혀서, 사진부터
            물어보면 첫 장면만 올라간다. */
-        if item.hasItemConformingToTypeIdentifier("public.movie") {
+        let movie = item.hasItemConformingToTypeIdentifier("public.movie")
+        /* **고른 그 자리에서 먼저 알린다**(사용자 제보 — `확인을 누르면
+           아무반응이없다가 갑자기 나타나서`). 사진첩에서 꺼내 오는 데
+           동영상은 몇십 MB라 몇 초가 걸리는데, 그동안 화면이 조용하면
+           안 눌린 줄 알고 다시 고르러 간다. `took()`이 이 값을 내린다. */
+        loadingWhat = movie ? "동영상" : "사진"
+        picked = nil; sticker = nil; retryRow = nil; updateContext()
+        if movie {
             _ = item.loadFileRepresentation(forTypeIdentifier: "public.movie") { [weak self] url, _ in
                 /* **이 자리를 벗어나면 그 파일은 사라진다** — 여기서 읽어
                    담는다(`PickedMedia.video`). */
@@ -682,7 +760,15 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
         if let movie = info[.mediaURL] as? URL {
-            took(PickedMedia.video(movie), what: "동영상"); return
+            /* **여기서도 먼저 알리고 뒤에서 읽는다**(위 `didFinishPicking`과
+               같은 자리다). 찍은 동영상을 메인 갈래에서 통째로 읽으면 그동안
+               화면이 아예 안 움직인다. */
+            loadingWhat = "동영상"; picked = nil; sticker = nil; retryRow = nil; updateContext()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let media = PickedMedia.video(movie)
+                DispatchQueue.main.async { self?.took(media, what: "동영상") }
+            }
+            return
         }
         took((info[.originalImage] as? UIImage).flatMap { PickedMedia.jpeg($0) }, what: "사진")
     }
@@ -690,8 +776,16 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /// 고른 것을 입력칸 위에 물린다. **너무 크면 여기서 잡는다** — 올리다
     /// 막히면 사람 말이 아닌 오류가 뜨고 그때는 이미 몇십 초를 기다린 뒤다.
     private func took(_ media: PickedMedia?, what: String) {
-        guard let media = media else { notice("\(what)을 불러오지 못했습니다."); return }
+        /* **먼저 `불러오는 중`을 내린다** — 실패로 돌아서는 갈래에도
+           걸려 있어야 그 줄이 화면에 남지 않는다. */
+        let was = loadingWhat != nil
+        loadingWhat = nil
+        guard let media = media else {
+            if was { updateContext() }
+            notice("\(what)을 불러오지 못했습니다."); return
+        }
         guard media.data.count <= PickedMedia.limit else {
+            if was { updateContext() }
             notice("\(what)이 너무 큽니다(\(media.data.count / 1024 / 1024)MB).\n50MB까지 올릴 수 있습니다.")
             return
         }
@@ -705,16 +799,83 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         } else {
             reply.isHidden = true
         }
-        if sticker != nil || picked != nil {
-            let row = UIStackView(); row.alignment = .center; row.distribution = .fill
+        if sticker != nil || picked != nil || loadingWhat != nil {
+            let row = UIStackView(); row.alignment = .center; row.distribution = .fill; row.spacing = 8
+            /* 그림 칸은 **상자 안에** 둔다 — 그 위에 진행률 고리와 `✕`가
+               겹쳐 앉기 때문이다(카톡의 그 자리). 상자를 안 쓰고 그림에
+               바로 얹으면 `✕`가 눌리지 않는다(`UIImageView`는 손짓을
+               기본으로 안 받는다). */
+            let box = UIView()
+            box.widthAnchor.constraint(equalToConstant: 76).isActive = true
+            box.heightAnchor.constraint(equalToConstant: 76).isActive = true
             let image = UIImageView(); image.contentMode = .scaleAspectFit; image.image = picked?.preview
-            image.widthAnchor.constraint(equalToConstant: 76).isActive = true; image.heightAnchor.constraint(equalToConstant: 76).isActive = true
+            image.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(image)
+            NSLayoutConstraint.activate([
+                image.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+                image.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+                image.topAnchor.constraint(equalTo: box.topAnchor),
+                image.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            ])
             if let src = sticker?["src"] as? String { ImageStore.shared.load(src) { shot in ImageStore.put(shot, into: image) } }
-            let label = UILabel(); label.text = sticker?["label"] as? String ?? picked?.label ?? ""; label.font = .systemFont(ofSize: 14)
-            let remove = button("xmark", "첨부 취소", "native-attachment-cancel") { [weak self] in
-                self?.sticker = nil; self?.picked = nil; self?.retryRow = nil; self?.updateContext()
+            let label = UILabel(); label.font = .systemFont(ofSize: 14)
+            label.textColor = ChatSkin().on
+            label.text = sticker?["label"] as? String ?? picked?.label ?? "\(loadingWhat ?? "파일") 불러오는 중…"
+            row.addArrangedSubview(box); row.addArrangedSubview(label)
+
+            if let job = upload {
+                /* **올리는 동안 — 카톡의 그 화면이다**(사용자 요청 —
+                   `동영상 업로드할때 카톡처럼 저렇게 용량나오고 업로드되는
+                   화면이 있었으면좋겠어`). 그림 위에 어두운 막과 고리를
+                   얹고 가운데에 `✕`(그만두기)를, 옆에 `0.24 / 4.15MB`를
+                   적는다. **적는 것이 곧 `멈춘 게 아니다`라는 말이다.** */
+                let ring = MediaRing(); ring.translatesAutoresizingMaskIntoConstraints = false
+                ring.value = job.total > 0 ? CGFloat(job.sent) / CGFloat(job.total) : 0
+                box.addSubview(ring)
+                NSLayoutConstraint.activate([
+                    ring.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+                    ring.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+                    ring.topAnchor.constraint(equalTo: box.topAnchor),
+                    ring.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+                ])
+                let stop = button("xmark", "올리기 그만두기", "native-upload-cancel") { [weak self] in
+                    self?.stopSending()
+                }
+                /* 크기(44)는 `button()`이 이미 잡아 준다 — 여기서 또 주면
+                   같은 값이 두 벌이 되어 배치가 경고를 낸다. */
+                stop.tintColor = .white
+                stop.translatesAutoresizingMaskIntoConstraints = false
+                box.addSubview(stop)
+                NSLayoutConstraint.activate([
+                    stop.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+                    stop.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+                ])
+                label.text = "\(mbText(job.sent)) / \(mbText(job.total))MB"
+                label.accessibilityIdentifier = "native-upload-size"
+                uploadRing = ring; uploadLabel = label
+            } else if loadingWhat != nil {
+                /* 아직 읽어 오는 중이라 보여 줄 그림이 없다 — 도는 것만
+                   둔다. 이 자리가 비어 있으면 그것대로 고장으로 보인다. */
+                let spin = UIActivityIndicatorView(style: .medium)
+                spin.color = ChatSkin().on
+                spin.translatesAutoresizingMaskIntoConstraints = false
+                spin.startAnimating(); box.addSubview(spin)
+                NSLayoutConstraint.activate([
+                    spin.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+                    spin.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+                ])
             }
-            row.addArrangedSubview(image); row.addArrangedSubview(label); row.addArrangedSubview(remove); context.addArrangedSubview(row)
+            if upload == nil {
+                let remove = button("xmark", "첨부 취소", "native-attachment-cancel") { [weak self] in
+                    self?.sticker = nil; self?.picked = nil; self?.retryRow = nil
+                    self?.loadingWhat = nil; self?.updateContext()
+                }
+                /* 이 줄 뒤는 대화 바탕색(보라)이라 `.label`(먹색)로 두면
+                   안 보인다 — `context.backgroundColor`와 한 쌍이다. */
+                remove.tintColor = ChatSkin().on
+                row.addArrangedSubview(remove)
+            }
+            context.addArrangedSubview(row)
         }
         context.isHidden = context.arrangedSubviews.isEmpty
         composer.forceSend = sticker != nil || picked != nil
@@ -1233,5 +1394,55 @@ struct PickedMedia {
         gen.maximumSize = CGSize(width: 240, height: 240)
         let at = CMTime(seconds: 0.1, preferredTimescale: 600)
         return (try? gen.copyCGImage(at: at, actualTime: nil)).map { UIImage(cgImage: $0) }
+    }
+}
+
+/**
+ * 올리는 동안 그림 위에 얹히는 **어두운 막과 진행률 고리.**
+ *
+ * 카톡이 동영상을 올릴 때 그리는 그 자리다(사용자 요청 — `동영상
+ * 업로드할때 카톡처럼 저렇게 용량나오고 업로드되는 화면이 있었으면좋겠어`).
+ * 가운데의 `✕`(그만두기)는 **이 뷰가 아니라 형제로** 얹는다 — 여기에
+ * 넣으면 손짓을 받아야 해서 막과 고리가 눌림을 가로챈다.
+ *
+ * **`transform`·`strokeEnd`만 움직인다** — 그림자도 `filter`도 안 쓴다.
+ */
+final class MediaRing: UIView {
+    private let track = CAShapeLayer()
+    private let bar = CAShapeLayer()
+    /// 0~1. 값이 들어오면 그 자리에서 고리가 찬다.
+    var value: CGFloat = 0 {
+        didSet {
+            /* 암시 애니메이션을 끈다 — 초에 수십 번 오는 값이라 그때마다
+               0.25초짜리가 겹치면 고리가 뒤처져 보인다. */
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            bar.strokeEnd = max(0, min(1, value))
+            CATransaction.commit()
+        }
+    }
+    override init(frame: CGRect) { super.init(frame: frame); build() }
+    required init?(coder: NSCoder) { super.init(coder: coder); build() }
+    private func build() {
+        backgroundColor = UIColor(white: 0, alpha: 0.45)
+        isUserInteractionEnabled = false
+        layer.cornerRadius = 8; layer.masksToBounds = true
+        for shape in [track, bar] {
+            shape.fillColor = nil
+            shape.lineWidth = 2.5
+            shape.lineCap = .round
+            layer.addSublayer(shape)
+        }
+        track.strokeColor = UIColor(white: 1, alpha: 0.3).cgColor
+        bar.strokeColor = UIColor.white.cgColor
+        bar.strokeEnd = 0
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let radius = max(min(bounds.width, bounds.height) / 2 - 9, 1)
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        /* 12시에서 시작해 시계 방향으로 찬다(카톡과 같다). */
+        let path = UIBezierPath(arcCenter: center, radius: radius, startAngle: -.pi / 2,
+                                endAngle: .pi * 1.5, clockwise: true).cgPath
+        for shape in [track, bar] { shape.frame = bounds; shape.path = path }
     }
 }

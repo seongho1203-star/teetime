@@ -68,7 +68,8 @@ final class NativeChatService {
 
     func request(_ path: String, query: [(String, String)] = [], method: String = "GET",
                  body: Any? = nil, bytes: Data? = nil, contentType: String = "image/jpeg",
-                 timeout: TimeInterval = 25) async throws -> Any {
+                 timeout: TimeInterval = 25,
+                 progress: ((Int64, Int64) -> Void)? = nil) async throws -> Any {
         var parts = URLComponents(url: config.url.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.map { URLQueryItem(name: $0.0, value: $0.1) }
         // `+` is legal in a query, so URLComponents leaves it raw — but PostgREST decodes
@@ -89,7 +90,18 @@ final class NativeChatService {
                 req.httpBody = bytes
                 req.setValue("31536000", forHTTPHeaderField: "cache-control")
             } else if let body = body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
-            let (data, response) = try await session.data(for: req)
+            /* **얼마나 갔는지는 대리자로만 온다** — `data(for:)`에는 보낸
+               바이트를 알려 줄 자리가 아예 없다(`upload(for:from:delegate:)`는
+               iOS 15부터이고 우리 최저가 15.0이다). 진행률을 안 물어본
+               조회는 예전 길 그대로 간다 — 대리자를 붙이면 요청마다 객체가
+               하나씩 늘 뿐이다. */
+            let (data, response): (Data, URLResponse)
+            if let bytes = bytes, let progress = progress {
+                (data, response) = try await session.upload(for: req, from: bytes,
+                                                           delegate: UploadWatch(progress))
+            } else {
+                (data, response) = try await session.data(for: req)
+            }
             try Task.checkCancellation()
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 && attempt == 0 {
@@ -182,13 +194,38 @@ final class NativeChatService {
      * **DB에 칸을 새로 만들지 않은 것이 이 한 줄에 걸려 있으니** 끝을
      * 빼먹지 말 것.
      */
+    /// `progress`는 **얼마나 갔는가**(보낸 바이트, 전체 바이트)다 — 동영상은
+    /// 수십 MB라 그동안 화면에 아무 말이 없으면 멈춘 줄 안다(사용자 제보 —
+    /// `아무반응이없다가 갑자기 나타나서 순간 안되는건가?`). 주는 자리는
+    /// 메인 갈래다(`UploadWatch`).
     func upload(_ data: Data, room: String, ext: String = "jpg",
-                type: String = "image/jpeg") async throws -> String {
+                type: String = "image/jpeg",
+                progress: ((Int64, Int64) -> Void)? = nil) async throws -> String {
         let path = "\(room)/\(UUID().uuidString.lowercased()).\(ext)"
         /* 동영상은 수십 MB라 25초로는 모자란다 — 올리는 것만 넉넉히 준다. */
         _ = try await request("storage/v1/object/chat-photos/\(path)", method: "POST",
-                              bytes: data, contentType: type, timeout: 300)
+                              bytes: data, contentType: type, timeout: 300, progress: progress)
         return config.url.appendingPathComponent("storage/v1/object/public/chat-photos/\(path)").absoluteString
+    }
+}
+
+/**
+ * 올리는 동안 **보낸 바이트**를 알려 주는 작은 대리자.
+ *
+ * `URLSession.data(for:)`에는 그 값을 알려 줄 자리가 아예 없어서,
+ * 진행률이 필요한 요청에만 `upload(for:from:delegate:)`로 이걸 붙인다
+ * (iOS 15부터. 우리 최저가 15.0이다).
+ *
+ * **알려 주는 것은 메인 갈래에서 한다** — 받는 쪽이 화면을 고치는 코드라
+ * 거기서 갈래를 또 옮기게 하면 한쪽을 빠뜨린다.
+ */
+final class UploadWatch: NSObject, URLSessionTaskDelegate {
+    private let onSend: (Int64, Int64) -> Void
+    init(_ onSend: @escaping (Int64, Int64) -> Void) { self.onSend = onSend }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend totalBytesExpectedToSend: Int64) {
+        let send = onSend
+        DispatchQueue.main.async { send(totalBytesSent, totalBytesExpectedToSend) }
     }
 }
 

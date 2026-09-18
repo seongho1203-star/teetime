@@ -450,6 +450,34 @@ export function composerSkin(over: Record<string, unknown> = {}): Record<string,
     return { ...skinCache, ...over };
 }
 
+/**
+ * **대화방 바만 덮어쓰는 색.** 입력칸 뒤에 판을 깔지 않고 대화 바탕색
+ * 그대로 두는 자리다(사용자 요청 — `메시지입력하는 창 뒷배경을 카톡처럼
+ * 삭제해줘`). `Chat.css`의 `.chat-input`·`.chat-input .textarea`·
+ * `.chat-photo`와 **같은 값이라 한쪽만 고치지 말 것.**
+ *
+ * - `bg` 보라(`--chat-bg`) · `line` 그 위에 선이 없으므로 같은 색으로 덮는다
+ * - `field` 흰 알약(`--chat-bubble`) — `fg`는 그 위의 글자라 먹색 그대로다
+ * - `icon` `+`의 획만 흰색(44판). **옛 앱은 이 칸을 모르고 `fg`로 그린다.**
+ *
+ * **댓글 바는 이걸 안 받는다** — 거기는 밝은 화면 위에 서므로
+ * `composerSkin()`의 기본값이 맞는 답이다.
+ *
+ * 값은 `.chat` 안에 있는 토큰이라(`--chat-*`) 그 요소에서 읽는다 —
+ * `composerSkin()`처럼 뿌리에서 읽으면 빈손이 온다.
+ */
+export function chatBarSkin(): Record<string, string> {
+    const fallback = { bg: '#7369a0', line: '#7369a0', field: '#f5f5f5', icon: '#f2f2f2' };
+    try {
+        const el = document.querySelector('.chat');
+        if (!el) return fallback;
+        const cs = getComputedStyle(el);
+        const v = (k: string, or: string) => cs.getPropertyValue(k).trim() || or;
+        const bg = v('--chat-bg', fallback.bg);
+        return { bg, line: bg, field: v('--chat-bubble', fallback.field), icon: fallback.icon };
+    } catch { return fallback; }
+}
+
 /** 던지는 것을 삼킨다. **글칸 하나 때문에 화면이 죽으면 안 된다.** */
 export async function hush(p: Promise<unknown>): Promise<void> {
     try { await p; } catch { /* 없는 판에서는 그냥 지나간다 */ }

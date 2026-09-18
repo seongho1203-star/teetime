@@ -23,7 +23,7 @@ import { splitLinks } from '../lib/links';
 import { IS_NATIVE } from '../lib/native';
 import { slideLeft } from '../lib/tabs';
 import {
-    NativeComposer, canNativeShare, canPickNative, canSlide, composerReady, composerSkin, hush,
+    NativeComposer, canNativeShare, canPickNative, canSlide, chatBarSkin, composerReady, composerSkin, hush,
     kbMark, kbSnap, kbTick, kbWork, ncLog, pickNativePhoto, shareNativeText,
 } from '../lib/composer';
 import { HIDDEN_LINE, isNewDay, sameBlock, type ChatSpot } from '../lib/chatlist';
@@ -3347,6 +3347,15 @@ export function Chat() {
             await hush(NativeComposer.attach(composerSkin({
                 showIcon: STICKERS.length > 0,
                 hintText: '메시지',
+                /* **바 뒤에 판을 깔지 않는다 — 대화 바탕색 그대로다**
+                   (사용자 요청 — `메시지입력하는 창 뒷배경을 카톡처럼
+                   삭제해줘`). 웹 `.chat-input`과 **같은 값이라 한쪽만
+                   고치지 말 것**: 글칸은 흰 알약(`--chat-bubble`),
+                   위쪽 선은 없애고, `+`의 획만 흰색(`icon` — 44판)이다.
+                   `fg`는 그대로 먹색이어야 한다(흰 알약 위의 글자다).
+                   **댓글 바는 이 덮어쓰기를 안 받는다** — 거기는 밝은
+                   화면 위에 서므로 `composerSkin()`의 기본값 그대로다. */
+                ...chatBarSkin(),
                 /* **키보드가 오르내릴 때 목록 그림을 앱이 들고 움직이게 한다**
                    (14판 · `slideKb` 주석). 목록이 시작하는 자리(`listTop`)는
                    아래 효과가 재서 알려 준다 — 여기서는 켜기만 한다. */

@@ -295,10 +295,16 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
     ///        그것을 그대로 보여 줬다(`덮개 찍음0 놓침5`). 끌기가 이 대화방을
     ///        나가는 가장 흔한 길이라 사실상 늘 빈손이었던 셈이다.
     ///
+    ///   - **44판** `+`의 획 색을 따로 받는다(`icon` → `ComposerBar.cIcon`).
+    ///        입력칸 뒤가 보라가 되면서(사용자 요청) 글자색(`fg`)을 그대로
+    ///        쓰면 `+`가 안 보인다 — 글칸은 흰 알약이라 글자는 먹색이어야
+    ///        하므로 하나로 묶을 수가 없다. 옛 판은 그 칸을 모를 뿐이라
+    ///        예전처럼 `fg`로 그린다.
+    ///
     /// **기능을 더하면 반드시 올릴 것.** `hidden`을 6판에 슬쩍 더했다가,
     /// 그 값을 모르는 옛 6판 앱에도 웹이 `감춰라`를 보내 **바가 그냥 보였다.**
     /// 웹은 이 번호 하나로 앱이 무엇을 아는지 가린다.
-    private static let version = 43
+    private static let version = 44
 
     /// 초점을 준 뒤 **놓지 않고 붙들어 두는 시간**(`ComposerBar.holdFocus`).
     /// 웹뷰가 도로 가져가는 것은 손을 떼는 그 순간이라 이만큼이면 넉넉하다.
@@ -1288,6 +1294,10 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
         if let v = c("offBg") { bar.cOffBg = v }
         if let v = c("offFg") { bar.cOffFg = v }
         if let v = c("line") { bar.cLine = v }
+        /* `+`의 획만 따로 받는다(44판). 대화 바는 뒤가 보라라 글자색
+           (`fg`)을 그대로 쓰면 안 보인다 — `ComposerBar.cIcon` 주석 참고.
+           안 보내면 예전처럼 `fg`다(댓글 바가 그 자리다). */
+        if let v = c("icon") { bar.cIcon = v }
 
         /* **감춰 둘 수 있다**(6판). 댓글 칸은 화면이 뜰 때 바를 미리 세워
            감춰 두었다가, 누를 때 이 값만 뒤집는다 — 그때 만들면 바가 서기까지

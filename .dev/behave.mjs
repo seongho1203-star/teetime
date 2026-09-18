@@ -1990,6 +1990,42 @@ await page.waitForTimeout(300);
 ok(await page.$('.chat-over') === null,
    '하나도 없으면 칸째 안 그린다 — 빈 보라 띠가 남으면 안 된다');
 
+/* ── 입력칸 뒤에도 판이 없다 ───────────────────────────────────
+ *
+ * 사용자 요청 — `메시지입력하는 창 뒷배경을 카톡처럼 삭제해줘`.
+ * 예전에는 `.chat-input`이 밝은 칠(`--bg`)에 위쪽 선까지 있어 목록 아래에
+ * **판이 하나 더 깔린 것처럼** 보였다. 지금은 대화 바탕색 그대로이고,
+ * 그 위에 글칸 알약 하나만 떠 있다(카톡의 그 줄이다).
+ *
+ * **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 칠을 잰다** —
+ * 바탕이 대화 목록과 같은가 · 글칸이 말풍선과 같은 흰 알약인가 ·
+ * 위쪽 선이 안 보이는가 · `+`의 획이 그 위에서 읽히는 흰색인가.
+ */
+const barPaint = await page.evaluate(() => {
+    const inp = document.querySelector('.chat-input');
+    const chat = document.querySelector('.chat-list');
+    const field = document.querySelector('.chat-input .textarea');
+    const plus = document.querySelector('.chat-photo');
+    if (!inp || !chat || !field) return null;
+    const cs = getComputedStyle(inp);
+    return {
+        칠: cs.backgroundColor,
+        대화칠: getComputedStyle(chat).backgroundColor,
+        선: cs.borderTopColor,
+        글칸: getComputedStyle(field).backgroundColor,
+        말풍선: getComputedStyle(document.querySelector('.chat')).getPropertyValue('--chat-bubble').trim(),
+        더하기: plus ? getComputedStyle(plus).color : '',
+    };
+});
+ok(barPaint && barPaint.칠 === barPaint.대화칠,
+   `입력칸 뒤가 대화 바탕색이다 (실제 ${barPaint?.칠} · 대화 ${barPaint?.대화칠})`);
+ok(barPaint && /rgba\(0, 0, 0, 0\)|transparent/.test(barPaint.선),
+   `위쪽 선이 없다 — 판을 가르는 줄이 남으면 안 된다 (실제 ${barPaint?.선})`);
+ok(barPaint && barPaint.글칸 === 'rgb(245, 245, 245)' && barPaint.말풍선 === '#f5f5f5',
+   `글칸은 말풍선과 같은 흰 알약이다 (실제 ${barPaint?.글칸} · 토큰 ${barPaint?.말풍선})`);
+ok(barPaint && /rgba?\(255, 255, 255/.test(barPaint.더하기),
+   `\`+\`의 획은 보라 위에서 읽히는 흰색이다 (실제 ${barPaint?.더하기})`);
+
 /* **골라서 들어가는 글자는 이름표가 아니라 닉네임이다.** 발송기의
    `mentionedIds`가 글에서 `@<닉네임>`을 찾아 누구를 부른 것인지 가리므로,
    이름표가 들어가면 **부르긴 했는데 알림이 안 가는** 글이 된다. */

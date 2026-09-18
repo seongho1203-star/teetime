@@ -191,6 +191,14 @@ final class ComposerBar: UIView, UITextViewDelegate {
     var cOffBg: UIColor = UIColor(white: 0.90, alpha: 1)
     var cOffFg: UIColor = UIColor(white: 0.62, alpha: 1)
     var cLine: UIColor = UIColor(white: 0.88, alpha: 1)
+    /**
+     * `+`의 획 색. **`cText`와 갈라 둔 것은 바 뒤가 보라가 되었기 때문이다**
+     * (사용자 요청 — `메시지입력하는 창 뒷배경을 카톡처럼 삭제해줘`).
+     * 글칸은 흰 알약이라 글자는 그대로 먹색이어야 하는데, `+`는 **보라 위에
+     * 얹혀** 같은 색으로 두면 안 보인다 — 하나로 묶으면 둘 중 하나가 죽는다.
+     * `nil`이면 예전처럼 `cText`다(댓글 바가 그 자리다).
+     */
+    var cIcon: UIColor?
 
     let plusBtn = UIButton(type: .system)
     let iconBtn = UIButton(type: .system)
@@ -296,7 +304,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
         let small = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
 
         plusBtn.setImage(UIImage(systemName: "plus", withConfiguration: heavy), for: .normal)
-        plusBtn.tintColor = cText
+        plusBtn.tintColor = cIcon ?? cText
 
         iconBtn.setImage(UIImage(systemName: trayOn ? "keyboard" : "face.smiling",
                                  withConfiguration: light), for: .normal)
