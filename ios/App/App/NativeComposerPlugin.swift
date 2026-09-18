@@ -824,9 +824,11 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
            제보 — `최신대화로 와도 저 버튼이 안사라져`).
            **웹에서 `null`을 보내 무엇을 끄는 길로 가지 말 것** — 여기뿐
            아니라 앞으로 만들 칸에도 그대로 걸린다. */
+        /* **얹을지 걷을지만 넘긴다** — 단추가 동그라미가 되면서 얼굴·이름·
+           미리보기를 받을 일이 없어졌다(`JumpBar`). */
         if let j = call.getObject("jump") {
             let d = j.mapValues { v in v as Any }
-            list.apply(jump: (d["show"] as? Bool) == false ? nil : d)
+            list.apply(jump: (d["show"] as? Bool) != false)
         }
     }
 

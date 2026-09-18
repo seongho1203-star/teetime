@@ -5271,6 +5271,15 @@ TestFlight까지 올라갔는데 폰에서는 **고친 것이 하나도 없어 �
 - **네이티브 글칸 바(`ComposerBar.swift` · `lib/composer.ts`)는 그대로 둔다.**
   **댓글 칸(`components/Comments.tsx`)이 아직 그것을 쓰고**, 앱 화면이 없는
   옛 앱 판에서는 `Chat.tsx`가 그 바로 글칸 깜빡임을 피한다.
+  - **그 바 플러그인에는 잡종 시절의 목록 다리가 아직 남아 있다**
+    (`NativeComposerPlugin.swift`의 `listSet` 갈래 — `apply(skin:)`·
+    `apply(jump:)`·`chatListTap`…). **웹은 더는 부르지 않지만 컴파일은
+    된다.** 그래서 `ChatList`의 함수 모양을 고칠 때 `NativeChatViewController`
+    만 보면 **거기서 빌드가 깨진다** — `apply(jump:)`를 `Bool`로 바꾸고
+    실제로 그렇게 죽었다(1.133).
+    **Swift 쪽 모양을 고칠 때는 `ios/App/App/` 전체를 훑을 것**
+    (`grep -rn "고친이름" ios/App/App/`). 여기서는 컴파일러가 없어
+    **GitHub의 맥이 잡아 줄 때까지 모른다.**
 - **함께 걷어낸 것들** — `lib/chatlist.ts`의 다리 전체(묶는 규칙 셋만 남았다) ·
   `Chat.tsx`의 `listUp`·`listReady`·`cover`·`listData`·`fromList` ·
   `tabs.ts`의 `holdGhost`·`releaseGhost`·`layPaint`·`warmPaint` ·
