@@ -4190,6 +4190,16 @@ GitHub Pages가 그대로 내주므로 주소가 곧
   - **공유 스킴이 없으면 CI가 `scheme not found`로 통째로 멈춘다** —
     Xcode가 만드는 기본 스킴은 `xcuserdata/`에 들어가는데 그건 무시 목록에
     있다. Capacitor 템플릿이 안 넣어 주므로 우리가 넣었다.
+  - **Swift 파일을 새로 넣을 때는 `project.pbxproj`의 객체 id를 안 쓰던
+    것으로 줄 것.** 거기서는 **id가 곧 열쇠**라, 이미 쓰고 있는 것을 또
+    적으면 Xcode가 뒤엣것을 조용히 밀어낸다 —
+    `warning: Skipping duplicate build file in Compile Sources build phase`
+    한 줄만 남고 **그 파일이 컴파일 목록에서 통째로 빠진다.**
+    `NativeChatDrawer.swift`에 `NativeChatViewController.swift`의 id를
+    그대로 써서 빌드가 `cannot find 'ChatDrawer' in scope`로 죽었다(1.125).
+    우리가 손으로 넣는 것은 `CB2…`(파일)·`CB3…`(빌드) 꼬리번호를 하나씩
+    올려 쓰고, **넣은 뒤에 중복이 없는지 한 번 훑을 것**
+    (`grep -o 'CB[23]0*[0-9]*' | sort | uniq -d` 쯤이면 된다).
   - **앱 아이콘에 알파가 있으면 애플이 업로드를 거절한다.** `public/icon-512`을
     흰 바탕에 눌러 붙여 넣었다(첫 화면 그림도 같이). 아이콘을 바꾸면
     **여기까지 여섯 자리**가 된다(웹 넷 + 인라인 하나 + iOS).
