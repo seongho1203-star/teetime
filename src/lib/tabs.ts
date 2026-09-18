@@ -97,8 +97,13 @@ function taken(from: EventTarget | null): boolean {
  * `scroll`은 창을 굴린 자리이고, **`list`는 대화 목록(`.chat-list`)을 굴린
  * 자리다** — `cloneNode`는 굴린 자리를 안 가져오므로 따로 적어 둔다. 안 적으면
  * 대화방 그림이 늘 **맨 위 글**부터 보인다.
+ *
+ * **`stub`은 '이 자리는 앱이 그리는 대화방이다'라는 표다**(아래 `snap`).
+ * 그림 자체는 **그 앞 화면**(대개 홈)이라, 그걸 뒤에 깔고 끌면 **엉뚱한
+ * 화면이 손을 따라 나온다** — 그래서 `backIsChat()`이 이 표를 보고 끌기를
+ * 통째로 넘긴다.
  */
-type Shot = { path: string; node: HTMLElement; scroll: number; list: number };
+type Shot = { path: string; node: HTMLElement; scroll: number; list: number; stub?: true };
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
 
@@ -171,13 +176,34 @@ function snap(toPath: string) {
        끌어서 나올 때 실제로 그랬다.
        **그렇다고 안 담으면 안 된다** — `shots`는 히스토리 깊이와 짝이라
        (`popstate`가 하나씩 꺼낸다) 하나만 빠져도 그 뒤가 전부 어긋난다.
-       그래서 **바로 앞 그림을 한 번 더 담는다.** */
+       그래서 **바로 앞 그림을 한 번 더 담되 `stub` 표를 붙인다** — 그
+       그림은 대화방이 아니라 **그 앞 화면**(대개 홈)이라, 표가 없으면
+       라운드에서 끌어 뒤로 갈 때 **홈이 손을 따라 나왔다가 대화방으로
+       바뀐다**(사용자 제보 — `뒤로 가기를 하면 홈이 보였다가 채팅 화면으로
+       돌아와`). 표를 보고 `backIsChat()`이 끌기를 넘긴다. */
     const el = pageEl();
     const blank = hasNativeChat() && routeOf(location.href) === '/chat';
-    const shot = blank ? shots[shots.length - 1] : el ? takeShot(el) : undefined;
+    const prev = shots[shots.length - 1];
+    const shot: Shot | undefined = blank
+        ? (prev && { ...prev, stub: true as const })
+        : el ? takeShot(el) : undefined;
     if (!shot) return;
     shots.push(shot);
     while (shots.length > MAX_SHOTS) shots.shift();
+}
+
+/**
+ * **바로 뒤가 앱이 그리는 대화방인가**(위 `Shot.stub`).
+ *
+ * 그 자리에는 **대화방 그림이 없다** — 웹 쪽에 남는 것이 자리를 지키는
+ * 스피너 한 장뿐이라 `snap()`이 그 앞 화면을 대신 담아 둔다. 그래서 뒤로
+ * 가는 그림을 웹이 그리면 **엉뚱한 화면이 나온다**: 끌면 홈이 손을 따라
+ * 나오고, 놓으면 그 홈이 그대로 남아 있다가 대화방으로 바뀐다.
+ * 그때의 전환은 **앱이 맡는다**(`nativeChatPop` → `NativeChatPlugin.open`의
+ * `pop`) — 웹은 끌지 않고 곧바로 뒤로 간다.
+ */
+export function backIsChat(): boolean {
+    return shots[shots.length - 1]?.stub === true;
 }
 
 /** 지금 화면을 **떠나는 것**으로 찍어 둔다(위 `exiting`). */
@@ -316,6 +342,9 @@ const PLAIN_TAKE = 60;
  *     우리가 `transform`으로 화면을 밀어도 **따라오지 않는다** — 위쪽 절반만
  *     손을 따라가고 입력칸은 제자리에 남아 **찢어져 보인다.**
  *     (웹의 `z-index`로 앱 부품을 못 덮는 그 자리와 같은 까닭이다.)
+ *  3. **뒤에 깔 것이 앱이 그리는 대화방일 때**(`backIsChat()`). 거기에는
+ *     깔 그림이 아예 없어 그 앞 화면(대개 홈)이 대신 담겨 있으므로,
+ *     끌면 **홈이 손을 따라 나온다.** 그 전환은 앱이 맡는다.
  *
  * **손짓이 시작될 때마다 본다.** `nc`는 대화가 열리고 바가 선 **뒤에**
  * 붙으므로, 효과가 걸리는 순간에 잡아 두면 늘 거짓이다
@@ -323,7 +352,8 @@ const PLAIN_TAKE = 60;
  */
 function plainBack(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        || document.documentElement.classList.contains('nc');
+        || document.documentElement.classList.contains('nc')
+        || backIsChat();
 }
 
 /* ── 앱이 끌 때 웹이 하는 일 ────────────────────────────────
