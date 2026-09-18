@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { hasNativeChat } from './native-chat';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -217,11 +218,15 @@ function blockScroll(e: TouchEvent) { if (e.cancelable) e.preventDefault(); }
  * @param force 지금 막 깐 것까지 걷는다(손짓이 끝난 것이 확실할 때만).
  */
 function sweepGhosts(force = false): void {
+    /* **깔아 둔 채로 두는 그림은 훑기로 안 걷는다**(아래 `nativeChatEnter`) —
+       앱이 대화 화면을 그리는 동안 웹뷰에 남아 있어야 하는 그림이다. */
+    if (!force && heldGhost) return;
     if (!force && ghostAt && Date.now() - ghostAt < GHOST_MAX) return;
     const root = document.documentElement;
     const left = document.querySelectorAll(GHOSTS);
     if (!left.length && !MOVING.some(c => root.classList.contains(c))) return;
     for (const g of left) g.remove();
+    heldGhost = null;
     root.classList.remove(...MOVING);
     /* 걷었으면 아직 안 돈 `nextFrames`도 없던 일로 한다(위 `moveSeq`). */
     moveSeq++;
@@ -331,6 +336,69 @@ function plainBack(): boolean {
 
 /** 앱이 끄는 동안 감춰 둔 지금 화면. */
 let backPage: HTMLElement | null = null;
+/** **대화방이 열려 있는 동안 웹뷰에 깔아 두는 앞 화면 그림**(아래 참고). */
+let heldGhost: HTMLDivElement | null = null;
+
+/**
+ * 앱이 대화 화면을 통째로 그리는 동안 **웹뷰에는 앞 화면 그림을 깔아 둔다.**
+ *
+ * 웹 쪽에 남는 것은 **자리를 지키는 스피너 한 장**뿐이라(`NativeChat.tsx`),
+ * 그대로 두면 두 자리가 함께 어긋났다:
+ *  1. **들어올 때** 그 빈 화면이 오른쪽에서 밀려 들어왔다(사용자 제보 —
+ *     `채팅들어갈때 흰색뒷배경이 나오고 채팅창이 왼쪽으로 들어옴`).
+ *  2. **끌어서 뒤로 갈 때** 앱이 웹뷰를 1/4만큼 내보내도 거기 드러날 것이
+ *     없었다(`끌기할때 뒷배경 안보임`).
+ *
+ * 그래서 들어올 때 한 번 깔고 **나갈 때까지 그대로 둔다** — 끌기가 시작되면
+ * 그 그림이 이미 제자리에 있다(`nativeBackStart`).
+ *
+ * 들어오는 동안에는 그 그림이 **왼쪽으로 1/4만큼 밀리며 어두워진다**
+ * (아이폰의 그 전환이다 — 미는 것은 앱이 하는 대화 화면 쪽이다).
+ * 다 들어온 뒤에는 **제자리로 되돌려 둔다**(`restHeld`) — 끌 때 앞 화면을
+ * 내보내는 것은 **앱이 웹뷰를 옮기는 것**이라, 여기까지 밀려 있으면 두 번
+ * 어긋난다.
+ *
+ * @param ms 대화 화면이 밀려 들어오는 데 쓸 시간(`slideLeft()`). 앱에도
+ *           **같은 값**을 넘길 것 — 한쪽만 고치면 두 단계로 보인다.
+ */
+export function nativeChatEnter(ms: number): void {
+    sweepGhosts(true);
+    const shot = shots[shots.length - 1];
+    if (!shot) return;              // 뒤에 깔 것이 없으면 아무것도 안 한다
+    const { g, dim } = layGhost(shot);
+    heldGhost = g;
+    if (ms <= 40) { restHeld(); return; }
+    const W = window.innerWidth || 1;
+    const ease = `transform ${ms}ms cubic-bezier(.32, .72, 0, 1), opacity ${ms}ms linear`;
+    g.style.transform = 'translate3d(0,0,0)';
+    dim.style.opacity = '0';
+    nextFrames(() => {
+        if (heldGhost !== g) return;
+        g.style.transition = ease;
+        dim.style.transition = ease;
+        g.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
+        dim.style.opacity = String(DIM);
+    });
+    /* **넉넉히 기다렸다 되돌린다** — 앱 쪽 움직임은 다리를 한 번 건너가느라
+       늦게 시작하므로, 딱 맞춰 되돌리면 그 사이가 눈에 띈다. */
+    window.setTimeout(() => { if (heldGhost === g) restHeld(); }, ms + 320);
+}
+
+/** 깔아 둔 그림을 **끌 준비가 된 자리**(제자리 · 막 없음)로 되돌린다. */
+function restHeld(): void {
+    const g = heldGhost;
+    if (!g) return;
+    g.style.transition = '';
+    g.style.transform = 'translate3d(0,0,0)';
+    const dim = g.querySelector<HTMLElement>('.back-ghost-dim');
+    if (dim) { dim.style.transition = ''; dim.style.opacity = '0'; }
+}
+
+/** 대화방을 떠난다 — 깔아 둔 그림을 걷는다. */
+export function nativeChatLeave(): void {
+    heldGhost = null;
+    sweepGhosts(true);
+}
 
 /**
  * **뒤에 깔 앞 화면 그림이 있는가.** 없으면 앱이 끌지 않고 곧바로 넘어간다 —
@@ -343,10 +411,15 @@ export function hasBackShot(): boolean {
 /** 앱이 끌기 시작했다 — 앞 화면을 깔고 지금 화면은 감춘다(앱이 찍어 둔
  *  그림이 그 자리를 대신한다). */
 export function nativeBackStart(): boolean {
-    const shot = shots[shots.length - 1];
-    if (!shot) return false;
-    sweepGhosts(true);
-    layGhost(shot);
+    /* **들어올 때 깔아 둔 그림이 이미 있다**(`nativeChatEnter`). 그것을
+       제자리로 되돌려 쓰면 되고, 없을 때만 새로 깐다. */
+    if (heldGhost) restHeld();
+    else {
+        const shot = shots[shots.length - 1];
+        if (!shot) return false;
+        sweepGhosts(true);
+        layGhost(shot);
+    }
     backPage = pageEl();
     if (backPage) backPage.style.visibility = 'hidden';
     return true;
@@ -363,10 +436,13 @@ export function nativeBackStart(): boolean {
 export function nativeBackEnd(go: boolean, nav: () => void): void {
     if (!go) {
         showBackPage();
-        sweepGhosts(true);
+        /* 제자리로 되돌아온 것이라 **깔아 둔 그림은 그대로 둔다** — 다음
+           손짓에 또 필요하다(`nativeChatEnter`). */
+        if (!heldGhost) sweepGhosts(true);
         return;
     }
     skipSlide = true;
+    heldGhost = null;
     nav();
     const done = () => { showBackPage(); sweepGhosts(true); };
     requestAnimationFrame(() => requestAnimationFrame(done));
@@ -723,6 +799,18 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
         if (skipSlide) { skipSlide = false; return; }
         // **탭 사이는 안 움직인다.**
         if (wasTab && isTab) return;
+        /* **앱이 대화 화면을 그리는 판에서는 웹이 아무것도 안 민다.**
+           여기 남아 있는 것은 자리를 지키는 스피너 한 장뿐이라, 밀어 봐야
+           **빈 화면이 통째로 지나간다**(사용자 제보 — `채팅들어갈때
+           흰색뒷배경이 나오고 채팅창이 왼쪽으로 들어옴`).
+           들어올 때 앞 화면 그림을 까는 일은 `nativeChatEnter`가 맡고,
+           밀려 들어오는 것은 앱 화면 쪽이다.
+           **카드를 눌러 나가는 길(PUSH)은 그대로 둔다** — 그때 들어오는
+           것은 진짜 웹 화면이다. */
+        if (hasNativeChat()) {
+            if (pathname === '/chat') { slideMark.at = Date.now(); return; }
+            if (from === '/chat' && how === 'POP') return;
+        }
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
         const cls = how === 'POP' ? 'slide-back'   // 뒤로 — 왼쪽에서 들어온다

@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
-import { hasBackShot, nativeBackStart, nativeBackEnd, slideLeft } from '../lib/tabs';
+import { hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
 import { lastSeen, markSeen } from '../lib/unread';
 import { Chat } from './Chat';
@@ -27,6 +27,14 @@ function NativeChatHost() {
         const screen = crypto.randomUUID();
         let dead = false;
         let remove: (() => Promise<void>) | undefined;
+        /* **앞 화면 그림을 깔고 들어간다**(`nativeChatEnter`) — 웹 쪽에
+           남는 것은 자리를 지키는 스피너 한 장뿐이라, 안 깔면 들어올 때
+           빈 화면이 밀려 들어오고 끌어서 뒤로 갈 때 뒤에 아무것도 없다.
+           **효과가 도는 그 자리에서 곧바로 깐다** — 다리를 한 번 건넜다
+           오면 그 사이에 빈 화면이 한 번 지나간다.
+           **같은 `ms`를 앱에도 넘긴다** — 둘이 갈리면 두 단계로 보인다. */
+        const ms = slideLeft();
+        nativeChatEnter(ms);
         /* **뒤로 갈 데가 없으면 홈으로 간다** — 알림을 눌러 `#/chat`으로
            곧바로 들어오는 길이 있어 그때는 히스토리에 앞 화면이 없다
            (웹 `Chat.tsx`의 `goBack`과 같은 잣대다). */
@@ -65,16 +73,23 @@ function NativeChatHost() {
                 back: hasBackShot(),
                 /* 들어올 때 오른쪽에서 미끄러져 들어올 **남은 시간**
                    (웹의 `SCREEN_MS`에서 이미 지난 만큼을 뺀 값이다). */
-                slide: slideLeft(),
+                slide: ms,
                 /* 반응 그림글자는 **웹이 정한다**(`REACTIONS` — 카톡과 같은
                    다섯). 앱에 또 적으면 한쪽만 고치게 된다. */
                 reactions: REACTIONS,
                 stickers: STICKER_GROUPS.map(g => ({ ...g, stickers: g.stickers.map(s => ({ ...s,
                     src: new URL(stickerSrc(`sticker:${s.id}`), window.location.href).href })) })),
             });
-        })().catch(e => { if (!dead) setError(e instanceof Error ? e.message : '채팅을 열지 못했습니다.'); });
+        })().catch(e => {
+            if (dead) return;
+            /* **못 열었으면 깔아 둔 그림을 걷는다** — 안 걷으면 그 그림이
+               아래 오류 안내를 통째로 덮어 아무 말도 안 보인다. */
+            nativeChatLeave();
+            setError(e instanceof Error ? e.message : '채팅을 열지 못했습니다.');
+        });
         return () => {
-            dead = true; void remove?.(); void closeNativeChat(screen).catch(() => {});
+            dead = true; nativeChatLeave();
+            void remove?.(); void closeNativeChat(screen).catch(() => {});
         };
     }, [user, navigate, attempt]);
     useEffect(() => {

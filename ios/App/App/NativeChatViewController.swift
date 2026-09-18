@@ -11,7 +11,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private let list = ChatList()
     private let composer = ComposerBar()
     private let header = UIStackView()
-    private let titleButton = UIButton(type: .system)
+    /// 창을 붙일 자리(공유·사진 첨부의 팝오버). **제목은 없앴으므로**
+    /// ☰이 그 몫이다 — 아래 `viewDidLoad`의 `전체 대화` 꼭지를 볼 것.
+    private var menuBtn = UIButton(type: .system)
     /// 길게 누른 창 — **누른 말풍선 옆에 뜬다**(웹의 `.chat-menu`와 같은 값).
     private let hold = HoldMenu()
     /// 서랍(☰)과 전체화면 프로필. **따로 띄우는 화면이 아니라 여기 얹는다** —
@@ -24,8 +26,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /// 그 손짓의 문지기 — **오른쪽으로 그은 것만** 받는다.
     private let backGuard = BackGuard()
     private var backLive = false
+    /// 화살표로 나갈 때 오른쪽으로 빠져나가는 데 걸리는 시간(초).
+    /// **플러그인이 이만큼 기다렸다 화면을 걷는다**(`goBack` 주석).
+    static let exitMS = 0.28
+    /// 지금 빠져나가는 중인가 — 플러그인이 본다.
+    private(set) var leaving = false
     private let context = UIStackView()
-    private let mentions = UIStackView()
+    /// `@`를 치면 입력칸 위에 뜨는 흰 카드(`MentionList`).
+    private let mentions = MentionList()
+    /// 이모티콘 서랍 — **입력칸 아래, 키보드가 서던 자리다**(카톡과 같다).
+    private let tray = StickerTray()
+    private var trayH: NSLayoutConstraint!
+    private var trayBottom: NSLayoutConstraint!
     private let status = UIButton(type: .system)
     private var composerBottom: NSLayoutConstraint!
     private var room = ""
@@ -84,23 +96,35 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         header.axis = .horizontal; header.alignment = .center; header.spacing = 8
         let home = button("chevron.left", "뒤로", "native-chat-back") { [weak self] in self?.goBack(drag: false) }
         home.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        titleButton.contentHorizontalAlignment = .left
-        titleButton.titleLabel?.lineBreakMode = .byTruncatingTail
-        setTitle("전체 대화", n: nil)
-        titleButton.addAction(UIAction { [weak self] _ in self?.showMenu() }, for: .touchUpInside)
-        header.addArrangedSubview(home); header.addArrangedSubview(titleButton)
+        /* **머리말에 `전체 대화`를 안 적는다**(사용자 요청 — `채팅 좌측상단
+           전체대화 삭제해줘`). 방이 하나뿐이라 제목이 늘 같은 글자였고,
+           사람 수는 서랍의 `참여자 N명`이 이미 맡는다. 되살리지 말 것 —
+           빈자리는 `spacer`가 채워 누르는 것 둘을 오른쪽에 모아 둔다. */
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        menuBtn = button("line.3.horizontal", "대화 메뉴", "native-chat-menu") { [weak self] in self?.showMenu() }
+        header.addArrangedSubview(home); header.addArrangedSubview(spacer)
         header.addArrangedSubview(button("magnifyingglass", "대화 검색", "native-chat-search") { [weak self] in self?.showSearch() })
-        header.addArrangedSubview(button("line.3.horizontal", "대화 메뉴", "native-chat-menu") { [weak self] in self?.showMenu() })
+        header.addArrangedSubview(menuBtn)
         context.axis = .vertical; context.spacing = 4; context.isHidden = true
-        mentions.axis = .vertical; mentions.isHidden = true
+        mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
+        tray.onPick = { [weak self] item in self?.stickerPicked(item) }
         let input = UIStackView(arrangedSubviews: [mentions, context, composer]); input.axis = .vertical
-        for child in [header, list, input, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
+        for child in [header, list, input, tray, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
         let safe = view.safeAreaLayoutGuide
         composerBottom = input.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        /* 서랍은 **입력칸 아래**에 서고 화면 끝까지(홈 인디케이터 자리까지)
+           닿는다. 닫혀 있으면 높이가 0이라 아무 자리도 안 먹는다. */
+        trayH = tray.heightAnchor.constraint(equalToConstant: 0)
+        trayBottom = tray.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        trayBottom.isActive = false
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: safe.topAnchor), header.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 8),
             header.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -8), header.heightAnchor.constraint(equalToConstant: 52),
             input.leadingAnchor.constraint(equalTo: safe.leadingAnchor), input.trailingAnchor.constraint(equalTo: safe.trailingAnchor), composerBottom,
+            tray.topAnchor.constraint(equalTo: input.bottomAnchor), trayH,
+            tray.leadingAnchor.constraint(equalTo: view.leadingAnchor), tray.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             list.topAnchor.constraint(equalTo: header.bottomAnchor), list.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
             list.trailingAnchor.constraint(equalTo: safe.trailingAnchor), list.bottomAnchor.constraint(equalTo: input.topAnchor),
             status.centerXAnchor.constraint(equalTo: list.centerXAnchor), status.centerYAnchor.constraint(equalTo: list.centerYAnchor),
@@ -144,14 +168,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
 
     func resume() {
-        loadViewIfNeeded(); visible = true; navigating = false
+        loadViewIfNeeded(); visible = true; navigating = false; leaving = false
         if loaded {
             _ = list.beginSession("native:\(me):\(room)"); view.layoutIfNeeded(); list.restoreSession()
             render(); realtime?.start(); sync()
         } else { startLoad() }
     }
     func pause() {
-        visible = false; list.pauseSession(); view.endEditing(true)
+        visible = false; list.pauseSession(); view.endEditing(true); setTray(false)
         /* 덮는 창은 화면을 떠날 때 함께 걷는다 — 남으면 다시 들어왔을 때
            엉뚱한 창이 떠 있는 꼴이 된다(토스트도 같다). */
         hold.hide(); drawer.hide(); profile.hide(); ToastHUD.clear()
@@ -167,22 +191,38 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         b.heightAnchor.constraint(equalToConstant: 44).isActive = true
         b.addAction(UIAction { _ in action() }, for: .touchUpInside); return b
     }
+    // MARK: 이모티콘 서랍
+
     /**
-     * 머리말 제목 — **`전체 대화` 옆에 사람 수를 흐리게 붙인다**(웹의
-     * `.chat-title-n`). ☰ 위에 얹지 않고 여기 한 군데에만 적는다.
+     * **키보드와 자리를 맞바꾼다**(웹의 `toggleTray`와 같은 규칙).
+     * 열 때 키보드를 내리고, 글칸에 초점이 가면 서랍을 닫는다
+     * (`composerFocus`) — 둘이 함께 서면 대화가 한 줄도 안 남는다.
+     *
+     * **목록은 맨 아래에 붙여 둔다.** 서랍만큼 목록이 줄어들어 방금 읽던
+     * 글이 위로 밀려나기 때문이다(웹에서 겪은 그 자리다).
      */
-    private func setTitle(_ text: String, n: Int?) {
-        let s = NSMutableAttributedString(string: text, attributes: [
-            .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
-            .foregroundColor: UIColor.label,
-        ])
-        if let n = n {
-            s.append(NSAttributedString(string: "  \(n)", attributes: [
-                .font: UIFont.systemFont(ofSize: 13),
-                .foregroundColor: UIColor.secondaryLabel,
-            ]))
+    private func setTray(_ on: Bool) {
+        guard tray.isHidden == on else { return }
+        if on {
+            tray.load(service.config.stickers)
+            view.endEditing(true)
+            trayH.constant = StickerTray.height(for: view.bounds.height, safe: view.safeAreaInsets.bottom)
+            composerBottom.isActive = false
+            trayBottom.isActive = true
+        } else {
+            trayBottom.isActive = false
+            composerBottom.isActive = true
+            trayH.constant = 0
         }
-        titleButton.setAttributedTitle(s, for: .normal)
+        tray.isHidden = !on
+        if on { tray.mark(sticker?["id"] as? String ?? "") }
+        composer.setTray(on)
+        view.layoutIfNeeded()
+        if bottom { list.scrollToBottom(animated: false) }
+    }
+
+    private func stickerPicked(_ item: ChatJSON) {
+        sticker = item; pickedPhoto = nil; retryRow = nil; updateContext()
     }
 
     /**
@@ -217,7 +257,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      */
     private func goBack(drag: Bool) {
         guard !navigating else { return }; navigating = true
-        list.pauseSession(); view.endEditing(true)
+        list.pauseSession(); view.endEditing(true); setTray(false)
+        /* **화살표로 나갈 때도 오른쪽으로 빠져나간다** — 끌어서 나가는
+           길에는 이미 앱이 그림을 내보내고 있지만(`BackDrag`), 눌러서
+           나가는 길에는 아무것도 없어 화면이 그 자리에서 툭 사라졌다.
+           **플러그인이 이만큼 기다렸다 걷는다**(`leaving`) — 먼저 걷으면
+           움직임이 한가운데서 잘린다. */
+        if !drag {
+            leaving = true
+            UIView.animate(withDuration: Self.exitMS, delay: 0,
+                           options: [.curveEaseOut, .beginFromCurrentState]) {
+                self.view.transform = CGAffineTransform(translationX: self.view.bounds.width, y: 0)
+            }
+        }
         event?("back", ["phase": drag ? "commit" : "plain"])
     }
 
@@ -235,7 +287,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 async let r = self.service.room(); async let p = self.service.people()
                 let (room, people) = try await (r, p); try Task.checkCancellation()
                 self.room = room["id"] as? String ?? ""; self.people = people
-                self.setTitle(room["name"] as? String ?? "전체 대화", n: self.members.count)
                 let latest = try await self.service.messages(self.room, limit: 100)
                 try Task.checkCancellation()
                 self.messages = latest.reversed(); self.hasMore = latest.count == 100
@@ -440,44 +491,46 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         if let row = retryRow, row["body"] as? String != text.trimmingCharacters(in: .whitespacesAndNewlines) { retryRow = nil }
         let ns = text as NSString; let before = ns.substring(to: min(sel, ns.length)) as NSString
         let range = before.range(of: "@", options: .backwards)
-        mentions.arrangedSubviews.forEach { $0.removeFromSuperview() }; mentions.isHidden = true; mentionRange = nil
+        mentions.clear(); mentionRange = nil
         guard range.location != NSNotFound else { return }
         let query = before.substring(from: range.location + 1)
         guard !query.contains(" "), !query.contains("\n"), query.count <= 12 else { return }
         mentionRange = NSRange(location: range.location, length: before.length - range.location)
         var names = members.compactMap { $0["name"] as? String }.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+        /* `@전체`는 **운영진만** 쓴다 — 대화 알림을 꺼 둔 기기까지 다
+           울리므로 아무나 쓰면 그 스위치가 있으나 마나가 된다. */
         if isAdmin && (query.isEmpty || "전체".contains(query)) { names.insert("전체", at: 0) }
-        for name in names.prefix(3) {
-            let b = UIButton(type: .system); b.setTitle("@\(name)", for: .normal); b.heightAnchor.constraint(equalToConstant: 36).isActive = true
-            b.addAction(UIAction { [weak self] _ in
-                guard let self = self, let r = self.mentionRange else { return }
-                let replacement = "@\(name) "
-                self.composer.text = (self.composer.text as NSString).replacingCharacters(in: r, with: replacement)
-                self.composer.caret = r.location + (replacement as NSString).length
-                self.mentions.isHidden = true; self.composer.textView.becomeFirstResponder()
-            }, for: .touchUpInside); mentions.addArrangedSubview(b)
-        }
-        mentions.isHidden = mentions.arrangedSubviews.isEmpty
+        mentions.show(names)
+    }
+    /// 목록에서 골랐다 — 친 `@…`를 이름으로 갈아 끼우고 커서를 뒤에 둔다.
+    private func mentionPicked(_ name: String) {
+        guard let r = mentionRange else { return }
+        let replacement = "@\(name) "
+        composer.text = (composer.text as NSString).replacingCharacters(in: r, with: replacement)
+        composer.caret = r.location + (replacement as NSString).length
+        mentions.clear(); mentionRange = nil
+        composer.textView.becomeFirstResponder()
     }
     func composerTapped(_ name: String) {
         guard !busy else { return }
-        view.endEditing(true)
         if name == "sticker" {
-            let picker = NativeStickerPicker(service.config.stickers)
-            picker.selected = { [weak self] item in
-                self?.sticker = item; self?.pickedPhoto = nil; self?.retryRow = nil; self?.updateContext()
-            }; showPanel(picker)
-        } else {
-            let menu = UIAlertController(title: "사진 첨부", message: nil, preferredStyle: .actionSheet)
-            menu.addAction(UIAlertAction(title: "사진 보관함", style: .default) { [weak self] _ in self?.pickPhoto() })
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                menu.addAction(UIAlertAction(title: "사진 찍기", style: .default) { [weak self] _ in
-                    guard let self = self else { return }
-                    let camera = UIImagePickerController(); camera.sourceType = .camera; camera.delegate = self; self.present(camera, animated: true)
-                })
-            }
-            menu.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(menu)
+            /* 열려 있으면 닫고 키보드를 도로 올린다 — 단추 그림이
+               자판으로 바뀌어 있으므로 그 뜻대로 움직여야 한다. */
+            if !tray.isHidden { setTray(false); composer.textView.becomeFirstResponder() }
+            else { setTray(true) }
+            return
         }
+        view.endEditing(true)
+        setTray(false)
+        let menu = UIAlertController(title: "사진 첨부", message: nil, preferredStyle: .actionSheet)
+        menu.addAction(UIAlertAction(title: "사진 보관함", style: .default) { [weak self] _ in self?.pickPhoto() })
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            menu.addAction(UIAlertAction(title: "사진 찍기", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                let camera = UIImagePickerController(); camera.sourceType = .camera; camera.delegate = self; self.present(camera, animated: true)
+            })
+        }
+        menu.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(menu)
     }
     private func pickPhoto() {
         var config = PHPickerConfiguration(); config.filter = .images; config.selectionLimit = 1
@@ -519,8 +572,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
         context.isHidden = context.arrangedSubviews.isEmpty
         composer.forceSend = sticker != nil || pickedPhoto != nil
+        tray.mark(sticker?["id"] as? String ?? "")
     }
-    func composerFocus(_ on: Bool) {}
+    /// 글칸에 초점이 가면 서랍을 닫는다 — 키보드와 자리를 맞바꾸는 그 규칙이다.
+    func composerFocus(_ on: Bool) { if on { setTray(false) } }
     func composerResized(_ height: Double, y: Double, fr: Bool, kb: Bool) {}
     func composerKeyboard(on: Bool, dur: Double, at: Double, chatH: Double, pad: Double, s: Double, slide: Bool) {
         UIView.animate(withDuration: dur, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) { self.view.layoutIfNeeded() }
@@ -667,11 +722,13 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         var items: [Any] = [m.preview]
         if let image = m.image, !image.hasPrefix("sticker:"), let url = URL(string: image) { items.append(url) }
         let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        sheet.popoverPresentationController?.sourceView = titleButton; present(sheet, animated: true)
+        sheet.popoverPresentationController?.sourceView = menuBtn
+        sheet.popoverPresentationController?.sourceRect = menuBtn.bounds
+        present(sheet, animated: true)
     }
     private func presentMenu(_ menu: UIAlertController) {
-        menu.popoverPresentationController?.sourceView = titleButton
-        menu.popoverPresentationController?.sourceRect = titleButton.bounds
+        menu.popoverPresentationController?.sourceView = menuBtn
+        menu.popoverPresentationController?.sourceRect = menuBtn.bounds
         present(menu, animated: true)
     }
     /// 사진은 **머리말 없이 통째로** 띄운다 — 검은 바탕에 `✕`와 알약 둘뿐이다.

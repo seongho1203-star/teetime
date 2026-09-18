@@ -204,65 +204,22 @@ final class NativeStickerCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
     override func layoutSubviews() {
         super.layoutSubviews()
-        picture.frame = CGRect(x: 4, y: 0, width: bounds.width - 8, height: bounds.height - 22)
+        let foot: CGFloat = name.isHidden ? 0 : 22
+        picture.frame = CGRect(x: 4, y: 3, width: bounds.width - 8, height: bounds.height - foot - 6)
         name.frame = CGRect(x: 0, y: bounds.height - 22, width: bounds.width, height: 20)
     }
-    func show(_ item: ChatJSON) {
+    /// `compact`면 이름을 안 적는다 — 서랍은 다섯 칸 격자라 한 칸이
+    /// 64px 언저리이고, 거기서 이름까지 적으면 그림이 손톱만 해진다
+    /// (웹의 `.sticker-btn`도 그림 하나뿐이다).
+    func show(_ item: ChatJSON, compact: Bool = false) {
         url = item["src"] as? String ?? ""; let expected = url
-        name.text = item["label"] as? String; accessibilityLabel = name.text
+        name.text = compact ? nil : item["label"] as? String
+        name.isHidden = compact
+        accessibilityLabel = item["label"] as? String
         ImageStore.put(nil, into: picture)
         ImageStore.shared.load(url) { [weak self] shot in
             guard let self = self, self.url == expected else { return }; ImageStore.put(shot, into: self.picture)
         }
     }
     override func prepareForReuse() { super.prepareForReuse(); url = ""; ImageStore.put(nil, into: picture) }
-}
-
-final class NativeStickerPicker: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-    private let groups: [ChatJSON]
-    private var group = 0
-    private let collection = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
-    private let tabs = UIScrollView()
-    var selected: ((ChatJSON) -> Void)?
-    init(_ groups: [ChatJSON]) { self.groups = groups; super.init(nibName: nil, bundle: nil); title = "이모티콘" }
-    required init?(coder: NSCoder) { fatalError() }
-    private var items: [ChatJSON] { groups.indices.contains(group) ? groups[group]["stickers"] as? [ChatJSON] ?? [] : [] }
-    override func viewDidLoad() {
-        super.viewDidLoad(); view.backgroundColor = .systemBackground
-        collection.dataSource = self; collection.delegate = self
-        collection.register(NativeStickerCell.self, forCellWithReuseIdentifier: "sticker")
-        collection.backgroundColor = .systemBackground
-        tabs.showsHorizontalScrollIndicator = false
-        view.addSubview(tabs); view.addSubview(collection)
-        for (i, g) in groups.enumerated() {
-            let button = UIButton(type: .system)
-            button.setTitle("\(g["tab"] as? String ?? "") \(g["name"] as? String ?? "")", for: .normal)
-            button.frame = CGRect(x: i * 115, y: 0, width: 115, height: 48)
-            button.addAction(UIAction { [weak self] _ in
-                self?.group = i; self?.collection.setContentOffset(.zero, animated: false); self?.collection.reloadData()
-            }, for: .touchUpInside)
-            tabs.addSubview(button)
-        }
-        tabs.contentSize = CGSize(width: groups.count * 115, height: 48)
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "닫기", style: .done, target: self, action: #selector(close))
-    }
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        let top = view.safeAreaInsets.top
-        tabs.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: 48)
-        collection.frame = CGRect(x: 8, y: top + 48, width: view.bounds.width - 16, height: view.bounds.height - top - 48)
-    }
-    @objc private func close() { dismiss(animated: true) }
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "sticker", for: indexPath) as! NativeStickerCell
-        cell.show(items[indexPath.item]); return cell
-    }
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let item = items[indexPath.item]; dismiss(animated: true) { self.selected?(item) }
-    }
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = floor((collectionView.bounds.width - 24) / 3)
-        return CGSize(width: width, height: width + 20)
-    }
 }

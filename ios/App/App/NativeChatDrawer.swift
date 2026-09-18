@@ -581,3 +581,270 @@ final class ChatProfile: UIView {
         mention.frame = CGRect(x: pad, y: y, width: bounds.width - pad * 2, height: 44)
     }
 }
+
+// MARK: - @언급 목록
+
+/**
+ * 글칸에 `@`를 치면 **입력칸 바로 위에 뜨는 흰 카드**다.
+ *
+ * **값은 웹의 `.mention-list`와 같다** — 흰 바탕 · 테두리 · 둥근 모서리 ·
+ * 줄 사이 선 · 왼쪽 정렬 · **여섯 명까지 보이고 그 위는 굴려서 본다.**
+ * 앱이 그리는 자리라 웹 CSS가 안 닿으므로 여기에 같은 값을 적어 둔다 —
+ * **한쪽만 고치지 말 것.**
+ *
+ * **바탕을 안 깔면 고장 난 것처럼 보인다**(사용자 제보 — `언급할때
+ * 정상적으로 안나옴`). 처음에는 바탕도 테두리도 없는 파란 글자 셋이
+ * 보라 목록 위에 그냥 떠 있었다.
+ *
+ * `@전체`는 **운영진만** 쓰고, 서른 명의 폰을 한꺼번에 울리는 일이라
+ * 무엇을 하는 것인지 옆에 적는다(웹의 `.mention-item.is-all`과 같다).
+ * **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 된다.
+ */
+final class MentionList: UIView {
+    /// 여섯 명까지 보이고 그 위는 굴린다(웹과 같은 값).
+    private static let maxRows = 6
+    private static let rowH: CGFloat = 44
+    /// 카드와 입력칸 사이(웹 `.chat-over`의 `gap`).
+    private static let gapBottom: CGFloat = 6
+    /// 좌우 여백 — 화면 끝에 닿아 보이지 않게 둔다.
+    private static let padSide: CGFloat = 10
+
+    var onPick: ((String) -> Void)?
+    private let card = UIView()
+    private let scroll = UIScrollView()
+    private let rows = UIStackView()
+    private var boxH: NSLayoutConstraint!
+    /// 이름 색 — `@전체`만 분홍이다(그 줄이 하는 일이 다르기 때문이다).
+    var cText: UIColor = UIColor(hexString: "#1b1f19") ?? .label
+    var cDim: UIColor = UIColor(hexString: "#5b6455") ?? .secondaryLabel
+    var cBrand: UIColor = UIColor(red: 0.91, green: 0.29, blue: 0.50, alpha: 1)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        card.backgroundColor = .white
+        card.layer.cornerRadius = 12
+        card.layer.borderWidth = 1
+        card.layer.borderColor = UIColor(white: 0, alpha: 0.10).cgColor
+        card.layer.shadowColor = UIColor.black.cgColor
+        card.layer.shadowOpacity = 0.10
+        card.layer.shadowRadius = 10
+        card.layer.shadowOffset = CGSize(width: 0, height: 4)
+        scroll.clipsToBounds = true
+        scroll.layer.cornerRadius = 12
+        scroll.showsVerticalScrollIndicator = false
+        rows.axis = .vertical
+        for v in [card, scroll, rows] as [UIView] { v.translatesAutoresizingMaskIntoConstraints = false }
+        addSubview(card); card.addSubview(scroll); scroll.addSubview(rows)
+        boxH = heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            boxH,
+            card.topAnchor.constraint(equalTo: topAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.gapBottom),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padSide),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padSide),
+            scroll.topAnchor.constraint(equalTo: card.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            rows.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            rows.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            rows.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            rows.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            rows.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// 아무도 없으면 칸째 사라진다 — 빈 카드가 남으면 안 된다.
+    func show(_ names: [String]) {
+        rows.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let shown = Array(names.prefix(30))
+        for (i, name) in shown.enumerated() {
+            if i > 0 {
+                let line = UIView()
+                line.backgroundColor = UIColor(white: 0, alpha: 0.08)
+                line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                rows.addArrangedSubview(line)
+            }
+            rows.addArrangedSubview(row(name))
+        }
+        isHidden = shown.isEmpty
+        boxH.constant = shown.isEmpty ? 0
+            : CGFloat(min(shown.count, Self.maxRows)) * Self.rowH + Self.gapBottom
+        scroll.setContentOffset(.zero, animated: false)
+    }
+
+    func clear() { show([]) }
+
+    private func row(_ name: String) -> UIButton {
+        let b = UIButton(type: .system)
+        var cfg = UIButton.Configuration.plain()
+        cfg.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
+        let all = name == "전체"
+        let title = NSMutableAttributedString(string: "@\(name)", attributes: [
+            .font: UIFont.systemFont(ofSize: 15, weight: .bold),
+            .foregroundColor: all ? cBrand : cText,
+        ])
+        if all {
+            title.append(NSAttributedString(string: "   모두에게 알림", attributes: [
+                .font: UIFont.systemFont(ofSize: 12),
+                .foregroundColor: cDim,
+            ]))
+        }
+        cfg.attributedTitle = AttributedString(title)
+        b.configuration = cfg
+        b.contentHorizontalAlignment = .leading
+        b.heightAnchor.constraint(equalToConstant: Self.rowH).isActive = true
+        b.accessibilityIdentifier = "native-chat-mention"
+        b.addAction(UIAction { [weak self] _ in self?.onPick?(name) }, for: .touchUpInside)
+        return b
+    }
+}
+
+// MARK: - 이모티콘 서랍
+
+/**
+ * **입력칸 아래, 키보드가 서던 자리에 뜬다**(카톡과 같다. 사용자 요청 —
+ * `이모티콘을 누르면 전체 팝업이 뜨는데 카톡처럼 뜨게끔해줘`).
+ *
+ * **전체화면 창으로 되돌리지 말 것.** 화면을 통째로 덮으면 고르는 동안
+ * 대화가 안 보이고, 무엇보다 **글을 마저 칠 수가 없다** — 이모티콘을
+ * 골라 두고 한마디 덧붙이는 것이 이 자리의 전부다(웹의 `.sticker-tray`와
+ * 같은 까닭이다).
+ *
+ * 값은 웹에서 그대로 옮겼다 — 높이 `min(38vh, 300px)` · 탭 줄은 위에
+ * 붙어 옆으로만 굴러가고 · 그림은 **다섯 칸 격자**다.
+ * **눌린 탭에 분홍을 쓰지 않는다**(이 화면에서 '지금 눌러야 할 것'은
+ * 보내기 단추 하나다) — 바탕을 흰색으로 올려 종이가 앞으로 나온 것처럼 한다.
+ */
+final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+    /// 한 줄에 다섯 칸(웹의 `grid-template-columns: repeat(5, 1fr)`).
+    private static let cols: CGFloat = 5
+    private static let gap: CGFloat = 2
+    private static let tabH: CGFloat = 46
+    /// 서랍 높이 — 키보드만 하게 잡는다(웹의 `min(38vh, 300px)`).
+    static func height(for h: CGFloat, safe: CGFloat) -> CGFloat {
+        return min(300, max(180, h * 0.38)) + safe
+    }
+
+    var onPick: ((ChatJSON) -> Void)?
+    private var groups: [ChatJSON] = []
+    private var group = 0
+    private let tabs = UIScrollView()
+    private var tabBtns: [UIButton] = []
+    /// 탭 한 칸 — **이름이 두 글자든 다섯 글자든 같은 폭이다.** 들쭉날쭉하면
+    /// 어느 묶음을 누르는 중인지가 흐려진다(웹의 `min-width: 46px` 자리).
+    private static let tabW: CGFloat = 70
+    private let line = UIView()
+    private let grid = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
+    private var picked = ""
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        backgroundColor = UIColor(hexString: "#eef2e6") ?? .secondarySystemBackground
+        accessibilityIdentifier = "native-chat-sticker-tray"
+        tabs.showsHorizontalScrollIndicator = false
+        line.backgroundColor = UIColor(white: 0, alpha: 0.08)
+        grid.dataSource = self; grid.delegate = self
+        grid.backgroundColor = .clear
+        grid.alwaysBounceVertical = true
+        grid.register(NativeStickerCell.self, forCellWithReuseIdentifier: "sticker")
+        addSubview(tabs); addSubview(line); addSubview(grid)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var items: [ChatJSON] {
+        return groups.indices.contains(group) ? groups[group]["stickers"] as? [ChatJSON] ?? [] : []
+    }
+
+    /// 묶음은 한 번만 세운다 — 열 때마다 탭을 다시 만들 이유가 없다.
+    func load(_ groups: [ChatJSON]) {
+        guard self.groups.isEmpty else { return }
+        self.groups = groups
+        for (i, g) in groups.enumerated() {
+            let b = UIButton(type: .system)
+            var cfg = UIButton.Configuration.plain()
+            cfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
+            let text = NSMutableAttributedString(string: (g["tab"] as? String ?? "") + "\n", attributes: [
+                .font: UIFont.systemFont(ofSize: 15),
+            ])
+            text.append(NSAttributedString(string: g["name"] as? String ?? "", attributes: [
+                .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+            ]))
+            let para = NSMutableParagraphStyle(); para.alignment = .center; para.lineSpacing = 1
+            text.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: text.length))
+            cfg.attributedTitle = AttributedString(text)
+            b.configuration = cfg
+            b.titleLabel?.numberOfLines = 2
+            b.layer.cornerRadius = 8
+            b.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            b.titleLabel?.adjustsFontSizeToFitWidth = true
+            b.titleLabel?.minimumScaleFactor = 0.8
+            b.accessibilityLabel = g["name"] as? String
+            b.addAction(UIAction { [weak self] _ in self?.choose(i) }, for: .touchUpInside)
+            tabBtns.append(b); tabs.addSubview(b)
+        }
+        setNeedsLayout()
+        choose(0)
+    }
+
+    private func choose(_ i: Int) {
+        group = i
+        for (n, b) in tabBtns.enumerated() {
+            b.backgroundColor = n == i ? .white : .clear
+            b.tintColor = n == i ? (UIColor(hexString: "#1b1f19") ?? .label)
+                                 : (UIColor(hexString: "#5b6455") ?? .secondaryLabel)
+        }
+        grid.setContentOffset(.zero, animated: false)
+        grid.reloadData()
+    }
+
+    /// 골라 둔 것 — 서랍에서도 어느 것을 골랐는지 보여야 다른 것으로
+    /// 바꿀 때 헤매지 않는다(웹의 `.sticker-btn.on`).
+    func mark(_ id: String) {
+        picked = id
+        if !isHidden { grid.reloadData() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        tabs.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.tabH)
+        for (i, b) in tabBtns.enumerated() {
+            b.frame = CGRect(x: 4 + CGFloat(i) * (Self.tabW + 2), y: 3,
+                             width: Self.tabW, height: Self.tabH - 3)
+        }
+        tabs.contentSize = CGSize(width: CGFloat(tabBtns.count) * (Self.tabW + 2) + 8, height: Self.tabH)
+        line.frame = CGRect(x: 0, y: Self.tabH, width: bounds.width, height: 1)
+        grid.frame = CGRect(x: 0, y: Self.tabH + 1, width: bounds.width,
+                            height: max(0, bounds.height - Self.tabH - 1))
+        grid.contentInset = UIEdgeInsets(top: 6, left: 6, bottom: safeAreaInsets.bottom + 6, right: 6)
+    }
+
+    func collectionView(_ c: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }
+    func collectionView(_ c: UICollectionView, cellForItemAt i: IndexPath) -> UICollectionViewCell {
+        let cell = c.dequeueReusableCell(withReuseIdentifier: "sticker", for: i) as! NativeStickerCell
+        let item = items[i.item]
+        cell.show(item, compact: true)
+        cell.contentView.backgroundColor = (item["id"] as? String) == picked
+            ? UIColor(red: 0.91, green: 0.29, blue: 0.50, alpha: 0.14) : .clear
+        cell.contentView.layer.cornerRadius = 8
+        return cell
+    }
+    func collectionView(_ c: UICollectionView, didSelectItemAt i: IndexPath) {
+        let item = items[i.item]
+        mark(item["id"] as? String ?? "")
+        onPick?(item)
+    }
+    func collectionView(_ c: UICollectionView, layout: UICollectionViewLayout,
+                        sizeForItemAt i: IndexPath) -> CGSize {
+        let inner = grid.bounds.width - 12 - Self.gap * (Self.cols - 1)
+        let w = max(40, floor(inner / Self.cols))
+        return CGSize(width: w, height: w)
+    }
+    func collectionView(_ c: UICollectionView, layout: UICollectionViewLayout,
+                        minimumInteritemSpacingForSectionAt section: Int) -> CGFloat { Self.gap }
+    func collectionView(_ c: UICollectionView, layout: UICollectionViewLayout,
+                        minimumLineSpacingForSectionAt section: Int) -> CGFloat { Self.gap }
+}

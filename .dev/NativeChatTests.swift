@@ -166,6 +166,46 @@ final class NativeChatTests: XCTestCase {
         XCTAssertEqual(ChatRole.label("superadmin"), "앱관리자")
     }
 
+    /// 머리말에 **`전체 대화`를 안 적는다**(사용자 요청 — `채팅 좌측상단
+    /// 전체대화 삭제해줘`). 클래스 이름만 봐서는 되살아나도 안 보이는
+    /// 자리라 **글자 자체를** 훑는다.
+    func testHeaderHasNoRoomTitle() async throws {
+        await prepare(); defer { finish() }
+        var titles: [String] = []
+        func walk(_ v: UIView) {
+            if let b = v as? UIButton {
+                titles.append(b.currentTitle ?? b.currentAttributedTitle?.string ?? "")
+            }
+            if let l = v as? UILabel { titles.append(l.text ?? "") }
+            v.subviews.forEach(walk)
+        }
+        walk(chat.view)
+        XCTAssertFalse(titles.contains { $0.contains("전체 대화") })
+    }
+
+    /// 이모티콘은 **입력칸 아래·화면 끝까지** 선다(카톡과 같다).
+    /// 전체화면 창으로 되돌아가면 여기서 빨갛게 뜬다.
+    func testStickerTrayOpensBelowComposer() async throws {
+        await prepare(); defer { finish() }
+        let composer = try XCTUnwrap(find(chat.view, ComposerBar.self))
+        let tray = try XCTUnwrap(find(chat.view, StickerTray.self))
+        XCTAssertTrue(tray.isHidden)
+        chat.composerTapped("sticker")
+        await settle(0.3)
+        XCTAssertFalse(tray.isHidden)
+        XCTAssertGreaterThan(tray.bounds.height, 180)
+        /* **자리를 잰다** — 바는 스택 안에 있어 좌표계가 달라서,
+           옮겨 놓고 견주지 않으면 늘 어긋난다. */
+        let bar = composer.convert(composer.bounds, to: chat.view)
+        let box = tray.convert(tray.bounds, to: chat.view)
+        XCTAssertEqual(box.minY, bar.maxY, accuracy: 1)
+        XCTAssertEqual(box.maxY, chat.view.bounds.maxY, accuracy: 1)
+        XCTAssertNil(chat.presentedViewController)   // 전체화면 창이 아니다
+        chat.composerTapped("sticker")
+        await settle(0.3)
+        XCTAssertTrue(tray.isHidden)
+    }
+
     func testRejectedSendPreservesDraftAndDoesNotAddMessage() async throws {
         await prepare(); defer { finish() }
         ChatFixtureProtocol.rejectWrites = true
