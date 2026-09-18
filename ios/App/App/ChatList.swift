@@ -84,6 +84,8 @@ struct ChatRow {
     let unread: Int
     /// 이 줄 **위에** 붙는 날짜 칸(`10월 4일 (일)`). 없으면 안 붙는다.
     let date: String?
+    /// 글 안의 `@이름` 자리 — 파랑(남)·분홍(나·`@전체`)으로 칠한다.
+    let mentions: [ChatMention]
     /// 아직 못 그리는 줄에 적을 말(`사진`·`이모티콘`).
     let note: String?
     /// 사진·이모티콘 그림 주소. **이모티콘은 웹이 `stickerSrc()`로 만들어 준다** —
@@ -155,6 +157,13 @@ struct ChatRow {
         mark = (d["mark"] as? Bool) ?? false
         /* 못 받았으면 예전처럼 군다 — 옛 웹이 붙은 판에서 줄이 겹치면 안 된다. */
         top = CGFloat((d["top"] as? Double) ?? 4)
+        /* `@이름` 자리 — **웹은 벌써 파랗게 칠하고 있었는데 앱 말풍선만
+           검은 글자였다.** 못 받았으면 빈 배열이라 예전 그대로다. */
+        mentions = ((d["mentions"] as? [[String: Any]]) ?? []).compactMap {
+            guard let at = $0["at"] as? Int, let len = $0["len"] as? Int, len > 0 else { return nil }
+            return ChatMention(range: NSRange(location: at, length: len),
+                               mine: ($0["mine"] as? Bool) ?? false)
+        }
         reacts = ((d["reacts"] as? [[String: Any]]) ?? []).compactMap {
             guard let e = $0["emoji"] as? String else { return nil }
             return ChatReact(emoji: e, n: ($0["n"] as? Int) ?? 0,
@@ -2154,10 +2163,13 @@ final class BubbleCell: UITableViewCell {
             if !capBubble.isHidden {
                 capBubble.backgroundColor = r.mine ? s.mineBubble : s.bubble
                 capBubble.layer.cornerRadius = s.radius
-                capLabel.attributedText = NSAttributedString(
+                let cap = NSMutableAttributedString(
                     string: r.cap ?? "", attributes: [
                         .font: font, .foregroundColor: s.text, .paragraphStyle: p,
                     ])
+                /* 사진에 함께 적은 글도 같은 글(`m.body`)이라 자리가 그대로 맞는다. */
+                ChatMentions.paint(cap, r.mentions)
+                capLabel.attributedText = cap
             }
         }
 
@@ -2169,13 +2181,17 @@ final class BubbleCell: UITableViewCell {
         bubble.backgroundColor = bare ? .clear : (r.mine ? s.mineBubble : s.bubble)
         bubble.layer.cornerRadius = s.radius
         let body = r.kind == .other ? (r.note ?? r.body) : r.body
-        bodyLabel.attributedText = NSAttributedString(string: body, attributes: [
+        let shown = NSMutableAttributedString(string: body, attributes: [
             .font: r.big ? UIFont.systemFont(ofSize: s.bigSize) : font,
             .foregroundColor: r.kind == .other ? s.faint : s.text,
             /* 큰 이모지는 **줄 간격을 못박지 않는다** — 18px에 가두면
                40px 글자가 서로 겹친다(웹도 거기서만 `line-height: 1.15`다). */
             .paragraphStyle: r.big ? NSParagraphStyle.default : p,
         ])
+        /* `@이름`은 파랗게(나·`@전체`는 분홍) — **글칸과 같은 색이다**.
+           자리가 `r.body` 기준이라 **글자를 갈아 끼운 줄(`other`)에는 안 칠한다.** */
+        if r.kind != .other { ChatMentions.paint(shown, r.mentions) }
+        bodyLabel.attributedText = shown
 
         nameLabel.isHidden = r.name == nil
         if let n = r.name {

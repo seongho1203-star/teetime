@@ -1975,11 +1975,31 @@ ok(over && over.넘침 >= 0 && over.넘침 <= 12,
    `위로 여백과 테두리까지만 먹는다 (실제 ${over?.넘침}px)`);
 ok(over && over.목록왼쪽 === 16,
    `목록은 예전 여백 그대로다 — 화면 끝에 닿아 보이면 안 된다 (실제 ${over?.목록왼쪽}px)`);
+/* **보이는 것은 이름표, 넣는 것은 닉네임이다**(사용자 요청 — `언급했을때
+   나오는 닉네임이 다르게나와. 회원목록에있는거처럼 해줘`). 100명 모임에서
+   `@악마제리`만 봐서는 누군지 몰라 회원 명단과 같은 이름표를 적는다. */
+const mNames = await page.$$eval('.mention-item .truncate', els => els.map(e => e.textContent));
+ok(mNames.includes('68/이관교/북구'),
+   `언급 목록은 회원 명단과 같은 이름표다 (실제 ${mNames.join(' · ') || '없음'})`);
 await page.$eval('.chat-input .textarea', el => { el.value = ''; });
 await page.keyboard.press('Backspace');
 await page.waitForTimeout(300);
 ok(await page.$('.chat-over') === null,
    '하나도 없으면 칸째 안 그린다 — 빈 보라 띠가 남으면 안 된다');
+
+/* **골라서 들어가는 글자는 이름표가 아니라 닉네임이다.** 발송기의
+   `mentionedIds`가 글에서 `@<닉네임>`을 찾아 누구를 부른 것인지 가리므로,
+   이름표가 들어가면 **부르긴 했는데 알림이 안 가는** 글이 된다. */
+await page.click('.chat-input .textarea');
+await page.type('.chat-input .textarea', '@이관');
+await page.waitForTimeout(400);
+await page.click('.mention-item:not(.is-all)');
+await page.waitForTimeout(200);
+const putIn = await page.$eval('.chat-input .textarea', el => el.value);
+ok(putIn === '@이관교 ', `넣는 글자는 닉네임 그대로다 (실제 ${JSON.stringify(putIn)})`);
+await page.$eval('.chat-input .textarea', el => { el.value = ''; });
+await page.keyboard.press('Backspace');
+await page.waitForTimeout(200);
 
 /* 멀리 내리면 닫힌다 — 위에서 닫아 버렸으면 한 번 더 연다. */
 if (await page.$('.profile-full') === null) {

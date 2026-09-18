@@ -620,6 +620,22 @@ final class MentionList: UIView {
     /// 좌우 여백 — 화면 끝에 닿아 보이지 않게 둔다.
     private static let padSide: CGFloat = 10
 
+    /**
+     * 한 줄 — **보이는 것은 이름표, 넣는 것은 닉네임이다**(사용자 요청 —
+     * `언급했을때 나오는 닉네임이 다르게나와. 회원목록에있는거처럼 해줘`).
+     *
+     * 100명 모임에서 `@악마제리`만 봐서는 누군지 모른다는 것이 이 요청의
+     * 까닭이고, 그래서 목록은 회원 명단·서랍과 같은 `83/악마제리/광산구`를
+     * 적는다. **글에 들어가는 것은 그대로 닉네임이다** — 알림 발송기
+     * (`supabase/functions/notify`의 `mentionedIds`)가 글에서 `@<닉네임>`을
+     * 찾아 누구를 부른 것인지 가리므로, 이름표를 넣으면 **부르긴 했는데
+     * 알림이 안 가는** 글이 된다.
+     */
+    struct Item {
+        let name: String
+        let label: String
+    }
+
     var onPick: ((String) -> Void)?
     private let card = UIView()
     private let scroll = UIScrollView()
@@ -672,18 +688,18 @@ final class MentionList: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     /// 아무도 없으면 칸째 사라진다 — 빈 카드가 남으면 안 된다.
-    func show(_ names: [String], picked: Set<String> = []) {
+    func show(_ items: [Item], picked: Set<String> = []) {
         self.picked = picked
         rows.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let shown = Array(names.prefix(30))
-        for (i, name) in shown.enumerated() {
+        let shown = Array(items.prefix(30))
+        for (i, item) in shown.enumerated() {
             if i > 0 {
                 let line = UIView()
                 line.backgroundColor = UIColor(white: 0, alpha: 0.08)
                 line.heightAnchor.constraint(equalToConstant: 1).isActive = true
                 rows.addArrangedSubview(line)
             }
-            rows.addArrangedSubview(row(name))
+            rows.addArrangedSubview(row(item))
         }
         isHidden = shown.isEmpty
         boxH.constant = shown.isEmpty ? 0
@@ -693,12 +709,16 @@ final class MentionList: UIView {
 
     func clear() { show([]) }
 
-    private func row(_ name: String) -> UIButton {
+    private func row(_ item: Item) -> UIButton {
+        let name = item.name
         let b = UIButton(type: .system)
         var cfg = UIButton.Configuration.plain()
         cfg.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
-        let all = name == "전체"
-        let title = NSMutableAttributedString(string: "@\(name)", attributes: [
+        let all = name == ChatMentions.all
+        /* 이름표가 길어졌으므로(`83/신성호 법인/광산구`) 넘치면 끝을 자른다 —
+           줄 높이가 44px로 못박혀 있어 접히면 글자가 통째로 밀린다. */
+        cfg.titleLineBreakMode = .byTruncatingTail
+        let title = NSMutableAttributedString(string: "@\(item.label)", attributes: [
             .font: UIFont.systemFont(ofSize: 15, weight: .bold),
             .foregroundColor: all ? cBrand : cText,
         ])

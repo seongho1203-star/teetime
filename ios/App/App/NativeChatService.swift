@@ -299,6 +299,9 @@ enum NativeChatRows {
             return a.user == b.user && format(a, "yyyy-MM-dd HH:mm") == format(b, "yyyy-MM-dd HH:mm")
         }
         let active = people.filter { !["pending", "banned"].contains($0["role"] as? String ?? "pending") }
+        /* `@이름`을 칠할 자리를 여기서 찾아 둔다 — 웹 `splitMentions`와 같은 규칙이다. */
+        let callable = active.compactMap { $0["name"] as? String }
+        let myName = who[user]?["name"] as? String ?? ""
         return messages.enumerated().compactMap { i, m in
             let prev = i > 0 ? messages[i - 1] : nil
             let next = i + 1 < messages.count ? messages[i + 1] : nil
@@ -319,6 +322,14 @@ enum NativeChatRows {
                 if let gender = p["gender"] as? String, ["f", "m"].contains(gender) {
                     d["edge"] = gender == "f" ? "#e84a7f" : "#269bbe"
                 }
+            }
+            /* `@전체`는 **쓴 사람이 운영진일 때만** 도드라진다(웹 `allowAll`) —
+               회원이 손으로 쳐 넣은 것이 파랗게 뜨면 불렀다고 여기게 된다. */
+            let boss = ["staff", "admin", "superadmin"].contains(who[m.user]?["role"] as? String ?? "")
+            let list = boss ? [ChatMentions.all] + callable : callable
+            d["mentions"] = ChatMentions.ranges(m.body, names: list).map { hit in
+                ["at": hit.range.location, "len": hit.range.length,
+                 "mine": hit.name == ChatMentions.all || (!myName.isEmpty && hit.name == myName)] as ChatJSON
             }
             if !grouped(m, next) { d["time"] = format(m, "a h:mm") }
             d["unread"] = active.filter { p in

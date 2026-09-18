@@ -2500,14 +2500,22 @@ export function Chat() {
        번에 알릴 일(모집 마감·집합 시각 바뀜)이 운영진 몫이라 제일 자주
        고를 것이 그것이다. */
     const norm = (s2: string) => s2.replace(/\s/g, '');
+    /* **보이는 것은 이름표, 넣는 것은 닉네임이다**(사용자 요청 — `언급했을때
+       나오는 닉네임이 다르게나와. 회원목록에있는거처럼 해줘`). 100명 모임에서
+       `@악마제리`만 봐서는 누군지 모르기 때문이고, 그래서 회원 명단·서랍과
+       같은 `83/악마제리/광산구`를 적는다. **글에 들어가는 것은 그대로
+       닉네임이다** — 발송기의 `mentionedIds`가 글에서 `@<닉네임>`을 찾아
+       누구를 부른 것인지 가리므로, 이름표를 넣으면 부르긴 했는데 알림이
+       안 가는 글이 된다. **앱 목록(`MentionList.Item`)과 같은 규칙이니
+       한쪽만 고치지 말 것.** 찾는 글자도 이름표로 거른다. */
     const mentionHits = mention === null ? [] : [
         ...(isAdmin && norm(ALL_MENTION).includes(norm(mention))
-            ? [{ id: '__all__', name: ALL_MENTION, avatar_url: null,
+            ? [{ id: '__all__', name: ALL_MENTION, label: ALL_MENTION, avatar_url: null,
                 gender: null as Gender | null, all: true }] : []),
         ...mentionable
-            .filter(p => p.id !== me && norm(p.name).includes(norm(mention)))
-            .map(p => ({ id: p.id, name: p.name, avatar_url: p.avatar_url,
-                         gender: p.gender ?? null, all: false })),
+            .map(p => ({ id: p.id, name: p.name, label: personLabel(p) || p.name,
+                         avatar_url: p.avatar_url, gender: p.gender ?? null, all: false }))
+            .filter(p => p.id !== me && norm(p.label).includes(norm(mention))),
     ].slice(0, 6);
 
     /** 인용을 누르면 원본으로 간다. 지난 묶음에 있으면 아직 화면에 없다. */
@@ -3687,7 +3695,7 @@ export function Chat() {
                                 {p.all
                                     ? <span className="mention-all-icon" aria-hidden="true">📢</span>
                                     : <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />}
-                                <span className="truncate">{p.name}</span>
+                                <span className="truncate">{p.label}</span>
                                 {p.all && <span className="xs faint">모두에게 알림</span>}
                             </button>
                         ))}

@@ -33,6 +33,72 @@ import UIKit
  * 글칸 한 줄 38px · 최대 120px · 안여백 7/14 · 모서리 19px(한 줄의 절반).
  */
 
+/// 말풍선 한 줄 안에서 칠할 자리. `mine`이면 분홍(나·`@전체`), 아니면 파랑.
+struct ChatMention {
+    let range: NSRange
+    let mine: Bool
+}
+
+/**
+ * 글 안의 `@이름`을 찾는다 — **웹 `lib/mention.ts`의 `splitMentions`와 같은
+ * 규칙이다.** 글칸(`ComposerBar`)과 말풍선(`NativeChatRows`)이 같이 쓴다:
+ * 칠하는 자리가 둘인데 규칙이 둘이 되면 **보낼 때는 파랗다가 보내고 나면
+ * 검게 되는** 자국이 난다. **한쪽만 고치지 말 것.**
+ *
+ * **긴 이름을 먼저 본다** — `김지`와 `김지명`이 함께 있으면 뒤엣것이 걸려야
+ * 한다. 명단에 없는 `@무엇`은 그냥 글자로 남는다.
+ */
+enum ChatMentions {
+    /// 웹 `--info`. 남을 부른 자리.
+    static let other = UIColor(red: 0x2c / 255, green: 0x7b / 255, blue: 0xd4 / 255, alpha: 1)
+    /// 웹 `--brand`. **나를 부른 자리와 `@전체`**(웹 `.mention.me`와 같은 잣대다).
+    static let mine = UIColor(red: 0xd9 / 255, green: 0x2b / 255, blue: 0x8e / 255, alpha: 1)
+    /// 모두를 한 번에 부르는 이름(웹 `ALL_MENTION`).
+    static let all = "전체"
+
+    /**
+     * 이미 찾아 둔 자리에 색을 입힌다 — 말풍선(`ChatList`)이 쓴다.
+     *
+     * **색만 바꾸고 굵기는 그대로 둔다.** 웹은 `font-weight: 800`이지만
+     * 여기서 굵게 하면 그만큼 넓어져 **키를 재 둔 것보다 한 줄이 더 접혀
+     * 말풍선 밖으로 밀려 나간다**(높이를 재는 곳은 여느 글자로 잰다).
+     * 카톡도 파란 색 하나로만 가른다.
+     */
+    static func paint(_ s: NSMutableAttributedString, _ hits: [ChatMention]) {
+        for hit in hits where NSMaxRange(hit.range) <= s.length {
+            s.addAttribute(.foregroundColor, value: hit.mine ? Self.mine : Self.other, range: hit.range)
+        }
+    }
+
+    /// 찾은 자리와 그 이름. 자리는 **UTF-16 기준**이라 그대로 `NSRange`로 쓴다.
+    static func ranges(_ body: String, names: [String]) -> [(range: NSRange, name: String)] {
+        guard body.contains("@"), !names.isEmpty else { return [] }
+        let ns = body as NSString
+        let list = Array(Set(names.filter { !$0.isEmpty }))
+            .sorted { ($0 as NSString).length > ($1 as NSString).length }
+        var out: [(range: NSRange, name: String)] = []
+        var i = 0
+        while i < ns.length {
+            if ns.character(at: i) == 64 {          // '@'
+                var hit: String?
+                for name in list {
+                    let n = (name as NSString).length
+                    guard i + 1 + n <= ns.length else { continue }
+                    if ns.substring(with: NSRange(location: i + 1, length: n)) == name { hit = name; break }
+                }
+                if let name = hit {
+                    let len = 1 + (name as NSString).length
+                    out.append((range: NSRange(location: i, length: len), name: name))
+                    i += len
+                    continue
+                }
+            }
+            i += 1
+        }
+        return out
+    }
+}
+
 protocol ComposerBarDelegate: AnyObject {
     /// 글이 바뀌었다. `sel`은 커서 자리다(`@언급`을 가려내는 데 쓴다).
     func composerChanged(text: String, sel: Int)
@@ -104,6 +170,15 @@ final class ComposerBar: UIView, UITextViewDelegate {
      * 넘기고 웹에서 탭바를 감추면 그대로 맞는다.
      */
     var tabH: CGFloat = 0
+
+    /**
+     * 글칸에서 **파랗게 칠할 이름들**(사용자 요청 — `언급해서 선택했을때
+     * 카톡처럼 글색상을 다르게해줘`). 대화 화면이 회원 명단을 준다 —
+     * **댓글 바는 비어 있어** 예전처럼 검은 글자 하나다.
+     */
+    var mentionNames: [String] = [] { didSet { paintMentions() } }
+    /// 그 가운데 **분홍**으로 칠할 것(나를 부른 자리와 `@전체`).
+    var mentionMine: Set<String> = [] { didSet { paintMentions() } }
 
     // ── 색 (JS가 덮어쓴다) ─────────────────────────────────
     var cBg: UIColor = .white
@@ -209,6 +284,8 @@ final class ComposerBar: UIView, UITextViewDelegate {
         textView.tintColor = cBrand
         textView.font = .systemFont(ofSize: fontSize)
         textView.layer.cornerRadius = radius
+
+        paintMentions()
 
         hintLabel.textColor = cHint
         hintLabel.font = .systemFont(ofSize: fontSize)
@@ -662,7 +739,41 @@ final class ComposerBar: UIView, UITextViewDelegate {
         }
     }
 
+    /**
+     * `@이름`에 색을 입힌다 — 카톡의 그 파란 글자다.
+     *
+     * **조합 중(`markedTextRange`)에는 손대지 않는다.** 한글을 치는 그
+     * 순간에 글칸을 건드리면 조합이 깨져 **천지인 깜빡임을 피하려고 만든
+     * 이 바가 되레 그 자국을 낸다.** 칠하지 않고 지나가도 앞서 칠해 둔
+     * 것이 그대로 남으므로 깜빡이지 않고, 조합이 끝나면 곧바로 다시 칠한다.
+     *
+     * **글자를 바꾸지 않고 속성만 바꾼다**(`setAttributes`) — `attributedText`를
+     * 통째로 다시 넣으면 커서가 튀고 되돌리기(undo)가 끊긴다.
+     * 칠한 뒤 `typingAttributes`를 되돌려 놓는 것이 한 쌍이다: 안 그러면
+     * 이름 바로 뒤에 이어 치는 글자까지 파랗게 나온다.
+     */
+    private func paintMentions() {
+        guard textView.markedTextRange == nil else { return }
+        let base: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize),
+            .foregroundColor: cText,
+        ]
+        let ns = (textView.text ?? "") as NSString
+        let storage = textView.textStorage
+        guard storage.length == ns.length else { return }
+        storage.beginEditing()
+        storage.setAttributes(base, range: NSRange(location: 0, length: ns.length))
+        for hit in ChatMentions.ranges(ns as String, names: mentionNames) {
+            storage.addAttribute(.foregroundColor,
+                                 value: mentionMine.contains(hit.name) ? ChatMentions.mine : ChatMentions.other,
+                                 range: hit.range)
+        }
+        storage.endEditing()
+        textView.typingAttributes = base
+    }
+
     private func afterEdit(tell: Bool) {
+        paintMentions()
         refreshHint()
         refreshSend()
         let before = bounds.height

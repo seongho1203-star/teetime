@@ -348,6 +348,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 async let r = self.service.room(); async let p = self.service.people()
                 let (room, people) = try await (r, p); try Task.checkCancellation()
                 self.room = room["id"] as? String ?? ""; self.people = people
+                self.refreshMentionPaint()
                 let latest = try await self.service.messages(self.room, limit: 100)
                 try Task.checkCancellation()
                 self.messages = latest.reversed(); self.hasMore = latest.count == 100
@@ -558,11 +559,39 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         let query = before.substring(from: range.location + 1)
         guard !query.contains(" "), !query.contains("\n"), query.count <= 12 else { return }
         mentionRange = NSRange(location: range.location, length: before.length - range.location)
-        var names = members.compactMap { $0["name"] as? String }.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+        mentions.show(mentionItems(query), picked: mentioned())
+    }
+    /**
+     * 언급 목록 한 줄 — **보이는 것은 이름표(`83/악마제리/광산구`),
+     * 넣는 것은 닉네임이다**(`MentionList.Item` 머리말을 볼 것).
+     *
+     * **찾는 글자도 이름표로 거른다** — 목록에 적힌 그대로라 `83`이나
+     * `광산`으로도 찾아지고, 닉네임은 그 안에 들어 있어 예전 길이 그대로 산다.
+     */
+    private func mentionItems(_ query: String) -> [MentionList.Item] {
+        var out = members.compactMap { p -> MentionList.Item? in
+            guard let name = p["name"] as? String, !name.isEmpty else { return nil }
+            let label = NativeChatRows.label(p)
+            return MentionList.Item(name: name, label: label.isEmpty ? name : label)
+        }
+        if !query.isEmpty { out = out.filter { $0.label.localizedCaseInsensitiveContains(query) } }
         /* `@전체`는 **운영진만** 쓴다 — 대화 알림을 꺼 둔 기기까지 다
            울리므로 아무나 쓰면 그 스위치가 있으나 마나가 된다. */
-        if isAdmin && (query.isEmpty || "전체".contains(query)) { names.insert("전체", at: 0) }
-        mentions.show(names, picked: mentioned())
+        if isAdmin && (query.isEmpty || ChatMentions.all.contains(query)) {
+            out.insert(MentionList.Item(name: ChatMentions.all, label: ChatMentions.all), at: 0)
+        }
+        return out
+    }
+    /**
+     * 글칸에서 칠할 이름들을 넘긴다 — 명단을 받은 뒤에 한 번이면 된다.
+     * 나를 부른 자리와 `@전체`만 분홍이고 나머지는 파랑이다(웹 `.mention.me`).
+     */
+    private func refreshMentionPaint() {
+        var names = members.compactMap { $0["name"] as? String }
+        if isAdmin { names.append(ChatMentions.all) }
+        composer.mentionNames = names
+        let myName = people.first { $0["id"] as? String == me }?["name"] as? String ?? ""
+        composer.mentionMine = Set([myName, ChatMentions.all].filter { !$0.isEmpty })
     }
     /// 글에 이미 들어간 이름 — 목록에서 그 줄에만 체크가 붙는다.
     private func mentioned() -> Set<String> {
@@ -591,9 +620,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         composer.caret = r.location + (replacement as NSString).length
         composer.textView.becomeFirstResponder()
         mentionRange = NSRange(location: composer.caret, length: 0)
-        var names = members.compactMap { $0["name"] as? String }
-        if isAdmin { names.insert("전체", at: 0) }
-        mentions.show(names, picked: mentioned())
+        mentions.show(mentionItems(""), picked: mentioned())
     }
     func composerTapped(_ name: String) {
         guard !busy else { return }
