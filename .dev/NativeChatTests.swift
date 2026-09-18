@@ -148,6 +148,24 @@ final class NativeChatTests: XCTestCase {
         XCTAssertEqual(list.convert(list.bounds, to: window).maxY, composer.convert(composer.bounds, to: window).minY, accuracy: 1)
     }
 
+    /// 서랍 차례 — **운영진 → 총무 → 일반회원**, 묶음 안에서는 연장자가 앞이고
+    /// 태어난 해를 모르는 사람은 늘 뒤다. 클래스 이름만 봐서는 뒤집혀도
+    /// 안 보이는 자리라 **차례 자체를** 붙들어 둔다(웹의 `behave`와 같은 잣대).
+    func testDrawerOrdersStaffFirstThenTreasurerThenByAge() {
+        let people: [ChatJSON] = [
+            ["name": "다일반", "role": "member", "birth_year": 1970],
+            ["name": "가모름", "role": "member"],
+            ["name": "나총무", "role": "treasurer", "birth_year": 1990],
+            ["name": "라운영", "role": "admin", "birth_year": 1985],
+            ["name": "마부운영", "role": "staff", "birth_year": 1975],
+        ]
+        let sorted = people.sorted(by: ChatRole.order).map { $0["name"] as? String ?? "" }
+        XCTAssertEqual(sorted, ["마부운영", "라운영", "나총무", "다일반", "가모름"])
+        XCTAssertTrue(ChatRole.isAdmin("staff"))
+        XCTAssertFalse(ChatRole.isAdmin("treasurer"))
+        XCTAssertEqual(ChatRole.label("superadmin"), "앱관리자")
+    }
+
     func testRejectedSendPreservesDraftAndDoesNotAddMessage() async throws {
         await prepare(); defer { finish() }
         ChatFixtureProtocol.rejectWrites = true
