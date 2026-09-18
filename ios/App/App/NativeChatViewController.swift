@@ -33,10 +33,23 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /// 지금 빠져나가는 중인가 — 플러그인이 본다.
     private(set) var leaving = false
     private let context = UIStackView()
+    /// 댓글(답장)을 달 때 입력칸 위에 물리는 라벤더 카드(`ReplyBox`).
+    private let reply = ReplyBox()
     /// `@`를 치면 입력칸 위에 뜨는 흰 카드(`MentionList`).
     private let mentions = MentionList()
     /// 이모티콘 서랍 — **입력칸 아래, 키보드가 서던 자리다**(카톡과 같다).
     private let tray = StickerTray()
+    /* ── 검색(🔍) — 카톡과 같은 짜임 ───────────────────────
+     * 머리말이 **검색칸 + `취소`**로 바뀌고 대화는 그대로 보이며,
+     * 입력칸 자리에는 찾은 글 사이를 오가는 바(`FindBar`)가 선다.
+     * 자세한 것은 `showSearch()` 머리말을 볼 것. */
+    private let searchBox = UIView()
+    private let searchField = UITextField()
+    private let searchCancel = UIButton(type: .system)
+    private let findBar = FindBar()
+    private var searching = false
+    private var hits: [NativeChatMessage] = []
+    private var hitAt = 0
     private var trayH: NSLayoutConstraint!
     private var trayBottom: NSLayoutConstraint!
     private let status = UIButton(type: .system)
@@ -108,10 +121,20 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         header.addArrangedSubview(home); header.addArrangedSubview(spacer)
         header.addArrangedSubview(button("magnifyingglass", "대화 검색", "native-chat-search") { [weak self] in self?.showSearch() })
         header.addArrangedSubview(menuBtn)
+        buildSearch()
+        header.addArrangedSubview(searchBox); header.addArrangedSubview(searchCancel)
+        findBar.onUp = { [weak self] in self?.step(1) }
+        findBar.onDown = { [weak self] in self?.step(-1) }
         context.axis = .vertical; context.spacing = 4; context.isHidden = true
+        /* 입력칸 위에 쌓이는 것들의 **뒤는 대화 바탕색**이다(웹의 `.chat-over`).
+           안 깔면 화면 바탕(크림색)이 비쳐 판이 하나 더 있는 것처럼 보인다 —
+           `MentionList`·`ReplyBox` 머리말의 그 자리다. */
+        context.backgroundColor = ChatSkin().bg
+        reply.onJump = { [weak self] in if let q = self?.quoted { self?.jumpToID(q.id) } }
+        reply.onClose = { [weak self] in self?.quoted = nil; self?.retryRow = nil; self?.updateContext() }
         mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
         tray.onPick = { [weak self] item in self?.stickerPicked(item) }
-        let input = UIStackView(arrangedSubviews: [mentions, context, composer]); input.axis = .vertical
+        let input = UIStackView(arrangedSubviews: [mentions, reply, context, composer, findBar]); input.axis = .vertical
         for child in [header, list, input, tray, status] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
         let safe = view.safeAreaLayoutGuide
         composerBottom = input.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
@@ -258,6 +281,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      */
     private func goBack(drag: Bool) {
         guard !navigating else { return }; navigating = true
+        /* **화면은 다시 쓰인다**(`NativeChatPlugin.open`이 한 번 만든 것을
+           들고 있다) — 검색 중에 나가면 다음에 들어올 때 검색칸이 그대로
+           남는다. 나가는 길 넷(화살표·끌기·카드·알림)이 다 여기를 지난다. */
+        if searching { setSearch(false) }
         list.pauseSession(); view.endEditing(true); setTray(false)
         /* **화살표로 나갈 때도 오른쪽으로 빠져나간다** — 끌어서 나가는
            길에는 이미 앱이 그림을 내보내고 있지만(`BackDrag`), 눌러서
@@ -276,6 +303,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     private func navigate(_ path: String) {
         guard !navigating else { return }; navigating = true
+        if searching { setSearch(false) }
         /* **나가기 전에 이 화면을 그림 한 장으로 떠서 함께 넘긴다.**
            라운드·투표에서 손가락으로 끌어 뒤로 올 때 **뒤에 깔 것**이다 —
            그 끌기는 웹이 하는데(`useBackSwipe`) 웹 쪽에는 대화 자리를
@@ -478,12 +506,13 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         guard body.count <= 1000 else { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
         busy = true; composer.sendBtn.isEnabled = false; composer.plusBtn.isEnabled = false
         // Keep the first responder (and Korean composition/keyboard) alive during I/O.
-        context.isUserInteractionEnabled = false
-        let image = pickedPhoto, chosen = sticker, reply = quoted
+        context.isUserInteractionEnabled = false; self.reply.isUserInteractionEnabled = false
+        let image = pickedPhoto, chosen = sticker, quote = quoted
         Task { [weak self] in
             guard let self = self else { return }
             defer {
                 self.busy = false; self.context.isUserInteractionEnabled = true
+                self.reply.isUserInteractionEnabled = true
                 self.composer.sendBtn.isEnabled = true; self.composer.plusBtn.isEnabled = true
             }
             do {
@@ -491,7 +520,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 if let retry = self.retryRow { row = retry }
                 else {
                     row = ["id": UUID().uuidString.lowercased(), "room_id": self.room, "user_id": self.me, "body": body]
-                    if let reply = reply { row["reply_to"] = reply.id }
+                    if let quote = quote { row["reply_to"] = quote.id }
                     if let id = chosen?["id"] as? String { row["image_url"] = "sticker:\(id)" }
                     if let image = image {
                         /* **2560px · JPEG 82%** — 웹의 `lib/image.ts`와 같은
@@ -533,16 +562,38 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         /* `@전체`는 **운영진만** 쓴다 — 대화 알림을 꺼 둔 기기까지 다
            울리므로 아무나 쓰면 그 스위치가 있으나 마나가 된다. */
         if isAdmin && (query.isEmpty || "전체".contains(query)) { names.insert("전체", at: 0) }
-        mentions.show(names)
+        mentions.show(names, picked: mentioned())
     }
-    /// 목록에서 골랐다 — 친 `@…`를 이름으로 갈아 끼우고 커서를 뒤에 둔다.
+    /// 글에 이미 들어간 이름 — 목록에서 그 줄에만 체크가 붙는다.
+    private func mentioned() -> Set<String> {
+        let text = composer.text
+        var set: Set<String> = []
+        for p in people { if let n = p["name"] as? String, text.contains("@\(n)") { set.insert(n) } }
+        if text.contains("@전체") { set.insert("전체") }
+        return set
+    }
+    /**
+     * 목록에서 골랐다 — 친 `@…`를 이름으로 갈아 끼우고 커서를 뒤에 둔다.
+     *
+     * **고르고 나서도 목록을 남긴다**(사용자 요청 — `@눌러서 회원선택시
+     * 다중선택기능 넣어줘`). 커서 자리에 길이 0짜리 자리를 잡아 두면
+     * 다음에 고른 이름이 **그 자리에 이어 붙는다** — 한 사람만 부를
+     * 때는 예전과 똑같이 한 번만 누르면 된다.
+     *
+     * **다시 여는 것은 `composer.caret`을 준 뒤에 한다** — 커서를 옮기면
+     * `textViewDidChangeSelection`이 `composerChanged`를 불러 목록을
+     * 걷어 내므로, 그 앞에서 열어 두면 조용히 닫힌다.
+     */
     private func mentionPicked(_ name: String) {
         guard let r = mentionRange else { return }
         let replacement = "@\(name) "
         composer.text = (composer.text as NSString).replacingCharacters(in: r, with: replacement)
         composer.caret = r.location + (replacement as NSString).length
-        mentions.clear(); mentionRange = nil
         composer.textView.becomeFirstResponder()
+        mentionRange = NSRange(location: composer.caret, length: 0)
+        var names = members.compactMap { $0["name"] as? String }
+        if isAdmin { names.insert("전체", at: 0) }
+        mentions.show(names, picked: mentioned())
     }
     func composerTapped(_ name: String) {
         guard !busy else { return }
@@ -587,10 +638,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private func updateContext() {
         context.arrangedSubviews.forEach { $0.removeFromSuperview() }
         if let quote = quoted {
-            let b = UIButton(type: .system); b.setTitle("댓글 · \(quote.preview.prefix(55))    ✕", for: .normal)
-            b.titleLabel?.lineBreakMode = .byTruncatingTail; b.heightAnchor.constraint(equalToConstant: 40).isActive = true
-            b.addAction(UIAction { [weak self] _ in self?.quoted = nil; self?.retryRow = nil; self?.updateContext() }, for: .touchUpInside)
-            context.addArrangedSubview(b)
+            reply.show(who: personName(quote.user), text: String(quote.preview.prefix(80)))
+        } else {
+            reply.isHidden = true
         }
         if sticker != nil || pickedPhoto != nil {
             let row = UIStackView(); row.alignment = .center; row.distribution = .fill
@@ -879,27 +929,124 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         composer.text += "@\(name) "
         composer.textView.becomeFirstResponder()
     }
-    private func showSearch() {
-        let panel = NativeChatPicker(title: "대화 검색")
-        panel.items = [NativeChatPicker.Item(title: "두 글자 이상 입력해 주세요.", detail: "", choose: {})]
-        panel.searchChanged = { [weak self, weak panel] query in
-            guard let self = self else { return }; self.searchTask?.cancel()
-            let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard query.count >= 2 else { panel?.items = []; return }
-            self.searchTask = Task {
-                do {
-                    try await Task.sleep(nanoseconds: 300_000_000)
-                    let safe = query.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
-                    let hits = try await self.service.messages(self.room, filters: [("body", "ilike.%\(safe)%"), ("hidden_at", "is.null")], limit: 100)
-                    try Task.checkCancellation()
-                    panel?.items = hits.isEmpty ? [NativeChatPicker.Item(title: "검색 결과가 없습니다.", detail: "", choose: {})] : hits.map { m in
-                        NativeChatPicker.Item(title: m.preview, detail: self.personName(m.user) + " · " + m.at.prefix(16)) { [weak self, weak panel] in
-                            panel?.dismiss(animated: true) { self?.jump(m) }
-                        }
-                    }
-                } catch { if !Task.isCancelled { panel?.items = [NativeChatPicker.Item(title: error.localizedDescription, detail: "검색어를 다시 입력해 주세요.", choose: {})] } }
+    /* ── 검색(🔍) ─────────────────────────────────────────
+     *
+     * **카톡과 같은 짜임이다**(사용자 요청 — `검색 눌렀을때 카톡처럼
+     * 나오게해줘` · 사진을 받아 맞췄다):
+     *
+     * ```
+     * [🔍 대화내용 검색            ]  취소   ← 머리말이 통째로 바뀐다
+     *   … 대화가 그대로 보인다 …
+     * [        3 / 12        (^) (⌄) ]      ← 입력칸 자리에 서는 바
+     * ```
+     *
+     * **화면을 덮는 목록창으로 되돌리지 말 것.** 예전에는 찾은 것을
+     * 목록으로 내놓고 눌러야 그 자리로 갔는데, 그러면 앞뒤 대화를 못 보고
+     * 되짚을 때마다 목록을 다시 열어야 했다. 지금은 **찾자마자 가장 최근
+     * 것으로 옮겨 놓고** 바의 `^`(더 지난 것) · `⌄`(더 최근 것)로 오간다.
+     *
+     * 나가는 길은 `취소` 하나다(카톡과 같다) — `←`는 그동안 안 보인다.
+     */
+    private func showSearch() { setSearch(true) }
+
+    private func buildSearch() {
+        searchBox.backgroundColor = UIColor(white: 0, alpha: 0.06)
+        searchBox.layer.cornerRadius = 18
+        searchBox.layer.cornerCurve = .continuous
+        searchBox.isHidden = true
+        /* 칸이 남는 자리를 다 먹고 `취소`만 제 너비를 지킨다(카톡과 같다). */
+        searchBox.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        searchBox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let glass = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        glass.tintColor = .secondaryLabel
+        searchField.font = .systemFont(ofSize: 16)
+        searchField.returnKeyType = .search
+        searchField.clearButtonMode = .whileEditing
+        searchField.autocorrectionType = .no
+        searchField.accessibilityIdentifier = "native-chat-search-field"
+        /* **안내 글씨는 그냥 `placeholder`다** — 웹에서 한글 조합 중에
+           번쩍이던 그 자리는 **웹 글칸(WebKit)의 일**이고, 여기는
+           네이티브 칸(`UITextField`)이라 조합 중에도 값이 안 빈다. */
+        searchField.placeholder = "대화내용 검색"
+        searchField.addTarget(self, action: #selector(searchTyped), for: .editingChanged)
+        for v in [glass, searchField] as [UIView] { v.translatesAutoresizingMaskIntoConstraints = false; searchBox.addSubview(v) }
+        NSLayoutConstraint.activate([
+            searchBox.heightAnchor.constraint(equalToConstant: 36),
+            glass.leadingAnchor.constraint(equalTo: searchBox.leadingAnchor, constant: 10),
+            glass.centerYAnchor.constraint(equalTo: searchBox.centerYAnchor),
+            searchField.leadingAnchor.constraint(equalTo: glass.trailingAnchor, constant: 8),
+            searchField.trailingAnchor.constraint(equalTo: searchBox.trailingAnchor, constant: -10),
+            searchField.centerYAnchor.constraint(equalTo: searchBox.centerYAnchor),
+        ])
+        searchCancel.setTitle("취소", for: .normal)
+        searchCancel.titleLabel?.font = .systemFont(ofSize: 16)
+        searchCancel.tintColor = .label
+        searchCancel.isHidden = true
+        searchCancel.accessibilityIdentifier = "native-chat-search-cancel"
+        searchCancel.setContentHuggingPriority(.required, for: .horizontal)
+        searchCancel.addAction(UIAction { [weak self] _ in self?.setSearch(false) }, for: .touchUpInside)
+    }
+
+    /// 머리말과 입력칸 자리를 통째로 바꾼다. **한쪽만 바꾸지 말 것** —
+    /// 검색 중에 글칸이 남아 있으면 무엇을 치는 자리인지 흐려진다.
+    private func setSearch(_ on: Bool) {
+        guard searching != on else { return }
+        searching = on
+        for v in header.arrangedSubviews where v !== searchBox && v !== searchCancel { v.isHidden = on }
+        searchBox.isHidden = !on; searchCancel.isHidden = !on
+        composer.isHidden = on; findBar.isHidden = !on
+        if on {
+            setTray(false)
+            hits = []; hitAt = 0
+            findBar.set(at: 0, of: 0, hint: "두 글자 이상")
+            searchField.text = ""
+            searchField.becomeFirstResponder()
+        } else {
+            searchTask?.cancel()
+            hits = []
+            view.endEditing(true)
+        }
+        list.apply(jump: !bottom || windowed)
+    }
+
+    @objc private func searchTyped() {
+        searchTask?.cancel()
+        let query = (searchField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else {
+            hits = []; hitAt = 0; findBar.set(at: 0, of: 0, hint: "두 글자 이상"); return
+        }
+        searchTask = Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                /* 치는 동안 300ms 쉬면 그때 한 번 간다 — 글자마다 물어보지
+                   않는다(웹의 검색과 같은 잣대다). */
+                try await Task.sleep(nanoseconds: 300_000_000)
+                let safe = query.replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "%", with: "\\%")
+                    .replacingOccurrences(of: "_", with: "\\_")
+                let found = try await self.service.messages(
+                    self.room, filters: [("body", "ilike.%\(safe)%"), ("hidden_at", "is.null")], limit: 100)
+                try Task.checkCancellation()
+                self.hits = found          // 최근 것이 앞이다(내림차순).
+                self.hitAt = 0
+                if found.isEmpty { self.findBar.set(at: 0, of: 0, hint: "찾은 글 없음"); return }
+                self.findBar.set(at: 1, of: found.count, hint: "")
+                self.jump(found[0])
+            } catch {
+                if !Task.isCancelled { self.findBar.set(at: 0, of: 0, hint: "찾지 못했습니다") }
             }
-        }; showPanel(panel)
+        }
+    }
+
+    /// `+1`이면 더 지난 글, `-1`이면 더 최근 글이다(목록이 내림차순이라
+    /// 번호가 클수록 옛날이다).
+    private func step(_ d: Int) {
+        guard !hits.isEmpty else { return }
+        let next = hitAt + d
+        guard next >= 0, next < hits.count else { return }
+        hitAt = next
+        findBar.set(at: next + 1, of: hits.count, hint: "")
+        jump(hits[next])
     }
     private func personName(_ id: String) -> String { people.first { $0["id"] as? String == id }?["name"] as? String ?? "안내" }
     private func jumpToID(_ id: String) {

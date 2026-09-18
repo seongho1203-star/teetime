@@ -201,6 +201,14 @@ struct ChatSkin {
     var jumpDim = UIColor(red: 0x5b / 255, green: 0x64 / 255, blue: 0x55 / 255, alpha: 1)
     var jumpH: CGFloat = 38
     var jumpSize: CGFloat = 13
+    /// 굴릴 때 오른쪽에 뜨는 날짜 알약(카톡의 그것). **카톡 화면을 픽셀로
+    /// 재서 맞춘 값이다**(1206×2622 · 배율 3.0): 높이 66px → 22 ·
+    /// 오른쪽 10px → 4 · 칠은 검정 40%(보라 위에서 `115→68`로 재서 얻었다).
+    /// **흰 칩(`chip`)을 쓰지 말 것** — 그것은 목록에 섞여 흐르는 날짜 칸
+    /// 몫이고, 이 알약은 그 위에 떠서 읽혀야 한다.
+    var dateH: CGFloat = 22
+    var dateSize: CGFloat = 13
+    var dateBg = UIColor(white: 0, alpha: 0.4)
     /// 길게 누른 창의 `삭제` 줄(27판 · 웹의 `--danger`). 되돌릴 수 없는
     /// 일이라 그 줄만 색으로 갈라 둔다 — **분홍이 아니다.**
     var danger = UIColor(red: 0xd1 / 255, green: 0x3c / 255, blue: 0x3c / 255, alpha: 1)
@@ -537,6 +545,20 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private let table = UITableView(frame: .zero, style: .plain)
     /// `최근 대화로` 줄. 목록 위에 떠 있다 — 웹이 그리면 앱 목록에 가린다.
     private let jumpBar = JumpBar()
+    /**
+     * 굴릴 때 오른쪽에 뜨는 날짜 알약(사용자 요청 — `채팅내용 스크롤할때
+     * 카톡처럼 날짜나오게해줘` · 카톡 사진을 받아 픽셀로 맞췄다).
+     *
+     * **글자는 날짜 칸(`ChatRow.date`)에서 그대로 온다** — 여기서 날짜를
+     * 다시 만들지 말 것. 그 값은 `NativeChatService`가 한 곳에서 짓고
+     * 목록에 흐르는 칸도 같은 글자를 쓴다(두 군데가 되면 어긋난다).
+     *
+     * **세로 자리는 스크롤 막대에 맞춘다** — 카톡이 그 자리에 띄운다.
+     * 굴리기가 멎고 `dateWait`가 지나면 스스로 사라진다.
+     */
+    private let datePill = PadLabel()
+    private var dateHide: DispatchWorkItem?
+    private let dateWait = 1.2
     private var rows: [ChatRow] = []
     private var skin = ChatSkin()
     /// 줄 하나의 높이. `id|폭`으로 담아 두어 다시 재지 않는다.
@@ -716,6 +738,14 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         jumpBar.isHidden = true
         jumpBar.addTarget(self, action: #selector(jumpTapped), for: .touchUpInside)
         addSubview(jumpBar)
+
+        /* 날짜 알약 — **누를 일이 없으므로 손짓을 안 받는다**(밑의 말풍선이
+           그대로 눌려야 한다). */
+        datePill.isHidden = true
+        datePill.isUserInteractionEnabled = false
+        datePill.textAlignment = .center
+        datePill.layer.masksToBounds = true
+        addSubview(datePill)
     }
 
     @objc private func tapped() { listDelegate?.chatListDismissKeyboard() }
@@ -814,6 +844,69 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
                                    y: bounds.height - skin.jumpH - 8,
                                    width: skin.jumpH, height: skin.jumpH)
         }
+        if !datePill.isHidden { placeDate() }
+    }
+
+    // MARK: 날짜 알약
+
+    /**
+     * 굴리는 동안 오른쪽에 날짜를 띄운다(카톡과 같다).
+     *
+     * **날짜를 여기서 만들지 않는다** — 화면 맨 위에 걸린 줄에서 위로 훑어
+     * 가장 가까운 날짜 칸(`ChatRow.date`)을 그대로 쓴다. 그 글자를 짓는
+     * 곳은 `NativeChatService` 한 곳이고, 목록에 흐르는 칸도 같은 값이라
+     * 알약과 칸이 어긋날 자리가 아예 없다.
+     */
+    private func showDate() {
+        guard rows.count > 0, table.contentSize.height > table.bounds.height + 1 else { return }
+        guard let top = table.indexPathsForVisibleRows?.first,
+              let label = dayLabel(at: top.row), !label.isEmpty else { return }
+        if datePill.text != label {
+            datePill.text = label
+            datePill.font = .systemFont(ofSize: skin.dateSize, weight: .medium)
+            datePill.textColor = .white
+            datePill.backgroundColor = skin.dateBg
+        }
+        datePill.isHidden = false
+        datePill.alpha = 1
+        placeDate()
+        dateHide?.cancel()
+        let job = DispatchWorkItem { [weak self] in
+            guard let self = self, !self.datePill.isHidden else { return }
+            UIView.animate(withDuration: 0.25, animations: { self.datePill.alpha = 0 },
+                           completion: { _ in self.datePill.isHidden = true })
+        }
+        dateHide = job
+        DispatchQueue.main.asyncAfter(deadline: .now() + dateWait, execute: job)
+    }
+
+    /// 그 줄이 속한 날 — 날짜 칸이 붙은 가장 가까운 윗줄에서 가져온다.
+    private func dayLabel(at i: Int) -> String? {
+        var j = min(i, rows.count - 1)
+        while j >= 0 {
+            if let d = rows[j].date { return d }
+            j -= 1
+        }
+        return nil
+    }
+
+    /**
+     * **세로 자리는 스크롤 막대에 맞춘다** — 카톡이 그 자리에 띄운다
+     * (사용자가 준 사진에서 알약이 막대 옆 한가운데 있었다).
+     * 가로는 오른쪽 끝에 거의 붙인다(재 보니 10px = 4).
+     */
+    private func placeDate() {
+        let h = skin.dateH
+        let fit = datePill.sizeThatFits(CGSize(width: bounds.width, height: h))
+        let w = min(max(fit.width, 56), bounds.width - 40)
+        let vh = table.bounds.height
+        let content = max(table.contentSize.height, vh)
+        let frac = max(0, min(1, table.contentOffset.y / max(1, content - vh)))
+        let barH = max(40, vh * vh / content)
+        var cy = (vh - barH) * frac + barH / 2
+        cy = max(h / 2 + 8, min(vh - h / 2 - 8, cy))
+        datePill.frame = CGRect(x: bounds.width - w - 4, y: cy - h / 2, width: w, height: h)
+        datePill.layer.cornerRadius = h / 2
     }
 
     // MARK: 웹이 부르는 것
@@ -1237,6 +1330,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
             dragHid = true
             listDelegate?.chatListDismissKeyboard()
         }
+        showDate()
         report()
     }
 

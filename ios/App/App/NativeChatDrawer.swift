@@ -599,6 +599,17 @@ final class ChatProfile: UIView {
  * `@전체`는 **운영진만** 쓰고, 서른 명의 폰을 한꺼번에 울리는 일이라
  * 무엇을 하는 것인지 옆에 적는다(웹의 `.mention-item.is-all`과 같다).
  * **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 된다.
+ *
+ * **카드 뒤는 대화 바탕색(보라)이다**(사용자 요청 — `@눌러서 회원목록뜰때
+ * 목록뒤에 뒷배경 삭제해줘`). 이 칸은 아무 칠도 안 하고 있어 **화면
+ * 바탕(크림색)이 그대로 비쳤고**, 보라 목록과 입력칸 사이에 밝은 판이
+ * 하나 더 깔린 것처럼 보였다 — 웹에서 `.chat-over`를 보라로 칠해 없앤 그
+ * 자리와 같다(`언급 기능 사용할 때 … 뒷면에 배경화면 같은 게 하나 있는데`).
+ * **`backgroundColor`를 지우지 말 것.**
+ *
+ * **여럿을 이어 고를 수 있다**(사용자 요청 — `@눌러서 회원선택시
+ * 다중선택기능 넣어줘`). 고른 뒤에도 목록이 남고 이미 넣은 사람 옆에는
+ * 체크가 붙는다 — 닫는 것은 **글자를 한 자 치면** 저절로 된다.
  */
 final class MentionList: UIView {
     /// 여섯 명까지 보이고 그 위는 굴린다(웹과 같은 값).
@@ -614,6 +625,8 @@ final class MentionList: UIView {
     private let scroll = UIScrollView()
     private let rows = UIStackView()
     private var boxH: NSLayoutConstraint!
+    /// 이미 글에 넣은 이름 — 그 줄에만 체크가 붙는다.
+    private var picked: Set<String> = []
     /// 이름 색 — `@전체`만 분홍이다(그 줄이 하는 일이 다르기 때문이다).
     var cText: UIColor = UIColor(hexString: "#1b1f19") ?? .label
     var cDim: UIColor = UIColor(hexString: "#5b6455") ?? .secondaryLabel
@@ -622,6 +635,8 @@ final class MentionList: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isHidden = true
+        /* 카드 뒤는 **대화 바탕색**이다 — 위 머리말의 `뒷배경` 꼭지를 볼 것. */
+        backgroundColor = ChatSkin().bg
         card.backgroundColor = .white
         card.layer.cornerRadius = 12
         card.layer.borderWidth = 1
@@ -657,7 +672,8 @@ final class MentionList: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     /// 아무도 없으면 칸째 사라진다 — 빈 카드가 남으면 안 된다.
-    func show(_ names: [String]) {
+    func show(_ names: [String], picked: Set<String> = []) {
+        self.picked = picked
         rows.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let shown = Array(names.prefix(30))
         for (i, name) in shown.enumerated() {
@@ -693,11 +709,205 @@ final class MentionList: UIView {
             ]))
         }
         cfg.attributedTitle = AttributedString(title)
+        /* 이미 넣은 사람에게는 **체크가 붙는다** — 여럿을 이어 고르는
+           자리라 누구를 이미 불렀는지 목록만 봐서는 알 수 없다.
+           **그림글자가 아니라 SF Symbol이다**(없는 기기에서 두부가 된다). */
+        if picked.contains(name) {
+            cfg.image = UIImage(systemName: "checkmark", withConfiguration:
+                UIImage.SymbolConfiguration(pointSize: 13, weight: .bold))
+            cfg.imagePlacement = .trailing
+            cfg.imagePadding = 8
+        }
         b.configuration = cfg
+        b.tintColor = cDim
         b.contentHorizontalAlignment = .leading
         b.heightAnchor.constraint(equalToConstant: Self.rowH).isActive = true
         b.accessibilityIdentifier = "native-chat-mention"
         b.addAction(UIAction { [weak self] _ in self?.onPick?(name) }, for: .touchUpInside)
+        return b
+    }
+}
+
+// MARK: - 검색 — 찾은 글 사이를 오가는 바
+
+/**
+ * 🔍를 누르면 **입력칸 자리에 서는 바**다(사용자 요청 — `검색 눌렀을때
+ * 카톡처럼 나오게해줘` · 카톡 사진을 받아 맞췄다).
+ *
+ * **찾은 것을 목록으로 덮지 않는다 — 대화가 그대로 보인다.** 예전에는
+ * 화면을 통째로 덮는 목록창이었는데, 카톡은 **찾은 글로 곧장 옮겨 주고**
+ * 이 바의 `^`(더 지난 것) · `⌄`(더 최근 것)로 그 사이를 오간다.
+ * 그래서 앞뒤 대화를 보면서 되짚을 수 있다.
+ *
+ * 값은 카톡 사진에서 잰 것이다 — 바는 옅은 라벤더 알약(`ReplyBox.tint`),
+ * 동그라미는 **흰색 36**이고 그림은 SF Symbol이다(**그림글자를 쓰지 말 것**).
+ * 몇 번째인지(`3 / 12`)는 카톡에 없지만 우리는 적는다 — 없으면 끝까지
+ * 갔는지 알 길이 없어 같은 자리를 되풀이해 누르게 된다.
+ */
+final class FindBar: UIView {
+    var onUp: (() -> Void)?
+    var onDown: (() -> Void)?
+    private let bar = UIView()
+    private let count = UILabel()
+    private let up = UIButton(type: .system)
+    private let down = UIButton(type: .system)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        backgroundColor = ChatSkin().bg
+        bar.backgroundColor = ReplyBox.tint
+        bar.layer.cornerRadius = 24
+        bar.layer.cornerCurve = .continuous
+        count.font = .systemFont(ofSize: 14, weight: .medium)
+        count.textColor = UIColor(red: 0x32 / 255, green: 0x30 / 255, blue: 0x3b / 255, alpha: 1)
+        circle(up, "chevron.up", "더 지난 것", "native-find-up") { [weak self] in self?.onUp?() }
+        circle(down, "chevron.down", "더 최근 것", "native-find-down") { [weak self] in self?.onDown?() }
+        for v in [bar, count, up, down] as [UIView] { v.translatesAutoresizingMaskIntoConstraints = false }
+        addSubview(bar); bar.addSubview(count); bar.addSubview(up); bar.addSubview(down)
+        NSLayoutConstraint.activate([
+            bar.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            bar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            bar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            bar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            bar.heightAnchor.constraint(equalToConstant: 48),
+            count.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 18),
+            count.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            down.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -6),
+            down.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            down.widthAnchor.constraint(equalToConstant: 36),
+            down.heightAnchor.constraint(equalToConstant: 36),
+            up.trailingAnchor.constraint(equalTo: down.leadingAnchor, constant: -6),
+            up.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            up.widthAnchor.constraint(equalToConstant: 36),
+            up.heightAnchor.constraint(equalToConstant: 36),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// `at`은 1부터 센다. 찾은 것이 없으면 `0`을 준다.
+    func set(at: Int, of n: Int, hint: String) {
+        count.text = n > 0 ? "\(at) / \(n)" : hint
+        up.isEnabled = at < n
+        down.isEnabled = at > 1
+        up.alpha = up.isEnabled ? 1 : 0.4
+        down.alpha = down.isEnabled ? 1 : 0.4
+    }
+
+    private func circle(_ b: UIButton, _ symbol: String, _ label: String, _ id: String, _ tap: @escaping () -> Void) {
+        b.setImage(UIImage(systemName: symbol, withConfiguration:
+            UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)), for: .normal)
+        b.tintColor = UIColor(red: 0x32 / 255, green: 0x30 / 255, blue: 0x3b / 255, alpha: 1)
+        b.backgroundColor = .white
+        b.layer.cornerRadius = 18
+        b.accessibilityLabel = label
+        b.accessibilityIdentifier = id
+        b.addAction(UIAction { _ in tap() }, for: .touchUpInside)
+    }
+}
+
+// MARK: - 댓글(답장) 입력칸
+
+/**
+ * 말풍선을 왼쪽으로 밀어 **댓글을 달 때 입력칸 위에 물리는 카드**다
+ * (사용자 요청 — `말풍선을 왼쪽으로 밀어서 댓글달때 카톡처럼해줘` ·
+ * 카톡 사진을 받아 픽셀로 맞췄다).
+ *
+ * **예전에는 `댓글 · 입맛이 없어서 ㅋ    ✕` 한 줄짜리 단추였다 —
+ * 되돌리지 말 것.** 누구에게 다는 것인지가 글 안에 묻혀 있었고, 원문으로
+ * 가 볼 길도 없었다.
+ *
+ * ```
+ * ┌───────────────────────────────────────┐
+ * │ 신성호에게 댓글                  (↳) (✕) │  ← 굵은 이름 · 동그란 단추 둘
+ * │ 입맛이 없어서 ㅋ                        │  ← 원문 한 줄(말줄임)
+ * └───────────────────────────────────────┘
+ * ```
+ *
+ * **잰 값**(1206×2622 · 배율 3.0): 카드 좌우 여백 30px → 10 ·
+ * 모서리 54px → 18 · 칠 `#b0a5e5`(보라 위의 옅은 라벤더) ·
+ * 동그라미 72px → 24, 사이 49px → 16, 오른쪽 36px → 12.
+ * **눈대중으로 고치지 말 것.**
+ *
+ * - **이름은 닉네임 그대로다**(`83/신성호/광산구`가 아니라) — 문장에
+ *   가까운 줄이라 긴 이름표는 목록의 이름 자리 몫이다(웹의 인용과 같다).
+ * - **말은 `댓글`이다** — 길게 누른 창의 줄 · 말풍선 머리말과 같은 글자다.
+ * - `↳`는 **원문으로 간다**(웹에서 인용을 누르면 가는 그 자리다),
+ *   `✕`는 댓글 달기를 그만둔다.
+ * - **그림글자를 쓰지 말 것** — SF Symbol이다.
+ */
+final class ReplyBox: UIView {
+    var onJump: (() -> Void)?
+    var onClose: (() -> Void)?
+    /// 카톡에서 뽑은 옅은 라벤더. 대화 바탕(`#7369a0`)이 같은 값이라
+    /// 그 위에 그대로 얹힌다.
+    static let tint = UIColor(red: 0xb0 / 255, green: 0xa5 / 255, blue: 0xe5 / 255, alpha: 1)
+    private static let btn: CGFloat = 24
+    private let card = UIView()
+    private let who = UILabel()
+    private let quote = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        backgroundColor = ChatSkin().bg
+        card.backgroundColor = Self.tint
+        card.layer.cornerRadius = 18
+        card.layer.cornerCurve = .continuous
+        who.font = .systemFont(ofSize: 14, weight: .bold)
+        who.textColor = UIColor(red: 0x1b / 255, green: 0x1f / 255, blue: 0x19 / 255, alpha: 1)
+        who.lineBreakMode = .byTruncatingTail
+        quote.font = .systemFont(ofSize: 13.5)
+        quote.textColor = UIColor(white: 0, alpha: 0.6)
+        quote.lineBreakMode = .byTruncatingTail
+        let jump = circleBtn("arrow.turn.down.left", "원문 보기", "native-reply-jump") { [weak self] in self?.onJump?() }
+        let close = circleBtn("xmark", "댓글 취소", "native-reply-close") { [weak self] in self?.onClose?() }
+        for v in [card, who, quote, jump, close] as [UIView] { v.translatesAutoresizingMaskIntoConstraints = false }
+        addSubview(card); card.addSubview(who); card.addSubview(quote)
+        card.addSubview(jump); card.addSubview(close)
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: topAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            close.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            close.centerYAnchor.constraint(equalTo: who.centerYAnchor),
+            close.widthAnchor.constraint(equalToConstant: Self.btn),
+            close.heightAnchor.constraint(equalToConstant: Self.btn),
+            jump.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -16),
+            jump.centerYAnchor.constraint(equalTo: who.centerYAnchor),
+            jump.widthAnchor.constraint(equalToConstant: Self.btn),
+            jump.heightAnchor.constraint(equalToConstant: Self.btn),
+            who.topAnchor.constraint(equalTo: card.topAnchor, constant: 11),
+            who.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            who.trailingAnchor.constraint(equalTo: jump.leadingAnchor, constant: -8),
+            who.heightAnchor.constraint(equalToConstant: Self.btn),
+            quote.topAnchor.constraint(equalTo: who.bottomAnchor, constant: 2),
+            quote.leadingAnchor.constraint(equalTo: who.leadingAnchor),
+            quote.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
+            quote.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -11),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show(who name: String, text: String) {
+        who.text = "\(name)에게 댓글"
+        quote.text = text
+        isHidden = false
+    }
+
+    /// 동그란 단추 — 칠은 카드와 같고 **테두리로만** 갈라 둔다(카톡과 같다).
+    private func circleBtn(_ symbol: String, _ label: String, _ id: String, _ tap: @escaping () -> Void) -> UIButton {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: symbol, withConfiguration:
+            UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)), for: .normal)
+        b.tintColor = UIColor(red: 0x32 / 255, green: 0x30 / 255, blue: 0x3b / 255, alpha: 1)
+        b.layer.cornerRadius = Self.btn / 2
+        b.layer.borderWidth = 1
+        b.layer.borderColor = UIColor(red: 0x9c / 255, green: 0x93 / 255, blue: 0xca / 255, alpha: 1).cgColor
+        b.accessibilityLabel = label
+        b.accessibilityIdentifier = id
+        b.addAction(UIAction { _ in tap() }, for: .touchUpInside)
         return b
     }
 }
