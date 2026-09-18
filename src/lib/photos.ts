@@ -27,10 +27,15 @@
 
 import { supabase } from './supabase';
 
-/** 이만큼 지난 사진을 지운다. **`schema.sql`의 `chat_photos_old` 정책과
- *  같은 값이어야 한다** — 앱이 90일로 골라 놓고 DB가 안 열어 주면 아무
- *  일도 안 일어난다. 한쪽만 고치지 말 것. */
-export const PHOTO_DAYS = 90;
+/** 이만큼 지난 사진·동영상을 지운다. **`schema.sql`의 `chat_photos_old`
+ *  정책과 같은 값이어야 한다** — 앱이 2주로 골라 놓고 DB가 안 열어 주면
+ *  아무 일도 안 일어난다. 한쪽만 고치지 말 것.
+ *
+ *  **90일에서 2주로 줄였다**(사용자 요청 — `사진과 동영상을 원본으로
+ *  올릴수있게해주고 2주가 지나면 자동으로 삭제되게해서 용량확보할수있게`).
+ *  원본 사진이 한 장 3~5MB, 동영상은 한 개에 수십 MB라 90일치를 들고
+ *  있으면 무료 통(1GB)이 금방 찬다 — **차면 그때부터 아무도 못 올린다.** */
+export const PHOTO_DAYS = 14;
 
 /** 한 번에 이만큼만 지운다. 쌓인 것이 많아도 며칠에 걸쳐 걷힌다 —
  *  대화를 여는 그 순간에 백 건을 지우고 앉아 있을 이유가 없다. */
@@ -52,13 +57,21 @@ function tried(): boolean {
 }
 
 /**
- * 이 방의 오래된 사진을 걷는다.
+ * 이 방의 오래된 사진·동영상을 걷는다.
  *
  * **조용히 실패한다.** 통이 없는 저장소도 있고, 정책을 아직 안 돌린
  * 저장소도 있다 — 청소가 안 됐다고 대화가 안 열리면 안 된다.
+ *
+ * **방 번호를 안 주면 스스로 찾는다.** 아이폰 앱에서는 대화를 앱이
+ * 통째로 그려(`screens/NativeChat.tsx`) 웹 쪽이 방 번호를 모르는데,
+ * 그렇다고 청소를 안 돌리면 **앱을 쓰는 사람에게는 이 기능이 아예 없는
+ * 것이 된다**(실제로 한동안 그랬다 — 웹 화면에서만 불렀다).
+ * 하루 한 번 걸러 내는 문(`tried()`)을 먼저 지나므로 그 조회도 하루 한 번이다.
  */
-export async function purgeOldPhotos(roomId: string): Promise<number> {
-    if (!roomId || tried()) return 0;
+export async function purgeOldPhotos(roomId?: string): Promise<number> {
+    if (tried()) return 0;
+    if (!roomId) roomId = await firstRoom();
+    if (!roomId) return 0;
     try {
         /* 오래된 것부터 받는다 — 지울 것이 있다면 앞쪽에 있다. */
         const { data, error } = await supabase.storage.from('chat-photos').list(roomId, {
@@ -78,5 +91,17 @@ export async function purgeOldPhotos(roomId: string): Promise<number> {
         return delErr ? 0 : old.length;
     } catch {
         return 0;
+    }
+}
+
+/** 전체 대화방 — `round_id`가 없는 방 중 가장 먼저 만든 것(DB의
+ *  `chat_notice()`와 같은 잣대다). 못 찾으면 그냥 넘어간다. */
+async function firstRoom(): Promise<string | undefined> {
+    try {
+        const { data } = await supabase.from('rooms').select('id')
+            .is('round_id', null).order('created_at').limit(1).maybeSingle();
+        return data?.id;
+    } catch {
+        return undefined;
     }
 }

@@ -3,6 +3,7 @@ import { useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
+import { purgeOldPhotos } from '../lib/photos';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
 import { chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, setChatShot, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
@@ -114,6 +115,12 @@ function NativeChatHost() {
                이제부터는 끌어서 뒤로 갈 때 뒤에 깔릴 그림이 필요하다.
                앱이 찍어 둔 그림이 그 사이를 덮고 있어 눈에는 안 보인다. */
             if ((back || dragged) && !dead) nativeChatEnter();
+            /* **오래된 사진·동영상 청소는 여기서도 돈다**(`PHOTO_DAYS` 2주).
+               대화를 앱이 통째로 그리게 되면서 이 줄이 빠져 있었는데,
+               그러면 **앱을 쓰는 사람에게는 청소가 아예 없는 것**이 된다 —
+               청소를 도는 화면이 웹 대화방(`Chat.tsx`)뿐이었다.
+               방 번호는 `purgeOldPhotos`가 스스로 찾고, 하루 한 번만 돈다. */
+            void purgeOldPhotos();
         })().catch(e => {
             if (dead) return;
             /* **못 열었으면 깔아 둔 그림을 걷는다** — 안 걷으면 그 그림이

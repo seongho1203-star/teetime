@@ -1,4 +1,6 @@
 import UIKit
+import AVFoundation
+import AVKit
 import PhotosUI
 import SafariServices
 
@@ -77,7 +79,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private var lastRead = ""
     private var quoted: NativeChatMessage?
     private var sticker: ChatJSON?
-    private var pickedPhoto: UIImage?
+    /// 골라 둔 사진·동영상 한 개(`PickedMedia`). 보내기를 누를 때 올린다.
+    private var picked: PickedMedia?
     private var retryRow: ChatJSON?
     private var mentionRange: NSRange?
     /// 길게 눌러 창을 띄운 글. 고른 것이 돌아올 때 이 값으로 찾는다.
@@ -246,7 +249,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
 
     private func stickerPicked(_ item: ChatJSON) {
-        sticker = item; pickedPhoto = nil; retryRow = nil; updateContext()
+        sticker = item; picked = nil; retryRow = nil; updateContext()
     }
 
     /**
@@ -503,12 +506,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     // MARK: Native input and attachments
     func composerSend(text: String) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !busy, loaded, !body.isEmpty || sticker != nil || pickedPhoto != nil || retryRow != nil else { return }
+        guard !busy, loaded, !body.isEmpty || sticker != nil || picked != nil || retryRow != nil else { return }
         guard body.count <= 1000 else { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
         busy = true; composer.sendBtn.isEnabled = false; composer.plusBtn.isEnabled = false
         // Keep the first responder (and Korean composition/keyboard) alive during I/O.
         context.isUserInteractionEnabled = false; self.reply.isUserInteractionEnabled = false
-        let image = pickedPhoto, chosen = sticker, quote = quoted
+        let media = picked, chosen = sticker, quote = quoted
         Task { [weak self] in
             guard let self = self else { return }
             defer {
@@ -523,22 +526,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     row = ["id": UUID().uuidString.lowercased(), "room_id": self.room, "user_id": self.me, "body": body]
                     if let quote = quote { row["reply_to"] = quote.id }
                     if let id = chosen?["id"] as? String { row["image_url"] = "sticker:\(id)" }
-                    if let image = image {
-                        /* **2560px · JPEG 82%** — 웹의 `lib/image.ts`와 같은
-                           값이다(`MAX_EDGE`·`QUALITY`). **한쪽만 고치지 말 것** —
-                           갈리면 어느 길로 올렸느냐에 따라 화질이 달라진다.
-                           저장 공간이 곧 사진 장수라 **사용자에게 묻고 바꿀 것.** */
-                        let size = image.size; let scale = min(1, 2560 / max(size.width, size.height))
-                        let target = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
-                        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
-                        let jpg = UIGraphicsImageRenderer(size: target, format: fmt).image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }.jpegData(compressionQuality: 0.82)
-                        guard let jpg = jpg else { throw NativeChatError(message: "사진을 준비하지 못했습니다.") }
-                        row["image_url"] = try await self.service.upload(jpg, room: self.room)
+                    if let media = media {
+                        /* **원본 그대로 올린다**(사용자 요청) — 줄이지도,
+                           다시 굽지도 않는다. 자세한 것은 `PickedMedia`의
+                           머리말을 볼 것. 저장 공간이 곧 장수라 **저장
+                           기간을 2주로 줄여** 균형을 맞췄다. */
+                        row["image_url"] = try await self.service.upload(
+                            media.data, room: self.room, ext: media.ext, type: media.type)
                     }
                     self.retryRow = row
                 }
                 let sent = try await self.service.send(row)
-                self.retryRow = nil; self.quoted = nil; self.sticker = nil; self.pickedPhoto = nil
+                self.retryRow = nil; self.quoted = nil; self.sticker = nil; self.picked = nil
                 if self.composer.text == text { self.composer.text = "" }
                 self.updateContext()
                 if self.windowed {
@@ -633,33 +632,70 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
         view.endEditing(true)
         setTray(false)
-        let menu = UIAlertController(title: "사진 첨부", message: nil, preferredStyle: .actionSheet)
+        let menu = UIAlertController(title: "사진·동영상 첨부", message: nil, preferredStyle: .actionSheet)
         menu.addAction(UIAlertAction(title: "사진 보관함", style: .default) { [weak self] _ in self?.pickPhoto() })
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             menu.addAction(UIAlertAction(title: "사진 찍기", style: .default) { [weak self] _ in
                 guard let self = self else { return }
-                let camera = UIImagePickerController(); camera.sourceType = .camera; camera.delegate = self; self.present(camera, animated: true)
+                let camera = UIImagePickerController(); camera.sourceType = .camera; camera.delegate = self
+                /* 카메라에서 **동영상 칸으로도 넘길 수 있게** 둘 다 받는다. */
+                camera.mediaTypes = ["public.image", "public.movie"]
+                camera.videoQuality = .typeHigh
+                self.present(camera, animated: true)
             })
         }
         menu.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(menu)
     }
+    /// **사진과 동영상을 함께 고른다**(사용자 요청). 한 번에 한 개다 —
+    /// 여러 개를 받으면 올리는 동안 무엇이 실패했는지 알려 줄 자리가 없다.
     private func pickPhoto() {
-        var config = PHPickerConfiguration(); config.filter = .images; config.selectionLimit = 1
+        var config = PHPickerConfiguration()
+        config.filter = .any(of: [.images, .videos])
+        config.selectionLimit = 1
+        /* **줄이지 말고 원본 파일을 달라**는 뜻이다(사용자 요청) — 이게
+           없으면 아이폰이 제 나름대로 변환해 준다. */
+        config.preferredAssetRepresentationMode = .current
         let picker = PHPickerViewController(configuration: config); picker.delegate = self; present(picker, animated: true)
     }
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let item = results.first?.itemProvider, item.canLoadObject(ofClass: UIImage.self) else { return }
-        item.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
-            DispatchQueue.main.async {
-                guard let self = self, let image = object as? UIImage else { return }
-                self.pickedPhoto = image; self.sticker = nil; self.retryRow = nil; self.updateContext()
+        guard let item = results.first?.itemProvider else { return }
+        /* 동영상이 먼저다 — 움짤(`.mov`)은 그림으로도 읽혀서, 사진부터
+           물어보면 첫 장면만 올라간다. */
+        if item.hasItemConformingToTypeIdentifier("public.movie") {
+            _ = item.loadFileRepresentation(forTypeIdentifier: "public.movie") { [weak self] url, _ in
+                /* **이 자리를 벗어나면 그 파일은 사라진다** — 여기서 읽어
+                   담는다(`PickedMedia.video`). */
+                let media = url.flatMap { PickedMedia.video($0) }
+                DispatchQueue.main.async { self?.took(media, what: "동영상") }
             }
+            return
+        }
+        _ = item.loadFileRepresentation(forTypeIdentifier: "public.image") { [weak self] url, _ in
+            let media = url.flatMap { u -> PickedMedia? in
+                guard let data = try? Data(contentsOf: u) else { return nil }
+                return PickedMedia.photo(data, ext: u.pathExtension)
+            }
+            DispatchQueue.main.async { self?.took(media, what: "사진") }
         }
     }
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-        pickedPhoto = info[.originalImage] as? UIImage; sticker = nil; retryRow = nil
-        picker.dismiss(animated: true); updateContext()
+        picker.dismiss(animated: true)
+        if let movie = info[.mediaURL] as? URL {
+            took(PickedMedia.video(movie), what: "동영상"); return
+        }
+        took((info[.originalImage] as? UIImage).flatMap { PickedMedia.jpeg($0) }, what: "사진")
+    }
+
+    /// 고른 것을 입력칸 위에 물린다. **너무 크면 여기서 잡는다** — 올리다
+    /// 막히면 사람 말이 아닌 오류가 뜨고 그때는 이미 몇십 초를 기다린 뒤다.
+    private func took(_ media: PickedMedia?, what: String) {
+        guard let media = media else { notice("\(what)을 불러오지 못했습니다."); return }
+        guard media.data.count <= PickedMedia.limit else {
+            notice("\(what)이 너무 큽니다(\(media.data.count / 1024 / 1024)MB).\n50MB까지 올릴 수 있습니다.")
+            return
+        }
+        picked = media; sticker = nil; retryRow = nil; updateContext()
     }
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { picker.dismiss(animated: true) }
     private func updateContext() {
@@ -669,19 +705,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         } else {
             reply.isHidden = true
         }
-        if sticker != nil || pickedPhoto != nil {
+        if sticker != nil || picked != nil {
             let row = UIStackView(); row.alignment = .center; row.distribution = .fill
-            let image = UIImageView(); image.contentMode = .scaleAspectFit; image.image = pickedPhoto
+            let image = UIImageView(); image.contentMode = .scaleAspectFit; image.image = picked?.preview
             image.widthAnchor.constraint(equalToConstant: 76).isActive = true; image.heightAnchor.constraint(equalToConstant: 76).isActive = true
             if let src = sticker?["src"] as? String { ImageStore.shared.load(src) { shot in ImageStore.put(shot, into: image) } }
-            let label = UILabel(); label.text = sticker?["label"] as? String ?? "보낼 사진"; label.font = .systemFont(ofSize: 14)
+            let label = UILabel(); label.text = sticker?["label"] as? String ?? picked?.label ?? ""; label.font = .systemFont(ofSize: 14)
             let remove = button("xmark", "첨부 취소", "native-attachment-cancel") { [weak self] in
-                self?.sticker = nil; self?.pickedPhoto = nil; self?.retryRow = nil; self?.updateContext()
+                self?.sticker = nil; self?.picked = nil; self?.retryRow = nil; self?.updateContext()
             }
             row.addArrangedSubview(image); row.addArrangedSubview(label); row.addArrangedSubview(remove); context.addArrangedSubview(row)
         }
         context.isHidden = context.arrangedSubviews.isEmpty
-        composer.forceSend = sticker != nil || pickedPhoto != nil
+        composer.forceSend = sticker != nil || picked != nil
         tray.mark(sticker?["id"] as? String ?? "")
     }
     /// 글칸에 초점이 가면 서랍을 닫는다 — 키보드와 자리를 맞바꾸는 그 규칙이다.
@@ -869,9 +905,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func adaptivePresentationStyle(for controller: UIPresentationController)
         -> UIModalPresentationStyle { return .none }
     /// 사진은 **머리말 없이 통째로** 띄운다 — 검은 바탕에 `✕`와 알약 둘뿐이다.
+    /// **동영상이면 재생기를 띄운다**(`AVPlayerViewController` — 아이폰이
+    /// 늘 쓰는 그 화면이라 손에 익은 대로 움직인다).
     private func showPhoto(_ url: String) {
         view.endEditing(true)
-        present(NativeChatPhoto(url), animated: true)
+        guard ChatMedia.isVideo(url), let u = URL(string: url) else {
+            present(NativeChatPhoto(url), animated: true); return
+        }
+        let player = AVPlayer(url: u)
+        let screen = AVPlayerViewController()
+        screen.player = player
+        screen.modalPresentationStyle = .fullScreen
+        present(screen, animated: true) { player.play() }
     }
     private func showPanel(_ panel: UIViewController) {
         view.endEditing(true)
@@ -984,8 +1029,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         /* 칸이 남는 자리를 다 먹고 `취소`만 제 너비를 지킨다(카톡과 같다). */
         searchBox.setContentHuggingPriority(.defaultLow, for: .horizontal)
         searchBox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let glass = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        /* **돋보기는 크기를 못박는다.** 안 박으면 글래스와 글칸이 둘 다
+           `hugging 250`이라 **가로가 애매해져** 레이아웃 엔진이 아무 쪽이나
+           늘리는데, 하필 그림칸이 늘어나면 `scaleToFill`이라 **돋보기가
+           칸 폭만큼 쭉 늘어난 회색 덩어리**가 된다(사용자 제보 · 사진 —
+           `검색 돋보기가 이상해`). 크기를 주고 비율을 지키게 하고
+           **글칸보다 먼저 제 몫을 챙기게**(hugging·compression을 올린다)
+           하면 셋이 다 막힌다. */
+        let glass = UIImageView(image: UIImage(systemName: "magnifyingglass",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)))
         glass.tintColor = .secondaryLabel
+        glass.contentMode = .scaleAspectFit
+        glass.setContentHuggingPriority(.required, for: .horizontal)
+        glass.setContentCompressionResistancePriority(.required, for: .horizontal)
         searchField.font = .systemFont(ofSize: 16)
         searchField.returnKeyType = .search
         searchField.clearButtonMode = .whileEditing
@@ -1022,6 +1078,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         for v in header.arrangedSubviews where v !== searchBox && v !== searchCancel { v.isHidden = on }
         searchBox.isHidden = !on; searchCancel.isHidden = !on
         composer.isHidden = on; findBar.isHidden = !on
+        /* 나가면 파랗게 칠한 것도 함께 걷는다. */
+        if !on { list.find = "" }
         if on {
             setTray(false)
             hits = []; hitAt = 0
@@ -1039,6 +1097,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     @objc private func searchTyped() {
         searchTask?.cancel()
         let query = (searchField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        /* **친 글자는 곧바로 파랗게 칠한다**(사용자 요청) — 서버 답을
+           기다리지 않는다. 이미 화면에 있는 줄에서 그 자리를 찾는 일이라
+           다녀올 것이 없고, 치는 대로 따라 칠해져야 찾는 맛이 난다. */
+        list.find = query
         guard query.count >= 2 else {
             hits = []; hitAt = 0; findBar.set(at: 0, of: 0, hint: "두 글자 이상"); return
         }
@@ -1099,5 +1161,77 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 list.apply(jump: true)
             } catch { notice(error.localizedDescription) }
         }
+    }
+}
+
+/**
+ * 골라 둔 사진·동영상 한 개.
+ *
+ * **사진은 원본 그대로 올린다**(사용자 요청 — `사진과 동영상을 원본으로
+ * 올릴수있게해주고`). 예전에는 긴 변 2560px·JPEG 82%로 줄여 올렸는데,
+ * 이제 **줄이지 않는다.**
+ *
+ * - **JPEG·PNG는 파일 바이트를 그대로 올린다** — 다시 굽지 않으므로
+ *   화질이 한 번도 안 깎인다.
+ * - **HEIC만 JPEG으로 바꾼다**(해상도는 원본 그대로 · 화질 95%).
+ *   아이폰 기본 형식이 HEIC인데 **안드로이드와 PC 브라우저는 그걸 못
+ *   연다** — 그대로 올리면 우리 대화방 절반이 빈 네모를 보게 된다.
+ *   `웹에서 되니까 괜찮다`의 정반대 자리라 여기서 막는다.
+ * - **동영상은 손대지 않는다** — 다시 굽는 순간 원본이 아니다.
+ *
+ * **그 대가는 저장 공간이다.** 무료 통이 1GB인데 원본 사진이 한 장
+ * 3~5MB, 동영상은 한 개에 수십 MB다 — 그래서 **저장 기간을 90일에서
+ * 2주로 줄였다**(사용자가 함께 정했다. `lib/photos.ts`의 `PHOTO_DAYS`).
+ */
+struct PickedMedia {
+    let data: Data
+    let ext: String
+    let type: String
+    /// 입력칸 위 미리보기(동영상은 첫 장면).
+    let preview: UIImage?
+    var isVideo: Bool { ChatMedia.videoExts.contains(ext) }
+    var label: String { isVideo ? "보낼 동영상" : "보낼 사진" }
+
+    /// **무료 통의 한 건 한도가 50MB다**(Supabase 무료 판). 넘으면 올리다
+    /// 막히는데 그 오류는 사람 말이 아니라, 고르는 자리에서 미리 잡는다.
+    static let limit = 50 * 1024 * 1024
+
+    /// 사진 파일 하나를 원본대로 담는다. HEIC만 JPEG으로 바꾼다(위 참고).
+    static func photo(_ data: Data, ext raw: String) -> PickedMedia? {
+        let ext = raw.lowercased()
+        if ext == "jpg" || ext == "jpeg" {
+            return PickedMedia(data: data, ext: "jpg", type: "image/jpeg",
+                               preview: UIImage(data: data))
+        }
+        if ext == "png" {
+            return PickedMedia(data: data, ext: "png", type: "image/png",
+                               preview: UIImage(data: data))
+        }
+        guard let image = UIImage(data: data) else { return nil }
+        return jpeg(image)
+    }
+
+    /// 카메라로 찍은 것과 HEIC — **크기는 그대로 두고** 화질만 95%로 굽는다.
+    static func jpeg(_ image: UIImage) -> PickedMedia? {
+        guard let data = image.jpegData(compressionQuality: 0.95) else { return nil }
+        return PickedMedia(data: data, ext: "jpg", type: "image/jpeg", preview: image)
+    }
+
+    /// 동영상 파일 하나 — **바이트를 그대로 싣는다.**
+    static func video(_ url: URL) -> PickedMedia? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let ext = url.pathExtension.lowercased()
+        let use = ChatMedia.videoExts.contains(ext) ? ext : "mp4"
+        let type = use == "mov" ? "video/quicktime" : "video/mp4"
+        return PickedMedia(data: Data(data), ext: use, type: type, preview: firstFrame(url))
+    }
+
+    /// 미리보기로 쓸 첫 장면. 못 떠 와도 그만이다(칸이 비어 보일 뿐이다).
+    private static func firstFrame(_ url: URL) -> UIImage? {
+        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 240, height: 240)
+        let at = CMTime(seconds: 0.1, preferredTimescale: 600)
+        return (try? gen.copyCGImage(at: at, actualTime: nil)).map { UIImage(cgImage: $0) }
     }
 }

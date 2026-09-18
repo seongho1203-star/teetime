@@ -1,3 +1,4 @@
+import AVFoundation
 import ImageIO
 import UIKit
 
@@ -47,6 +48,64 @@ import UIKit
  * 되물러남을 먼저 만들어 두었고, 판을 잘게 나눠 올린다.
  */
 
+// MARK: - 사진과 동영상 · 찾은 글자
+
+/**
+ * **주소 끝으로 사진과 동영상을 가른다**(사용자 요청 — `사진과 동영상을
+ * 원본으로 올릴수있게해주고`).
+ *
+ * **DB에 칸을 새로 만들지 않았다** — 동영상도 사진이 쓰던
+ * `messages.image_url`에 주소가 그대로 들어간다(이모티콘이 같은 칸을
+ * `sticker:<id>`로 쓰는 그 방식이다). 그래서 **붙여넣을 SQL도, 새 표도
+ * 없고** 옛 판에서도 그냥 '사진'으로 보일 뿐 안 깨진다.
+ *
+ * **웹 `lib/media.ts`의 `isVideo`와 같은 규칙이다 — 한쪽만 고치지 말 것.**
+ */
+enum ChatMedia {
+    static let videoExts = ["mp4", "mov", "m4v"]
+    static func isVideo(_ url: String?) -> Bool {
+        guard let url = url, !url.hasPrefix("sticker:") else { return false }
+        let path = (URL(string: url)?.path ?? url).lowercased()
+        return videoExts.contains { path.hasSuffix(".\($0)") }
+    }
+}
+
+/**
+ * 검색칸에 친 글자를 말풍선에서 찾는다 — **그 자리만 파랗게 칠한다**
+ * (사용자 요청 — `내가 검색한 단어는 파랗게보이도록해줘`).
+ *
+ * **색만 바꾸고 굵기는 안 건드린다.** 줄 높이는 `measure`가 여느 글자로
+ * 미리 재 두는 값이라, 굵게 하면 그만큼 넓어져 **한 줄이 더 접혀 말풍선
+ * 밖으로 밀려 나간다**(`@언급` 칠하기에서 얻은 그 규칙이다).
+ */
+enum ChatFind {
+    static let color = UIColor(red: 0x2c / 255, green: 0x7b / 255, blue: 0xd4 / 255, alpha: 1)
+
+    /// 대소문자를 안 가린다. 한글은 어차피 그대로 맞는다.
+    static func ranges(_ body: String, _ find: String) -> [NSRange] {
+        let needle = find.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard needle.count >= 1, !body.isEmpty else { return [] }
+        let ns = body as NSString
+        var out: [NSRange] = []
+        var from = 0
+        while from < ns.length {
+            let rest = NSRange(location: from, length: ns.length - from)
+            let hit = ns.range(of: needle, options: [.caseInsensitive], range: rest)
+            guard hit.location != NSNotFound, hit.length > 0 else { break }
+            out.append(hit)
+            from = hit.location + hit.length
+        }
+        return out
+    }
+
+    static func paint(_ s: NSMutableAttributedString, _ body: String, _ find: String) {
+        guard !find.isEmpty else { return }
+        for hit in ranges(body, find) where NSMaxRange(hit) <= s.length {
+            s.addAttribute(.foregroundColor, value: Self.color, range: hit)
+        }
+    }
+}
+
 // MARK: - 웹이 보내 주는 한 줄
 
 /// 말풍선 아래 붙는 반응 알약 하나(`😄 2`).
@@ -91,6 +150,9 @@ struct ChatRow {
     /// 사진·이모티콘 그림 주소. **이모티콘은 웹이 `stickerSrc()`로 만들어 준다** —
     /// 글에 남는 값은 `sticker:<id>`이고 주소 짓는 규칙은 웹에만 있다.
     let image: String?
+    /// 사진이 아니라 **동영상**인가(주소 끝으로 가른다 — `ChatMedia`).
+    /// 그림 자리에 ▶를 얹고, 누르면 사진 대신 재생기를 띄운다.
+    let video: Bool
     /// 사진·이모티콘 **아래에 붙는 한 줄**(함께 보낸 글). 웹의 `.chat-cap`이다.
     let cap: String?
     /// 이모지만 보낸 글 — 말풍선을 벗기고 크게 그린다(`lib/emoji.ts`가 가른다).
@@ -146,6 +208,9 @@ struct ChatRow {
         date = d["date"] as? String
         note = d["note"] as? String
         image = d["image"] as? String
+        /* **주소 하나로 가른다** — 줄을 만드는 쪽이 따로 표를 안 세워도
+           되고, 옛 줄에도 그대로 먹는다. */
+        video = kind == .photo && ChatMedia.isVideo(image)
         cap = d["cap"] as? String
         big = (d["big"] as? Bool) ?? false
         go = d["go"] as? String
@@ -964,6 +1029,20 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         if on { jumpBar.paint(skin: skin); setNeedsLayout() }
     }
 
+    /**
+     * 검색칸에 친 글자 — 말풍선에서 **그 자리만 파랗게** 칠한다(사용자 요청).
+     *
+     * **높이는 안 바뀐다**(색만 바꾼다) — 그래서 다시 그리기만 하면 굴러간
+     * 자리도 그대로다. `heights`를 비우지 말 것: 비우면 다 다시 재느라
+     * 긴 대화에서 그대로 끊긴다.
+     */
+    var find: String = "" {
+        didSet {
+            guard find != oldValue else { return }
+            table.reloadData()
+        }
+    }
+
     @objc private func jumpTapped() {
         listDelegate?.chatListTap(kind: "jump", id: "", to: nil)
     }
@@ -1314,7 +1393,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         let cell = t.dequeueReusableCell(withIdentifier: "b", for: ip) as! BubbleCell
         let row = rows[ip.row]
         cell.fill(row, skin: skin, maxBubble: maxBubbleWidth(), textW: textWidth(),
-                  font: bodyFont(), photo: photoBox(row.image), card: cardWidth())
+                  font: bodyFont(), photo: photoBox(row.image), card: cardWidth(), find: find)
         cell.onPhotoSize = { [weak self] url, size in self?.noteSize(url, size) }
         cell.onTap = { [weak self] kind, id, to in
             self?.listDelegate?.chatListTap(kind: kind, id: id, to: to)
@@ -1668,6 +1747,9 @@ final class BubbleCell: UITableViewCell {
     private let unreadLabel = UILabel()
     private let sysChip = PadLabel()
     private let photoView = UIImageView()
+    /// 동영상 자리에 얹는 ▶. **그림칸 안에 넣는다** — 사진 자리가 정해지면
+    /// 그 가운데로 저절로 따라간다.
+    private let playBadge = UIImageView()
     private let capBubble = UIView()
     private let capLabel = UILabel()
     private let cardView = UIView()
@@ -1700,6 +1782,8 @@ final class BubbleCell: UITableViewCell {
     private var photoBox: CGSize = .zero
     private var cardW: CGFloat = 0
     private var photoToken: UUID?
+    /// 검색칸에 친 글자 — 이 자리만 파랗게 칠한다(`ChatFind`).
+    private var find = ""
 
     /// 사진의 진짜 크기를 알게 되면 알린다 — 목록이 그 줄만 다시 잰다.
     var onPhotoSize: ((String, CGSize) -> Void)?
@@ -1739,6 +1823,18 @@ final class BubbleCell: UITableViewCell {
         photoView.contentMode = .scaleAspectFill
         photoView.layer.masksToBounds = true
         photoView.layer.cornerCurve = .continuous
+        playBadge.image = UIImage(systemName: "play.circle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 44, weight: .regular))
+        playBadge.tintColor = UIColor(white: 1, alpha: 0.92)
+        playBadge.contentMode = .center
+        playBadge.isHidden = true
+        /* 밝은 장면에서도 보이게 그림자를 깐다 — `filter`가 아니라
+           레이어 그림자라 매 프레임 다시 그리지 않는다. */
+        playBadge.layer.shadowColor = UIColor.black.cgColor
+        playBadge.layer.shadowOpacity = 0.45
+        playBadge.layer.shadowRadius = 6
+        playBadge.layer.shadowOffset = .zero
+        photoView.addSubview(playBadge)
 
         capLabel.numberOfLines = 0
         capBubble.layer.cornerRadius = 11
@@ -1956,11 +2052,14 @@ final class BubbleCell: UITableViewCell {
            옛 그림을 계속 돌린다(그리기 비용이 그만큼 남는다). */
         ImageStore.put(nil, into: photoView)
         photoToken = nil
+        playBadge.isHidden = true
     }
 
     func fill(_ r: ChatRow, skin s: ChatSkin, maxBubble mb: CGFloat,
-              textW tw: CGFloat, font: UIFont, photo pb: CGSize, card cw: CGFloat) {
+              textW tw: CGFloat, font: UIFont, photo pb: CGSize, card cw: CGFloat,
+              find: String = "") {
         row = r
+        self.find = find
         held = false
         contentView.transform = .identity
         skin = s
@@ -2149,6 +2248,9 @@ final class BubbleCell: UITableViewCell {
             /* 이모티콘은 **잘리면 안 된다**(그림 하나가 곧 말이다) —
                사진만 채워서 자른다. */
             photoView.contentMode = r.kind == .sticker ? .scaleAspectFit : .scaleAspectFill
+            /* 동영상이면 ▶를 얹는다 — 그림은 첫 장면이라 그것만으로는
+               사진과 구별이 안 된다. */
+            playBadge.isHidden = !r.video
             ImageStore.put(nil, into: photoView)
             let mine = UUID()
             photoToken = mine
@@ -2169,6 +2271,9 @@ final class BubbleCell: UITableViewCell {
                     ])
                 /* 사진에 함께 적은 글도 같은 글(`m.body`)이라 자리가 그대로 맞는다. */
                 ChatMentions.paint(cap, r.mentions)
+                /* 찾은 글자가 **나중에** 칠해진다 — 부른 이름 안에 든
+                   글자를 찾았으면 그게 찾은 글자로 보이는 것이 맞다. */
+                ChatFind.paint(cap, r.cap ?? "", find)
                 capLabel.attributedText = cap
             }
         }
@@ -2191,6 +2296,9 @@ final class BubbleCell: UITableViewCell {
         /* `@이름`은 파랗게(나·`@전체`는 분홍) — **글칸과 같은 색이다**.
            자리가 `r.body` 기준이라 **글자를 갈아 끼운 줄(`other`)에는 안 칠한다.** */
         if r.kind != .other { ChatMentions.paint(shown, r.mentions) }
+        /* **찾은 글자는 파랗게**(사용자 요청) — 가린 글은 글자를 갈아
+           끼운 줄이라 안 칠한다(덮어 둔 내용이 그리로 새면 안 된다). */
+        if r.kind != .other { ChatFind.paint(shown, body, find) }
         bodyLabel.attributedText = shown
 
         nameLabel.isHidden = r.name == nil
@@ -2373,6 +2481,7 @@ final class BubbleCell: UITableViewCell {
         }
         if hasImage {
             photoView.frame = CGRect(x: x, y: y, width: bw, height: bh)
+            playBadge.frame = photoView.bounds
             if !capBubble.isHidden {
                 let cs = measureBody(capLabel.attributedText?.string ?? "", big: false)
                 let cw = min(maxBubble, cs.width + skin.padH * 2)
@@ -2756,13 +2865,33 @@ final class ImageStore {
         if let hit = cache.object(forKey: s as NSString) { done(hit); return }
         if waiting[s] != nil { waiting[s]?.append(done); return }
         waiting[s] = [done]
-        bytes(s) { [weak self] data in
+        let finish: (Shot?) -> Void = { [weak self] shot in
             guard let self else { return }
-            let shot = data.flatMap { ImageStore.decode($0) }
             if let shot = shot { self.cache.setObject(shot, forKey: s as NSString,
                                                       cost: shot.cost) }
             let all = self.waiting.removeValue(forKey: s) ?? []
             all.forEach { $0(shot) }
+        }
+        /* **동영상은 첫 장면만 떠 온다** — 통째로 받으면 목록을 훑기만 해도
+           몇십 MB가 나간다(`AVURLAsset`은 앞부분만 읽는다). */
+        if ChatMedia.isVideo(s) { ImageStore.poster(s, done: finish); return }
+        bytes(s) { data in finish(data.flatMap { ImageStore.decode($0) }) }
+    }
+
+    /**
+     * 동영상의 첫 장면 한 장. 못 떠 오면 `nil`이라 **회색 칸에 ▶만** 남는다 —
+     * 그 자리도 눌러서 재생은 된다.
+     */
+    private static func poster(_ s: String, done: @escaping (Shot?) -> Void) {
+        guard let url = URL(string: s), url.scheme == "https" else { done(nil); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            gen.appliesPreferredTrackTransform = true   // 세로로 찍은 것이 눕지 않게
+            gen.maximumSize = CGSize(width: 720, height: 720)
+            let at = CMTime(seconds: 0.2, preferredTimescale: 600)
+            let cg = try? gen.copyCGImage(at: at, actualTime: nil)
+            let shot = cg.map { Shot(frames: [UIImage(cgImage: $0)], duration: 0) }
+            DispatchQueue.main.async { done(shot) }
         }
     }
 

@@ -563,9 +563,14 @@ async function planFor(hook: Hook): Promise<Note | null> {
            그림을 갈 때 양쪽을 고쳐야 한다. 알림창에서 궁금한 것은
            '누가 뭘 보냈나'까지다. */
         const pic = typeof r.image_url === 'string' ? r.image_url : '';
+        /* **동영상도 같은 칸을 쓴다** — 주소 끝으로 가른다(`lib/media.ts`의
+           `isVideo`와 같은 규칙이다). 칸을 새로 안 만든 값이 여기서도
+           그대로다: 발송기가 고친 것은 이 한 줄뿐이다. */
+        const video = /\.(mp4|mov|m4v)$/i.test(pic.split('?')[0]);
         const text = typeof r.body === 'string' && r.body.trim()
             ? r.body.trim()
             : (pic.startsWith('sticker:') ? '이모티콘을 보냈습니다'
+               : video ? '동영상을 보냈습니다'
                : pic ? '사진을 보냈습니다' : '');
         return {
             // **무엇에 대한 알림인지 제목 첫머리에 세운다.** 알림창에는 제목

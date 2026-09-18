@@ -106,10 +106,10 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
         closeBtn.accessibilityIdentifier = "native-chat-drawer-close"
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
-        /* **`사진/동영상`이 아니라 `최근 사진`인 것은 일부러다** — 동영상은
-           우리가 못 보내고, 서른 장만 보여 준다. 다 있는 것처럼 적으면
-           거짓말이 된다. */
-        shotsHead.text = "최근 사진"
+        /* **`최근`이 붙어 있는 것은 일부러다** — 서른 개만 보여 주므로
+           다 있는 것처럼 적으면 거짓말이 된다. 동영상도 보낼 수 있게
+           되면서(사용자 요청) 이름에 함께 적었다. */
+        shotsHead.text = "최근 사진·동영상"
         shotsHead.font = .systemFont(ofSize: 14, weight: .semibold)
         shotsHead.textColor = .secondaryLabel
         /* **가로로만 굴러간다** — 세로로 쌓으면 사진 서른 장이 서랍을 통째로
@@ -272,6 +272,8 @@ final class ChatThumb: UIControl {
     let url: String
     var onGone: ((String) -> Void)?
     private let image = UIImageView()
+    /// 동영상 자리에 얹는 ▶.
+    private let play = UIImageView()
 
     init(id i: String, url u: String) {
         id = i
@@ -284,7 +286,17 @@ final class ChatThumb: UIControl {
         image.contentMode = .scaleAspectFill
         image.isUserInteractionEnabled = false
         addSubview(image)
-        accessibilityLabel = "사진"
+        /* **동영상은 ▶를 얹는다** — 그림이 첫 장면이라 그것만으로는
+           사진과 구별이 안 된다(말풍선의 그 규칙과 같다). */
+        let video = ChatMedia.isVideo(u)
+        play.image = UIImage(systemName: "play.circle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .regular))
+        play.tintColor = UIColor(white: 1, alpha: 0.92)
+        play.contentMode = .center
+        play.isHidden = !video
+        play.isUserInteractionEnabled = false
+        addSubview(play)
+        accessibilityLabel = video ? "동영상" : "사진"
     }
 
     func load() {
@@ -299,6 +311,7 @@ final class ChatThumb: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         image.frame = bounds
+        play.frame = bounds
     }
 }
 

@@ -7,6 +7,9 @@
  *   npm run dev -- --port 5199 &
  *   node .dev/behave.mjs
  */
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { tables, ME, uid } from './fixtures.mjs';
 import { restRoute, stubOutside } from './rest.mjs';
@@ -3849,26 +3852,35 @@ console.log('\n── 대화방에 들어갈 때와 나올 때 ──');
     await cCtx.close();
 }
 
-/* ── 15. 사진을 줄여서 올리는가 ───────────────────────────────────
+/* ── 15. 사진·동영상을 원본 그대로 올리는가 ──────────────────────
  *
- * **2560px으로 키웠다가 사진이 통째로 안 올라갔다**(사용자 제보 —
- * `사진 크기를 키운 후로 안돼`). 크기를 되돌리면서, 올리기 직전에
- * **한 번 더 재는 줄**을 넣었다(`sendPhoto`) — 앱은 새로 깔아야 바뀌므로
- * 옛 앱을 든 폰에서는 웹이 그 길을 막아 줘야 한다.
+ * **줄이지 않는다**(사용자 요청 — `사진과 동영상을 원본으로
+ * 올릴수있게해주고`). 예전에는 긴 변 2560px·JPEG 82%로 구워 올렸고
+ * 이 칸이 `1.2MB 아래`를 붙들고 있었다 — **그 줄을 되살리지 말 것.**
  *
- * 화질만 보고 크기를 만지면 **올리는 길이 막힐 수 있다**는 것이 이 자리의
- * 교훈이라, 실제로 올라가는 크기를 숫자로 붙들어 둔다.
+ * 대신 셋을 본다:
+ *   ① 사진이 **원본 바이트 그대로** 올라간다(다시 굽지 않는다)
+ *   ② 동영상도 올라가고 **끝이 `.mp4`다** — 받는 쪽은 주소 끝으로
+ *      사진인지 동영상인지 가르므로(`lib/media.ts`) 그게 곧 갈래다
+ *   ③ 50MB를 넘으면 **올리지 않고 사람 말로 알린다**
+ *
+ * **크기를 만질 때는 화질만 볼 것이 아니라 정말 올라가는지부터 볼 것** —
+ * 2560px으로 키웠다가 사진이 통째로 안 올라간 적이 있다(사용자 제보 —
+ * `사진 크기를 키운 후로 안돼`). 그 교훈은 그대로다.
  */
-console.log('\n── 사진을 줄여서 올린다 ──');
+console.log('\n── 사진·동영상을 원본 그대로 올린다 ──');
 {
     const uCtx = await browser.newContext({
         viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
     await uCtx.route('**/rest/v1/**', restRoute(tables));
     await stubOutside(uCtx);
     let sent = 0;
+    /* **올라간 주소도 본다** — 끝(`.jpg`·`.mp4`)이 곧 사진·동영상의 갈래다. */
+    let lastPath = '';
     await uCtx.route('**/storage/v1/object/**', route => {
         const body = route.request().postDataBuffer();
         if (body) sent = body.length;
+        lastPath = new URL(route.request().url()).pathname;
         route.fulfill({ status: 200, contentType: 'application/json',
                         body: JSON.stringify({ Key: 'chat-photos/x.jpg' }) });
     });
@@ -3893,22 +3905,37 @@ console.log('\n── 사진을 줄여서 올린다 ──');
     });
     await up.waitForTimeout(2500);
     ok(sent > 0, `저장소로 올라간다 (원본 ${Math.round(big.size / 1024)}KB → ${Math.round(sent / 1024)}KB)`);
-    /* **한도를 넉넉히 잡는다.** 여기서 보는 것은 '한 장이 몇 KB인가'가
-       아니라 **원본이 그대로 나가지는 않는가**다 — 4032px 원본이 2MB인데
-       2560px으로 줄이면 그 절반 아래로 떨어진다. 크기를 또 만질 때
-       이 줄이 먼저 빨개지면 줄이는 셈이 통째로 안 도는 것이다. */
-    ok(sent > 0 && sent < 1200 * 1024,
-       `올리기 전에 줄인다 — 1.2MB 아래 (${Math.round(sent / 1024)}KB)`);
+    /* **원본 바이트 그대로여야 한다** — 한 바이트라도 다르면 어딘가에서
+       다시 굽고 있는 것이다. */
+    /* **딱 같지는 않다** — 올리는 것이 `FormData`라 칸 이름과 경계선이
+       몇백 바이트 얹힌다. 줄이면 절반 아래로 떨어지므로 **8KB 안이면
+       원본 그대로**로 본다. */
+    ok(sent >= big.size && sent < big.size + 8 * 1024,
+       `사진은 원본 그대로 올라간다 (${sent}B / 원본 ${big.size}B)`);
+    ok(lastPath.endsWith('.jpg'), `사진은 끝이 .jpg다 (${lastPath.split('/').pop()})`);
 
-    /* 앱이 큰 것을 건네줘도 웹이 다시 줄이는가 — **옛 앱을 든 폰의 자리다.** */
-    const capped = await up.evaluate(async bytes => {
-        const mod = await import('/src/lib/image.ts');
-        const out = await mod.shrinkImage(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
-        const bmp = await createImageBitmap(out);
-        return { w: bmp.width, h: bmp.height };
-    }, big.bytes);
-    ok(Math.max(capped.w, capped.h) === 2560,
-       `긴 변이 2560px으로 맞춰진다 (${capped.w}×${capped.h})`);
+    /* ② 동영상 — **끝이 갈래다.** `.mp4`로 안 올라가면 받는 쪽이 사진으로
+       그려 깨진 그림이 된다. */
+    sent = 0; lastPath = '';
+    await up.setInputFiles('.file-anchor', {
+        name: 'clip.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(64 * 1024, 7),
+    });
+    await up.waitForTimeout(2000);
+    ok(sent >= 64 * 1024 && sent < 64 * 1024 + 8 * 1024,
+       `동영상도 원본 그대로 올라간다 (${sent}B / 원본 ${64 * 1024}B)`);
+    ok(lastPath.endsWith('.mp4'), `동영상은 끝이 .mp4다 (${lastPath.split('/').pop()})`);
+
+    /* ③ 50MB를 넘으면 올리지 않고 알린다.
+       **파일로 만들어 넘긴다** — playwright는 50MB가 넘는 덩어리를
+       바로 못 싣는다(그 한도가 우리 한도와 닮은 것은 우연이다). */
+    sent = 0;
+    const huge = path.join(os.tmpdir(), 'kkakkung-huge.mp4');
+    await fs.writeFile(huge, Buffer.alloc(51 * 1024 * 1024, 7));
+    await up.setInputFiles('.file-anchor', huge);
+    await up.waitForTimeout(1500);
+    const told = await up.evaluate(() => document.querySelector('.toast')?.textContent ?? '');
+    await fs.rm(huge, { force: true });
+    ok(sent === 0 && /50MB/.test(told), `50MB를 넘으면 안 올리고 알린다 (${told || '아무 말도 없음'})`);
 
     await uCtx.close();
 }

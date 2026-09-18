@@ -14,7 +14,8 @@ import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/Confirm';
 import { useConfirmUp } from '../lib/overlay';
 import { readableError } from '../lib/errors';
-import { httpsUrl, shrinkImage } from '../lib/image';
+import { httpsUrl } from '../lib/image';
+import { UPLOAD_LIMIT, extOf, isVideo } from '../lib/media';
 import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
@@ -994,7 +995,7 @@ export function Chat() {
      * **화면 위쪽에서 자란 것만 메운다.** 보고 있는 자리 아래에서 자라는
      * 것은 원래 그렇게 밀리는 것이 맞다(크로미움도 그렇게 둔다).
      */
-    const onImageLoad = useCallback((e: SyntheticEvent<HTMLImageElement>) => {
+    const onImageLoad = useCallback((e: SyntheticEvent<HTMLElement>) => {
         const el = listRef.current;
         if (!el) return;
         if (atBottom.current) {          // 맨 아래를 보고 있었으면 도로 바닥에.
@@ -3064,11 +3065,21 @@ export function Chat() {
         // 같은 사진을 연달아 고를 수 있게 비워 둔다.
         e.target.value = '';
         if (!file || !roomId) return;
-        if (!file.type.startsWith('image/')) {
-            toast('사진만 올릴 수 있습니다.', 'error');
+        const video = file.type.startsWith('video/');
+        if (!video && !file.type.startsWith('image/')) {
+            toast('사진과 동영상만 올릴 수 있습니다.', 'error');
             return;
         }
-        await sendPhoto(await shrinkImage(file));
+        /* **너무 크면 여기서 잡는다** — 그냥 보내면 통이 막아 세우는데,
+           그 오류는 사람 말이 아니고 그때는 이미 한참을 기다린 뒤다. */
+        if (file.size > UPLOAD_LIMIT) {
+            toast(`${video ? '동영상' : '사진'}이 너무 큽니다(${Math.round(file.size / 1024 / 1024)}MB).`
+                + ' 50MB까지 올릴 수 있습니다.', 'error');
+            return;
+        }
+        /* **줄이지 않는다 — 원본 그대로 올린다**(사용자 요청). 예전에는
+           여기서 `shrinkImage`로 긴 변 2560px·82%로 구웠다. */
+        await sendPhoto(file, extOf(file), file.type || 'image/jpeg');
     };
 
     /**
@@ -3109,24 +3120,24 @@ export function Chat() {
     };
 
     /**
-     * 사진 한 장을 올려 보낸다. 웹 칸과 앱이 같이 쓴다.
+     * 사진·동영상 한 개를 올려 보낸다. 웹 칸과 앱이 같이 쓴다.
      *
-     * **여기서 크기를 한 번 더 잰다.** 앱도 제 나름대로 줄여서 주지만
-     * (`jpegBase64`), 앱은 새로 깔아야 바뀌므로 **옛 앱을 든 폰에서는
-     * 웹이 아무리 고쳐도 큰 사진이 그대로 온다.** 실제로 2560px으로
-     * 올렸다가 사진이 통째로 안 올라가는 일이 있었고, 그때 웹만 밀어서
-     * 고칠 길이 없었다 — 이 한 줄이 그 길이다.
-     * `shrinkImage`는 **이미 작으면 그대로 돌려주므로** 헛일을 안 한다.
+     * **원본 그대로 올린다**(사용자 요청 — `사진과 동영상을 원본으로
+     * 올릴수있게해주고`). 예전에는 여기서 한 번 더 줄였는데, 그 줄은
+     * **옛 앱이 큰 사진을 줄 때를 메우려던 것**이라 이제 할 일이 없다.
+     *
+     * **끝(`ext`)이 곧 갈래다** — 받는 쪽은 주소 끝을 보고 사진인지
+     * 동영상인지 가른다(`lib/media.ts`). 빼먹으면 동영상이 사진으로
+     * 그려져 깨진 그림이 된다.
      */
-    const sendPhoto = async (raw: Blob) => {
+    const sendPhoto = async (raw: Blob, ext = 'jpg', type = 'image/jpeg') => {
         if (!roomId) return;
         setUploading(true);
         try {
-            const blob = await shrinkImage(raw);
-            const path = `${roomId}/${crypto.randomUUID()}.jpg`;
+            const path = `${roomId}/${crypto.randomUUID()}.${ext}`;
             const { error: upErr } = await supabase.storage
                 .from('chat-photos')
-                .upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+                .upload(path, raw, { contentType: type, cacheControl: '31536000' });
             if (upErr) throw upErr;
 
             const { data: pub } = supabase.storage.from('chat-photos').getPublicUrl(path);
@@ -3710,7 +3721,7 @@ export function Chat() {
                     `+` 옆에 1px로 숨겨 두면 거기서 올라온다. 눈에 안 보이고
                     눌리지도 않으므로 배치에는 아무 몫이 없다. */}
                 <input
-                    ref={fileRef} type="file" accept="image/*"
+                    ref={fileRef} type="file" accept="image/*,video/*"
                     onChange={onPickPhoto}
                     className="file-anchor" tabIndex={-1} aria-hidden="true"
                 />
@@ -4022,14 +4033,28 @@ function ChevronDown() {
 
 function ChatPhoto({ url, onLoad }: {
     url: string;
-    onLoad: (e: SyntheticEvent<HTMLImageElement>) => void;
+    /** 그림·동영상이 자리를 잡으면 알린다 — 목록이 밀린 만큼 메운다.
+     *  **칸 종류를 안 가린다**(`HTMLElement`) — 재는 것은 `currentTarget`의
+     *  자리뿐이라 `<img>`든 `<video>`든 같은 길을 탄다. */
+    onLoad: (e: SyntheticEvent<HTMLElement>) => void;
 }) {
     const [gone, setGone] = useState(false);
     if (gone) {
         return (
             <div className="chat-photo-gone">
-                <span>사진 저장 기간이<br />만료되었습니다</span>
+                <span>저장 기간이<br />만료되었습니다</span>
             </div>
+        );
+    }
+    /* **동영상은 그대로 화면 안에서 튼다**(사용자 요청으로 동영상이
+       올라가게 되면서). 새 창으로 띄우지 말 것 — 홈 화면 앱에서는 그것이
+       곧 사파리로 나가는 것이라 돌아올 길이 없다.
+       `preload="metadata"`라 **목록을 훑기만 할 때는 첫 장면 몫만** 받는다. */
+    if (isVideo(url)) {
+        return (
+            <video className="chat-image" src={url} controls playsInline preload="metadata"
+                   onLoadedMetadata={onLoad}
+                   onError={() => setGone(true)} />
         );
     }
     return (
@@ -4523,22 +4548,27 @@ function PeopleList({ people, me, room, onPick, onPhoto, onClose }: {
             <div className="chat-people-head">
                 <button className="chat-search-x" onClick={onClose}>닫기</button>
             </div>
-            {/* **최근 사진** — 카톡 서랍의 `사진/동영상` 자리다.
-                **`동영상`을 안 적는 것은 우리가 못 보내기 때문이고**,
-                `최근`을 붙인 것은 마지막 `SHOTS`장만 보여 주기 때문이다
+            {/* **최근 사진·동영상** — 카톡 서랍의 그 자리다.
+                `최근`을 붙인 것은 마지막 `SHOTS`개만 보여 주기 때문이다
                 (다 있는 것처럼 적으면 거짓말이 된다).
                 한 장도 없으면 **묶음째 안 그린다** — 글만 오간 방에 빈
                 칸이 덩그러니 남지 않게. */}
             {shots.length > 0 && (
                 <section className="chat-shots">
-                    <div className="chat-shots-h">최근 사진</div>
+                    <div className="chat-shots-h">최근 사진·동영상</div>
                     <div className="chat-shots-row">
                         {shots.map(s => (
                             <button key={s.id} className="chat-shot"
-                                    aria-label={`${formatChatDay(s.at)} 사진`}
+                                    aria-label={`${formatChatDay(s.at)} ${isVideo(s.url) ? '동영상' : '사진'}`}
                                     onClick={() => onPhoto(s.url)}>
-                                <img src={s.url} alt="" loading="lazy"
-                                     onError={() => setGone(g => new Set(g).add(s.id))} />
+                                {/* **동영상은 `<video>`로 건다** — 브라우저가
+                                    첫 장면을 그려 주므로 따로 만들 것이 없고,
+                                    `preload="metadata"`라 앞부분만 받는다. */}
+                                {isVideo(s.url)
+                                    ? <video src={s.url} preload="metadata" muted playsInline
+                                             onError={() => setGone(g => new Set(g).add(s.id))} />
+                                    : <img src={s.url} alt="" loading="lazy"
+                                           onError={() => setGone(g => new Set(g).add(s.id))} />}
                             </button>
                         ))}
                     </div>
@@ -4630,6 +4660,7 @@ function preview(m: Message): string {
     const text = m.body.trim();
     if (text) return text.length > 60 ? text.slice(0, 60) + '…' : text;
     if (isSticker(m.image_url)) return stickerLabel(m.image_url!);
+    if (isVideo(m.image_url)) return '동영상';
     return m.image_url ? '사진' : '';
 }
 
@@ -4757,7 +4788,9 @@ const Bubble = memo(function Bubble({
     unread: number;
     /** 사진은 늦게 뜨면서 목록을 밀어낸다. 다 떴다고 알린다 — 위쪽에서
      *  자란 만큼은 화면이 안 튀게 메워진다(`onImageLoad` 주석 참고). */
-    onImageLoad: (e: SyntheticEvent<HTMLImageElement>) => void;
+    /** 그림·동영상이 자리를 잡으면 알린다. **칸 종류를 안 가린다** —
+     *  `<img>`와 `<video>`가 같이 쓴다(`ChatPhoto`). */
+    onImageLoad: (e: SyntheticEvent<HTMLElement>) => void;
     /** 답장이면 원본. 아직 안 불러온 지난 글이면 없다. */
     quoted?: Message;
     quotedWho?: string;

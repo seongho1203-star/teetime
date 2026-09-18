@@ -16,7 +16,9 @@ struct NativeChatMessage {
     var preview: String {
         if hidden { return "가려진 메시지입니다" }
         if !body.isEmpty { return body }
-        return image?.hasPrefix("sticker:") == true ? "이모티콘" : image != nil ? "사진" : "메시지"
+        if image?.hasPrefix("sticker:") == true { return "이모티콘" }
+        if ChatMedia.isVideo(image) { return "동영상" }
+        return image != nil ? "사진" : "메시지"
     }
 }
 
@@ -65,7 +67,8 @@ final class NativeChatService {
     }
 
     func request(_ path: String, query: [(String, String)] = [], method: String = "GET",
-                 body: Any? = nil, bytes: Data? = nil) async throws -> Any {
+                 body: Any? = nil, bytes: Data? = nil, contentType: String = "image/jpeg",
+                 timeout: TimeInterval = 25) async throws -> Any {
         var parts = URLComponents(url: config.url.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.map { URLQueryItem(name: $0.0, value: $0.1) }
         // `+` is legal in a query, so URLComponents leaves it raw — but PostgREST decodes
@@ -77,10 +80,10 @@ final class NativeChatService {
             let token = config.token
             var req = URLRequest(url: url)
             req.httpMethod = method
-            req.timeoutInterval = 25
+            req.timeoutInterval = timeout
             req.setValue(config.key, forHTTPHeaderField: "apikey")
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.setValue(bytes == nil ? "application/json" : "image/jpeg", forHTTPHeaderField: "Content-Type")
+            req.setValue(bytes == nil ? "application/json" : contentType, forHTTPHeaderField: "Content-Type")
             req.setValue("return=representation", forHTTPHeaderField: "Prefer")
             if let bytes = bytes {
                 req.httpBody = bytes
@@ -171,9 +174,20 @@ final class NativeChatService {
     func markRead(_ room: String) async throws {
         _ = try await request("rest/v1/rpc/mark_room_read", method: "POST", body: ["p_room": room])
     }
-    func upload(_ data: Data, room: String) async throws -> String {
-        let path = "\(room)/\(UUID().uuidString.lowercased()).jpg"
-        _ = try await request("storage/v1/object/chat-photos/\(path)", method: "POST", bytes: data)
+    /**
+     * 사진·동영상 한 개를 통에 올린다.
+     *
+     * **끝(`ext`)이 곧 갈래다** — 받는 쪽은 주소 끝을 보고 사진인지
+     * 동영상인지 가른다(`ChatMedia.isVideo` · 웹 `lib/media.ts`).
+     * **DB에 칸을 새로 만들지 않은 것이 이 한 줄에 걸려 있으니** 끝을
+     * 빼먹지 말 것.
+     */
+    func upload(_ data: Data, room: String, ext: String = "jpg",
+                type: String = "image/jpeg") async throws -> String {
+        let path = "\(room)/\(UUID().uuidString.lowercased()).\(ext)"
+        /* 동영상은 수십 MB라 25초로는 모자란다 — 올리는 것만 넉넉히 준다. */
+        _ = try await request("storage/v1/object/chat-photos/\(path)", method: "POST",
+                              bytes: data, contentType: type, timeout: 300)
         return config.url.appendingPathComponent("storage/v1/object/public/chat-photos/\(path)").absoluteString
     }
 }
