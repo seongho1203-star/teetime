@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
-import { hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, slideLeft } from '../lib/tabs';
+import { hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
 import { lastSeen, markSeen } from '../lib/unread';
 import { Chat } from './Chat';
@@ -20,6 +20,11 @@ function NativeChatHost() {
     const current = useRef(session);
     useEffect(() => { current.current = session; }, [session]);
     const navigate = useNavigate();
+    /* **들어온 길을 첫 렌더에서 한 번만 집는다.** 라운드·투표에서 **뒤로**
+       온 것이면 들어오는 모양이 반대여야 한다(아래 `nativeChatPop`).
+       효과 안에서 `useNavigationType()`을 읽으면 다시 그려질 때마다 값이
+       바뀌므로 ref에 얼려 둔다(대화의 `lastSeen`과 같은 결이다). */
+    const cameBack = useRef(useNavigationType() === 'POP');
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
     useEffect(() => {
@@ -34,7 +39,12 @@ function NativeChatHost() {
            오면 그 사이에 빈 화면이 한 번 지나간다.
            **같은 `ms`를 앱에도 넘긴다** — 둘이 갈리면 두 단계로 보인다. */
         const ms = slideLeft();
-        nativeChatEnter(ms);
+        /* **라운드·투표에서 돌아온 것이면 반대로 그린다** — 떠나는 화면이
+           오른쪽으로 빠져나가고 대화 화면이 그 밑에서 따라 들어온다.
+           웹은 떠나는 화면을 **깔아 두기만** 하고(앱 대화 화면이 웹 DOM을
+           통째로 덮으므로 웹이 내보낼 수가 없다) 미는 것은 앱이 맡는다. */
+        const back = cameBack.current && nativeChatPop();
+        if (!back) nativeChatEnter(ms);
         /* **뒤로 갈 데가 없으면 홈으로 간다** — 알림을 눌러 `#/chat`으로
            곧바로 들어오는 길이 있어 그때는 히스토리에 앞 화면이 없다
            (웹 `Chat.tsx`의 `goBack`과 같은 잣대다). */
@@ -64,6 +74,12 @@ function NativeChatHost() {
             if (dead) { await remove(); return; }
             const token = current.current?.access_token;
             if (!token) throw new Error('로그인을 확인해 주세요.');
+            /* **깔아 둔 떠나는 화면이 한 번 그려진 뒤에 연다.** 앱은 열면서
+               웹뷰를 그 자리에서 찍는데, 그리기 전에 찍으면 **떠나는 화면
+               대신 빈 스피너가 찍혀** 나가는 그림이 통째로 흰 화면이 된다. */
+            if (back) await new Promise<void>(go =>
+                requestAnimationFrame(() => requestAnimationFrame(() => go())));
+            if (dead) return;
             await openNativeChat(screen, {
                 user, token, url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
                 seen: lastSeen('chat', user),
@@ -72,14 +88,21 @@ function NativeChatHost() {
                    열 때 한 번 정하면 그대로다. */
                 back: hasBackShot(),
                 /* 들어올 때 오른쪽에서 미끄러져 들어올 **남은 시간**
-                   (웹의 `SCREEN_MS`에서 이미 지난 만큼을 뺀 값이다). */
-                slide: ms,
+                   (웹의 `CHAT_MS`에서 이미 지난 만큼을 뺀 값이다). */
+                slide: back ? 0 : ms,
+                /* **뒤로 온 길**(위 `nativeChatPop`) — 앱이 웹뷰를 찍어
+                   오른쪽으로 내보내고 대화 화면은 왼쪽에서 따라 들어온다. */
+                pop: back ? ms : 0,
                 /* 반응 그림글자는 **웹이 정한다**(`REACTIONS` — 카톡과 같은
                    다섯). 앱에 또 적으면 한쪽만 고치게 된다. */
                 reactions: REACTIONS,
                 stickers: STICKER_GROUPS.map(g => ({ ...g, stickers: g.stickers.map(s => ({ ...s,
                     src: new URL(stickerSrc(`sticker:${s.id}`), window.location.href).href })) })),
             });
+            /* **깔아 둔 떠나는 화면을 걷고 앞 화면 그림으로 갈아 놓는다** —
+               이제부터는 끌어서 뒤로 갈 때 뒤에 깔릴 그림이 필요하다.
+               앱이 찍어 둔 그림이 그 사이를 덮고 있어 눈에는 안 보인다. */
+            if (back && !dead) nativeChatEnter(0);
         })().catch(e => {
             if (dead) return;
             /* **못 열었으면 깔아 둔 그림을 걷는다** — 안 걷으면 그 그림이

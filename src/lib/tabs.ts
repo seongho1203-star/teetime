@@ -165,9 +165,18 @@ function snap(toPath: string) {
     /* **탭으로 가는 길은 안 찍는다** — 탭 화면에서는 뒤로 갈 데가 없어
        그 그림을 쓸 일이 아예 없다(찍는 값만 든다). */
     if (TAB_PATHS.includes(toPath)) return;
+    /* **앱이 그리는 대화방은 찍어 봐야 스피너 한 장이다**(`NativeChat.tsx`는
+       자리만 지킨다). 그대로 담으면 그 뒤로 뒤에 깔리는 앞 화면이 통째로
+       **빈 흰 화면**이 된다 — 대화방에서 카드를 눌러 라운드로 들어갔다가
+       끌어서 나올 때 실제로 그랬다.
+       **그렇다고 안 담으면 안 된다** — `shots`는 히스토리 깊이와 짝이라
+       (`popstate`가 하나씩 꺼낸다) 하나만 빠져도 그 뒤가 전부 어긋난다.
+       그래서 **바로 앞 그림을 한 번 더 담는다.** */
     const el = pageEl();
-    if (!el) return;
-    shots.push(takeShot(el));
+    const blank = hasNativeChat() && routeOf(location.href) === '/chat';
+    const shot = blank ? shots[shots.length - 1] : el ? takeShot(el) : undefined;
+    if (!shot) return;
+    shots.push(shot);
     while (shots.length > MAX_SHOTS) shots.shift();
 }
 
@@ -227,6 +236,7 @@ function sweepGhosts(force = false): void {
     if (!left.length && !MOVING.some(c => root.classList.contains(c))) return;
     for (const g of left) g.remove();
     heldGhost = null;
+    popPlate = null;
     root.classList.remove(...MOVING);
     /* 걷었으면 아직 안 돈 `nextFrames`도 없던 일로 한다(위 `moveSeq`). */
     moveSeq++;
@@ -338,6 +348,9 @@ function plainBack(): boolean {
 let backPage: HTMLElement | null = null;
 /** **대화방이 열려 있는 동안 웹뷰에 깔아 두는 앞 화면 그림**(아래 참고). */
 let heldGhost: HTMLDivElement | null = null;
+/** 라운드·투표에서 대화방으로 **돌아올 때** 잠깐 깔아 두는 떠나는 화면
+ *  (아래 `nativeChatPop`). 앱이 그것을 찍어 오른쪽으로 내보낸다. */
+let popPlate: HTMLDivElement | null = null;
 
 /**
  * 앱이 대화 화면을 통째로 그리는 동안 **웹뷰에는 앞 화면 그림을 깔아 둔다.**
@@ -394,9 +407,43 @@ function restHeld(): void {
     if (dim) { dim.style.transition = ''; dim.style.opacity = '0'; }
 }
 
-/** 대화방을 떠난다 — 깔아 둔 그림을 걷는다. */
+/**
+ * **라운드·투표에서 대화방으로 돌아올 때** — 떠나는 화면을 웹뷰에 그대로
+ * 깔아 둔다. 앱이 그 웹뷰를 찍어 오른쪽으로 내보내고 대화 화면은 왼쪽에서
+ * 따라 들어온다(`NativeChatPlugin.open`의 `pop`).
+ *
+ * **웹이 내보낼 수는 없다** — 앱 대화 화면은 웹뷰의 자식이라 웹 DOM을
+ * 통째로 덮는다(`.exit-ghost`가 z-index 900이어도 그 아래다). 그래서
+ * 웹은 **떠나는 화면을 깔아 두기만** 하고 미는 것은 앱이 맡는다.
+ *
+ * @returns 깔았으면 true. 방금 찍어 둔 떠나는 화면이 없으면 false다.
+ */
+export function nativeChatPop(): boolean {
+    if (!exitFresh() || !exiting) return false;
+    sweepGhosts(true);
+    const gx = document.createElement('div');
+    gx.className = 'exit-ghost';
+    const { c, list } = cloneShot(exiting);
+    gx.appendChild(c);
+    document.body.appendChild(gx);
+    if (list) placeChatList(list, exiting);
+    gx.style.transform = 'translate3d(0,0,0)';
+    ghostAt = Date.now();
+    popPlate = gx;
+    return true;
+}
+
+/** 대화방을 떠난다 — 깔아 둔 그림을 걷는다.
+ *
+ *  **깔아 둔 것이 있을 때만 걷는다.** 이 뒷정리는 리액트의 보통 효과라
+ *  `useScreenSlide`(배치 효과)보다 **나중에** 도는데, 그냥 훑어 걷으면
+ *  대화방에서 라운드로 들어갈 때 **방금 깔아 둔 `runPush` 그림까지
+ *  지워져** 화면이 아예 안 움직인다(`useBackSwipe`의 `clean()`이 그랬던
+ *  그 자리다 — `끌던 것이 있을 때만 걷는다`). */
 export function nativeChatLeave(): void {
+    if (!heldGhost && !popPlate) return;
     heldGhost = null;
+    popPlate = null;
     sweepGhosts(true);
 }
 
@@ -758,6 +805,17 @@ const SPINNER = '.center-fill';
  * 0.35초인데 그보다 한 뜸 느긋한 쪽을 골랐다.
  */
 const SCREEN_MS = 500;
+/**
+ * **대화방만 짧다**(사용자 제보 — `홈에서 채팅 눌러서 들어갈 때 오른쪽에서
+ * 왼쪽으로 나오는 속도가 너무 느리고`).
+ *
+ * 웹 화면들은 리액트가 그리는 그 프레임에 곧바로 움직이기 시작하지만,
+ * **앱 대화 화면은 다리를 한 번 건너간 뒤에야 선다** — 화면을 만들고
+ * 붙이고 배치까지 하느라 `SCREEN_MS`에 그 값이 통째로 얹힌다. 그래서
+ * 같은 0.5초를 줘도 대화방만 유독 느리게 느껴진다.
+ * **`SCREEN_MS`를 함께 내리지 말 것** — 그쪽은 사용자가 고른 값이다.
+ */
+const CHAT_MS = 330;
 
 /**
  * 마지막으로 화면을 미끄러뜨리기 시작한 때.
@@ -772,12 +830,12 @@ const SCREEN_MS = 500;
  * 웹 화면이 그려진 **뒤에** 서므로 늘 한두 프레임 늦는데, 40px을 제 시간
  * 그대로 돌면 머리말보다 늦게 끝나 두 단계로 보인다.
  */
-export const slideMark = { at: 0 };
+export const slideMark = { at: 0, ms: SCREEN_MS };
 
 /** 지금 도는 화면 움직임이 얼마나 남았나(ms). 안 돌고 있으면 0이다. */
 export function slideLeft(): number {
     if (!slideMark.at) return 0;
-    return Math.max(0, SCREEN_MS - (Date.now() - slideMark.at));
+    return Math.max(0, slideMark.ms - (Date.now() - slideMark.at));
 }
 
 export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
@@ -807,9 +865,18 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
            밀려 들어오는 것은 앱 화면 쪽이다.
            **카드를 눌러 나가는 길(PUSH)은 그대로 둔다** — 그때 들어오는
            것은 진짜 웹 화면이다. */
+        let fromChat = false;
         if (hasNativeChat()) {
-            if (pathname === '/chat') { slideMark.at = Date.now(); return; }
-            if (from === '/chat' && how === 'POP') return;
+            if (pathname === '/chat') { slideMark.at = Date.now(); slideMark.ms = CHAT_MS; return; }
+            if (from === '/chat') {
+                if (how === 'POP') return;
+                /* **대화방에서 카드를 눌러 나가는 길은 통째로 안 민다.**
+                   뒤에 깔 앞 화면이 대화방인데 **그 그림이 없다** — 웹 쪽에
+                   남는 것은 스피너 한 장뿐이라, 통째로 밀면 그 자리에
+                   엉뚱한 화면(대화방에 들어오기 전의 것)이 깔린다.
+                   대신 예전 40px짜리로 물러난다 — 뒤에 아무것도 안 깐다. */
+                fromChat = true;
+            }
         }
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
@@ -822,7 +889,7 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
            한다. 없으면 예전 40px짜리로 물러난다 — **바탕만 깔고 밀면
            빈 화면이 통째로 지나간다.** */
         const leaving = how === 'POP' && exitFresh() ? exiting : null;
-        const entering = how !== 'POP' && !isTab ? shots[shots.length - 1] : undefined;
+        const entering = how !== 'POP' && !isTab && !fromChat ? shots[shots.length - 1] : undefined;
         const full = leaving !== null || entering !== undefined;
 
         let off = 0;
@@ -834,6 +901,7 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
             el.classList.remove('slide-in', 'slide-back');
             /* 앱 목록이 남은 시간만큼만 따라 들어온다(위 `slideMark`). */
             slideMark.at = Date.now();
+            slideMark.ms = SCREEN_MS;
             moving = true;
             /* **미는 것은 `.app`이 아니라 그 안의 화면이다.** `el`은 `.app`이고
                40px짜리는 CSS가 `.app.slide-in > :first-child`로 한 단 들어가

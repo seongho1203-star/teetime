@@ -56,7 +56,10 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                그려진 뒤에 서므로 제 시간을 다 쓰면 머리말보다 늦게 끝나
                두 단계로 보인다(웹의 `slideLeft()`가 그 값이다). */
             let ms = call.getDouble("slide") ?? 0
-            if fresh, ms > 40 {
+            let pop = call.getDouble("pop") ?? 0
+            if fresh, pop > 40, self.runPop(chat: chat, root: root, ms: pop) {
+                // 뒤로 온 길 — 아래 `runPop`이 자리를 다 잡았다.
+            } else if fresh, ms > 40 {
                 chat.view.transform = CGAffineTransform(translationX: root.view.bounds.width, y: 0)
                 UIView.animate(withDuration: ms / 1000, delay: 0,
                                options: [.curveEaseOut, .beginFromCurrentState]) {
@@ -68,6 +71,52 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["ok": true])
         }
     }
+    /**
+     `라운드·투표 → 대화방`으로 **뒤로** 올 때의 움직임.
+
+     들어갈 때와 **반대**다 — 떠나는 화면이 오른쪽으로 빠져나가고 대화
+     화면이 그 밑에서 `PARALLAX`(0.25)만큼 왼쪽에서 따라 들어온다.
+     웹의 `runPop`과 같은 그림이고 값도 같다(`lib/tabs.ts` — **한쪽만
+     고치지 말 것**).
+
+     **떠나는 화면은 웹뷰를 그 자리에서 찍은 것이다.** 웹이 그 화면을
+     `.exit-ghost`로 깔아 두고(`nativeChatPop`) 우리가 찍는다 — 웹이
+     직접 내보낼 수는 없다. 대화 화면이 **웹뷰의 자식**이라(Capacitor는
+     웹뷰를 화면 그 자체로 쓴다) 웹 DOM을 통째로 덮기 때문이다.
+
+     **찍은 그림은 창(`UIWindow`)에 얹는다.** 화면 안에 얹으면 그것도
+     웹뷰의 자식이 되어 대화 화면 밑에 깔린다.
+
+     - Returns: 찍지 못했으면 false — 그때는 부르는 쪽이 여느 길로 간다.
+     */
+    @MainActor private func runPop(chat: NativeChatViewController, root: UIViewController, ms: Double) -> Bool {
+        guard let win = root.view.window,
+              let shot = root.view.snapshotView(afterScreenUpdates: false) else { return false }
+        let W = root.view.bounds.width
+        shot.frame = win.bounds
+        let dim = UIView(frame: win.bounds)
+        dim.backgroundColor = UIColor(white: 0, alpha: 0.18)
+        dim.isUserInteractionEnabled = false
+        shot.isUserInteractionEnabled = false
+        win.addSubview(dim); win.addSubview(shot)
+        chat.view.transform = CGAffineTransform(translationX: -W * 0.25, y: 0)
+        UIView.animate(withDuration: ms / 1000, delay: 0,
+                       options: [.curveEaseOut, .beginFromCurrentState]) {
+            shot.transform = CGAffineTransform(translationX: win.bounds.width, y: 0)
+            dim.alpha = 0
+            chat.view.transform = .identity
+        } completion: { _ in
+            shot.removeFromSuperview(); dim.removeFromSuperview()
+        }
+        /* **걷는 일을 한 곳에만 매달지 말 것** — 이 그림이 남으면 죽은
+           사진이 앱을 통째로 덮어 아무것도 안 눌린다(웹에서 겪은 그
+           자리다). 두 번 걷어도 탈이 없다. */
+        DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000 + 0.6) {
+            shot.removeFromSuperview(); dim.removeFromSuperview()
+        }
+        return true
+    }
+
     @objc func close(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard call.getString("screen") == self.screen else { call.resolve(); return }
