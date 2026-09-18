@@ -2893,6 +2893,14 @@ final class HoldMenu: UIView {
         pills.layer.cornerCurve = .continuous
         addSubview(card)
         addSubview(pills)
+        /* **칠을 여기서 한 번 해 둔다 — `apply(skin:)`에만 두지 말 것.**
+           웹이 색을 보내 줄 때만 칠하게 두었더니, **앱이 통째로 그리는
+           대화 화면**(`NativeChatViewController`)은 그 신호를 아무 데서도
+           안 보내므로 `cardBody`·`pills`의 바탕이 **nil(= 투명)** 으로
+           남았다 — 길게 누르면 흰 카드 없이 `복사·선택 복사·댓글…` 글자만
+           대화 위에 떠 고장 난 것처럼 보였다(사용자 제보 · 사진).
+           `ChatSkin`의 기본값이 곧 예비값이므로 처음부터 그것으로 칠한다. */
+        paint()
         isHidden = true
     }
 
@@ -2905,11 +2913,16 @@ final class HoldMenu: UIView {
        바로 올라가므로, 어긋난 것을 고치는 길이 웹에 있어야 한다. */
     func apply(skin d: [String: Any]) {
         skin.apply(d)
+        paint()
+        setNeedsLayout()
+    }
+
+    /// 지금 들고 있는 값으로 칠한다 — 처음 세울 때와 웹이 색을 줄 때 같이 쓴다.
+    private func paint() {
         cardBody.backgroundColor = skin.card
         pills.backgroundColor = skin.card
         for r in rows { r.paint(skin: skin) }
         for p in pillBtns { p.paint(skin: skin) }
-        setNeedsLayout()
     }
 
     /**
