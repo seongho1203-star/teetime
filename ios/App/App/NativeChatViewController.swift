@@ -530,7 +530,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                         /* **원본 그대로 올린다**(사용자 요청) — 줄이지도,
                            다시 굽지도 않는다. 자세한 것은 `PickedMedia`의
                            머리말을 볼 것. 저장 공간이 곧 장수라 **저장
-                           기간을 2주로 줄여** 균형을 맞췄다. */
+                           기간을 일주일로 줄여** 균형을 맞췄다. */
                         row["image_url"] = try await self.service.upload(
                             media.data, room: self.room, ext: media.ext, type: media.type)
                     }
@@ -1180,8 +1180,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
  * - **동영상은 손대지 않는다** — 다시 굽는 순간 원본이 아니다.
  *
  * **그 대가는 저장 공간이다.** 무료 통이 1GB인데 원본 사진이 한 장
- * 3~5MB, 동영상은 한 개에 수십 MB다 — 그래서 **저장 기간을 90일에서
- * 2주로 줄였다**(사용자가 함께 정했다. `lib/photos.ts`의 `PHOTO_DAYS`).
+ * 3~5MB, 동영상은 한 개에 수십 MB다 — 그래서 **저장 기간을 90일 → 2주 →
+ * 일주일로 줄여 왔다**(사용자가 정했다. `lib/photos.ts`의 `PHOTO_DAYS`).
  */
 struct PickedMedia {
     let data: Data
