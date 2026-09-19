@@ -720,6 +720,10 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     func beginSession(_ key: String?) -> Bool {
+        /* 끌다가 화면이 걷힌 판을 대비해 잠금을 여기서도 푼다 — 잠긴 채로
+           남으면 목록이 통째로 안 굴러간다(`lockList` 주석). */
+        table.isScrollEnabled = true
+        backOffset = nil
         let resume = key != nil && key == sessionKey && pausedViewport != nil
         pendingViewport = resume ? pausedViewport : nil
         pausedViewport = nil
@@ -778,6 +782,22 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     /// 한 번만 보고 넘어간다 — 한 손짓 안에서 갈래가 안 바뀌어야 하므로
     /// `.began`에서 한 번 정하고 그대로 간다.
     private var backLive = false
+    /**
+     * **끌기 시작할 때의 굴린 자리**(44판).
+     *
+     * 이 손짓과 목록의 굴리기는 **함께 알아채진다**(`BackGuard`의
+     * `shouldRecognizeSimultaneouslyWith`가 참이다) — 그래서 오른쪽으로 미는
+     * 동안 손끝이 조금만 아래로 흘러도 **목록이 그만큼 함께 굴러갔다.**
+     * 끄는 동안에는 화면이 감춰져 있어(`BackDrag.begin`의 `cover`) 눈에
+     * 안 보이다가, 놓고 되돌아오면 그 자리에서 **살짝 내려가 있고 되풀이하면
+     * 계속 내려갔다**(사용자 제보 — `살짝 끌었다놨을때 대화목록이 살짝 내려감`).
+     *
+     * 그래서 끌기가 시작되면 **목록을 잠그고**(`isScrollEnabled`) 시작할 때의
+     * 자리를 적어 둔다 — 잠그는 것이 목록의 손짓을 그 자리에서 끊으므로
+     * 놓은 뒤에 미끄러지지도 않는다. 잠기기 전에 새어 든 몇 픽셀은 이 값으로
+     * 되돌린다.
+     */
+    private var backOffset: CGPoint?
 
     /// 되돌려 놓을 자리(34판의 `holdSpot`) — 높이가 정해질 때까지 다시 놓는다.
     private var spotAim: (id: String, off: CGFloat)?
@@ -866,11 +886,15 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         switch g.state {
         case .began:
             backLive = listDelegate?.chatListBackBegan() ?? false
+            /* **끄는 동안 목록은 잠근다**(44판 · `backOffset` 주석).
+               손끝이 아래로 흘러도 목록이 따라 굴러가면 안 된다. */
+            if backLive { lockList() }
         case .changed:
             if backLive { listDelegate?.chatListBackMoved(dx: max(0, t.x)) }
         case .ended, .cancelled, .failed:
             if backLive {
                 backLive = false
+                unlockList()
                 listDelegate?.chatListBackEnded(dx: max(0, t.x),
                                                 vx: g.velocity(in: self).x,
                                                 cancelled: g.state != .ended)
@@ -880,6 +904,28 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         default:
             break
         }
+    }
+
+    /// 목록을 그 자리에 붙든다 — 잠그는 것이 굴리기 손짓을 끊어 놓은 뒤에
+    /// 미끄러지지도 않는다.
+    private func lockList() {
+        guard backOffset == nil else { return }
+        backOffset = table.contentOffset
+        table.isScrollEnabled = false
+    }
+
+    /// 잠금을 풀고 **시작할 때의 자리로 되돌린다** — 잠기기 전에 새어 든
+    /// 몇 픽셀이 쌓이지 않게. 되돌리는 동안은 사람이 굴린 것이 아니므로
+    /// `changingViewport`로 가려 둔다.
+    private func unlockList() {
+        table.isScrollEnabled = true
+        guard let at = backOffset else { return }
+        backOffset = nil
+        guard table.contentOffset != at else { return }
+        let was = changingViewport
+        changingViewport = true
+        table.setContentOffset(at, animated: false)
+        changingViewport = was
     }
 
     /**
@@ -2964,7 +3010,7 @@ final class Shot {
 final class ImageStore {
     static let shared = ImageStore()
     private let cache = NSCache<NSString, Shot>()
-    private var waiting: [String: [(Shot?) -> Void]] = [:]
+    private var waiting: [String: [(Shot?, Bool) -> Void]] = [:]
     /**
      * **폰에서 방금 고른 사진·동영상의 미리보기**(`local-preview/…`).
      *
@@ -2992,23 +3038,41 @@ final class ImageStore {
     }
 
     func load(_ raw: String, done: @escaping (Shot?) -> Void) {
+        fetch(raw) { shot, _ in done(shot) }
+    }
+
+    /**
+     * 그림과 **못 받아 온 까닭**을 함께 준다(44판).
+     *
+     * `gone`이 참이면 **통이 `없다`고 답한 것**이다 — 저장 기간이 지나
+     * 지워진 사진(`lib/photos.ts`). 거짓이면 그때 못 받았을 뿐이라
+     * **다음에 다시 해 보면 된다**(끊김 · 시간 초과 · 못 푼 그림).
+     *
+     * **둘을 갈라야 하는 까닭은 서랍이다.** `ChatThumb`은 못 받아 온 사진을
+     * `지워진 것`으로 보고 목록에서 빼는데, 그 판단이 **아무 실패에나**
+     * 걸리면 한 번 끊길 때마다 한 장씩 영영 사라져 **끝내 묶음째 안 그려진다**
+     * (사용자 제보 — `메뉴눌렀을때 나오던 사진이 안나옴`). 사진을 원본
+     * 그대로 올리게 되면서 한 장이 3~5MB라 그 실패가 훨씬 잦아졌다.
+     */
+    func fetch(_ raw: String, done: @escaping (Shot?, Bool) -> Void) {
         var s = raw
         if s.hasPrefix("http://") { s = "https://" + s.dropFirst("http://".count) }
-        if let mine = held[s] { done(mine); return }
-        if let hit = cache.object(forKey: s as NSString) { done(hit); return }
+        if let mine = held[s] { done(mine, false); return }
+        if let hit = cache.object(forKey: s as NSString) { done(hit, false); return }
         if waiting[s] != nil { waiting[s]?.append(done); return }
         waiting[s] = [done]
-        let finish: (Shot?) -> Void = { [weak self] shot in
+        let finish: (Shot?, Bool) -> Void = { [weak self] shot, gone in
             guard let self else { return }
             if let shot = shot { self.cache.setObject(shot, forKey: s as NSString,
                                                       cost: shot.cost) }
             let all = self.waiting.removeValue(forKey: s) ?? []
-            all.forEach { $0(shot) }
+            all.forEach { $0(shot, gone) }
         }
         /* **동영상은 첫 장면만 떠 온다** — 통째로 받으면 목록을 훑기만 해도
-           몇십 MB가 나간다(`AVURLAsset`은 앞부분만 읽는다). */
-        if ChatMedia.isVideo(s) { ImageStore.poster(s, done: finish); return }
-        bytes(s) { data in finish(data.flatMap { ImageStore.decode($0) }) }
+           몇십 MB가 나간다(`AVURLAsset`은 앞부분만 읽는다).
+           못 떠 와도 **지워진 것으로 보지 않는다** — 재생기는 그대로 열린다. */
+        if ChatMedia.isVideo(s) { ImageStore.poster(s) { finish($0, false) }; return }
+        bytes(s) { data, gone in finish(data.flatMap { ImageStore.decode($0) }, gone) }
     }
 
     /**
@@ -3028,18 +3092,27 @@ final class ImageStore {
         }
     }
 
-    /// 앱 안에서 읽거나 인터넷에서 받아 온다. 답은 늘 **메인에서** 준다.
-    private func bytes(_ s: String, done: @escaping (Data?) -> Void) {
+    /**
+     * 앱 안에서 읽거나 인터넷에서 받아 온다. 답은 늘 **메인에서** 준다.
+     *
+     * 함께 주는 참·거짓은 **통이 `없다`고 답했는가**다 — 저장소는 지워진
+     * 파일에 400이나 404로 답한다. 그때만 지워진 것으로 보고, 끊김·시간
+     * 초과는 거짓이라 다음에 다시 해 본다(`fetch` 주석).
+     */
+    private func bytes(_ s: String, done: @escaping (Data?, Bool) -> Void) {
         if let local = ImageStore.inApp(s) {
             DispatchQueue.global(qos: .userInitiated).async {
                 let d = try? Data(contentsOf: local)
-                DispatchQueue.main.async { done(d) }
+                DispatchQueue.main.async { done(d, false) }
             }
             return
         }
-        guard let url = URL(string: s), url.scheme == "https" else { done(nil); return }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            DispatchQueue.main.async { done(data) }
+        guard let url = URL(string: s), url.scheme == "https" else { done(nil, false); return }
+        URLSession.shared.dataTask(with: url) { data, res, _ in
+            let code = (res as? HTTPURLResponse)?.statusCode ?? 0
+            let gone = code == 400 || code == 404
+            /* 없다고 답한 판의 몸통은 그림이 아니라 오류 글이다 — 넘기지 않는다. */
+            DispatchQueue.main.async { done(gone ? nil : data, gone) }
         }.resume()
     }
 

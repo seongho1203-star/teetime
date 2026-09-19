@@ -88,8 +88,10 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
     private var people: [ChatJSON] = []
     private var shown: [ChatJSON] = []
     private var photos: [(id: String, url: String)] = []
-    /// 저장 기간(90일)이 지나 지워진 사진 — **참·거짓이 아니라 그 글의 id다**
-    /// (`Avatar`의 `bad`와 같은 결이다). 네모난 빈칸이 되므로 아예 안 그린다.
+    /// 저장 기간(일주일 · `lib/photos.ts`의 `PHOTO_DAYS`)이 지나 지워진 사진 —
+    /// **참·거짓이 아니라 그 글의 id다**(`Avatar`의 `bad`와 같은 결이다).
+    /// 네모난 빈칸이 되므로 아예 안 그린다. **못 받아 온 것은 여기 안 담는다** —
+    /// 통이 `없다`고 답했을 때만이다(`ChatThumb.load` 주석).
     private var gone: Set<String> = []
 
     override init(frame: CGRect) {
@@ -265,8 +267,8 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 }
 
-/// 서랍의 사진 한 장. **못 받아 오면 알려 준다** — 저장 기간이 지난 사진은
-/// 주소만 남아 있어 네모난 빈칸이 되므로 그 줄을 아예 뺀다.
+/// 서랍의 사진 한 장. **지워진 것이 확인되면 알려 준다** — 저장 기간이 지난
+/// 사진은 주소만 남아 있어 네모난 빈칸이 되므로 그 줄을 아예 뺀다.
 final class ChatThumb: UIControl {
     let id: String
     let url: String
@@ -299,10 +301,19 @@ final class ChatThumb: UIControl {
         accessibilityLabel = video ? "동영상" : "사진"
     }
 
+    /**
+     * **못 받아 왔다고 지워진 것으로 보지 않는다**(44판).
+     *
+     * 목록에서 빼는 것은 통이 `없다`고 답했을 때(`gone`)뿐이다 — 끊김이나
+     * 시간 초과로 빼면 한 번 실패할 때마다 한 장씩 영영 사라져 **끝내
+     * 묶음째 안 그려진다**(사용자 제보 — `메뉴눌렀을때 나오던 사진이 안나옴`).
+     * 사진을 원본 그대로 올리게 되면서 한 장이 3~5MB라 그 실패가 훨씬 잦다.
+     * 그때는 회색 칸으로 남겨 두고 **다음에 서랍을 열 때 다시 받아 온다.**
+     */
     func load() {
-        ImageStore.shared.load(url) { [weak self] shot in
+        ImageStore.shared.fetch(url) { [weak self] shot, gone in
             guard let self = self else { return }
-            if let img = shot?.first { self.image.image = img } else { self.onGone?(self.id) }
+            if let img = shot?.first { self.image.image = img } else if gone { self.onGone?(self.id) }
         }
     }
 
