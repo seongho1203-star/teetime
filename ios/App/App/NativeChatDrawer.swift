@@ -534,7 +534,7 @@ final class ChatPersonCell: UITableViewCell {
  * 누르는 까닭은 `83/신성호/광산구`만 보고는 누군지 안 떠올라서인데,
  * 사진이 작게 뜨면 그 물음에 답이 안 된다.
  */
-final class ChatProfile: UIView {
+final class ChatProfile: UIView, UIGestureRecognizerDelegate {
 
     /// 이만큼 내리면 닫힌다(웹의 `SHEET_CLOSE`).
     private static let close: CGFloat = 120
@@ -605,8 +605,17 @@ final class ChatProfile: UIView {
         for v in [letter, photo, foot, name, role, extra, mention, closeBtn] as [UIView] {
             sheet.addSubview(v)
         }
+        /* **끄는 손짓은 창 전체가 받는다 — `sheet`에만 붙이지 말 것**
+           (사용자 제보 — `프로필 눌러서 들어간 후 프로필을 끌어서 종료하는게
+           안되네`). 안에 든 것이 저마다 손짓을 받을 수 있는 자리라
+           (`foot`·`@언급하기`·`✕`) 한 겹 안쪽에 붙여 두면 **어디를 잡느냐에
+           따라 되기도 하고 안 되기도 한다.** 창 전체에 붙이면 잡는 자리가
+           없다.
+           **`shouldRecognizeSimultaneouslyWith`가 참이다**(`BackGuard`와 같은
+           결) — 뒤에 깔린 목록·머리말의 손짓과 겨루다 굶는 일이 없게 한다. */
         let pan = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
-        sheet.addGestureRecognizer(pan)
+        pan.delegate = self
+        addGestureRecognizer(pan)
         isHidden = true
     }
 
@@ -624,7 +633,15 @@ final class ChatProfile: UIView {
         layoutIfNeeded()
         back.alpha = 0
         sheet.transform = CGAffineTransform(translationX: 0, y: bounds.height)
-        UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut]) {
+        /* **`.allowUserInteraction`이 한 벌이다** — 이것이 없으면 UIKit이
+           **움직이는 동안 그 뷰의 손짓을 통째로 꺼 둔다.** 뜨자마자
+           끌어 내리는 것이 이 창을 닫는 길인데(사용자 제보 — `프로필
+           눌러서 들어간 후 프로필을 끌어서 종료하는게 안되네`) 그 0.24초가
+           고스란히 죽은 시간이 된다. **되돌아가는 움직임에도 함께 걸 것** —
+           덜 내려 제자리로 돌아가는 0.2초 동안 다시 잡을 수가 없어,
+           한 번 실패하면 이어서 해 봐도 또 안 되는 것처럼 느껴진다. */
+        UIView.animate(withDuration: 0.24, delay: 0,
+                       options: [.curveEaseOut, .allowUserInteraction]) {
             self.back.alpha = 1
             self.sheet.transform = .identity
         }
@@ -678,6 +695,12 @@ final class ChatProfile: UIView {
     @objc private func dragged(_ g: UIPanGestureRecognizer) {
         let dy = g.translation(in: self).y
         switch g.state {
+        case .began:
+            /* **아직 돌고 있는 움직임은 그 자리에서 끝낸다** — 뜨는 도중에
+               잡으면 손끝과 창이 따로 논다(끝 자리는 제자리이므로 창은
+               그대로 있고, 거기서부터 손을 따라간다). */
+            sheet.layer.removeAllAnimations()
+            back.layer.removeAllAnimations()
         case .changed:
             let d = dy >= 0 ? dy : dy / 3
             sheet.transform = CGAffineTransform(translationX: 0, y: d)
@@ -688,12 +711,14 @@ final class ChatProfile: UIView {
             let vy = g.velocity(in: self).y
             let go = dy > Self.close || (vy > 900 && dy > Self.flickMin)
             if go {
-                UIView.animate(withDuration: 0.2, animations: {
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction], animations: {
                     self.sheet.transform = CGAffineTransform(translationX: 0, y: self.bounds.height)
                     self.back.alpha = 0
                 }, completion: { _ in self.onClose?() })
             } else {
-                UIView.animate(withDuration: 0.2) {
+                /* **되돌아가는 동안에도 다시 잡을 수 있어야 한다**
+                   (`show()`의 그 주석과 한 벌이다). */
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction]) {
                     self.sheet.transform = .identity
                     self.back.alpha = 1
                 }
@@ -703,10 +728,24 @@ final class ChatProfile: UIView {
         }
     }
 
+    /// **다른 손짓과 나란히 선다**(`BackGuard`와 같은 결) — 뒤에 깔린
+    /// 목록·머리말의 밀기와 겨루다 이 손짓이 굶으면 창이 안 닫힌다.
+    func gestureRecognizer(_ g: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        return true
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         back.frame = bounds
-        sheet.frame = bounds
+        /* **끄는 동안에도 자리가 안 흔들리게 `frame`을 안 쓴다.**
+           `transform`이 걸린 뷰에 `frame`을 넣는 것은 UIKit이 하지 말라고
+           적어 둔 일이다 — 준 네모가 **움직인 뒤의 자리**가 되게 가운데와
+           크기를 거꾸로 셈하므로, 손가락을 따라가는 도중에 한 번이라도
+           배치가 돌면(`setAttend`가 참석 횟수를 뒤늦게 적을 때처럼) 창이
+           제자리로 튄다. 가운데와 크기는 `transform`과 따로 논다. */
+        sheet.bounds = CGRect(origin: .zero, size: bounds.size)
+        sheet.center = CGPoint(x: bounds.midX, y: bounds.midY)
         photo.frame = bounds
         letter.frame = bounds
         closeBtn.frame = CGRect(x: 4, y: safeAreaInsets.top + 4, width: 44, height: 44)
