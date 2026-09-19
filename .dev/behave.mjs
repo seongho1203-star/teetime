@@ -1924,8 +1924,39 @@ ok(await page.evaluate(() => {
     return !el || new DOMMatrixReadOnly(getComputedStyle(el).transform).f < 1;
 }), '놓으면 제자리로 돌아온다');
 
-/* 프로필의 `@언급하기`를 누르면 입력칸에 `@이름 `이 들어간다. */
-const hasMention = await page.$('.profile-full-btn');
+/* **`🎁 선물하기`는 카카오 페이지를 여는 지름길이다**(사용자 요청 —
+   `그 선물하기를 누르면 카카오 선물하기 페이지가 열리고 거기에서 …
+   상대를 선택하고 선물을 보낼 수 있게`). 우리가 선물을 보내는 것이
+   아니라 주소 하나를 여는 것뿐이라, **`<a>`로 새 탭에 열리는가**와
+   **분홍이 아닌가**를 잰다 — 클래스 이름만 보면 둘 다 초록으로 뜬다. */
+const giftBtn = await page.$('.profile-full-btn.gift');
+ok(!!giftBtn, '프로필에 `🎁 선물하기`가 있다');
+if (giftBtn) {
+    const g = await page.$eval('.profile-full-btn.gift', el => ({
+        tag: el.tagName,
+        href: el.getAttribute('href'),
+        target: el.getAttribute('target'),
+        bg: getComputedStyle(el).backgroundColor,
+        pink: getComputedStyle(document.documentElement)
+            .getPropertyValue('--brand').trim(),
+        h: el.getBoundingClientRect().height,
+        w: el.getBoundingClientRect().width,
+    }));
+    ok(g.tag === 'A' && (g.href ?? '').startsWith('https://gift.kakao.com'),
+       `카카오 선물하기 주소를 연다 (실제 ${g.tag} ${JSON.stringify(g.href)})`);
+    /* 홈 화면 앱에는 주소창도 뒤로 가기도 없다 — 같은 창으로 나가면
+       앱을 껐다 켜야 돌아온다(대화 글 안의 주소와 같은 잣대다). */
+    ok(g.target === '_blank', `새 탭으로 연다 (실제 ${JSON.stringify(g.target)})`);
+    ok(!g.bg.includes('236, 72') && g.bg !== g.pink,
+       `분홍을 안 쓴다 (실제 ${g.bg})`);
+    ok(g.h >= 30 && g.w >= 30,
+       `누름 자리가 30px 위다 (실제 ${Math.round(g.w)}×${Math.round(g.h)})`);
+}
+
+/* 프로필의 `@언급하기`를 누르면 입력칸에 `@이름 `이 들어간다.
+   **`.profile-full-btn` 하나로 집지 말 것** — `🎁 선물하기`가 같은
+   클래스라 그때그때 다른 단추가 잡힌다. */
+const hasMention = await page.$('.profile-full-btn.mention');
 if (hasMention) {
     await hasMention.click();
     await page.waitForTimeout(300);

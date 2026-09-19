@@ -542,6 +542,19 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
     /// 조금 미끄러진 것까지 닫힘으로 읽히면 사진을 들여다볼 수가 없다.
     private static let flickMin: CGFloat = 40
 
+    /**
+     * **카카오 선물하기로 가는 문**(`🎁 선물하기`).
+     *
+     * **우리가 선물을 보내는 것이 아니라 카카오 페이지를 여는 것뿐이다** —
+     * 카카오가 밖에 열어 둔 것은 로그인·공유·지도·내비·페이뿐이고, 선물을
+     * 대신 보내 주는 API는 사업자 전용(`선물하기 for Biz`)뿐이다. 받는
+     * 사람은 카카오톡 안에서 고른다(주소에 못 싣는다).
+     *
+     * **웹에도 같은 값이 있다**(`src/lib/types.ts`의 `GIFT_URL`) —
+     * 한쪽만 고치지 말 것.
+     */
+    private static let giftURL = "https://gift.kakao.com/"
+
     var onClose: (() -> Void)?
     var onMention: ((String) -> Void)?
 
@@ -554,6 +567,7 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
     private let role = PadLabel()
     private let extra = UILabel()
     private let mention = UIButton(type: .system)
+    private let gift = UIButton(type: .system)
     private let closeBtn = UIButton(type: .system)
     private var who = ""
 
@@ -595,6 +609,16 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
         mention.layer.cornerRadius = 22
         mention.addTarget(self, action: #selector(mentionTapped), for: .touchUpInside)
 
+        /* `🎁 선물하기`도 **같은 흰 알약이다** — 카카오 페이지를 여는
+           지름길이라 더더욱 눈에 띌 자리가 아니다(정산의 `토스로 보내기`와
+           같은 잣대다). 웹의 `.profile-full-btn`과 값이 같다. */
+        gift.setTitle("🎁 선물하기", for: .normal)
+        gift.setTitleColor(.white, for: .normal)
+        gift.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        gift.backgroundColor = UIColor(white: 1, alpha: 0.3)
+        gift.layer.cornerRadius = 22
+        gift.addTarget(self, action: #selector(giftTapped), for: .touchUpInside)
+
         /* **`✕`는 왼쪽 위다**(카톡과 같다) — 화면을 통째로 차지하는 창이다. */
         closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
         closeBtn.tintColor = .white
@@ -602,7 +626,7 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         /* 두 글자는 **사진 밑에** 둔다 — 사진이 오면 그대로 덮는다. */
-        for v in [letter, photo, foot, name, role, extra, mention, closeBtn] as [UIView] {
+        for v in [letter, photo, foot, name, role, extra, mention, gift, closeBtn] as [UIView] {
             sheet.addSubview(v)
         }
         /* **끄는 손짓은 창 전체가 받는다 — `sheet`에만 붙이지 말 것**
@@ -623,6 +647,15 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
 
     @objc private func closeTapped() { onClose?() }
     @objc private func mentionTapped() { onMention?(who) }
+
+    /* **밖으로 나가는 것이 맞다** — 카카오톡이 깔려 있으면 iOS가 그 앱으로
+       넘겨 주고, 없으면 사파리가 그 페이지를 연다. 사진을 새 창으로 띄우지
+       말라던 규칙과 갈리는 자리다: 그쪽은 우리 그림이라 앱 안에서 봐야 하고
+       이건 **처음부터 카카오에서 할 일**이다. */
+    @objc private func giftTapped() {
+        guard let url = URL(string: Self.giftURL) else { return }
+        UIApplication.shared.open(url)
+    }
 
     /// `attend`는 **운영진에게만** 적는 `올해 N회`다 — 모르면 안 적는다
     /// (0으로 적으면 모두가 `올해 0회`가 되어 거짓말이 된다).
@@ -765,7 +798,13 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
                                  width: bounds.width - pad * 2, height: 20)
         }
         y += 30
-        mention.frame = CGRect(x: pad, y: y, width: bounds.width - pad * 2, height: 44)
+        /* **둘이 한 줄에 나란히 서고 자리를 똑같이 나눈다**(웹의
+           `.profile-full-acts`와 같은 짜임이다). 좁은 화면에서도 한 칸이
+           130px을 넘어 두 단추 다 안 접힌다. */
+        let gap: CGFloat = 8
+        let half = (bounds.width - pad * 2 - gap) / 2
+        mention.frame = CGRect(x: pad, y: y, width: half, height: 44)
+        gift.frame = CGRect(x: pad + half + gap, y: y, width: half, height: 44)
     }
 }
 

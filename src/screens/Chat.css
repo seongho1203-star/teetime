@@ -1784,11 +1784,17 @@ html.nc .chat-over { margin-top: 0; }
     text-fill-color: #fff;
 }
 /* **분홍을 안 쓴다** — 이 화면에서 '지금 눌러야 할 것'은 보내기 단추
-   하나다. 크게 본 사진의 단추(`.photo-zoom-btn`)와 같은 값이다. */
+   하나다. 크게 본 사진의 단추(`.photo-zoom-btn`)와 같은 값이다.
+   `🎁 선물하기`도 **같은 값이다** — 그쪽은 카카오 페이지를 여는 지름길이라
+   더더욱 눈에 띌 자리가 아니다(정산의 `토스로 보내기`와 같은 잣대다). */
 .profile-full-btn {
-    min-width: 120px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    flex: 1 1 0;
     height: 44px;
-    padding: 0 20px;
+    padding: 0 12px;
     border: 0;
     border-radius: var(--r-pill);
     background: rgba(255, 255, 255, 0.30);
@@ -1796,8 +1802,20 @@ html.nc .chat-over { margin-top: 0; }
     color: #fff;
     font-size: 15px;
     font-weight: 600;
+    /* 좁은 화면(320px)에서 `🎁 선물하기`가 세로로 접히지 않게 —
+       `.btn`이 `nowrap`인 것과 같은 까닭이다. */
+    white-space: nowrap;
+    text-decoration: none;
 }
 .profile-full-btn:active { background: rgba(255, 255, 255, 0.44); }
+/* **둘을 한 줄에 나란히 놓고 자리를 똑같이 나눈다**(`flex: 1 1 0`).
+   320px에서도 한 칸이 137px이라 두 단추 다 안 접힌다. */
+.profile-full-acts {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    width: 100%;
+}
 
 /* 사진을 크게 보는 자리. **앱에서 새 창으로 띄우면 사파리로 나가 버려서**
    여기서 본다(`Chat.tsx`의 `onPhotoTap`). */

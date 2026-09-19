@@ -6,7 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAsync, unwrap, useRefreshOnShow, fetchPeople, byId } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatChatDay, formatStamp, formatTime, kstDate } from '../lib/format';
-import { FIND_AT, REACTIONS, ROLE_LABEL, ROLE_TAG, personLabel,
+import { FIND_AT, GIFT_URL, REACTIONS, ROLE_LABEL, ROLE_TAG, personLabel,
          type Gender, type Message, type MessageReaction,
          type Person, type Room } from '../lib/types';
 import { Avatar } from '../components/Avatar';
@@ -4218,8 +4218,21 @@ function ProfileFull({ p, attend, onMention, onClose }: {
                         )}
                         {attend !== null && <span className="profile-full-n">올해 {attend}회</span>}
                     </div>
+                    {/* **남의 프로필에만 둘이 선다.** 내 얼굴에는 `@언급하기`가
+                        없고(나를 부를 일이 없다) 나에게 선물할 일도 없다.
+                        **`@언급하기`가 먼저다** — 이 화면에서 늘 하던 일이 그쪽이다. */}
                     {onMention && (
-                        <button className="profile-full-btn" onClick={onMention}>@언급하기</button>
+                        <div className="profile-full-acts">
+                            <button className="profile-full-btn mention"
+                                    onClick={onMention}>@언급하기</button>
+                            {/* **우리가 선물을 보내는 것이 아니라 카카오 페이지를
+                                여는 것뿐이다**(`GIFT_URL`의 설명 참고). 주소 하나를
+                                여는 지름길이라 정산의 `토스로 보내기`와 같은 짜임이고,
+                                **새 탭으로 연다** — 같은 창으로 나가면 홈 화면 앱에는
+                                돌아올 길이 없다(대화 글 안의 주소와 같은 잣대다). */}
+                            <a className="profile-full-btn gift" href={GIFT_URL}
+                               target="_blank" rel="noreferrer">🎁 선물하기</a>
+                        </div>
                     )}
                 </div>
             </div>
