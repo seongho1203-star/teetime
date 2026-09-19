@@ -36,6 +36,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /// 서랍(☰)과 전체화면 프로필. **따로 띄우는 화면이 아니라 여기 얹는다** —
     /// 그래야 네이티브 글칸 바와 말풍선 목록을 그대로 덮는다.
     private let drawer = ChatDrawer()
+    /// 서랍의 `더보기`가 여는 격자 화면. 사진만 모아 본다.
+    private let gallery = ChatGallery()
     private let profile = ChatProfile()
     /// 손가락을 따라 뒤로 가기(`ChatList.swift`의 `BackDrag`). 끄는 것은
     /// 앱이 맡고 **뒤에 깔 앞 화면은 웹이 그린다**(`nativeBackStart`).
@@ -103,6 +105,23 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 이 값이 있으면 입력칸 위에 `동영상 불러오는 중…`이 먼저 선다.
      */
     private var loadingWhat: String?
+    /**
+     * **여러 개를 고르면 아직 안 올린 것들이 여기 줄을 선다**(사용자 요청 —
+     * `사진동영상 올릴때 여러개를 선택해서 올릴수있도록해줘`).
+     *
+     * **한 개씩 차례로 올린다** — 앞엣것이 끝나야 다음 것을 읽어 온다
+     * (`sendMedia`의 `then`). 한꺼번에 읽으면 **원본 그대로 올리는**
+     * 우리 규칙에서 동영상 열 개가 곧 수백 MB라 폰이 주저앉는다.
+     * 차례로 두면 손에 들고 있는 파일이 늘 하나뿐이다.
+     */
+    private var pickQueue: [NSItemProvider] = []
+    /// 이번에 고른 개수와 그 가운데 몇 번째인가 — `사진 불러오는 중… (2/5)`.
+    private var pickTotal = 0
+    private var pickDone = 0
+    /// `더보기` 화면이 받아 둔 사진들(이어 받으려고 시각까지 들고 있다).
+    private var galleryRows: [(id: String, url: String, at: String)] = []
+    private var galleryMore = true
+    private var galleryBusy = false
     /**
      * **지금 대화방에 먼저 그려 놓고 올라가는 중인 줄**(임시 id → 진행률).
      *
@@ -230,7 +249,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
         /* 길게 누른 창 · 서랍 · 프로필은 **맨 위에 얹는다** — 이 셋이
            입력칸(네이티브 바)까지 덮어야 한다. */
-        for v in [hold, drawer, profile] as [UIView] {
+        for v in [hold, drawer, gallery, profile] as [UIView] {
             v.frame = view.bounds
             v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             view.addSubview(v)
@@ -239,6 +258,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         drawer.onClose = { [weak self] in self?.drawer.hide() }
         drawer.onPerson = { [weak self] id in self?.drawer.hide(); self?.showProfile(id) }
         drawer.onPhoto = { [weak self] url in self?.showPhoto(url) }
+        drawer.onMore = { [weak self] in self?.showGallery() }
+        /* **서랍은 안 닫는다** — 닫으면 이 화면을 닫았을 때 돌아올 데가
+           없다(썸네일을 눌러 사진을 크게 볼 때와 같은 까닭이다). */
+        gallery.onClose = { [weak self] in self?.gallery.hide() }
+        gallery.onPhoto = { [weak self] url in self?.showPhoto(url) }
+        gallery.onMore = { [weak self] in self?.loadGallery(reset: false) }
         profile.onClose = { [weak self] in self?.profile.hide() }
         profile.onMention = { [weak self] name in self?.mentionFrom(name) }
 
@@ -271,7 +296,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         visible = false; list.pauseSession(); view.endEditing(true); setTray(false)
         /* 덮는 창은 화면을 떠날 때 함께 걷는다 — 남으면 다시 들어왔을 때
            엉뚱한 창이 떠 있는 꼴이 된다(토스트도 같다). */
-        hold.hide(); drawer.hide(); profile.hide(); ToastHUD.clear()
+        hold.hide(); drawer.hide(); gallery.hide(); profile.hide(); ToastHUD.clear()
         realtime?.stop(); syncTask?.cancel(); readTask?.cancel(); searchTask?.cancel(); metadataTask?.cancel()
         offlineTask?.cancel(); offlineTask = nil
         if !loaded { loadTask?.cancel(); loadTask = nil }
@@ -648,8 +673,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * - **실패하면 입력칸 위에 도로 물려 둔다**(`picked`) — 파일이
      *   사라지면 다시 고르러 가야 한다. `✕`로 버릴 수도 있다.
      */
-    private func sendMedia(_ media: PickedMedia) {
-        guard loaded else { return }
+    private func sendMedia(_ media: PickedMedia, then: (() -> Void)? = nil) {
+        guard loaded else { then?(); return }
         let temp = "tmp:" + UUID().uuidString.lowercased()
         /* **`local:`처럼 스킴을 붙이지 말 것** — `URL(string:)`이 그것을
            비계층 주소로 보아 `path`가 빈 글자가 되고, 그러면 주소 끝으로
@@ -667,8 +692,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         merge([NativeChatMessage(raw: raw)])
         render(); list.scrollToBottom(animated: false)
         jobs[temp] = Task { [weak self] in
-            guard let self = self else { return }
-            defer { self.jobs[temp] = nil }
+            guard let self = self else { then?(); return }
+            /* **끝나면 줄 선 다음 것을 읽어 온다** — 성공이든 실패든
+               그만둔 것이든 한 번만 부른다. */
+            defer { self.jobs[temp] = nil; then?() }
             do {
                 let url = try await self.service.upload(
                     media.data, room: self.room, ext: media.ext, type: media.type,
@@ -700,6 +727,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     self.render(); self.notice("올리기를 그만뒀습니다.")
                     return
                 }
+                /* **한 장이 실패하면 줄 선 나머지는 멈춘다** — 대개 통신이
+                   끊긴 것이라 줄줄이 실패하고, 무엇보다 다음 것을 읽어 오면
+                   `took()`이 방금 물려 둔 `picked`를 덮어써 **다시 보낼
+                   길이 없어진다.** 오류 문구는 `보내기를 눌러 다시`라고
+                   말하는데 그 파일이 사라지는 셈이다. */
+                self.pickQueue.removeAll()
                 /* 파일은 물려 둔다 — 다시 고르러 가지 않게. */
                 self.picked = media; self.updateContext(); self.render()
                 self.notice("\(error.localizedDescription)\n\(media.isVideo ? "동영상" : "사진")을 보관했습니다. 보내기를 눌러 다시 시도하세요.")
@@ -821,12 +854,17 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
         menu.addAction(UIAlertAction(title: "취소", style: .cancel)); presentMenu(menu)
     }
-    /// **사진과 동영상을 함께 고른다**(사용자 요청). 한 번에 한 개다 —
-    /// 여러 개를 받으면 올리는 동안 무엇이 실패했는지 알려 줄 자리가 없다.
+    /// **사진과 동영상을 함께, 여러 개 고른다**(사용자 요청 — `여러개를
+    /// 선택해서 올릴수있도록해줘`). 한 번에 `PICK_MAX`개까지이고, 고른
+    /// 것은 **한 개씩 차례로** 올라간다(`pickQueue`).
+    private static let pickMax = 10
     private func pickPhoto() {
         var config = PHPickerConfiguration()
         config.filter = .any(of: [.images, .videos])
-        config.selectionLimit = 1
+        config.selectionLimit = Self.pickMax
+        /* 고른 차례대로 올린다 — 사진첩이 늘어놓는 차례가 아니라
+           **사람이 누른 차례**여야 보낸 것이 생각한 순서로 선다. */
+        config.selection = .ordered
         /* **줄이지 말고 원본 파일을 달라**는 뜻이다(사용자 요청) — 이게
            없으면 아이폰이 제 나름대로 변환해 준다. */
         config.preferredAssetRepresentationMode = .current
@@ -834,7 +872,29 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let item = results.first?.itemProvider else { return }
+        guard !results.isEmpty else { return }
+        picked = nil; sticker = nil; retryRow = nil
+        pickQueue = results.map { $0.itemProvider }
+        pickTotal = pickQueue.count
+        pickDone = 0
+        nextPick()
+    }
+
+    /**
+     * 줄 선 것 가운데 **하나를 읽어 온다.** 다 읽으면 `took()`이
+     * `sendMedia`로 넘기고, 그 올리기가 끝나면 여기가 다시 불린다.
+     *
+     * **비었으면 `불러오는 중` 줄만 걷고 끝낸다** — 실패로 물려 둔
+     * `picked`가 있으면 그것이 그대로 입력칸 위에 남는다.
+     */
+    private func nextPick() {
+        guard !pickQueue.isEmpty else {
+            pickTotal = 0; pickDone = 0
+            if loadingWhat != nil { loadingWhat = nil; updateContext() }
+            return
+        }
+        let item = pickQueue.removeFirst()
+        pickDone += 1
         /* 동영상이 먼저다 — 움짤(`.mov`)은 그림으로도 읽혀서, 사진부터
            물어보면 첫 장면만 올라간다. */
         let movie = item.hasItemConformingToTypeIdentifier("public.movie")
@@ -843,7 +903,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            동영상은 몇십 MB라 몇 초가 걸리는데, 그동안 화면이 조용하면
            안 눌린 줄 알고 다시 고르러 간다. `took()`이 이 값을 내린다. */
         loadingWhat = movie ? "동영상" : "사진"
-        picked = nil; sticker = nil; retryRow = nil; updateContext()
+        updateContext()
         if movie {
             _ = item.loadFileRepresentation(forTypeIdentifier: "public.movie") { [weak self] url, _ in
                 /* **이 자리를 벗어나면 그 파일은 사라진다** — 여기서 읽어
@@ -884,21 +944,37 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            걸려 있어야 그 줄이 화면에 남지 않는다. */
         let was = loadingWhat != nil
         loadingWhat = nil
+        /* **한 개가 잘못돼도 나머지는 올린다** — 열 장 가운데 하나가
+           50MB를 넘었다고 나머지 아홉을 버릴 이유가 없다. 알리고 다음
+           것으로 넘어간다. */
         guard let media = media else {
             if was { updateContext() }
-            notice("\(what)을 불러오지 못했습니다."); return
+            notice("\(what)을 불러오지 못했습니다.")
+            nextPick(); return
         }
         guard media.data.count <= PickedMedia.limit else {
             if was { updateContext() }
             notice("\(what)이 너무 큽니다(\(media.data.count / 1024 / 1024)MB).\n50MB까지 올릴 수 있습니다.")
-            return
+            nextPick(); return
         }
         /* **고른 그 자리에서 올린다**(사용자 요청 — 카톡처럼). 입력칸 위에
-           물려 두지 않고 대화방에 먼저 그린다 — `sendMedia`를 볼 것. */
+           물려 두지 않고 대화방에 먼저 그린다 — `sendMedia`를 볼 것.
+           **다 올라가야 다음 것을 읽어 온다**(`then`) — 손에 들고 있는
+           파일을 늘 하나로 두려는 것이다. */
         picked = nil; sticker = nil; retryRow = nil; updateContext()
-        sendMedia(media)
+        sendMedia(media) { [weak self] in self?.nextPick() }
     }
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { picker.dismiss(animated: true) }
+
+    /// 입력칸 위의 `사진 불러오는 중…` 한 줄. **여러 개를 골랐으면 몇
+    /// 번째인지 함께 적는다** — 다섯 장을 골랐는데 말풍선이 하나만 뜨면
+    /// 나머지가 안 간 줄 알고 다시 고르러 간다.
+    private func loadingLabel() -> String {
+        let what = loadingWhat ?? "파일"
+        guard pickTotal > 1 else { return "\(what) 불러오는 중…" }
+        return "\(what) 불러오는 중… (\(pickDone)/\(pickTotal))"
+    }
+
     private func updateContext() {
         context.arrangedSubviews.forEach { $0.removeFromSuperview() }
         if let quote = quoted {
@@ -928,7 +1004,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             if let src = sticker?["src"] as? String { ImageStore.shared.load(src) { shot in ImageStore.put(shot, into: image) } }
             let label = UILabel(); label.font = .systemFont(ofSize: 14)
             label.textColor = ChatSkin().on
-            label.text = sticker?["label"] as? String ?? picked?.label ?? "\(loadingWhat ?? "파일") 불러오는 중…"
+            label.text = sticker?["label"] as? String ?? picked?.label ?? loadingLabel()
             row.addArrangedSubview(box); row.addArrangedSubview(label)
 
             if loadingWhat != nil {
@@ -945,7 +1021,11 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             }
             let remove = button("xmark", "첨부 취소", "native-attachment-cancel") { [weak self] in
                 self?.sticker = nil; self?.picked = nil; self?.retryRow = nil
-                self?.loadingWhat = nil; self?.updateContext()
+                self?.loadingWhat = nil
+                /* **줄 서 있던 나머지도 함께 그만둔다** — 여기서 `✕`는
+                   `이번에 고른 것을 안 보낸다`는 뜻이다. */
+                self?.pickQueue.removeAll(); self?.pickTotal = 0; self?.pickDone = 0
+                self?.updateContext()
             }
             /* 이 줄 뒤는 대화 바탕색(보라)이라 `.label`(먹색)로 두면
                안 보인다 — `context.backgroundColor`와 한 쌍이다. */
@@ -983,7 +1063,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 웹은 그 뒤에서 앞 화면 그림만 깔아 준다(`nativeBackStart`).
      */
     func chatListBackBegan() -> Bool {
-        guard service.config.back, !navigating, hold.isHidden, drawer.isHidden, profile.isHidden,
+        guard service.config.back, !navigating, hold.isHidden, drawer.isHidden,
+              gallery.isHidden, profile.isHidden,
               let web = view.superview else { return false }
         guard backDrag.begin(root: view, web: web, cover: [view]) else { return false }
         event?("back", ["phase": "start"])
@@ -1203,6 +1284,52 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 ("image_url", "not.is.null"), ("image_url", "not.ilike.sticker:%"), ("hidden_at", "is.null"),
             ], limit: 30)) ?? []
             self.drawer.setPhotos(rows.compactMap { m in m.image.map { (id: m.id, url: $0) } })
+        }
+    }
+
+    /**
+     * 서랍의 `더보기` — **사진만 격자로 모아 본다**(`ChatGallery`).
+     *
+     * 서랍의 가로 줄은 마지막 서른 장뿐이라 그보다 앞엣것을 되짚을 길이
+     * 없었다. 여기서는 **끝에 닿을 때마다** 한 묶음씩 더 받아 온다.
+     */
+    private static let galleryPage = 60
+    private func showGallery() {
+        view.bringSubviewToFront(gallery)
+        gallery.show()
+        if galleryRows.isEmpty { loadGallery(reset: true) }
+    }
+
+    /**
+     * 한 묶음을 받아 온다. **거르는 잣대는 서랍(`loadShots`)과 같아야
+     * 한다** — 한쪽만 고치면 줄에는 있는데 격자에는 없는 사진이 생긴다.
+     *
+     * **이어 받는 자리는 마지막 줄의 시각·id다**(`older()`와 같은 셈).
+     * **오류는 그냥 삼킨다** — 못 받으면 그만큼 안 그릴 뿐이다.
+     */
+    private func loadGallery(reset: Bool) {
+        if galleryBusy { return }
+        if reset { galleryRows = []; galleryMore = true }
+        guard galleryMore else { return }
+        galleryBusy = true
+        let last = galleryRows.last
+        Task { [weak self] in
+            guard let self = self else { return }
+            defer { self.galleryBusy = false }
+            var filters: [(String, String)] = [
+                ("image_url", "not.is.null"), ("image_url", "not.ilike.sticker:%"), ("hidden_at", "is.null"),
+            ]
+            if let last = last {
+                filters.append(("or", "(created_at.lt.\(last.at),and(created_at.eq.\(last.at),id.lt.\(last.id)))"))
+            }
+            let rows = (try? await self.service.messages(
+                self.room, filters: filters, limit: Self.galleryPage)) ?? []
+            self.galleryMore = rows.count == Self.galleryPage
+            self.galleryRows += rows.compactMap { m in
+                m.image.map { (id: m.id, url: $0, at: m.at) }
+            }
+            self.gallery.setPhotos(self.galleryRows.map { (id: $0.id, url: $0.url) },
+                                   more: self.galleryMore)
         }
     }
 

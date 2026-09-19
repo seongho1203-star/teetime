@@ -56,6 +56,122 @@ enum ChatRole {
     }
 }
 
+/**
+ * 서랍 안의 묶음 머리말 — **초록 네모 그림 + 굵은 제목**이다.
+ *
+ * 사용자 요청(`우측 상단 메뉴눌렀을때 내가 올린사진처럼해주고` · 밴드
+ * 화면을 받아 맞췄다). 예전에는 흐린 14px 한 줄이라 두 묶음이 그냥
+ * 이어져 보였다.
+ *
+ * **값은 그 사진을 픽셀로 재서 얻었다**(1206 × 배율 3.0 — 대화 화면을
+ * 맞출 때와 같은 자다): 그림 58픽셀 → **20px** · 그림에서 제목까지
+ * 33픽셀 → **10px** · 제목 잉크 46픽셀 → **20px 굵게**.
+ * **눈대중으로 고치지 말 것.**
+ *
+ * **초록은 새로 안 정한다** — 눌리는 카드의 배지와 같은
+ * `ChatSkin().cardBadge`(웹의 `--grass`)이고 그림은 흰색으로 뒤집는다
+ * (`RankMark`가 직책 색을 물려받는 것과 같은 수다).
+ */
+final class DrawerHead: UIView {
+    static let height: CGFloat = 26
+    private static let markSize: CGFloat = 20
+    private static let gap: CGFloat = 10
+
+    private let mark = UIImageView()
+    private let label = UILabel()
+
+    var title: String {
+        get { label.text ?? "" }
+        set { label.text = newValue }
+    }
+
+    init(icon: String, title: String) {
+        super.init(frame: .zero)
+        mark.backgroundColor = ChatSkin().cardBadge
+        mark.layer.cornerRadius = 6
+        mark.layer.cornerCurve = .continuous
+        mark.clipsToBounds = true
+        mark.contentMode = .center
+        /* **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다
+           (투표 결과 카드의 `🗳`에서 겪었다). SF Symbol이다. */
+        mark.image = UIImage(systemName: icon,
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        mark.tintColor = .white
+        addSubview(mark)
+
+        label.text = title
+        label.font = .systemFont(ofSize: 20, weight: .bold)
+        label.textColor = .label
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let s = Self.markSize
+        mark.frame = CGRect(x: 0, y: (bounds.height - s) / 2, width: s, height: s)
+        let x = s + Self.gap
+        label.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x), height: bounds.height)
+    }
+}
+
+/**
+ * 사진 줄 끝의 `더보기` — 동그란 `→`와 그 아래 글자.
+ *
+ * **누르는 자리는 사진 한 장만 하다**(64×64). 그림의 동그라미는 24px쯤
+ * 이지만 그 크기로 두면 `node .dev/audit.mjs`가 잡는 30px 아래가 되고
+ * 손으로 누르기도 어렵다 — 동그라미만 작게 그리고 **누르는 칸은 줄
+ * 높이를 다 쓴다.**
+ */
+final class DrawerMore: UIControl {
+    static let width: CGFloat = 64
+    private static let ring: CGFloat = 36
+
+    private let circle = UIView()
+    private let arrow = UIImageView()
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        circle.backgroundColor = .secondarySystemFill
+        circle.layer.cornerRadius = Self.ring / 2
+        circle.isUserInteractionEnabled = false
+        addSubview(circle)
+
+        arrow.image = UIImage(systemName: "arrow.right",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
+        arrow.tintColor = .label
+        arrow.contentMode = .center
+        arrow.isUserInteractionEnabled = false
+        addSubview(arrow)
+
+        label.text = "더보기"
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.isUserInteractionEnabled = false
+        addSubview(label)
+
+        accessibilityLabel = "사진·동영상 더보기"
+        accessibilityIdentifier = "native-chat-drawer-more"
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let r = Self.ring
+        circle.frame = CGRect(x: (bounds.width - r) / 2, y: 2, width: r, height: r)
+        arrow.frame = circle.frame
+        label.frame = CGRect(x: 0, y: circle.frame.maxY + 4, width: bounds.width, height: 16)
+    }
+
+    override var isHighlighted: Bool {
+        didSet { alpha = isHighlighted ? 0.6 : 1 }
+    }
+}
+
 // MARK: - 서랍 (☰)
 
 /**
@@ -74,13 +190,16 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
     var onClose: (() -> Void)?
     var onPerson: ((String) -> Void)?
     var onPhoto: ((String) -> Void)?
+    /// `더보기` — 사진만 격자로 모아 보는 화면을 연다(`ChatGallery`).
+    var onMore: (() -> Void)?
 
     private let dim = UIView()
     private let panel = UIView()
     private let closeBtn = UIButton(type: .system)
-    private let shotsHead = UILabel()
+    private let shotsHead = DrawerHead(icon: "photo.fill", title: "사진·동영상")
     private let shotsRow = UIScrollView()
-    private let peopleHead = UILabel()
+    private let moreBtn = DrawerMore()
+    private let peopleHead = DrawerHead(icon: "person.2.fill", title: "참여자")
     private let find = UITextField()
     private let table = UITableView()
 
@@ -108,19 +227,15 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
         closeBtn.accessibilityIdentifier = "native-chat-drawer-close"
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
-        /* **`최근`이 붙어 있는 것은 일부러다** — 서른 개만 보여 주므로
-           다 있는 것처럼 적으면 거짓말이 된다. 동영상도 보낼 수 있게
-           되면서(사용자 요청) 이름에 함께 적었다. */
-        shotsHead.text = "최근 사진·동영상"
-        shotsHead.font = .systemFont(ofSize: 14, weight: .semibold)
-        shotsHead.textColor = .secondaryLabel
+        /* **`최근`을 뗐다** — 예전에는 서른 장만 보여 주므로 다 있는 것처럼
+           적으면 거짓말이 된다고 `최근 사진·동영상`이었는데, 이제 줄 끝의
+           `더보기`가 **다 보여 주는 화면**으로 데려간다(`ChatGallery`).
+           그 단추를 없애면 이름도 함께 되돌릴 것. */
         /* **가로로만 굴러간다** — 세로로 쌓으면 사진 서른 장이 서랍을 통째로
            먹어 참여자 목록이 저 아래로 밀린다. */
         shotsRow.showsHorizontalScrollIndicator = false
         shotsRow.accessibilityIdentifier = "native-chat-drawer-photos"
-
-        peopleHead.font = .systemFont(ofSize: 14, weight: .semibold)
-        peopleHead.textColor = .secondaryLabel
+        moreBtn.addTarget(self, action: #selector(moreTapped), for: .touchUpInside)
 
         find.borderStyle = .roundedRect
         find.font = .systemFont(ofSize: 16)
@@ -140,7 +255,7 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
         table.register(ChatPersonCell.self, forCellReuseIdentifier: "p")
         table.accessibilityIdentifier = "native-chat-drawer-people"
 
-        for v in [closeBtn, shotsHead, shotsRow, peopleHead, find, table] as [UIView] {
+        for v in [closeBtn, shotsHead, shotsRow, moreBtn, peopleHead, find, table] as [UIView] {
             panel.addSubview(v)
         }
         isHidden = true
@@ -149,6 +264,7 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func closeTapped() { onClose?() }
+    @objc private func moreTapped() { onMore?() }
     @objc private func findDone() { find.resignFirstResponder() }
     @objc private func findChanged() { filter(); table.reloadData() }
 
@@ -159,7 +275,7 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
         people = list.sorted(by: ChatRole.order)
         filter()
         table.reloadData()
-        peopleHead.text = "참여자 \(people.count)명"
+        peopleHead.title = "참여자 \(people.count)명"
         find.isHidden = people.count <= Self.findAt
         isHidden = false
         setNeedsLayout()
@@ -236,16 +352,24 @@ final class ChatDrawer: UIView, UITableViewDataSource, UITableViewDelegate {
         if hasPhotos {
             shotsHead.isHidden = false
             shotsRow.isHidden = false
-            shotsHead.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: 20)
-            y += 24
-            shotsRow.frame = CGRect(x: pad, y: y, width: w - pad, height: Self.thumb)
-            y += Self.thumb + 18
+            moreBtn.isHidden = false
+            shotsHead.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: DrawerHead.height)
+            y += DrawerHead.height + 12
+            /* **`더보기`는 굴러가는 줄 밖, 오른쪽 끝에 붙박여 있다** — 줄
+               안에 넣으면 사진 서른 장을 다 굴려야 만난다. 줄은 그만큼
+               좁아진다. */
+            moreBtn.frame = CGRect(x: w - pad - DrawerMore.width, y: y,
+                                   width: DrawerMore.width, height: Self.thumb)
+            shotsRow.frame = CGRect(x: pad, y: y,
+                                    width: max(0, moreBtn.frame.minX - pad - 8), height: Self.thumb)
+            y += Self.thumb + 20
         } else {
             shotsHead.isHidden = true
             shotsRow.isHidden = true
+            moreBtn.isHidden = true
         }
-        peopleHead.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: 20)
-        y += 26
+        peopleHead.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: DrawerHead.height)
+        y += DrawerHead.height + 10
         if !find.isHidden {
             find.frame = CGRect(x: pad, y: y, width: w - pad * 2, height: 40)
             y += 48
@@ -1101,4 +1225,191 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
                         minimumInteritemSpacingForSectionAt section: Int) -> CGFloat { Self.gap }
     func collectionView(_ c: UICollectionView, layout: UICollectionViewLayout,
                         minimumLineSpacingForSectionAt section: Int) -> CGFloat { Self.gap }
+}
+
+// MARK: - 사진·동영상 다 보기 (더보기)
+
+/**
+ * 서랍의 `더보기`가 여는 화면 — **올린 사진·동영상을 격자로 모아 본다.**
+ *
+ * **오래 비어 있던 자리다.** 서랍의 가로 줄은 마지막 서른 장만 보여 주고
+ * (통신량 규칙), 그보다 앞엣것을 되짚으려면 **대화를 위로 계속 올리는 것
+ * 말고 길이 없었다**(🔍는 글자만 찾는다). 그래서 머리말도 `최근 사진`
+ * 이었는데, 이 화면이 생기면서 `최근`을 뗐다.
+ *
+ * - **한 번에 다 안 받는다**(`page`). 아래로 내려가 끝에 닿을 때마다
+ *   그만큼 더 받아 온다 — 1년치 사진 주소를 한꺼번에 받을 이유가 없다.
+ * - **조각은 `ChatThumb`을 그대로 쓴다** — 지워진 사진을 가리는 잣대
+ *   (HTTP 400·404만 `gone`)가 서랍과 갈리면 안 된다.
+ * - **누르면 앱 안에서 크게 뜬다**(서랍과 같은 `onPhoto`). 이 화면은
+ *   안 닫는다 — 닫으면 사진을 닫았을 때 돌아올 데가 없다.
+ * - **화면을 통째로 덮는다**(서랍 위에 얹힌다). 서랍은 그대로 열려 있어
+ *   `닫기`를 누르면 그 자리로 돌아온다.
+ */
+final class ChatGallery: UIView, UICollectionViewDataSource, UICollectionViewDelegate,
+                         UICollectionViewDelegateFlowLayout {
+
+    /// 한 줄에 몇 칸인가. 조각이 클수록 통이 바빠지므로 셋으로 둔다.
+    private static let cols: CGFloat = 3
+    private static let gap: CGFloat = 2
+
+    var onClose: (() -> Void)?
+    var onPhoto: ((String) -> Void)?
+    /// 끝에 닿았다 — 더 받아 올 것이 있으면 받아 온다.
+    var onMore: (() -> Void)?
+
+    private let head = UIView()
+    private let closeBtn = UIButton(type: .system)
+    private let title = UILabel()
+    private let spin = UIActivityIndicatorView(style: .medium)
+    private let empty = UILabel()
+    private let grid: UICollectionView
+
+    private var items: [(id: String, url: String)] = []
+    private var hasMore = false
+    /// 지워진 것 — **참·거짓이 아니라 그 글의 id다**(서랍의 `gone`과 같다).
+    private var gone: Set<String> = []
+
+    override init(frame: CGRect) {
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumLineSpacing = Self.gap
+        layout.minimumInteritemSpacing = Self.gap
+        grid = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        super.init(frame: frame)
+
+        backgroundColor = .systemBackground
+
+        head.backgroundColor = .systemBackground
+        addSubview(head)
+
+        closeBtn.setTitle("닫기", for: .normal)
+        closeBtn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        closeBtn.accessibilityIdentifier = "native-chat-gallery-close"
+        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        head.addSubview(closeBtn)
+
+        title.text = "사진·동영상"
+        title.font = .systemFont(ofSize: 17, weight: .bold)
+        title.textColor = .label
+        head.addSubview(title)
+
+        grid.backgroundColor = .systemBackground
+        grid.dataSource = self
+        grid.delegate = self
+        grid.alwaysBounceVertical = true
+        grid.register(GalleryCell.self, forCellWithReuseIdentifier: "shot")
+        grid.accessibilityIdentifier = "native-chat-gallery"
+        addSubview(grid)
+
+        spin.hidesWhenStopped = true
+        addSubview(spin)
+
+        empty.text = "아직 올린 사진이 없습니다."
+        empty.font = .systemFont(ofSize: 14)
+        empty.textColor = .secondaryLabel
+        empty.textAlignment = .center
+        empty.isHidden = true
+        addSubview(empty)
+
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func closeTapped() { onClose?() }
+
+    func show() {
+        isHidden = false
+        if items.isEmpty { spin.startAnimating() }
+        setNeedsLayout()
+    }
+
+    func hide() { isHidden = true }
+
+    /// 받아 온 것을 그린다. **지워진 것은 그 자리에서 뺀다.**
+    func setPhotos(_ list: [(id: String, url: String)], more: Bool) {
+        items = list.filter { !gone.contains($0.id) }
+        hasMore = more
+        spin.stopAnimating()
+        empty.isHidden = !items.isEmpty
+        grid.reloadData()
+    }
+
+    private func dropPhoto(_ id: String) {
+        guard !gone.contains(id) else { return }
+        gone.insert(id)
+        /* **다시 그리는 것은 다음 차례로 미룬다** — 그리는 도중에 또
+           그리면 서로를 물고 돈다(서랍과 같은 자리다). */
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.items.removeAll { $0.id == id }
+            self.empty.isHidden = !self.items.isEmpty
+            self.grid.reloadData()
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let top = safeAreaInsets.top
+        head.frame = CGRect(x: 0, y: 0, width: bounds.width, height: top + 52)
+        closeBtn.frame = CGRect(x: 8, y: top + 4, width: 60, height: 44)
+        title.frame = CGRect(x: 76, y: top + 4, width: max(0, bounds.width - 88), height: 44)
+        grid.frame = CGRect(x: 0, y: head.frame.maxY, width: bounds.width,
+                            height: max(0, bounds.height - head.frame.maxY))
+        grid.contentInset = UIEdgeInsets(top: Self.gap, left: 0,
+                                         bottom: safeAreaInsets.bottom + Self.gap, right: 0)
+        spin.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        empty.frame = CGRect(x: 16, y: bounds.midY - 12, width: bounds.width - 32, height: 24)
+    }
+
+    func collectionView(_ c: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }
+
+    func collectionView(_ c: UICollectionView, cellForItemAt i: IndexPath) -> UICollectionViewCell {
+        let cell = c.dequeueReusableCell(withReuseIdentifier: "shot", for: i) as! GalleryCell
+        let item = items[i.item]
+        cell.show(id: item.id, url: item.url) { [weak self] id in self?.dropPhoto(id) }
+        /* **끝이 가까우면 더 받아 온다** — 바닥에 닿고 나서 부르면 그때부터
+           기다리게 된다. */
+        if hasMore, i.item >= items.count - Int(Self.cols) * 2 { onMore?() }
+        return cell
+    }
+
+    func collectionView(_ c: UICollectionView, didSelectItemAt i: IndexPath) {
+        c.deselectItem(at: i, animated: false)
+        onPhoto?(items[i.item].url)
+    }
+
+    func collectionView(_ c: UICollectionView, layout: UICollectionViewLayout,
+                        sizeForItemAt i: IndexPath) -> CGSize {
+        let inner = grid.bounds.width - Self.gap * (Self.cols - 1)
+        let w = max(40, floor(inner / Self.cols))
+        return CGSize(width: w, height: w)
+    }
+}
+
+/// 격자 한 칸 — 안에 `ChatThumb`을 그대로 앉힌다(지워진 것을 가리는
+/// 잣대를 서랍과 하나로 두려는 것이다).
+final class GalleryCell: UICollectionViewCell {
+    private var thumb: ChatThumb?
+
+    func show(id: String, url: String, gone: @escaping (String) -> Void) {
+        if thumb?.id != id {
+            thumb?.removeFromSuperview()
+            let t = ChatThumb(id: id, url: url)
+            /* 격자에서는 조각마다 모서리를 안 깎는다 — 카톡·밴드의 그
+               화면도 칸이 맞닿은 네모다. */
+            t.layer.cornerRadius = 0
+            t.isUserInteractionEnabled = false
+            contentView.addSubview(t)
+            thumb = t
+            t.onGone = gone
+            t.load()
+        }
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        thumb?.frame = contentView.bounds
+    }
 }

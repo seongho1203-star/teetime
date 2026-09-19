@@ -2033,8 +2033,7 @@ final class BubbleCell: UITableViewCell {
            그래서 **`SwipeGuard`를 달아 나란히 서게 한다**(그 안의
            `shouldRecognizeSimultaneouslyWith`가 참이다) — 밀기가 표의 굴리기와
            나란히 서는 것과 같은 수이고, **규칙은 셀이 아니라 거기에 둔다.**
-           길게 누르기·밀기와는 애초에 안 겹친다(0.5초를 붙들거나 움직이면
-           탭이 먼저 실패한다). 얼굴·사진을 눌러도 키보드가 함께 내려가는데
+           얼굴·사진을 눌러도 키보드가 함께 내려가는데
            **웹 목록에서도 그랬다** — 아이폰이 웹 화면을 누르는 순간 초점을
            도로 가져갔다. */
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
@@ -2048,6 +2047,18 @@ final class BubbleCell: UITableViewCell {
         hold.minimumPressDuration = holdFor
         hold.delegate = self
         contentView.addGestureRecognizer(hold)
+
+        /* **탭은 길게 누르기가 실패한 뒤에만 이뤄진다**(사용자 제보 —
+           `사진,동영상을 삭제하려고 길게 누르면 팝업메뉴가 뜨면서
+           사진선택한것처럼 전체화면으로 보여지네`).
+           위에 `0.5초를 붙들면 탭이 먼저 실패한다`고 적어 두었던 것이
+           **틀린 말이었다** — `SwipeGuard`가 `shouldRecognizeSimultaneouslyWith`
+           에 참을 돌려주므로 둘이 **나란히 선다.** 그래서 창이 뜬 뒤에
+           손을 떼면 탭까지 이뤄져 `photo`(사진을 크게 띄움)나 `card`
+           (그 라운드로 들어감)가 한 번 더 불렸다.
+           **늦어지는 것은 없다** — 빨리 뗀 손짓에서는 길게 누르기가 손을
+           떼는 그 자리에서 실패하고, 탭도 어차피 그때 이뤄진다. */
+        tap.require(toFail: hold)
 
         /* **왼쪽으로 밀면 댓글이 걸린다**(카톡과 같은 손짓).
            세로로 굴리는 것과 안 부딪히게 **가로로 그은 것만** 받고, 표가
