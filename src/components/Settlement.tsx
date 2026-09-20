@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { formatWon, timeAgo } from '../lib/format';
 import { readableError } from '../lib/errors';
 import {
-    canSettle, FIND_AT, personLabel,
+    BANKS, canSettle, FIND_AT, personLabel,
     type Person, type Settlement, type SettlementShare,
 } from '../lib/types';
 import { Avatar } from './Avatar';
@@ -289,6 +289,14 @@ function PersonPill({ person, on, onClick }: {
     );
 }
 
+/**
+ * 은행 목록의 `직접 입력` 줄이 갖는 값.
+ *
+ * **진짜 은행 이름과 겹치지 않아야 한다** — 겹치면 그 은행을 고른 것이
+ * 직접 입력으로 읽힌다. 그래서 은행 이름에 안 쓰이는 글자를 넣어 둔다.
+ */
+const OTHER = '__other__';
+
 /** 정산 만들기. 사람을 고르면 1/N이 바로 보이고, 예외는 금액을 직접 적는다. */
 function SettlementForm({
     roundId, people, joined, onDone,
@@ -304,6 +312,8 @@ function SettlementForm({
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
     const [bank, setBank] = useState('');
+    /** `직접 입력`을 골랐는가 — 그때만 은행 이름 칸이 나온다. */
+    const [bankOther, setBankOther] = useState(false);
     const [account, setAccount] = useState('');
     const [total, setTotal] = useState('');
     const [picked, setPicked] = useState<string[]>([]);
@@ -409,17 +419,46 @@ function SettlementForm({
                 <textarea id="s-body" className="textarea" value={body} rows={2} maxLength={300}
                           onChange={e => setBody(e.target.value)} />
             </div>
-            <div className="row" style={{ gap: 'var(--gap-sm)' }}>
-                <div className="field grow">
-                    <label htmlFor="s-bank">입금 은행</label>
-                    <input id="s-bank" className="input" value={bank} maxLength={20}
+            {/* **은행은 목록에서 고른다**(사용자 요청 — `정산에서 입금은행을
+                누르면 은행목록이 나오고 거기에서 선택할수있게해줘`).
+                손으로 치면 `국민 은행`·`kb`처럼 제각각이 되어
+                `토스로 보내기`가 은행을 못 알아본다.
+
+                **계좌번호와 한 줄로 묶지 말 것.** 예전에는 둘이 나란히
+                섰는데, 고르는 칸은 오른쪽에 화살표 자리(36px)를 빼앗겨
+                320px 화면에서 글자 칸이 33px밖에 안 남는다 — `고르기`가
+                `고르`로 잘리는 것을 헤드리스로 재서 잡았다. 정산 카드가
+                **은행을 윗줄로 올려** 번호에 한 줄을 통째로 주는 것과도
+                같은 모양이 된다. */}
+            <div className="field">
+                <label htmlFor="s-bank">입금 은행</label>
+                <select id="s-bank" className="select"
+                        value={bankOther ? OTHER : bank}
+                        onChange={e => {
+                            const v = e.target.value;
+                            setBankOther(v === OTHER);
+                            // 직접 입력으로 넘어갈 때는 비워 준다 — 골라
+                            // 뒀던 이름이 칸에 남아 있으면 지우고 다시 쳐야 한다.
+                            setBank(v === OTHER ? '' : v);
+                        }}>
+                    <option value="">고르기</option>
+                    {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                    <option value={OTHER}>직접 입력</option>
+                </select>
+            </div>
+            {/* 목록에 없는 곳(증권사 계좌 등)을 위한 길. 고를 때만 나온다 —
+                늘 띄워 두면 칸만 하나 더 늘어난다. */}
+            {bankOther && (
+                <div className="field">
+                    <label htmlFor="s-bank-etc">은행 이름</label>
+                    <input id="s-bank-etc" className="input" value={bank} maxLength={20}
                            onChange={e => setBank(e.target.value)} />
                 </div>
-                <div className="field" style={{ flex: 2 }}>
-                    <label htmlFor="s-acc">계좌번호</label>
-                    <input id="s-acc" className="input" value={account} maxLength={40}
-                           onChange={e => setAccount(e.target.value)} inputMode="numeric" />
-                </div>
+            )}
+            <div className="field">
+                <label htmlFor="s-acc">계좌번호</label>
+                <input id="s-acc" className="input" value={account} maxLength={40}
+                       onChange={e => setAccount(e.target.value)} inputMode="numeric" />
             </div>
             <div className="field">
                 <label htmlFor="s-total">총금액</label>
