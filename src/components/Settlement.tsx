@@ -424,30 +424,39 @@ function SettlementForm({
                 손으로 치면 `국민 은행`·`kb`처럼 제각각이 되어
                 `토스로 보내기`가 은행을 못 알아본다.
 
-                **계좌번호와 한 줄로 묶지 말 것.** 예전에는 둘이 나란히
-                섰는데, 고르는 칸은 오른쪽에 화살표 자리(36px)를 빼앗겨
-                320px 화면에서 글자 칸이 33px밖에 안 남는다 — `고르기`가
-                `고르`로 잘리는 것을 헤드리스로 재서 잡았다. 정산 카드가
-                **은행을 윗줄로 올려** 번호에 한 줄을 통째로 주는 것과도
-                같은 모양이 된다. */}
-            <div className="field">
-                <label htmlFor="s-bank">입금 은행</label>
-                <select id="s-bank" className="select"
-                        value={bankOther ? OTHER : bank}
-                        onChange={e => {
-                            const v = e.target.value;
-                            setBankOther(v === OTHER);
-                            // 직접 입력으로 넘어갈 때는 비워 준다 — 골라
-                            // 뒀던 이름이 칸에 남아 있으면 지우고 다시 쳐야 한다.
-                            setBank(v === OTHER ? '' : v);
-                        }}>
-                    <option value="">고르기</option>
-                    {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
-                    <option value={OTHER}>직접 입력</option>
-                </select>
+                **계좌번호와 한 줄이고 은행 쪽이 더 넓다**(5 : 4 · 사용자
+                요청 — `은행칸을 조금 늘리고 계좌입력칸을 살짝 줄여서
+                1줄로`). 고르는 칸은 오른쪽 화살표에 자리를 빼앗기므로
+                반씩 나누면 `카카오뱅크`(잉크 80px)가 잘린다 — 5:4에
+                `.tight`(화살표 여백 줄이기)를 더해 **402px 폰에서 145px ·
+                320px에서 100px**을 남겼다. 재서 잡은 값이니 비율이나
+                `.tight`를 뺄 때는 다시 잴 것. */}
+            <div className="row" style={{ gap: 'var(--gap-sm)' }}>
+                <div className="field" style={{ flex: 5, minWidth: 0 }}>
+                    <label htmlFor="s-bank">입금 은행</label>
+                    <select id="s-bank" className="select tight"
+                            value={bankOther ? OTHER : bank}
+                            onChange={e => {
+                                const v = e.target.value;
+                                setBankOther(v === OTHER);
+                                // 직접 입력으로 넘어갈 때는 비워 준다 — 골라
+                                // 뒀던 이름이 칸에 남아 있으면 지우고 다시 쳐야 한다.
+                                setBank(v === OTHER ? '' : v);
+                            }}>
+                        <option value="">고르기</option>
+                        {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                        <option value={OTHER}>직접 입력</option>
+                    </select>
+                </div>
+                <div className="field" style={{ flex: 4, minWidth: 0 }}>
+                    <label htmlFor="s-acc">계좌번호</label>
+                    <input id="s-acc" className="input" value={account} maxLength={40}
+                           onChange={e => setAccount(e.target.value)} inputMode="numeric" />
+                </div>
             </div>
             {/* 목록에 없는 곳(증권사 계좌 등)을 위한 길. 고를 때만 나온다 —
-                늘 띄워 두면 칸만 하나 더 늘어난다. */}
+                늘 띄워 두면 칸만 하나 더 늘어난다. **한 줄을 통째로 준다** —
+                위의 좁은 칸에 끼우면 은행 이름을 치는 자리가 너무 좁다. */}
             {bankOther && (
                 <div className="field">
                     <label htmlFor="s-bank-etc">은행 이름</label>
@@ -455,11 +464,6 @@ function SettlementForm({
                            onChange={e => setBank(e.target.value)} />
                 </div>
             )}
-            <div className="field">
-                <label htmlFor="s-acc">계좌번호</label>
-                <input id="s-acc" className="input" value={account} maxLength={40}
-                       onChange={e => setAccount(e.target.value)} inputMode="numeric" />
-            </div>
             <div className="field">
                 <label htmlFor="s-total">총금액</label>
                 <input id="s-total" className="input" value={total} inputMode="numeric"

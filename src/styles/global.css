@@ -585,6 +585,21 @@ body.nc-typing .round-actions { bottom: 0; }
     padding-right: 36px;
 }
 
+/* **좁은 칸에 놓이는 고르는 칸**(정산의 `입금 은행`).
+ *
+ * `.select`는 오른쪽에 **화살표 자리로만 36px**을 쓴다 — 그냥 치는 칸보다
+ * 22px이 좁아, 계좌번호와 나란히 서면 `카카오뱅크`(잉크 80px)가 잘린다.
+ * 화살표가 실제로 차지하는 것은 `12px + 오른쪽 여백`뿐이라 그만큼만
+ * 남기고 11px을 글자에 돌려준다.
+ *
+ * **`.select` 자체를 고치지 말 것** — 조 편성 화면(`RoundGroups.tsx`)이
+ * 같은 클래스를 쓰는데, 거기는 한 줄을 통째로 쓰므로 넉넉한 쪽이 맞다. */
+.select.tight {
+    padding-left: 10px;
+    padding-right: 28px;
+    background-position: right 8px center;
+}
+
 /* ── 사람 ────────────────────────────────────────────────── */
 
 .avatar {
