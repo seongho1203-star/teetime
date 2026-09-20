@@ -97,7 +97,41 @@ export function useKeyboardChrome(): void {
         const body = document.body;
         let off: number | null = null;
 
-        const mark = (on: boolean) => body.classList.toggle('kb-typing', on);
+        /**
+         * **`kb-typing`은 기억해 두지 말고 계속 다시 잰다**(`watch`).
+         *
+         * 사용자 제보 둘이 같은 자국이었다 — `뒤로가기하면 가끔 탭바가
+         * 사라지는 경우가있어` · `정산에서 계좌나 금액을 입력하고 홈으로
+         * 되돌아오면 탭바가 사라지는 오류가있어`. 한 번은 '길이 바뀌면
+         * 걷는다'로 막았는데 또 돌아왔다.
+         *
+         * **바탕이 틀렸다.** 이 표는 세우고 나면 `focusout`이 와야만 걷히는데,
+         * **웹킷은 초점이 있던 글칸이 화면에서 사라질 때 그걸 안 보내 준다**
+         * (크로미움은 보낸다 — 그래서 헤드리스로는 안 잡힌다). 게다가
+         * **아이폰은 단추를 눌러도 단추가 초점을 안 가져가서** 글칸이 초점을
+         * 쥔 채로 사라진다 — `＋ 정산`을 `닫기`로 누르거나 저장해 폼이
+         * 접히는 그 자리가 정확히 그것이다. 그러면 길이 안 바뀌므로
+         * 길 바뀔 때 걷는 장치도 안 돈다.
+         *
+         * 그래서 **표가 서 있는 동안에만** 0.4초마다 '지금 글칸에 초점이
+         * 있는가'를 다시 본다. 없으면 아래 `onFocusOut`과 **같은 길**로
+         * 보내 120ms 여유를 그대로 쓴다(칸에서 칸으로 옮겨 가는 틈에
+         * 탭바가 번쩍이지 않게). 표가 없을 때는 타이머가 아예 안 돈다 —
+         * 늘 켜져 있는 값이 아니다.
+         */
+        let watch: number | null = null;
+        const mark = (on: boolean) => {
+            body.classList.toggle('kb-typing', on);
+            if (on && watch === null) {
+                watch = window.setInterval(() => {
+                    if (!body.classList.contains('kb-typing')) return;
+                    if (typingIn(document.activeElement)) return;
+                    if (off === null) onFocusOut();
+                }, 400);
+            } else if (!on && watch !== null) {
+                clearInterval(watch); watch = null;
+            }
+        };
 
         const onFocusIn = (e: FocusEvent) => {
             if (!typingIn(e.target as Element)) return;

@@ -335,6 +335,39 @@ console.log('\n── 키보드가 댓글 칸을 안 가린다 ──');
         ok(gone && !back.표 && back.탭바 !== 'none',
            `\`${cls}\`가 남아 있어도 뒤로 가면 탭바가 돌아온다 (${JSON.stringify(back)})`);
     }
+
+    /* **`focusout`이 아예 안 와도 걷힌다**(사용자 제보 — `정산에서 계좌나
+       금액을 입력하고 홈으로 되돌아오면 탭바가 사라지는 오류가있어`).
+       위 줄이 막아 주는 것은 **길이 바뀌는** 자리뿐인데, 폼이 접히는 것은
+       같은 길에서 일어난다 — 아이폰은 단추가 초점을 안 가져가므로 글칸이
+       초점을 쥔 채로 사라지고, 웹킷은 그때 `focusout`을 안 준다.
+       여기서는 **`focusout`을 통째로 막아** 그 상태를 그대로 만든다.
+       0.4초마다 다시 재는 줄을 빼면 이 칸이 빨개진다. */
+    await go('/#/rounds/r1', 600);
+    await page.evaluate(() => {
+        window.__noFocusOut = e => e.stopImmediatePropagation();
+        window.addEventListener('focusout', window.__noFocusOut, true);
+    });
+    await page.getByRole('button', { name: '＋ 정산' }).click();
+    await page.waitForTimeout(400);
+    await page.click('#s-total');
+    await page.waitForTimeout(200);
+    const typing = await page.evaluate(() => ({
+        표: document.body.classList.contains('kb-typing'),
+        탭바: getComputedStyle(document.querySelector('.tabbar')).display,
+    }));
+    await page.getByRole('button', { name: '닫기', exact: true }).first().click();
+    await page.waitForTimeout(1000);
+    const closed = await page.evaluate(() => ({
+        표: document.body.classList.contains('kb-typing'),
+        탭바: getComputedStyle(document.querySelector('.tabbar')).display,
+        빈자리: document.body.style.getPropertyValue('--kb-pad'),
+    }));
+    await page.evaluate(() => window.removeEventListener('focusout', window.__noFocusOut, true));
+    ok(typing.표 && typing.탭바 === 'none',
+       `정산 칸을 누르면 탭바가 감춰진다 (${JSON.stringify(typing)})`);
+    ok(!closed.표 && closed.탭바 !== 'none' && !closed.빈자리,
+       `폼이 접히면 \`focusout\`이 안 와도 탭바가 돌아온다 (${JSON.stringify(closed)})`);
 }
 
 console.log('\n── 투표 목록이 길어지지 않는다 ──');
