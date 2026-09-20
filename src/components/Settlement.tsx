@@ -424,15 +424,15 @@ function SettlementForm({
                 손으로 치면 `국민 은행`·`kb`처럼 제각각이 되어
                 `토스로 보내기`가 은행을 못 알아본다.
 
-                **계좌번호와 한 줄이고 은행 쪽이 더 넓다**(5 : 4 · 사용자
-                요청 — `은행칸을 조금 늘리고 계좌입력칸을 살짝 줄여서
-                1줄로`). 고르는 칸은 오른쪽 화살표에 자리를 빼앗기므로
-                반씩 나누면 `카카오뱅크`(잉크 80px)가 잘린다 — 5:4에
-                `.tight`(화살표 여백 줄이기)를 더해 **402px 폰에서 145px ·
-                320px에서 100px**을 남겼다. 재서 잡은 값이니 비율이나
-                `.tight`를 뺄 때는 다시 잴 것. */}
+                **은행은 안 잘릴 만큼만, 나머지는 계좌번호가 가진다**
+                (사용자 요청 — `은행창은 잘리지않을정도만놔두고 계좌창을
+                더 키워줘`). 그래서 은행은 **비율이 아니라 136px 못박기**다 —
+                비율로 두면 좁은 화면(320px)에서 은행이 줄어들 자리가 없어
+                둘 다 만족시킬 수가 없다. 가장 긴 `SC제일은행`(잉크 85px)에
+                `.tight` 안여백·테두리 40px을 더한 125px이 하한이고, 11px을
+                남겨 136px로 잡았다. **재서 잡은 값이니 만질 때는 다시 잴 것.** */}
             <div className="row" style={{ gap: 'var(--gap-sm)' }}>
-                <div className="field" style={{ flex: 5, minWidth: 0 }}>
+                <div className="field" style={{ flex: '0 0 136px', minWidth: 0 }}>
                     <label htmlFor="s-bank">입금 은행</label>
                     <select id="s-bank" className="select tight"
                             value={bankOther ? OTHER : bank}
@@ -448,7 +448,7 @@ function SettlementForm({
                         <option value={OTHER}>직접 입력</option>
                     </select>
                 </div>
-                <div className="field" style={{ flex: 4, minWidth: 0 }}>
+                <div className="field" style={{ flex: '1 1 0', minWidth: 0 }}>
                     <label htmlFor="s-acc">계좌번호</label>
                     <input id="s-acc" className="input" value={account} maxLength={40}
                            onChange={e => setAccount(e.target.value)} inputMode="numeric" />
