@@ -555,6 +555,19 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
      */
     private static let giftURL = "https://gift.kakao.com/"
 
+    /**
+     * **카카오톡 앱을 먼저 열어 보는 주소다**(`giftTapped` 참고).
+     *
+     * **카카오가 공개한 것이 아니다** — 밖에 열어 둔 것은 로그인·공유·
+     * 지도·내비·페이뿐이라, 이건 카카오톡을 뜯어본 기록에서 얻었고
+     * **안드로이드에서 확인된 값**이다. 그래서 **못 열면 곧바로 웹으로
+     * 물러난다**(`open`의 손잡이가 참·거짓을 돌려주므로 짐작할 자리가 없다).
+     *
+     * 뒤에 붙던 인자(`?url=shortcut&input_channel_id=1017`)는 **안 쓴다** —
+     * 남의 채널 번호라 엉뚱한 데로 보낼 수 있다.
+     */
+    private static let giftScheme = "kakaotalk://gift/home"
+
     var onClose: (() -> Void)?
     var onMention: ((String) -> Void)?
 
@@ -648,13 +661,34 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
     @objc private func closeTapped() { onClose?() }
     @objc private func mentionTapped() { onMention?(who) }
 
-    /* **밖으로 나가는 것이 맞다** — 카카오톡이 깔려 있으면 iOS가 그 앱으로
-       넘겨 주고, 없으면 사파리가 그 페이지를 연다. 사진을 새 창으로 띄우지
-       말라던 규칙과 갈리는 자리다: 그쪽은 우리 그림이라 앱 안에서 봐야 하고
-       이건 **처음부터 카카오에서 할 일**이다. */
+    /**
+     * **밖으로 나가는 것이 맞다** — 사진을 새 창으로 띄우지 말라던 규칙과
+     * 갈리는 자리다: 그쪽은 우리 그림이라 앱 안에서 봐야 하고 이건
+     * **처음부터 카카오에서 할 일**이다.
+     *
+     * **카카오톡 앱을 먼저 열어 보고, 안 되면 웹으로 간다**(사용자 요청 —
+     * `사이트가 아니고 카톡 앱이 열려서 선물하기는 안 되나?`).
+     * `open`이 **정말로 열렸는지**를 손잡이로 알려 주므로, 카카오톡이 없는
+     * 폰도 이 길로 웹에 닿는다 — **짐작으로 갈래를 고르지 않는다.**
+     *
+     * **웹(`Chat.tsx`)에는 이 갈래가 없다 — 거기는 길이 아예 없다.**
+     * 사파리에서 앱이 열리느냐는 **카카오가 제 서버에 등록해 둔 유니버설
+     * 링크**에 달려 있어 우리가 정할 수가 없고, 스킴을 주소창에 밀어 넣는
+     * 길은 앱이 없는 폰에서 `주소가 올바르지 않습니다` 창만 띄운다.
+     *
+     * **카카오톡이 이 주소를 안 받아 주면서 참을 돌려주면** 선물하기가
+     * 아니라 대화 목록이 열린다 — 그때는 이 갈래를 걷어내고 웹 주소 하나로
+     * 되돌릴 것(그게 그 전까지 하던 것이다).
+     */
     @objc private func giftTapped() {
-        guard let url = URL(string: Self.giftURL) else { return }
-        UIApplication.shared.open(url)
+        guard let web = URL(string: Self.giftURL) else { return }
+        guard let app = URL(string: Self.giftScheme) else {
+            UIApplication.shared.open(web)
+            return
+        }
+        UIApplication.shared.open(app, options: [:]) { ok in
+            if !ok { UIApplication.shared.open(web) }
+        }
     }
 
     /// `attend`는 **운영진에게만** 적는 `올해 N회`다 — 모르면 안 적는다
