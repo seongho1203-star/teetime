@@ -183,9 +183,12 @@
     gap: var(--gap-sm);
     font-size: var(--fs-sm);
 }
-.settle-amount {
-    width: 110px;
+/* 금액 칸은 `WonField`라 **너비를 감싼 칸에 준다** — 안쪽 `input`에 주면
+   줄에 서는 것은 감싼 칸이라 아무 일도 안 일어난다.
+   126px인 것은 `원` 자리(오른쪽 안여백 30px)를 더한 값이다 — 예전
+   110px짜리 글자 자리(82px)를 그대로 지킨다. 글자는 16px 그대로 둘 것
+   (그보다 작으면 iOS 사파리가 입력할 때 화면을 확대한다). */
+.settle-row > .won-field {
+    width: 126px;
     flex: 0 0 auto;
-    text-align: right;
-    /* 16px 미만이면 iOS 사파리가 입력할 때 화면을 확대한다 — 그대로 둔다. */
 }

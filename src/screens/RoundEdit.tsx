@@ -9,6 +9,7 @@ import { FEE_LABEL, KIND_ICON, PLACE_LABEL, TEE_LABEL, roundKind, type Round, ty
 import { TopBar } from '../components/TopBar';
 import { Hinted } from '../components/Hinted';
 import { DateTimeField } from '../components/DateTimeField';
+import { WonField } from '../components/WonField';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 
@@ -255,9 +256,7 @@ function Form({
                     </div>
                     <div className="field grow">
                         <label htmlFor="f-fee">1인 {FEE_LABEL[kind]}</label>
-                        <input id="f-fee" className="input" type="number" min={0} step={1000}
-                               inputMode="numeric" value={fee}
-                               onChange={e => setFee(e.target.value)} />
+                        <WonField id="f-fee" value={fee} onChange={setFee} />
                     </div>
                 </div>
 

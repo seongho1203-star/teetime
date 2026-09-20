@@ -46,6 +46,19 @@ export const formatStamp = (iso: string) => stampFmt.format(new Date(iso));
 export const formatWon = (n: number) => `${n.toLocaleString('ko-KR')}원`;
 
 /**
+ * 금액 칸이 들고 있는 값 — **숫자만 남긴 글자**다(`100000`).
+ *
+ * 쉼표를 값에 섞어 두면 저장하는 쪽마다 다시 벗겨야 해서, **쉼표는 보여
+ * 줄 때만 붙인다**(`groupWon`). 앞의 0도 함께 떼 `0100`이 안 남게 한다.
+ */
+export const wonDigits = (s: string) =>
+    s.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+
+/** 숫자만 있는 글자에 세 자리 쉼표를 붙인다 — `100000` → `100,000` */
+export const groupWon = (digits: string) =>
+    digits ? Number(digits).toLocaleString('ko-KR') : '';
+
+/**
  * `10월 4일 (토)` — `<input type="date">`가 주는 `2026-10-04`를 읽는 말로.
  *
  * **시간대를 태우지 않는다.** 날짜 칸의 값에는 시각도 시간대도 없는데

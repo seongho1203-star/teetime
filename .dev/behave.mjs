@@ -578,14 +578,75 @@ ok(!(await page.textContent('.page') ?? '').includes('같은 조건으로 새로
 await go('/#/rounds/new?from=r4', 700);
 ok(await page.inputValue('#f-course') === '골프존파크 상무점',
    `매장을 베껴 온다 (실제 ${JSON.stringify(await page.inputValue('#f-course'))})`);
-ok(await page.inputValue('#f-cap') === '6' && await page.inputValue('#f-fee') === '25000',
-   '정원·게임비도 함께 온다');
+/* 게임비는 **금액 칸**이라 보이는 값에 쉼표가 붙는다(`25,000`).
+   값 자체는 숫자만 든 글자이고 쉼표는 보여 줄 때만 붙이므로, 저장되는
+   것은 예나 지금이나 `25000`이다 — 아래 `금액은 100,000원으로 보인다` 참고. */
+ok(await page.inputValue('#f-cap') === '6' && await page.inputValue('#f-fee') === '25,000',
+   `정원·게임비도 함께 온다 (실제 ${JSON.stringify(await page.inputValue('#f-fee'))})`);
 /* 티오프 칸은 이제 **누르면 달력이 펴지는 단추**다(`components/DateTimeField`).
    진짜 입력칸이 아니라 값은 `data-value`에 실려 있다. */
 ok(await page.getAttribute('#f-tee', 'data-value') === '',
    `시각만 비어 있다 (실제 ${JSON.stringify(await page.getAttribute('#f-tee', 'data-value'))})`);
 ok((await page.textContent('.form-actions') ?? '').includes('모집 열기'),
    '단추가 `수정 저장`이 아니라 `모집 열기`다 — 원본을 안 건드린다');
+
+/* ── 6-1-0. 금액은 100,000원으로 보인다 ─────────────────────────
+ *
+ * 사용자 요청 — `금액 입력부분을 100,000원 이런식으로 표현되게해줘`.
+ * 쓰는 곳이 셋이고(`components/WonField.tsx`) 규칙이 셋이다:
+ * **보여 줄 때만 쉼표를 붙이고**(값은 숫자만 든 글자다) · **`원`은 칸
+ * 안에 서되 값이 아니고** · **가운데에 끼워 넣어도 커서가 안 튄다.**
+ * 클래스 이름만 보면 다 초록으로 뜨는 자리라 **값과 자리를 잰다.**
+ */
+console.log('\n── 금액은 100,000원으로 보인다 ──');
+await go('/#/rounds/new', 600);
+await page.fill('#f-fee', '');
+await page.type('#f-fee', '100000', { delay: 15 });
+ok(await page.inputValue('#f-fee') === '100,000',
+   `그린피 칸이 100,000 (실제 ${JSON.stringify(await page.inputValue('#f-fee'))})`);
+const wonLook = await page.evaluate(() => {
+    const el = document.querySelector('#f-fee');
+    const mark = el.parentElement.querySelector('.won-mark');
+    if (!mark) return null;
+    const eb = el.getBoundingClientRect(), mb = mark.getBoundingClientRect();
+    return {
+        text: mark.textContent,
+        inside: mb.right <= eb.right + 0.5 && mb.left > eb.left,
+        align: getComputedStyle(el).textAlign,
+    };
+});
+ok(wonLook?.text === '원' && wonLook.inside && wonLook.align === 'right',
+   `\`원\`이 칸 안 오른쪽에 서고 숫자가 그 옆에 붙는다 (실제 ${JSON.stringify(wonLook)})`);
+/* **앞의 0을 떼지 않으면 `0100,000`이 된다.** */
+await page.fill('#f-fee', '');
+await page.type('#f-fee', '05', { delay: 15 });
+ok(await page.inputValue('#f-fee') === '5',
+   `0 뒤에 5를 치면 5 (실제 ${JSON.stringify(await page.inputValue('#f-fee'))})`);
+/* **커서를 글자 수로 세면 쉼표가 늘 때마다 한 칸씩 밀린다.**
+   `1|23,456` 자리에서 `9`를 치면 `1,9|23,456`이라야 한다. */
+await page.fill('#f-fee', '');
+await page.type('#f-fee', '123456', { delay: 15 });
+await page.evaluate(() => document.querySelector('#f-fee').setSelectionRange(1, 1));
+await page.keyboard.type('9');
+const caretAt = await page.evaluate(() => ({
+    v: document.querySelector('#f-fee').value,
+    at: document.querySelector('#f-fee').selectionStart,
+}));
+ok(caretAt.v === '1,923,456' && caretAt.at === 3,
+   `가운데에 끼워 넣어도 커서가 제자리다 (실제 ${JSON.stringify(caretAt)})`);
+
+/* 정산도 같은 칸을 쓴다 — 총금액과 1/N 몫 둘 다. */
+await go('/#/rounds/r1', 700);
+await page.getByRole('button', { name: '＋ 정산' }).click();
+await page.waitForTimeout(400);
+await page.type('#s-total', '240000', { delay: 15 });
+ok(await page.inputValue('#s-total') === '240,000',
+   `정산 총금액도 240,000 (실제 ${JSON.stringify(await page.inputValue('#s-total'))})`);
+const allIn = page.getByRole('button', { name: '모두 넣기' });
+if (await allIn.count()) { await allIn.first().click(); await page.waitForTimeout(400); }
+const shareShown = await page.$$eval('.settle-row .won-field input', e => e.map(x => x.value));
+ok(shareShown.length > 0 && shareShown.every(v => /^\d{1,3}(,\d{3})*$/.test(v)),
+   `1/N 몫에도 쉼표가 붙는다 (실제 ${JSON.stringify(shareShown)})`);
 
 /* ── 6-1-1. 라운드를 대화방에 공유 ──────────────────────────────
  *

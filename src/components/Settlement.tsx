@@ -8,6 +8,7 @@ import {
     type Person, type Settlement, type SettlementShare,
 } from '../lib/types';
 import { Avatar } from './Avatar';
+import { WonField } from './WonField';
 import { useConfirm } from './Confirm';
 import { useToast } from './Toast';
 import './Settlement.css';
@@ -466,8 +467,7 @@ function SettlementForm({
             )}
             <div className="field">
                 <label htmlFor="s-total">총금액</label>
-                <input id="s-total" className="input" value={total} inputMode="numeric"
-                       onChange={e => setTotal(e.target.value)} />
+                <WonField id="s-total" value={total} onChange={setTotal} />
             </div>
 
             {/* **참가자를 앞에 세우고 나머지는 접어 둔다.** 대개 참가자끼리
@@ -557,13 +557,11 @@ function SettlementForm({
                             return (
                                 <div className="settle-row" key={id}>
                                     <span className="grow truncate">{personLabel(p) || '알 수 없음'}</span>
-                                    <input
-                                        className="input settle-amount" inputMode="numeric"
+                                    <WonField
                                         value={String(amounts[id] ?? 0)}
-                                        onChange={e => {
-                                            const v = Number(e.target.value.replace(/[^0-9]/g, ''));
-                                            setFixed(prev => ({ ...prev, [id]: v || 0 }));
-                                        }}
+                                        onChange={v => setFixed(prev => ({
+                                            ...prev, [id]: Number(v) || 0,
+                                        }))}
                                     />
                                     {fixed[id] != null && (
                                         <button className="btn ghost sm" onClick={() => setFixed(prev => {

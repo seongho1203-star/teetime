@@ -852,6 +852,29 @@ body.nc-typing .round-actions { bottom: 0; }
     pointer-events: none;
 }
 
+/* **금액 칸**(`components/WonField.tsx`) — `100,000원`.
+   `원`은 값이 아니라 표시라 칸 밖에 세우고 오른쪽 안여백으로 자리만
+   비운다(그래서 글자가 그 밑으로 지나가지 않는다). 숫자를 오른쪽으로
+   붙이는 것은 `원` 바로 옆에 와야 한 덩어리로 읽히기 때문이다 —
+   왼쪽에 두면 `100,000` 과 `원` 사이가 텅 비어 고장 난 것처럼 보인다. */
+.won-field { position: relative; }
+.won-field > .input {
+    display: block;
+    text-align: right;
+    padding-right: 30px;
+}
+.won-mark {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    /* `.input`과 같은 크기여야 숫자와 밑줄이 맞는다. `.settle-row`처럼
+       둘레 글자가 작은 자리도 있어 물려받지 않고 못박는다. */
+    font-size: 16px;
+    pointer-events: none;
+}
+
 .comment-hint {
     position: absolute;
     left: 14px;
