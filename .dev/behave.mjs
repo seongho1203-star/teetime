@@ -1328,11 +1328,16 @@ ok(tabs.length >= 1 && tabs.every(t => /[가-힣]/.test(t)),
    그리고 **굴려 둔 자리가 안 남는가**(그림 칸의 `key`가 묶음이다).
    지금은 묶음이 하나라 건너뛴다. 묶음을 늘리면 저절로 다시 돈다. */
 if (tabs.length >= 3) {
+    /* **장수로 견주지 말 것** — 묶음 둘이 우연히 같은 장수일 수 있다(`프렌즈
+       감정`·`프렌즈 일상`이 둘 다 열둘이라 실제로 그래서 헛돌았다).
+       그려진 그림의 주소를 본다. */
+    const shown = () => page.$$eval('.sticker-btn img', e => e.map(i => i.getAttribute('src')));
+    const first = await shown();
     await page.click('.sticker-tab:nth-child(2)');
     await page.waitForTimeout(300);
-    const moved = await page.$$eval('.sticker-btn', e => e.length);
-    ok(moved !== trayCount,
-       `탭을 옮기면 그 묶음만 보인다 (실제 ${trayCount}장 → ${moved}장)`);
+    const moved = await shown();
+    ok(moved.length > 0 && !moved.some(s => first.includes(s)),
+       `탭을 옮기면 그 묶음만 보인다 (실제 ${first.length}장 → ${moved.length}장 · 겹침 ${moved.filter(s => first.includes(s)).length})`);
     await page.evaluate(() => { document.querySelector('.sticker-grid').scrollTop = 400; });
     await page.click('.sticker-tab:nth-child(3)');
     await page.waitForTimeout(300);
