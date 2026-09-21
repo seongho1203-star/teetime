@@ -38,8 +38,8 @@ const SESSION = {
             app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() },
 };
 
-const ANIM = ['mvkkk', 'mvfighting', 'mvyay', 'mvogu', 'mvcry', 'mvblove',
-              'mvbfight', 'mvbthanks', 'mvbcry', 'mvbyay'];
+const ANIM = ['mvp11', 'mvp13', 'mvp16', 'mvp22', 'mvp25', 'mvp33',
+              'mvp35', 'mvp44', 'mvp46', 'mvp55'];
 
 const base = new Date();
 base.setHours(9, 0, 0, 0);

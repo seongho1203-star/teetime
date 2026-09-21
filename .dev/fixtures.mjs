@@ -292,16 +292,17 @@ export const messages = [
        말풍선 없이 그림만 그려진다. 남·나 양쪽을 둔다 — 내 쪽은 노란
        말풍선이 사라지는 것까지 봐야 한다. */
     { id: 'm14', room_id: 'room1', user_id: uid(2), body: '',
-      image_url: 'sticker:mvfighting', created_at: iso(0, 9, 42) },
+      image_url: 'sticker:mvp16', created_at: iso(0, 9, 42) },
     { id: 'm15', room_id: 'room1', user_id: ME, body: '',
-      image_url: 'sticker:mvkkk', created_at: iso(0, 9, 43) },
+      image_url: 'sticker:mvp13', created_at: iso(0, 9, 43) },
     /* 이모티콘에 글을 함께 보낸 것. 골라 두고 글을 마저 적어 한 마디로
        나가므로(`pickSticker`), 사진처럼 그림 아래 한 줄이 붙는다. */
     { id: 'm16', room_id: 'room1', user_id: uid(3), body: '내일 봬요!',
-      image_url: 'sticker:mvyay', created_at: iso(0, 9, 44) },
-    /* 검은 바탕 영상에서 잘라 온 묶음 가운데 하나 — 서랍과 말풍선에
-       `.webp`로 제대로 걸리는지 함께 본다(`stickerSrc`가 `mv` 머리글자로
-       확장자를 정한다). */
+      image_url: 'sticker:mvp44', created_at: iso(0, 9, 44) },
+    /* 넷 다 움직이는 판이다 — 서랍과 말풍선에 `.webp`로 제대로 걸리는지
+       함께 본다(`stickerSrc`가 `mv` 머리글자로 확장자를 정한다).
+       **정지 그림 묶음의 id로 바꾸지 말 것**: 서랍이 처음 열릴 때 멈춘
+       그림을 먼저 까는 길(`TrayImg`)이 여기서만 확인된다. */
     { id: 'm19', room_id: 'room1', user_id: uid(2), body: '',
       image_url: 'sticker:mvp12', created_at: iso(0, 9, 44) },
     /* **운영진이 가린 글**(카톡의 '가리기'). 글도 사진도 안 보이고
