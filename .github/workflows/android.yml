@@ -23,11 +23,25 @@ name: 안드로이드 앱 (AAB · APK)
 # 알림이 진짜 실렸는지 확인한다 — 아이폰에서 그 '초록인데 실은 알림이
 # 빠진 앱'을 여덟 판이나 쫓았다(`ios.yml`의 같은 자리 참고).
 
+# **`paths`는 아이폰 쪽과 같은 잣대다** — 앱 묶음에 들어가는 것을 다 적는다.
+# 한동안 `android/**`만 적혀 있어 **화면만 고친 판은 앱이 안 만들어졌다**
+# (`ios.yml`의 같은 자리에 그 자국을 적어 두었다). 여기서 빠지면 아이폰만
+# 새 화면이고 안드로이드는 옛 화면인 채로 갈린다.
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
+      # 앱 안에 담기는 화면
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      # 앱 껍데기
       - 'android/**'
       - 'capacitor.config.ts'
       - '.github/workflows/android.yml'

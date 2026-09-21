@@ -7,15 +7,34 @@ name: 아이폰 앱 (TestFlight)
 # **이제는 화면 고침도 이걸 돌려야 앱에 닿는다.** 출시용으로 바꾸면서
 # `npm run build`가 만든 `dist`가 앱 안에 담기게 됐다(`capacitor.config.ts`의
 # `server` 덩어리를 지웠다) — 밀기만 하면 폰에 바로 보이던 때와 다르다.
-# 그래서 `paths`에 없는 파일만 고쳤을 때는 **손으로 돌려야 한다**
-# (Actions 탭 → 이 워크플로 → Run workflow). 웹(GitHub Pages)은 예전처럼
-# 밀면 저절로 올라간다.
+#
+# **그래서 `paths`에 앱 묶음에 들어가는 것을 다 적어 둔다.** 한동안
+# `ios/**`와 `capacitor.config.ts`만 적혀 있었는데, 그러면 **화면·이모티콘만
+# 고친 판은 앱이 아예 안 만들어진다** — 실제로 이모티콘 묶음을 셋이나
+# 갈아 끼우고도 빌드가 한 번도 안 돌아 `새앱이 안떠`가 나왔다(사용자 제보).
+# 손으로 돌리면 된다고 적어 두었지만, **사람이 기억해야 하는 규칙은
+# 언젠가 빠뜨린다.**
+#
+# 넣는 잣대는 하나다 — **`npm run build`의 결과(`dist`)나 앱 껍데기를
+# 바꾸는 파일인가.** 그래서 `docs/**`·`CLAUDE.md`·`supabase/**`·`.dev/**`은
+# 안 적는다(앱에 안 들어간다). 새 확인 도구나 문서를 더할 때 여기 넣지 말 것.
+#
+# 웹(GitHub Pages)은 예전처럼 밀면 저절로 올라간다.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
+      # 앱 안에 담기는 화면 — 이것이 빠져 있어서 `새앱이 안떠`가 났다.
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      # 앱 껍데기
       - 'ios/**'
       - 'capacitor.config.ts'
       - '.github/workflows/ios.yml'
