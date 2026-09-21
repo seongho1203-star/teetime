@@ -55,6 +55,16 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private let reply = ReplyBox()
     /// `@`를 치면 입력칸 위에 뜨는 흰 카드(`MentionList`).
     private let mentions = MentionList()
+    /* ── 축하 폭죽(`ChatCheer.swift`) ───────────────────────
+     * `ㅊㅋ`·`축하`·`추카`가 오가면 입력칸 위에 단추가 뜨고, 누르면 이
+     * 화면에서만 폭죽이 터진다. 웹(`lib/cheer.ts`·`Fireworks.tsx`)과
+     * **한 벌이니 한쪽만 고치지 말 것.** */
+    private let cheer = CheerBar()
+    /// 마지막으로 본 글의 시각 — **첫 판에는 적어 두기만 하고 지나간다**
+    /// (들어오자마자 어제 축하로 단추가 뜨면 안 된다. 웹과 같은 문지기다).
+    private var cheerMark = ""
+    /// 단추를 스스로 걷는 예약(`ChatCheer.window`).
+    private var cheerHide: DispatchWorkItem?
     /// 이모티콘 서랍 — **입력칸 아래, 키보드가 서던 자리다**(카톡과 같다).
     private let tray = StickerTray()
     /* ── 검색(🔍) — 카톡과 같은 짜임 ───────────────────────
@@ -213,7 +223,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         reply.onClose = { [weak self] in self?.quoted = nil; self?.retryRow = nil; self?.updateContext() }
         mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
         tray.onPick = { [weak self] item in self?.stickerPicked(item) }
-        let input = UIStackView(arrangedSubviews: [mentions, reply, context, composer, findBar]); input.axis = .vertical
+        /* **폭죽 단추는 맨 위다**(웹 `.chat-over`와 같은 차례) — 언급 목록과
+           인용은 입력칸에 가까이 붙어 있어야 무엇에 딸린 것인지 읽힌다. */
+        cheer.onTap = { [weak self] in self?.fireCheer() }
+        let input = UIStackView(arrangedSubviews: [cheer, mentions, reply, context, composer, findBar]); input.axis = .vertical
         /* `footPad`가 맨 뒤다 — 서랍(`tray`)이 열리면 그 자리를 덮어야 한다. */
         footPad.backgroundColor = ChatSkin().bg
         footPad.isUserInteractionEnabled = false
@@ -493,6 +506,52 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             let x = NativeChatRows.date(a.at), y = NativeChatRows.date(b.at)
             return x == y ? a.id < b.id : x < y
         }
+        checkCheer()
+    }
+
+    /**
+     * 축하하는 말이 새로 들어왔으면 폭죽 단추를 띄운다.
+     *
+     * **글이 모이는 자리가 여기 하나라 여기서 본다** — 실시간으로 들어온
+     * 것도, 다시 받아 온 것도, 내가 보낸 것도 다 `merge`를 지난다.
+     *
+     * **첫 판은 적어 두기만 한다**(`cheerMark`가 비었을 때). 그러지 않으면
+     * 대화방에 들어가자마자 **어제 축하로 단추가 뜬다** — 웹의 그 문지기와
+     * 같은 자리다. 시각도 함께 봐서(`ChatCheer.window`) 밀린 글을 한꺼번에
+     * 받아 올 때 지난 축하가 걸리지 않게 한다.
+     */
+    private func checkCheer() {
+        guard let last = messages.last else { return }
+        let mark = cheerMark
+        cheerMark = last.at
+        guard !mark.isEmpty else { return }
+        let now = Date()
+        let hit = messages.contains { m in
+            m.at > mark && ChatCheer.isCheer(m.body)
+                && now.timeIntervalSince(NativeChatRows.date(m.at)) < ChatCheer.window
+        }
+        guard hit else { return }
+        showCheer()
+    }
+
+    /// 단추를 띄우고 `ChatCheer.window`가 지나면 스스로 걷는다.
+    private func showCheer() {
+        guard isViewLoaded else { return }
+        cheer.isHidden = false
+        cheerHide?.cancel()
+        let job = DispatchWorkItem { [weak self] in self?.cheer.isHidden = true }
+        cheerHide = job
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChatCheer.window, execute: job)
+    }
+
+    /**
+     * 눌렀다 — **내 화면에서만** 터진다(남의 화면을 우리가 건드리지 않는다).
+     * 단추는 그 자리에서 걷는다(웹과 같다 — 터뜨리고 나면 할 일이 없다).
+     */
+    private func fireCheer() {
+        cheerHide?.cancel(); cheerHide = nil
+        cheer.isHidden = true
+        CheerBurst.fire(over: view)
     }
     private func render() {
         guard isViewLoaded else { return }

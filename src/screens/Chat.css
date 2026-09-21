@@ -1345,6 +1345,58 @@
    그대로 두면 음수 여백이 `.chat-input` 밖으로 11px 삐져나와 **앱 목록이
    그린 말풍선을 덮는다**(`lift`는 이 상자의 높이만 세므로 그만큼을 모른다). */
 html.nc .chat-over { margin-top: 0; }
+
+/* ── 축하 폭죽 (`lib/cheer.ts` · `components/Fireworks.tsx`) ─────
+ *
+ * 사용자 요청 — `ㅊㅋ,축하,ㅊㅋㅊㅋ,추카 … 메시지입력창 윗쪽에 카톡처럼
+ * 폭죽버튼이 나오고 그걸 누르면 카톡처럼 화면에 폭죽이 나오는 기능`.
+ *
+ * **분홍을 안 쓴다** — 이 화면에서 '지금 눌러야 할 것'은 보내기 단추
+ * 하나다. 보라 목록 위에 서는 줄이라 날짜 칸과 같은 `--chat-chip` 바탕에
+ * 흰 글자다(`.chat-more`가 그 색을 되짚어 쓴 것과 같은 자리 — 클래스
+ * 하나로 `.btn`을 이기려 들면 안 먹으므로 **`.btn`을 아예 안 쓴다**).
+ *
+ * **44px이다.** 30px보다 작은 누름 자리는 `node .dev/audit.mjs`가 잡는다. */
+.cheer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    height: 44px;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: var(--chat-chip);
+    color: var(--chat-on);
+    font-size: var(--fs-sm);
+    font-weight: 800;
+    white-space: nowrap;
+}
+.cheer-btn:active { transform: scale(0.985); }
+
+.cheer-icon {
+    width: 17px; height: 17px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+}
+.cheer-icon circle { fill: currentColor; stroke: none; }
+
+/* **터지는 그림은 화면을 덮되 아무것도 안 가로막는다**(`pointer-events`).
+   층은 크게 본 사진·전체화면 프로필(1000)보다 위, **토스트(1200)보다
+   아래**다 — 그 사이가 아니면 `사진첩에 저장했습니다` 같은 줄이 불꽃
+   뒤에 깔린다(예전에 실제로 그랬던 자리다). */
+.cheer-burst {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1100;
+    pointer-events: none;
+}
+
 .chat-bar {
     display: flex;
     /* `+`와 글칸은 거의 붙인다(카톡이 그렇다). 보내기 앞만 조금 띄운다. */

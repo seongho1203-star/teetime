@@ -763,6 +763,34 @@ body.nc-typing .round-actions { bottom: 0; }
     color: var(--on-brand);
 }
 
+/* ── 생년월일 한 줄 (`components/GenderAge.tsx`) ─────────────────
+   `[1975] 년 [5] 월 [10] 일`. 세 칸이 한 줄에 서고 단위 글자가 사이에 낀다.
+
+   **해 칸만 넓다**(`flex: 1.6`) — 네 자리라 달·날과 같은 폭이면 `1975`가
+   좌우 안여백에 눌려 잘린다. **`min-width: 0`이 한 쌍이다**: flex 칸의
+   기본값이 `auto`라 안 주면 320px에서 줄이 통째로 삐져나간다
+   (`node .dev/audit.mjs`가 잡는 자리다).
+
+   **글자를 가운데 둔다.** 숫자 한두 자리가 왼쪽에 붙어 있으면 그 뒤가
+   텅 비어 안 적은 칸처럼 보인다. 안여백을 줄인 것도 같은 까닭이다 —
+   `.input` 기본값(13px)이면 두 자리 칸에 글자 자리가 거의 안 남는다. */
+
+.birth-row { display: flex; align-items: center; gap: 6px; }
+.birth-row .input {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: center;
+}
+.birth-row .birth-y { flex: 1.6 1 0; }
+.birth-unit {
+    flex: 0 0 auto;
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--text-dim);
+}
+
 /* ── 스위치 ──────────────────────────────────────────────────
    켜고 끄는 것. **여기 한 곳에만 있다** — 투표 만들기·공지 고정·알림
    설정이 같은 것을 쓴다. 한동안 Polls.css에 있었는데, 투표와 상관없는

@@ -9,7 +9,8 @@ import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import {
-    APP_VERSION, BIRTH_MAX, BIRTH_MIN, REGION_MAX, ROLE_LABEL, birthValue, personLabel,
+    APP_VERSION, BIRTH_MAX, BIRTH_MIN, REGION_MAX, ROLE_LABEL, birthLabel, birthMd,
+    birthValue, personLabel, toBirthInput,
     type Gender,
 } from '../lib/types';
 import { GenderAge } from '../components/GenderAge';
@@ -18,6 +19,8 @@ import { saveMyProfile } from '../lib/db';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
 import { shrinkImage } from '../lib/image';
+import { lunarToSolar } from '../lib/lunar';
+import { kstDate } from '../lib/format';
 import {
     chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep,
     type PushState,
@@ -37,13 +40,21 @@ export function Me() {
     /* 조 편성의 `성별 조합`·`나이 조합`이 보는 값이다. **둘 다 필수라
        여기서도 비울 수 없다** — 비울 수 있게 두면 로그인할 때 다시 막힌다. */
     const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
-    const [birth, setBirth] = useState(
-        profile?.birth_year ? String(profile.birth_year) : '');
+    const [birth, setBirth] = useState(() => toBirthInput(profile, contact));
     const [region, setRegion] = useState(profile?.region ?? '');
     const [saving, setSaving] = useState(false);
     const [leaving, setLeaving] = useState(false);
     const [photoBusy, setPhotoBusy] = useState(false);
     const photoRef = useRef<HTMLInputElement>(null);
+
+    /* **음력 생일이면 올해 양력으로 며칠인가.** 셈이 가벼워(합삭 몇 번)
+       렌더마다 해도 되지만, 값이 하루에 한 번 바뀌는 것이라 그때만 낸다. */
+    const thisYearBirthday = (() => {
+        if (contact?.birth_cal !== 'lunar' || !contact.birth_md) return '';
+        const [m, d] = contact.birth_md.split('-').map(Number);
+        const got = lunarToSolar(Number(kstDate().slice(0, 4)), m, d);
+        return got ? `${got.m}월 ${got.d}일` : '';
+    })();
 
     const save = async () => {
         const trimmed = name.trim();
@@ -51,12 +62,15 @@ export function Me() {
         if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
         if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
         if (!gender) { toast('성별을 골라 주세요.', 'error'); return; }
-        const year = birthValue(birth);
+        const year = birthValue(birth.year);
         if (year === null) { toast('태어난 해를 적어 주세요.', 'error'); return; }
         if (year === false) {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;
         }
+        const md = birthMd(birth.month, birth.day);
+        if (md === null) { toast('생일의 달과 날을 적어 주세요.', 'error'); return; }
+        if (md === false) { toast('생일을 다시 확인해 주세요.', 'error'); return; }
 
         if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
@@ -64,7 +78,7 @@ export function Me() {
         const error = await saveMyProfile(
             session!.user.id,
             { name: trimmed, gender, birth_year: year, region: region.trim() },
-            { phone: phone.trim(), car: car.trim() },
+            { phone: phone.trim(), car: car.trim(), birth_md: md, birth_cal: birth.cal },
         );
         setSaving(false);
 
@@ -350,6 +364,20 @@ export function Me() {
                     <div className="sm faint">
                         {profile ? ROLE_LABEL[profile.role] : '일반회원'}
                     </div>
+                    {/* **내 생일은 나에게 보인다.** 남의 것은 운영진만 보지만
+                        제 것은 누구나 본다(`profile_private` 정책이 그렇다).
+                        **음력이면 올해 양력 며칠인지 함께 적는다** — 그게
+                        없으면 축하 글이 언제 올라오는지 알 길이 없어, 맞게
+                        적었는지조차 확인이 안 된다. 그 해에 없는 날이면
+                        `lunarToSolar`가 빈손이라 괄호가 통째로 빠진다. */}
+                    {contact?.birth_md && (
+                        <div className="sm faint">
+                            🎂 {birthLabel(profile?.birth_year, contact.birth_md,
+                                           contact.birth_cal)}
+                            {contact.birth_cal === 'lunar' && thisYearBirthday
+                                && ` · 올해 ${thisYearBirthday}`}
+                        </div>
+                    )}
                 </div>
             </div>
 

@@ -20,6 +20,8 @@ import { lastSeen, markSeen, NEVER } from '../lib/unread';
 import { unreadCounts, type Reads } from '../lib/reads';
 import { ALL_MENTION, mentionQuery, splitMentions } from '../lib/mention';
 import { splitLinks } from '../lib/links';
+import { CHEER_MS, isCheer } from '../lib/cheer';
+import { Fireworks } from '../components/Fireworks';
 import { IS_NATIVE } from '../lib/native';
 import { slideLeft } from '../lib/tabs';
 import {
@@ -2284,6 +2286,48 @@ export function Chat() {
     /* 내려갈 글이 하나라도 있을 때만 단추를 낸다(아래 JSX). */
     const lastMsg = messages.length ? messages[messages.length - 1] : undefined;
 
+    /* ── 축하 폭죽 ──────────────────────────────────────────────
+       `축하`·`추카`·`ㅊㅋ`가 오가면 입력칸 위에 단추가 뜨고, 누르면 화면에
+       폭죽이 터진다(사용자 요청 — 카톡의 그것).
+
+       **들어올 때는 안 뜬다.** 첫 판에서는 자리만 적어 두고 돌아선다 —
+       안 그러면 방을 열 때마다 **지난달 축하로** 단추가 떠서, 정작 오늘
+       축하할 때와 구별이 안 된다.
+       **시각으로 가린다**(`created_at`). 실시간으로 들어온 글이든 내가
+       방금 보낸 임시 줄이든 시각이 지금이라 같은 길을 탄다 — 갈래를
+       나누면 한쪽만 고치게 된다.
+       **마지막 한 줄만 보지 않는다.** `축하!` 뒤에 `ㅋㅋ`가 바로 붙으면
+       그 한 줄에 밀려 단추가 아예 안 뜬다. */
+    const [cheer, setCheer] = useState(false);
+    const [burst, setBurst] = useState(false);
+    const cheerMark = useRef('');
+
+    useEffect(() => {
+        if (!messages.length) return;
+        const mark = cheerMark.current;
+        cheerMark.current = messages[messages.length - 1].created_at;
+        if (!mark) return;                       // 들어온 첫 판
+        const now = Date.now();
+        const hit = messages.some(m =>
+            m.created_at > mark && isCheer(m.body)
+            && now - new Date(m.created_at).getTime() < CHEER_MS);
+        if (hit) setCheer(true);
+    }, [messages]);
+
+    /* **영영 두지 않는다.** 축하는 그 자리에서 하는 것이라, 한참 뒤에 눌러
+       봐야 무엇을 축하하는지 알 수가 없다(`CHEER_MS`). 새 축하가 오면
+       `cheer`가 이미 참이라 이 효과는 안 다시 돈다 — 그때는 남은 시간이
+       그대로 이어지는데, 방금 또 축하했다는 뜻이라 되레 맞다. */
+    useEffect(() => {
+        if (!cheer) return;
+        const t = window.setTimeout(() => setCheer(false), CHEER_MS);
+        return () => window.clearTimeout(t);
+    }, [cheer]);
+
+    /** 폭죽이 다 터졌다. **`useCallback`이다** — `Fireworks`의 효과가
+     *  이 값을 보고 있어, 매번 새로 만들면 도중에 다시 시작한다. */
+    const burstDone = useCallback(() => setBurst(false), []);
+
     /** 최근 대화로 한 번에 내려간다. **부드럽게 굴리지 않는다** — 300개까지
      *  받아 둔 목록을 훑어 내려가는 일이라 느린 폰에서 그대로 끊긴다. */
     const jumpToLatest = useCallback(() => {
@@ -3663,8 +3707,24 @@ export function Chat() {
                     밝은 칠 위에 떠 있어 둘레에 밝은 띠가 남았고, 그것이
                     목록 뒤에 판이 하나 더 깔린 것처럼 보였다.
                     **하나도 없으면 칸째 안 그린다** — 빈 보라 띠가 남는다. */}
-                {(picked || replyTo || mentionHits.length > 0) && (
+                {(picked || replyTo || mentionHits.length > 0 || cheer) && (
                 <div className="chat-over">
+                {/* **축하 폭죽.** 누르면 그 자리에서 터지고 단추는 사라진다 —
+                    **내 화면에서만** 터진다(남의 화면을 우리가 건드리지 않는다).
+                    맨 위에 두는 것은 언급 목록·인용이 입력칸 가까이 붙어
+                    있어야 하기 때문이다.
+                    `onMouseDown`을 막아 키보드가 안 내려가게 한다 — 글을
+                    치던 중에 누르는 자리라 보내기 단추와 같은 사정이다.
+                    **그림글자를 쓰지 말 것** — 기기에 없으면 네모난 두부가
+                    나온다(투표 결과 카드의 `🗳`에서 겪었다). */}
+                {cheer && (
+                    <button className="cheer-btn"
+                            onClick={() => { setCheer(false); setBurst(true); }}
+                            onMouseDown={e => e.preventDefault()}>
+                        <CheerIcon />
+                        축하 폭죽 터뜨리기
+                    </button>
+                )}
                 {/* 골라 둔 이모티콘. **곧바로 안 나가고 여기 떠 있는다**
                     (사용자 요청) — 글을 마저 적어 한 마디로 함께 보낸다.
                     그림을 누르면 그대로 나가고(글이 없어도 된다), `✕`로 뗀다.
@@ -4010,7 +4070,30 @@ export function Chat() {
                            onShare={() => sharePhoto(zoom)}
                            onClose={() => setZoom(null)} />
             )}
+
+            {/* **축하 폭죽.** 화면 위에 얹히지만 `pointer-events: none`이라
+                대화는 그대로 눌리고 굴러간다 — 덮는 창이 아니라 그림이다.
+                그래서 네이티브 바를 감추는 `overlayUp` 목록에도 안 든다. */}
+            {burst && <Fireworks onDone={burstDone} />}
         </div>
+    );
+}
+
+/**
+ * 폭죽 단추 앞의 그림.
+ *
+ * **그림글자(🎉)를 쓰지 말 것** — 기기에 없으면 네모난 두부가 나온다
+ * (투표 결과 카드의 `🗳`에서 겪었다). 터지는 불꽃을 선 몇 개로 그린 것이고
+ * 색은 `currentColor`라 단추 글자색을 그대로 따라간다.
+ */
+function CheerIcon() {
+    return (
+        <svg className="cheer-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="2.2" />
+            <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3
+                     M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1
+                     M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+        </svg>
     );
 }
 

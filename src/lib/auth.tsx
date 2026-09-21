@@ -116,7 +116,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                늘어 첫 화면이 그만큼 늦게 뜬다. */
             const [{ data, error }, mine] = await Promise.all([
                 supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
-                supabase.from('profile_private').select('id, phone, car')
+                /* **칸을 적지 않고 `*`로 받는다** — 한 줄뿐이라 값이 싸고,
+                   칸을 더할 때마다 여기를 고치는 일이 없다. 아직 없는 칸은
+                   키 자체가 안 와서 `undefined`가 되는데, `needsBirthday`가
+                   그걸로 '칸이 없는 저장소'와 '안 적음'을 가른다. */
+                supabase.from('profile_private').select('*')
                         .eq('id', uid).maybeSingle(),
             ]);
             if (!alive) return;

@@ -26,6 +26,7 @@
 		CB3000000000000000000004 /* NativeChatDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000004 /* NativeChatDrawer.swift */; };
 		CB3000000000000000000002 /* NativeChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000002 /* NativeChatViewController.swift */; };
 		CB3000000000000000000003 /* NativeChatPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000003 /* NativeChatPlugin.swift */; };
+		CB3000000000000000000005 /* ChatCheer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000005 /* ChatCheer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 		CB2000000000000000000004 /* NativeChatDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatDrawer.swift; sourceTree = "<group>"; };
 		CB2000000000000000000002 /* NativeChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000003 /* NativeChatPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatPlugin.swift; sourceTree = "<group>"; };
+		CB2000000000000000000005 /* ChatCheer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCheer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -107,6 +109,7 @@
 				CB2000000000000000000004 /* NativeChatDrawer.swift */,
 				CB2000000000000000000001 /* NativeChatPanels.swift */,
 				CB2000000000000000000000 /* NativeChatService.swift */,
+				CB2000000000000000000005 /* ChatCheer.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -254,6 +257,7 @@
 				CB3000000000000000000004 /* NativeChatDrawer.swift in Sources */,
 				CB3000000000000000000001 /* NativeChatPanels.swift in Sources */,
 				CB3000000000000000000000 /* NativeChatService.swift in Sources */,
+				CB3000000000000000000005 /* ChatCheer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

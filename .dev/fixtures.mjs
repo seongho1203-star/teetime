@@ -33,19 +33,25 @@ export const profiles = [
     { id: uid(8), name: '최민수', avatar_url: null, role: 'banned', joined_at: iso(-60), memo: '', region: null, gender: null, birth_year: null, created_at: iso(-60) },
 ];
 
-/** 전화번호·차량번호는 **다른 표에 산다** — 운영진만 남의 것을 본다. */
+/**
+ * 전화번호·차량번호·생년월일은 **다른 표에 산다** — 운영진만 남의 것을 본다.
+ *
+ * **`birth_md`가 반드시 있어야 한다.** 없으면 `needsBirthday`가 `FillProfile`로
+ * 막아 **모든 검사가 그 화면에서 멈춘다** — 나(`uid(1)`)의 줄이 특히 그렇다.
+ * 양력과 음력을 섞어 둔 것은 화면에 둘 다 그려 보기 위해서다.
+ */
 export const profile_private = [
-    { id: uid(1), phone: '010-1234-5678', car: '12가 3456' },
-    { id: uid(2), phone: null, car: '34나 5678' },
-    { id: uid(3), phone: null, car: '56다 7890' },
-    { id: uid(4), phone: null, car: '78라 1234' },
-    { id: uid(5), phone: null, car: null },
-    { id: uid(9), phone: null, car: '90마 1122' },
-    { id: uid(10), phone: null, car: null },
-    { id: uid(11), phone: null, car: '11바 3344' },
-    { id: uid(6), phone: '010-9999-1111', car: null },
-    { id: uid(7), phone: null, car: null },
-    { id: uid(8), phone: null, car: null },
+    { id: uid(1), phone: '010-1234-5678', car: '12가 3456', birth_md: '05-10', birth_cal: 'solar' },
+    { id: uid(2), phone: null, car: '34나 5678', birth_md: '11-03', birth_cal: 'lunar' },
+    { id: uid(3), phone: null, car: '56다 7890', birth_md: '02-28', birth_cal: 'solar' },
+    { id: uid(4), phone: null, car: '78라 1234', birth_md: '08-15', birth_cal: 'lunar' },
+    { id: uid(5), phone: null, car: null, birth_md: '12-25', birth_cal: 'solar' },
+    { id: uid(9), phone: null, car: '90마 1122', birth_md: null, birth_cal: null },
+    { id: uid(10), phone: null, car: null, birth_md: '06-30', birth_cal: 'solar' },
+    { id: uid(11), phone: null, car: '11바 3344', birth_md: '09-09', birth_cal: 'solar' },
+    { id: uid(6), phone: '010-9999-1111', car: null, birth_md: null, birth_cal: null },
+    { id: uid(7), phone: null, car: null, birth_md: null, birth_cal: null },
+    { id: uid(8), phone: null, car: null, birth_md: null, birth_cal: null },
 ];
 
 export const rounds = [

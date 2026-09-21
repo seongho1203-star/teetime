@@ -199,7 +199,27 @@ export type GroupPerson = Person;
  * 받는 쪽은 `fetchContacts()` 하나다 — 회원 누구나 부를 수 있고, 정책이
  * **본인 것 한 줄**(또는 운영진이면 전부)만 돌려준다.
  */
-export type Contact = { id: string; phone: string | null; car: string | null };
+export type Contact = {
+    id: string;
+    phone: string | null;
+    car: string | null;
+    /**
+     * 생일의 **달과 날**(`MM-DD`). 해는 `profiles.birth_year`에 있다 —
+     * 그쪽은 이름표(`83/신성호/광산구`)와 조 편성이 보는 값이라 공개고,
+     * 달·날은 **운영진만** 본다(사용자 요청 — `개인정보는 운영진만 확인할
+     * 수 있게`). 둘을 합치면 생년월일 한 줄이 된다.
+     *
+     * **칸이 아직 없는 저장소에서는 `undefined`가 온다** — `null`(안 적음)과
+     * 반드시 갈라야 한다(`needsBirthday` 참고).
+     */
+    birth_md?: string | null;
+    /** 그 날짜가 양력인가 음력인가. */
+    birth_cal?: BirthCal | null;
+};
+
+/** 생년월일을 적은 달력. */
+export type BirthCal = 'solar' | 'lunar';
+export const CAL_LABEL: Record<BirthCal, string> = { solar: '양력', lunar: '음력' };
 
 /** 성별. 조 편성과 얼굴 테두리 색이 본다. */
 export type Gender = 'm' | 'f';
@@ -249,6 +269,83 @@ export function birthValue(text: string): number | null | false {
     const n = Number(t);
     if (!Number.isInteger(n) || n < BIRTH_MIN || n > BIRTH_MAX) return false;
     return n;
+}
+
+/**
+ * 화면이 들고 있는 생년월일. 저장할 값으로 바꾸는 것은 `birthValue`·`birthMd`다.
+ *
+ * **화면 파일이 아니라 여기 있다** — `components/GenderAge.tsx`에서
+ * 내보내면 fast refresh가 깨진다는 경고가 붙는다(`pollClosed`·`birthValue`를
+ * 여기 둔 것과 같은 이유다).
+ */
+export type BirthInput = { year: string; month: string; day: string; cal: BirthCal };
+
+export const EMPTY_BIRTH: BirthInput = { year: '', month: '', day: '', cal: 'solar' };
+
+/**
+ * 저장돼 있는 값 → 화면이 들고 있을 값.
+ *
+ * **해와 달·날이 다른 표에 있으므로 여기서 합친다**(`profiles` · `profile_private`).
+ * 가입 화면 · `내 정보` · `FillProfile` 셋이 같이 쓴다 — 화면마다 따로 적으면
+ * 한 곳만 고치게 된다.
+ */
+export function toBirthInput(p?: Profile | null, c?: Contact | null): BirthInput {
+    return {
+        year: p?.birth_year ? String(p.birth_year) : '',
+        month: c?.birth_md?.slice(0, 2) ?? '',
+        day: c?.birth_md?.slice(3, 5) ?? '',
+        cal: c?.birth_cal ?? 'solar',
+    };
+}
+
+/**
+ * 적은 달·날을 저장할 값(`MM-DD`)으로 바꾼다.
+ * 비었으면 `null`, 잘못 적었으면 `false` — `birthValue`와 같은 잣대다.
+ *
+ * **달마다 며칠까지인지는 안 본다.** 양력 2월 30일은 없지만 **음력에는
+ * 30일이 있는 달과 없는 달이 해마다 갈린다** — 여기서 막으면 어느 해에
+ * 적었느냐에 따라 되고 안 되고가 달라진다. 1~31로만 잡고, 그 해에 없는
+ * 날은 `lunarToSolar`가 `null`을 주어 그 해만 조용히 넘어간다.
+ */
+export function birthMd(month: string, day: string): string | null | false {
+    const m = month.trim(), d = day.trim();
+    if (!m && !d) return null;
+    const mn = Number(m), dn = Number(d);
+    if (!Number.isInteger(mn) || mn < 1 || mn > 12) return false;
+    if (!Number.isInteger(dn) || dn < 1 || dn > 31) return false;
+    return `${String(mn).padStart(2, '0')}-${String(dn).padStart(2, '0')}`;
+}
+
+/** `MM-DD` → `5월 10일`. 못 읽으면 빈 글자다. */
+export function mdLabel(md?: string | null): string {
+    const hit = /^(\d{2})-(\d{2})$/.exec(md ?? '');
+    return hit ? `${Number(hit[1])}월 ${Number(hit[2])}일` : '';
+}
+
+/**
+ * 생년월일을 **운영진에게 보여 줄 한 줄** — `양력 1975년 5월 10일`.
+ * 조각이 빠졌으면 있는 것만 적는다(빈칸을 남기면 고장 난 것처럼 보인다).
+ */
+export function birthLabel(year?: number | null, md?: string | null,
+                           cal?: BirthCal | null): string {
+    const day = mdLabel(md);
+    if (!day && year == null) return '';
+    return [day && CAL_LABEL[cal ?? 'solar'], year != null && `${year}년`, day]
+        .filter(Boolean).join(' ');
+}
+
+/**
+ * 생일의 달·날을 아직 안 적었는가 (로그인 뒤 한 번 막고 받는다).
+ *
+ * **`needsProfile`과 같은 규칙이다** — `undefined`면 **칸이 아예 없는
+ * 저장소**라 막지 않는다. 막으면 저장도 안 되는 화면에 회원 모두가 갇힌다.
+ * 줄을 아예 못 받아 온 경우(`null`)도 막지 않는다: 표가 없는 저장소와
+ * 구별이 안 되는데, 못 들어가게 하는 쪽으로 틀리면 그게 더 나쁘다.
+ */
+export function needsBirthday(c?: Contact | null): boolean {
+    if (!c) return false;
+    if (!('birth_md' in c)) return false;
+    return !c.birth_md;
 }
 
 /**
@@ -826,6 +923,15 @@ export interface Database {
              * 동시에 불러도 한 줄만 남는다(행을 잠그고 도장을 본다).
              */
             post_poll_result: { Args: { p_poll: string }; Returns: boolean };
+            /**
+             * 오늘 생일인 회원의 축하 글을 대화방에 남긴다(`lib/birthday.ts`).
+             * 넘기는 것은 **오늘이 음력 며칠인가** 하나뿐이다 — Postgres에는
+             * 음력이 없어서다. 윤달이면 둘 다 `null`을 넘긴다.
+             */
+            post_birthday_greetings: {
+                Args: { p_lmonth: number | null; p_lday: number | null };
+                Returns: number;
+            };
             /**
              * 사람마다 **지난 라운드에 몇 번 나갔나**. 회원 명단의 `올해 7회`다.
              * 화면이 신청 기록을 통째로 받아 세면 1년치가 수백 KB라 DB가 센다.

@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { tables, ME, uid } from './fixtures.mjs';
-import { restRoute, stubOutside } from './rest.mjs';
+import { handleRest, restRoute, stubOutside } from './rest.mjs';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const BASE = 'http://localhost:5199';
@@ -2689,6 +2689,17 @@ ok(line('신성호').includes('올해 1회'), `나간 사람은 횟수가 붙는
 ok(line('정우성').includes('올해 0회'),
    `앞으로의 라운드만 신청한 사람은 0회다 (실제 ${JSON.stringify(line('정우성'))})`);
 
+/* **생년월일도 운영진만 본다**(사용자 요청 — `개인정보는 운영진만 확인할
+   수 있게`). 해는 `profiles`(공개)에, 달·날은 `profile_private`(운영진만)에
+   있어 **화면이 둘을 합쳐야 한 줄이 된다**(`birthLabel`).
+   **글자를 잰다** — 클래스만 보면 해만 적혀 있어도 초록으로 뜬다. */
+ok(line('신성호').includes('1972년 5월 10일'),
+   `운영진에게는 생년월일이 보인다 (실제 ${JSON.stringify(line('신성호').match(/양력[^·]*|음력[^·]*/)?.[0] ?? '없음')})`);
+ok(line('이관교').includes('음력'),
+   `음력으로 적은 사람은 음력이라고 적는다 (실제 ${JSON.stringify(line('이관교').match(/[양음]력[^\n]*/)?.[0] ?? '없음')})`);
+ok(!line('오세훈').includes('🎂'),
+   '안 적은 사람은 그 줄을 아예 안 그린다 — 해만 덩그러니 적지 않는다');
+
 /* **참석 횟수는 운영진만 본다**(사용자 요청). 화면에서 감추는 것만으로
    끝내지 않고 DB도 막아 두었지만(`attendance_counts`가 `is_admin()`을 본다),
    **일반회원은 애초에 안 부른다** — 헛조회를 내보낼 이유가 없다.
@@ -2716,6 +2727,12 @@ const aRows = (await aPage.$$eval('.member-row', e => e.map(x => x.textContent))
 ok(!/올해 \d+회/.test(aRows),
    `일반회원 명단에는 참석 횟수가 없다 (실제 ${JSON.stringify(aRows.match(/올해 \d+회/)?.[0] ?? '없음')})`);
 ok(!aRpc.includes('attendance_counts'), '일반회원은 그 조회를 아예 안 보낸다');
+
+/* **생년월일도 같은 잣대다.** 흉내는 누가 불러도 달·날을 돌려주므로
+   (진짜는 정책이 자기 한 줄만 준다) **화면에서 안 막으면 그대로 보인다** —
+   `isAdmin &&`를 빼면 여기가 빨갛게 뜬다. */
+ok(!/\d+년 \d+월 \d+일/.test(aRows),
+   `일반회원 명단에는 생년월일이 없다 (실제 ${JSON.stringify(aRows.match(/\d+년 \d+월 \d+일/)?.[0] ?? '없음')})`);
 
 /* **대화의 프로필 화면도 같은 잣대다** — 한쪽만 고치면 명단에서 감춰 놓고
    대화에서 그대로 보여 준다. */
@@ -2831,10 +2848,34 @@ ok(bWrites.length === 0, '거주지역이 비면 저장을 안 보낸다');
 
 await bPage.fill('#fp-region', '광산구');
 await bPage.getByText('저장하고 시작하기', { exact: true }).click();
-await bPage.waitForTimeout(400);
+await bPage.waitForTimeout(300);
+/* **생일의 달·날도 필수다**(사용자 요청 — `첫 가입때 음력 또는 양력
+   생년월일을 받고`). 해만 받던 칸이 `생년월일` 한 줄이 되면서 늘었다. */
+ok(bWrites.length === 0, '생일의 달·날이 비면 저장을 안 보낸다');
+
+const bPriv = [];
+await bCtx.route('**/rest/v1/profile_private**', route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    bPriv.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+});
+await bPage.fill('[aria-label="태어난 달"]', '5');
+await bPage.fill('[aria-label="태어난 날"]', '10');
+await bPage.locator('.opt', { hasText: '음력' }).first().click();
+await bPage.getByText('저장하고 시작하기', { exact: true }).click();
+await bPage.waitForTimeout(500);
 ok(bWrites.length === 1 && bWrites[0].gender === 'm' && bWrites[0].birth_year === 1985
    && bWrites[0].region === '광산구',
-   `셋 다 적으면 저장한다 (보낸 값 ${JSON.stringify(bWrites[0])})`);
+   `다 적으면 저장한다 (보낸 값 ${JSON.stringify(bWrites[0])})`);
+/* **해와 달·날이 다른 표로 갈라져 나간다** — 해는 공개(`profiles`),
+   달·날은 운영진만 보는 표(`profile_private`)다. 한쪽만 고치면 생년월일이
+   반쪽만 남는다. */
+ok(bPriv.length === 1 && bPriv[0].birth_md === '05-10' && bPriv[0].birth_cal === 'lunar',
+   `달·날과 양력/음력은 다른 표로 간다 (보낸 값 ${JSON.stringify(bPriv[0])})`);
+/* **전화번호·차량번호를 빈 값으로 덮어쓰지 않는다** — 여기서 안 물어본
+   칸이라, `upsert`가 보낸 칸만 고치는 것이 그 장치다. */
+ok(bPriv[0] && !('phone' in bPriv[0]) && !('car' in bPriv[0]),
+   '안 물어본 칸은 저장에 안 끼워 넣는다');
 await bCtx.close();
 
 /* ── 8. 스키마를 아직 다시 안 돌린 저장소 ───────────────────────
@@ -4715,6 +4756,121 @@ console.log('\n── 이름이 없으면 닉네임부터 받는다 ──');
  *   ③ 종을 누르면 목록이 뜨고, **여는 순간 다 읽음**으로 나가는가
  *   ④ 줄을 누르면 그 화면으로 가는가
  */
+/* ── 축하 폭죽 ──────────────────────────────────────────────────
+ *
+ * 사용자 요청 — `ㅊㅋ,축하,ㅊㅋㅊㅋ,추카 문구를 입력하고 전송을하면
+ * 메시지입력창 윗쪽에 카톡처럼 폭죽버튼이 나오고 그걸 누르면 카톡처럼
+ * 화면에 폭죽이 나오는 기능`.
+ *
+ * **클래스 이름만 보면 초록으로 뜨는 자리가 아니다** — 단추가 정말
+ * `뜨고/안 뜨고`가 갈리는지를 본다. 들어올 때 안 뜨는 것이 특히 그렇다:
+ * 그 줄을 빼면 방을 열 때마다 지난달 축하로 단추가 떠 버린다.
+ */
+console.log('\n── 축하 폭죽 ──');
+{
+    await go('/#/chat', 1200);
+    ok(await page.$('.cheer-btn') === null,
+       '들어올 때는 안 뜬다 — 지난 축하로 단추가 떠서는 안 된다');
+
+    /* **그냥 글에는 안 뜬다.** `ㅋㅋ`까지 걸리게 해 두면 웃는 말마다 단추가
+       떠서 정작 축하할 때 아무도 안 누른다. */
+    await page.fill('.chat-input .textarea', '오늘 날씨 좋네요 ㅋㅋ');
+    await page.click('.chat-send');
+    await page.waitForTimeout(700);
+    ok(await page.$('.cheer-btn') === null,
+       `보통 글에는 안 뜬다 (실제 ${await page.$('.cheer-btn') ? '떴다' : '안 떴다'})`);
+
+    /* 사용자가 적어 준 넷 — `ㅊㅋ` · `축하` · `ㅊㅋㅊㅋ` · `추카`. */
+    for (const word of ['ㅊㅋ', '축하합니다', 'ㅊㅋㅊㅋ', '추카추카']) {
+        await page.evaluate(() => {
+            document.querySelector('.cheer-btn')?.dispatchEvent(
+                new MouseEvent('click', { bubbles: true }));
+        });
+        await page.waitForTimeout(200);
+        await page.fill('.chat-input .textarea', word);
+        await page.click('.chat-send');
+        await page.waitForTimeout(700);
+        ok(await page.$('.cheer-btn') !== null, `\`${word}\`를 보내면 단추가 뜬다`);
+    }
+
+    /* **입력칸 위에 뜬다**(사용자 요청 — `메시지입력창 윗쪽에`).
+       클래스가 아니라 **자리를 잰다.** */
+    const at = await page.evaluate(() => {
+        const b = document.querySelector('.cheer-btn')?.getBoundingClientRect();
+        const t = document.querySelector('.chat-input .textarea')?.getBoundingClientRect();
+        return b && t ? { btn: Math.round(b.bottom), ta: Math.round(t.top),
+                          h: Math.round(b.height) } : null;
+    });
+    ok(at && at.btn <= at.ta, `글칸보다 위에 있다 (단추 아래변 ${at?.btn} ≤ 글칸 윗변 ${at?.ta})`);
+    ok(at && at.h >= 30, `누를 만큼 크다 (실제 ${at?.h}px)`);
+
+    /* 누르면 그 자리에서 터지고 **단추는 사라진다.** 터지는 동안에도
+       대화는 그대로 눌려야 하므로 `pointer-events`를 함께 잰다. */
+    await page.click('.cheer-btn');
+    await page.waitForTimeout(150);
+    const burst = await page.evaluate(() => {
+        const c = document.querySelector('.cheer-burst');
+        if (!c) return null;
+        const st = getComputedStyle(c);
+        return { pe: st.pointerEvents, z: st.zIndex, w: c.width, h: c.height };
+    });
+    ok(!!burst, '누르면 폭죽이 터진다');
+    ok(burst?.pe === 'none', `터지는 동안에도 대화가 눌린다 (실제 ${burst?.pe})`);
+    ok(Number(burst?.z) < 1200, `토스트보다는 아래다 (실제 ${burst?.z})`);
+    ok((burst?.w ?? 0) > 0 && (burst?.h ?? 0) > 0,
+       `그릴 자리가 잡혀 있다 (실제 ${burst?.w}×${burst?.h})`);
+    ok(await page.$('.cheer-btn') === null, '누르고 나면 단추가 사라진다');
+
+    /* **스스로 끝난다.** 안 걷히면 그림이 화면에 그대로 남아 앱이 죽은
+       것처럼 보인다(뒤로 가기 그림에서 겪은 그 자리다). */
+    await page.waitForTimeout(3200);
+    ok(await page.$('.cheer-burst') === null, '다 터지면 스스로 걷힌다');
+}
+
+/* ── 생일 칸이 없는 저장소에서도 열린다 ─────────────────────────
+ *
+ * **앱은 밀면 몇 분 뒤 올라가는데 폰에는 옛 화면이 남아 있을 수 있다.**
+ * `needsBirthday`가 `null`(안 적음)과 `undefined`(칸이 아예 없음)를 안
+ * 가르면, 저장도 안 되는 화면에 **회원 모두가 갇힌다** — `needsProfile`이
+ * 그 둘을 가르는 것과 똑같은 자리다.
+ */
+console.log('\n── 생일 칸이 없는 저장소 ──');
+{
+    const nCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await nCtx.route('**/rest/v1/**', restRoute(tables));
+    /* 진짜 PostgREST처럼 **그 칸이 아예 없는 줄**을 준다 — 지우고 주는 것이
+       곧 `undefined`다. 빈 값(`null`)으로 주면 갈래가 안 갈린다. */
+    await nCtx.route('**/rest/v1/profile_private**', route => {
+        /* **`route.fetch()`로 받아 오지 말 것** — 그건 진짜 서버로 나가는데
+           여기 주소(`demo.supabase.co`)는 닿을 데가 없어 그 자리에서 죽는다.
+           흉내를 직접 불러 답을 만든 뒤 칸만 걷어낸다. */
+        const req = route.request();
+        const rows = handleRest(tables, new URL(req.url()), req);
+        const out = (Array.isArray(rows) ? rows : [rows]).filter(Boolean).map(row => {
+            const copy = { ...row };
+            delete copy.birth_md; delete copy.birth_cal;
+            return copy;
+        });
+        route.fulfill({ status: 200, contentType: 'application/json',
+            body: JSON.stringify(out) });
+    });
+    await nCtx.route('**/auth/v1/**', r => r.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
+    await stubOutside(nCtx);
+    await nCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+
+    const nPage = await nCtx.newPage();
+    await nPage.goto(BASE + '/#/', { waitUntil: 'networkidle' });
+    await nPage.waitForTimeout(900);
+    ok((await nPage.$$('.tabbar')).length === 1,
+       '칸이 없으면 안 막는다 — 앱으로 그대로 들어간다');
+    ok(!(await nPage.textContent('.page') ?? '').includes('저장하고 시작하기'),
+       '받는 화면으로 끌려가지 않는다');
+    await nCtx.close();
+}
+
 console.log('\n── 알림함 (🔔) ──');
 {
     const aCtx = await browser.newContext({

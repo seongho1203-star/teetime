@@ -3,7 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { watchBadge } from './lib/badge';
 import { isConfigured } from './lib/supabase';
-import { needsProfile } from './lib/types';
+import { needsBirthday, needsProfile } from './lib/types';
 import { ToastProvider } from './components/Toast';
 import { ConfirmProvider } from './components/Confirm';
 import { TabBar } from './components/TabBar';
@@ -45,7 +45,7 @@ import { Help } from './screens/Help';
  */
 
 function Gate() {
-    const { session, profile, isMember, loading } = useAuth();
+    const { session, profile, contact, isMember, loading } = useAuth();
     useEffect(() => {
         if (!loading && !session && hasNativeChat()) void resetNativeChat();
     }, [loading, session]);
@@ -76,8 +76,13 @@ function Gate() {
     /* **성별·태어난 해는 필수다**(사용자가 정한 것이다). 가입 화면에서 받지만
        이 기능 이전에 승인된 분들은 그 화면을 다시 안 보므로, 로그인 뒤 앱에
        들어가기 직전에 한 번 막고 받는다. 적고 나면 다시는 안 뜬다.
-       **DB에 칸이 없으면 안 막는다** — `needsProfile` 주석 참고. */
-    if (needsProfile(profile)) return <FillProfile />;
+       **DB에 칸이 없으면 안 막는다** — `needsProfile` 주석 참고.
+
+       **생일의 달·날도 같은 문을 쓴다**(사용자 요청 — `첫 가입때 음력 또는
+       양력 생년월일을 받고`). 그 값은 `profile_private`에 있어 `profile`이
+       아니라 `contact`를 봐야 한다. 둘을 한 화면에서 함께 받으므로
+       문도 하나다 — 따로 두면 저장하고 나서 또 막히는 화면이 생긴다. */
+    if (needsProfile(profile) || needsBirthday(contact)) return <FillProfile />;
 
     return (
         <div className="app" ref={appRef}>

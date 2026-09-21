@@ -7,10 +7,12 @@ import { Hinted } from '../components/Hinted';
 import { GenderAge } from '../components/GenderAge';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
-import { BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthValue, type Gender } from '../lib/types';
+import {
+    BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthMd, birthValue, toBirthInput, type Gender,
+} from '../lib/types';
 
 /**
- * 성별·태어난 해·거주지역을 아직 안 적은 **이미 승인된 회원**에게 한 번 받는 화면.
+ * 생년월일·성별·거주지역을 아직 안 적은 **이미 승인된 회원**에게 한 번 받는 화면.
  *
  * **가입 화면(`Pending`)만으로는 못 받는다.** 그 화면은 승인 전에만 보이는데,
  * 이 기능이 생기기 전에 가입한 100명은 이미 승인이 끝나 그리로 안 간다 —
@@ -23,11 +25,10 @@ import { BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthValue, type Gender } from '../li
  * 저장도 안 되는 화면에 회원 모두가 갇힌다.
  */
 export function FillProfile() {
-    const { profile, session, refresh } = useAuth();
+    const { profile, contact, session, refresh } = useAuth();
     const toast = useToast();
     const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
-    const [birth, setBirth] = useState(
-        profile?.birth_year ? String(profile.birth_year) : '');
+    const [birth, setBirth] = useState(() => toBirthInput(profile, contact));
     const [region, setRegion] = useState(profile?.region ?? '');
     const [name, setName] = useState(profile?.name ?? '');
     const [saving, setSaving] = useState(false);
@@ -43,12 +44,15 @@ export function FillProfile() {
     const save = async () => {
         if (askName && !name.trim()) { toast('닉네임을 적어 주세요.', 'error'); return; }
         if (!gender) { toast('성별을 골라 주세요.', 'error'); return; }
-        const year = birthValue(birth);
+        const year = birthValue(birth.year);
         if (year === null) { toast('태어난 해를 적어 주세요.', 'error'); return; }
         if (year === false) {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;
         }
+        const md = birthMd(birth.month, birth.day);
+        if (md === null) { toast('생일의 달과 날을 적어 주세요.', 'error'); return; }
+        if (md === false) { toast('생일을 다시 확인해 주세요.', 'error'); return; }
 
         if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
@@ -58,7 +62,9 @@ export function FillProfile() {
             /* 이름이 있던 사람의 것을 덮어쓰지 않는다 — 물어보지도 않은
                칸을 저장에 끼워 넣으면 빈 값으로 지울 수 있다. */
             ...(askName ? { name: name.trim() } : {}),
-        });
+        /* **보낸 칸만 고친다** — 전화번호·차량번호는 여기서 안 물어보므로
+           그대로 남는다(`saveMyProfile` 참고). */
+        }, { birth_md: md, birth_cal: birth.cal });
         setSaving(false);
         if (error) { toast(readableError(error), 'error'); return; }
         /* 새로 받아 와야 `needsProfile`이 false가 되어 앱으로 들어간다. */
@@ -74,18 +80,20 @@ export function FillProfile() {
                     <div className="b" style={{ fontSize: 'var(--fs-md)' }}>
                         {profile?.name || '회원'}님
                     </div>
-                    <div className="sm faint">
-                        {askName ? '네' : '세'} 가지만 더 알려 주세요
-                    </div>
+                    <div className="sm faint">몇 가지만 더 알려 주세요</div>
                 </div>
             </div>
 
             {/* **왜 받는지 적는다.** 잘 쓰던 앱이 갑자기 뭘 물어보면
                 무슨 일인가 싶다 — 한 줄이면 납득한다. */}
             <div className="notice warn">
-                <b>{askName ? '네' : '세'} 가지</b>가 빠져 있습니다.<br />
+                <b>생년월일 · 성별 · 거주지역</b>이 빠져 있습니다.<br />
                 남녀와 나이가 고르게 섞이도록 조를 짜는 데 쓰고,
-                이름은 <b>83/신성호/광산구</b>처럼 보이게 됩니다.
+                이름은 <b>83/신성호/광산구</b>처럼 보이게 됩니다.<br />
+                {/* **왜 생일까지 받는지 적는다** — 조 편성만 말하면 달·날을
+                    왜 묻는지 알 수가 없다. 한 줄이면 납득한다. */}
+                생일에는 대화방에 축하 인사가 올라갑니다.
+                <b>달과 날은 운영진만</b> 볼 수 있습니다.
             </div>
 
             <div className="card">

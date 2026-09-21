@@ -7,7 +7,9 @@ import { Hinted } from '../components/Hinted';
 import { GenderAge } from '../components/GenderAge';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
-import { BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthValue, type Gender } from '../lib/types';
+import {
+    BIRTH_MAX, BIRTH_MIN, REGION_MAX, birthMd, birthValue, toBirthInput, type Gender,
+} from '../lib/types';
 import { Help } from './Help';
 
 /**
@@ -17,7 +19,7 @@ import { Help } from './Help';
  * 카카오 닉네임이 `골프왕`이면 승인할 수가 없다.
  *
  * **여섯 가지를 다 받고 다 필수다** — 사용자가 정해 준 차례 그대로
- * `닉네임 · 전화번호 · 태어난 해 · 성별 · 차량번호 · 거주지역`이다.
+ * `닉네임 · 전화번호 · 생년월일 · 성별 · 차량번호 · 거주지역`이다.
  * 전화는 급한 연락에, **차량번호는 골프장에 미리 차를 등록할 때** 쓴다
  * (카풀 때문이 아니다). 성별·태어난 해는 조 편성의 `성별 조합`·`나이 조합`이
  * 보고, **태어난 해와 거주지역은 이름표에도 적힌다**(`83/신성호/광산구`).
@@ -40,8 +42,7 @@ export function Pending() {
     const [car, setCar] = useState(contact?.car ?? '');
     const [region, setRegion] = useState(profile?.region ?? '');
     const [gender, setGender] = useState<Gender | null>(profile?.gender ?? null);
-    const [birth, setBirth] = useState(
-        profile?.birth_year ? String(profile.birth_year) : '');
+    const [birth, setBirth] = useState(() => toBirthInput(profile, contact));
     const [saving, setSaving] = useState(false);
     /* **기다리는 동안 읽을 거리.** 승인 전에는 라우터가 안 열려
        `/help`로 못 가므로 여기서 직접 띄운다. */
@@ -54,19 +55,22 @@ export function Pending() {
         if (!phone.trim()) { toast('전화번호를 적어 주세요.', 'error'); return; }
         if (!car.trim()) { toast('차량번호를 적어 주세요.', 'error'); return; }
         if (!gender) { toast('성별을 골라 주세요.', 'error'); return; }
-        const year = birthValue(birth);
+        const year = birthValue(birth.year);
         if (year === null) { toast('태어난 해를 적어 주세요.', 'error'); return; }
         if (year === false) {
             toast(`태어난 해는 ${BIRTH_MIN}~${BIRTH_MAX} 사이로 적어 주세요.`, 'error');
             return;
         }
+        const md = birthMd(birth.month, birth.day);
+        if (md === null) { toast('생일의 달과 날을 적어 주세요.', 'error'); return; }
+        if (md === false) { toast('생일을 다시 확인해 주세요.', 'error'); return; }
         if (!region.trim()) { toast('거주지역을 적어 주세요.', 'error'); return; }
 
         setSaving(true);
         const error = await saveMyProfile(
             session!.user.id,
             { name: trimmed, gender, birth_year: year, region: region.trim() },
-            { phone: phone.trim(), car: car.trim() },
+            { phone: phone.trim(), car: car.trim(), birth_md: md, birth_cal: birth.cal },
         );
         setSaving(false);
 

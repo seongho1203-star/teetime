@@ -4,7 +4,7 @@ import { useAsync, useRealtime, fetchProfiles, fetchContacts, byId } from '../li
 import { useAuth } from '../lib/auth';
 import { formatDate, kstDate } from '../lib/format';
 import {
-    FIND_AT, ROLE_LABEL, ROLE_TAG, personLabel,
+    FIND_AT, ROLE_LABEL, ROLE_TAG, birthLabel, personLabel,
     type Contact, type Profile, type Role,
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
@@ -320,6 +320,23 @@ export function Members() {
                                             {isAdmin && (contacts[p.id]?.car || '차량번호 미등록')}
                                             {isAdmin && contacts[p.id]?.phone
                                                 ? ` · ${contacts[p.id].phone}` : ''}
+                                        </div>
+                                    )}
+                                    {/* **생년월일은 운영진에게만.** 해는
+                                        `profiles`(공개)에, 달·날은
+                                        `profile_private`(운영진만)에 있어
+                                        **여기서 합쳐야 한 줄이 된다**
+                                        (`birthLabel`). 전화번호·차량번호와
+                                        같은 잣대라 회원에게는 달·날이 애초에
+                                        안 실려 온다.
+                                        **안 적은 사람은 줄째 안 그린다** —
+                                        `1975년`만 덩그러니 적으면 생일을
+                                        받아 둔 것처럼 보인다. */}
+                                    {isAdmin && contacts[p.id]?.birth_md && (
+                                        <div className="xs faint">
+                                            🎂 {birthLabel(p.birth_year,
+                                                           contacts[p.id].birth_md,
+                                                           contacts[p.id].birth_cal)}
                                         </div>
                                     )}
                                 </div>

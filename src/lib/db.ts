@@ -247,9 +247,16 @@ export async function fetchPeople(): Promise<Person[]> {
  * (`profile_private` · schema.sql). 표가 아직 없는 저장소에서는 오류를
  * 던지지 않고 빈 목록으로 물러난다 — 전화번호 한 줄 때문에 화면이
  * 통째로 안 열리면 안 된다.
+ *
+ * **칸을 적지 않고 `select('*')`로 받는다.** 표가 `id·전화·차량·생일` 넷뿐이라
+ * 100명분이어도 몇 KB고(명단에 `*`를 안 쓰는 것과는 규모가 다르다), 무엇보다
+ * **칸을 새로 더할 때마다 여기 목록을 고치는 일을 없애려는 것**이다 —
+ * 하나만 빠뜨리면 그 값이 화면에서 조용히 사라진다. 아직 그 칸이 없는
+ * 저장소에서는 키가 아예 안 와서 `undefined`가 되고, 그게 `needsBirthday`가
+ * '안 적음'과 갈라 보는 잣대다.
  */
 export async function fetchContacts(): Promise<Contact[]> {
-    const { data, error } = await supabase.from('profile_private').select('id, phone, car');
+    const { data, error } = await supabase.from('profile_private').select('*');
     return error ? [] : (data ?? []);
 }
 
@@ -293,11 +300,16 @@ export async function announceClosedPolls(
  * 바뀌면 방금 고친 이름을 못 보고 지나간다(schema.sql의 `claim_superadmin`).
  *
  * 오류는 던지지 않고 돌려준다 — 화면이 토스트로 보여 줘야 한다.
+ *
+ * **`contact`는 보낸 칸만 고친다**(`upsert`가 그렇게 돈다). 그래서
+ * `FillProfile`처럼 **생일만** 받는 화면이 전화번호·차량번호를 빈 값으로
+ * 덮어쓸 일이 없다 — 물어보지도 않은 칸을 저장에 끼워 넣지 않는 것과
+ * 같은 규칙이다.
  */
 export async function saveMyProfile(
     uid: string,
     fields: Partial<Pick<Profile, 'name' | 'region' | 'gender' | 'birth_year'>>,
-    contact?: { phone: string; car: string },
+    contact?: Partial<Omit<Contact, 'id'>>,
 ): Promise<{ message: string } | null> {
     const { error } = await supabase.from('profiles').update(fields).eq('id', uid);
     if (error) return error;

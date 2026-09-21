@@ -60,6 +60,20 @@ export function handleRest(tables, url, req) {
             }
             return Object.entries(n).map(([user_id, count]) => ({ user_id, n: count }));
         }
+        /* **생일 축하 글.** 진짜는 오늘 생일인 사람을 골라 대화방에 한 줄을
+           남기는데, 여기서는 **몇 명인지만** 돌려준다 — 화면이 그 값을 안
+           쓰고(홈이 부르고 잊는다) 글은 실시간으로 따라 들어오기 때문이다.
+           **양력만 센다**: 음력은 `p_lmonth`·`p_lday`로 넘어오므로 그대로 본다. */
+        if (name === 'post_birthday_greetings') {
+            const { p_lmonth, p_lday } = req.postDataJSON?.() ?? {};
+            const pad = n => String(n).padStart(2, '0');
+            const now = new Date();
+            const smd = `${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+            const lmd = p_lmonth && p_lday ? `${pad(p_lmonth)}-${pad(p_lday)}` : null;
+            return (tables.profile_private ?? []).filter(v =>
+                (v.birth_cal !== 'lunar' && v.birth_md === smd)
+                || (v.birth_cal === 'lunar' && lmd && v.birth_md === lmd)).length;
+        }
         /* 알림함 청소. 진짜와 같이 **90일이 지난 내 것만** 걷는다 —
            흉내가 전부 지워 버리면 목록이 빈 채로 찍힌다. */
         if (name === 'purge_my_notifications') {

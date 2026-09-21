@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAsync, useRealtime, useRefreshOnShow, unwrap, fetchPeople, announceClosedPolls } from '../lib/db';
 import { useAuth } from '../lib/auth';
 import { formatDateTime, formatTime, ddayLabel, daysUntil, upcomingSince } from '../lib/format';
+import { announceBirthdays } from '../lib/birthday';
 import { lastSeen } from '../lib/unread';
 import { countUnreadAlerts } from '../lib/alerts';
 import { fetchWeather, type Weather } from '../lib/weather';
@@ -110,6 +111,14 @@ export function Home() {
     useEffect(() => {
         if (data?.livePolls?.length) void announceClosedPolls(data.livePolls);
     }, [data]);
+
+    /* **생일이면 대화방에 축하 글을 남기게 한다**(사용자 요청).
+       위와 같은 결이다 — 시간이 흐르는 것은 DB에게 사건이 아니라,
+       앱을 연 사람의 화면이 한 번 불러 준다. **홈에서 부르는 까닭도 같다**:
+       모두가 처음 닿는 화면이라 늦어야 그날 아침이다.
+       기기마다 하루 한 번이고(`lib/birthday.ts`), 누가 생일인지와 이미
+       올렸는지는 DB가 본다. */
+    useEffect(() => { void announceBirthdays(); }, []);
 
     /* **안 읽은 대화는 따로 센다.** 예전에는 위 조회에 끼워 두어, 대화가
        한 마디 올 때마다 **라운드·신청·명단까지 통째로 다시 받았다** —

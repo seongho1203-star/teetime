@@ -116,6 +116,29 @@ create table if not exists profile_private (
 );
 alter table profile_private enable row level security;
 
+/* **생일의 달·날과 양력/음력도 여기 있다**(사용자 요청 — `첫 가입때 음력
+ * 또는 양력 생년월일을 받고 … 개인정보는 운영진만 확인할 수 있게`).
+ *
+ * **해는 여기 없다** — `profiles.birth_year`가 이미 들고 있고 그 값은
+ * 이름표(`83/신성호/광산구`)와 조 편성이 보므로 공개다. 둘을 합치면
+ * 생년월일 한 줄이 되고, **운영진만 그 한 줄을 본다**(회원 명단).
+ *
+ * `MM-DD` 글자로 둔 것은 **해가 없는 날짜이기 때문이다.** `date`로 두면
+ * 해를 아무 값이나 넣어야 하고, 그 값이 `birth_year`와 어긋나는 날이 온다.
+ *
+ * **달마다 며칠까지인지는 안 막는다.** 음력에는 30일이 있는 달과 없는 달이
+ * 해마다 갈려서, 여기서 막으면 어느 해에 적었느냐에 따라 되고 안 되고가
+ * 달라진다. 그 해에 없는 날은 축하 글이 그 해만 조용히 건너뛴다. */
+alter table profile_private add column if not exists birth_md text;
+alter table profile_private drop constraint if exists profile_private_birth_md_check;
+alter table profile_private add  constraint profile_private_birth_md_check
+    check (birth_md is null or birth_md ~ '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+
+alter table profile_private add column if not exists birth_cal text;
+alter table profile_private drop constraint if exists profile_private_birth_cal_check;
+alter table profile_private add  constraint profile_private_birth_cal_check
+    check (birth_cal is null or birth_cal in ('solar', 'lunar'));
+
 do $$
 begin
     if exists (select 1 from information_schema.columns
@@ -1547,6 +1570,93 @@ drop trigger if exists polls_result on polls;
 create trigger polls_result after update on polls
     for each row execute function poll_result_sync();
 
+/* ── 생일이면 대화방에 축하 글이 올라간다 ──────────────────────
+ *
+ * 사용자 요청 — `생일인경우 채팅창에 생일이라는 축하문구발생`.
+ * 카톡에서 누군가 기억해 내야 하던 일을 앱이 대신한다.
+ *
+ * **시간이 흐르는 것은 DB에게 사건이 아니다.** 투표 결과 카드와 완전히
+ * 같은 자리라 같은 길을 쓴다 — **앱을 연 사람의 화면이 이 함수를 부른다**
+ * (`lib/birthday.ts`). 정해진 시각에 도는 것(pg_cron)을 새로 켜지 않으려는
+ * 것이고, 아무도 앱을 안 열었으면 볼 사람도 없으므로 늦어도 탈이 없다.
+ *
+ * **한 사람에 하루 한 줄만 남는다** — `birthday_posts`의 기본키가 그
+ * 자물쇠다. 백 명이 같은 아침에 앱을 열어도 먼저 든 하나만 쓴다
+ * (`round_reminders`가 `unique (round_id, kind)`로 막는 것과 같다).
+ *
+ * **음력 생일은 오늘이 음력 며칠인지를 앱이 알려 준다**(`p_lmonth`·`p_lday`).
+ * Postgres에는 음력이 없고, 표를 몇 년치 박아 두면 그 범위가 끝나는 날
+ * 조용히 틀린 값을 내놓는다 — 앱이 천문 계산으로 낸다(`lib/lunar.ts`).
+ * **넘겨받는 것은 달력 사실 하나뿐이다.** 누가 회원인지, 오늘이 며칠인지,
+ * 이미 올렸는지는 전부 여기서 본다. 값을 엉뚱하게 넘겨 봐야 그 사람의
+ * **그날치**가 하루 먼저 올라갈 뿐이고, 자물쇠가 날짜별이라 **진짜 생일날
+ * 올라갈 자리는 그대로 남는다.**
+ *
+ * **윤달에는 음력 생일을 안 센다** — 앱이 그때 `null`을 넘긴다. 윤5월에
+ * 난 사람도 평5월에 생일을 쇠는 것이 우리 관습이고, 평달이 먼저 오므로
+ * 그때 이미 축하를 받았다.
+ *
+ * **폰 알림은 안 보낸다.** `system` 글이라 발송기가 그냥 돌아선다
+ * (`messages.notify`를 안 세운다) — 하루 한 번 대화방에 남는 것으로
+ * 충분하고, 생일마다 100명의 폰을 울릴 일은 아니다.
+ */
+create table if not exists birthday_posts (
+    user_id uuid not null references profiles(id) on delete cascade,
+    ymd     date not null,
+    primary key (user_id, ymd)
+);
+alter table birthday_posts enable row level security;
+
+create or replace function post_birthday_greetings(
+    p_lmonth int default null, p_lday int default null)
+returns int language plpgsql security definer
+set search_path = public as $$
+declare
+    today date := (now() at time zone 'Asia/Seoul')::date;
+    smd   text := to_char(today, 'MM-DD');
+    lmd   text;
+    r     record;
+    n     int := 0;
+begin
+    -- 회원만 부를 수 있다. 아무나 불러도 탈이 없는 함수지만, 문은 닫아 둔다.
+    if not is_member() then return 0; end if;
+
+    if p_lmonth between 1 and 12 and p_lday between 1 and 31 then
+        lmd := lpad(p_lmonth::text, 2, '0') || '-' || lpad(p_lday::text, 2, '0');
+    end if;
+
+    for r in
+        select p.id, p.name
+          from profile_private v
+          join profiles p on p.id = v.id
+         where p.role in ('member', 'treasurer', 'staff', 'admin', 'superadmin')
+           and (
+                -- 달력을 안 적어 둔 옛 줄은 양력으로 본다.
+                (coalesce(v.birth_cal, 'solar') = 'solar' and v.birth_md = smd)
+             or (v.birth_cal = 'lunar' and lmd is not null and v.birth_md = lmd)
+           )
+    loop
+        insert into birthday_posts (user_id, ymd) values (r.id, today)
+        on conflict do nothing;
+        -- 이미 있던 줄이면 `found`가 거짓이라 아무것도 안 남긴다.
+        if found then
+            /* **`축하`라는 말이 들어 있어야 한다** — 대화 화면이 그 말을 보고
+               폭죽 단추를 내놓는다(`lib/cheer.ts`). 문구를 고칠 때 그 말을
+               빼지 말 것. */
+            perform chat_notice(
+                '🎂 오늘은 ' || coalesce(nullif(r.name, ''), '회원') || '님의 생일입니다'
+                || E'\n' || '다 같이 축하해 주세요!',
+                r.id, null, null);
+            n := n + 1;
+        end if;
+    end loop;
+    return n;
+end $$;
+
+revoke all on function post_birthday_greetings(int, int) from public;
+grant execute on function post_birthday_greetings(int, int) to authenticated;
+
+
 -- 전체 채팅방 하나는 항상 있어야 한다.
 insert into rooms (name)
 select '전체 대화'
@@ -1756,6 +1866,15 @@ create policy round_comments_admin on round_comments for all    using (is_admin(
 -- 안 여는 것과 같은 이유다.
 drop policy if exists round_reminders_read on round_reminders;
 create policy round_reminders_read on round_reminders for select using (is_member());
+
+-- ── 생일 축하 기록 ────────────────────────────────────────────
+--
+-- **읽기도 안 연다.** 이 표는 `post_birthday_greetings()`가 '오늘 이 사람
+-- 것을 이미 올렸는가'를 보려고 두는 자물쇠일 뿐이라 화면이 읽을 일이 없고,
+-- **읽히면 누구 생일이 언제인지가 그대로 새어 나간다**(달·날을 운영진만
+-- 보게 한 뜻이 없어진다). 넣는 것도 그 함수 하나뿐이다 — `security definer`라
+-- 정책을 안 탄다.
+drop policy if exists birthday_posts_read on birthday_posts;
 
 -- ── 정산 ──────────────────────────────────────────────────────
 --
