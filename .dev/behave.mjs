@@ -416,6 +416,39 @@ await go('/#/polls', 700);
        `내가 고른 것이 접힌 자리에 있으면 아예 펴 둔다 (실제 ${JSON.stringify(kept)})`);
 }
 
+/* **마감 시각만 빨강이다**(사용자 요청). 클래스 이름만 보면 CSS가
+   뒤집혀도 초록으로 뜨므로 **칠을 잰다.** 곁의 `0명 참여`와 `마감` 단추가
+   함께 빨개지지 않았는지도 같이 본다 — 그것이 이 고침의 경계다.
+   목록과 상세가 같은 클래스를 쓰므로 둘 다 잰다. */
+console.log('\n── 투표 마감 시각은 빨강이다 ──');
+{
+    const RED = 'rgb(226, 64, 42)';
+    await go('/#/polls', 700);
+    const v = await page.evaluate(() => {
+        const card = document.querySelector('.poll-card:not(.closed)');
+        const at = card?.querySelector('.poll-close-at');
+        const foot = card?.querySelector('.poll-foot .grow');
+        const badge = card?.querySelector('.badge.live');
+        const btn = [...(card?.querySelectorAll('.poll-foot button') ?? [])]
+            .find(b => b.textContent.trim() === '마감');
+        const c = el => (el ? getComputedStyle(el).color : null);
+        return { 글: at?.textContent ?? null, 시각: c(at), 참여줄: c(foot), 상태표: c(badge), 단추: c(btn) };
+    });
+    ok(!!v.글 && v.글.includes('마감'), `목록 카드에 마감 시각이 있다 (실제 ${JSON.stringify(v.글)})`);
+    ok(v.시각 === RED, `그 줄만 빨강이다 (실제 ${v.시각})`);
+    ok(v.참여줄 !== RED, `곁의 \`N명 참여\`는 그대로다 (실제 ${v.참여줄})`);
+    ok(v.상태표 !== RED, `\`진행중\` 상태표에 안 번진다 (실제 ${v.상태표})`);
+    ok(v.단추 !== RED, `\`마감\` 단추에 안 번진다 (실제 ${v.단추})`);
+
+    await go('/#/polls/p1', 700);
+    const d = await page.evaluate(() => {
+        const at = document.querySelector('.poll-close-at');
+        return { 글: at?.textContent ?? null, 시각: at ? getComputedStyle(at).color : null };
+    });
+    ok(!!d.글 && d.시각 === RED,
+       `상세도 같은 빨강이다 (실제 ${JSON.stringify(d)})`);
+}
+
 /* ── 3. 투표 수정 ───────────────────────────────────────────────
    **표가 들어온 뒤에는 잠기는 것이 둘이다** — `익명`을 끄면 비밀인 줄 알고
    고른 사람이 드러나고, `복수 선택`을 끄면 이미 여러 개 고른 사람의 표가

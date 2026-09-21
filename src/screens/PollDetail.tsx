@@ -184,7 +184,7 @@ export function PollDetail() {
                         셋이 같은 사람들을 세야 숫자가 맞는다. */}
                     {done.length}명 참여 · 전체 {members.length}명
                     {poll.closes_at && !poll.closed && (
-                        <> · {formatDateTime(poll.closes_at)} 마감</>
+                        <> · <span className="poll-close-at">{formatDateTime(poll.closes_at)} 마감</span></>
                     )}
                 </span>
             </div>
