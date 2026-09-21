@@ -32,9 +32,12 @@ enum ChatCheer {
     /**
      * 단추가 떠 있는 시간(초). **영영 두지 않는다** — 한참 뒤에 들어와
      * 어제 것으로 폭죽을 터뜨리면 무엇을 축하하는지 알 수가 없다.
-     * 웹 `CHEER_MS`(60초)와 같은 값이다.
+     *
+     * **10초다**(사용자 요청 — `폭죽터트리기 단추는 10초만 보이게해줘.
+     * 채팅을 가리니까`). 웹 `CHEER_MS`와 **같은 값이어야 한다 — 한쪽만
+     * 고치지 말 것.**
      */
-    static let window: TimeInterval = 60
+    static let window: TimeInterval = 10
 
     /**
      * 이 글이 축하하는 말인가.
@@ -108,15 +111,22 @@ final class CheerBar: UIView {
         CGSize(width: UIView.noIntrinsicMetric, height: CheerBar.barH + CheerBar.gapBottom)
     }
 
+    /* **알약은 글자만큼만 넓고 줄 가운데에 선다**(사용자 요청 — `폭죽단추
+       좌우크기를 글씨크기만큼 줄여서 가운데에 뜨게해줘`). 예전에는 줄을
+       통째로 채워 말풍선 한 줄을 가렸다. 웹 `.cheer-btn`의
+       `align-self: center` + `padding: 0 18px`과 같은 값이다 —
+       **한쪽만 고치지 말 것.** 좁은 화면에서 글자가 넘치지 않게 줄 안폭을
+       넘지는 않는다. */
     override func layoutSubviews() {
         super.layoutSubviews()
-        pill.frame = CGRect(x: CheerBar.padSide, y: 0,
-                            width: max(0, bounds.width - CheerBar.padSide * 2),
-                            height: CheerBar.barH)
-        /* 그림과 글자를 한 덩어리로 가운데에 놓는다(웹의 `gap: 7px`). */
-        let gap: CGFloat = 7, icon: CGFloat = 17
+        let gap: CGFloat = 7, icon: CGFloat = 17, inset: CGFloat = 18
         let textW = label.intrinsicContentSize.width
         let total = icon + gap + textW
+        let room = max(0, bounds.width - CheerBar.padSide * 2)
+        let pillW = min(room, total + inset * 2)
+        pill.frame = CGRect(x: (bounds.width - pillW) / 2, y: 0,
+                            width: pillW, height: CheerBar.barH)
+        /* 그림과 글자를 한 덩어리로 가운데에 놓는다(웹의 `gap: 7px`). */
         let left = (pill.bounds.width - total) / 2
         mark.frame = CGRect(x: left, y: (CheerBar.barH - icon) / 2, width: icon, height: icon)
         label.frame = CGRect(x: left + icon + gap, y: 0, width: textW, height: CheerBar.barH)

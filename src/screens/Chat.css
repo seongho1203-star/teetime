@@ -1356,13 +1356,20 @@ html.nc .chat-over { margin-top: 0; }
  * 흰 글자다(`.chat-more`가 그 색을 되짚어 쓴 것과 같은 자리 — 클래스
  * 하나로 `.btn`을 이기려 들면 안 먹으므로 **`.btn`을 아예 안 쓴다**).
  *
- * **44px이다.** 30px보다 작은 누름 자리는 `node .dev/audit.mjs`가 잡는다. */
+ * **44px이다.** 30px보다 작은 누름 자리는 `node .dev/audit.mjs`가 잡는다.
+ *
+ * **가로는 글자만큼만 쓰고 가운데에 선다**(사용자 요청 — `폭죽단추
+ * 좌우크기를 글씨크기만큼 줄여서 가운데에 뜨게해줘`). 예전에는
+ * `width: 100%`라 입력칸 폭을 통째로 덮었다. `.chat-over`가 세로 flex라
+ * **`align-self: center`가 그 한 쌍이다** — 없으면 `stretch`로 늘어나
+ * 폭을 줄인 뜻이 없어진다. 높이 44px은 그대로 둘 것. */
 .cheer-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
-    width: 100%;
+    align-self: center;
+    padding: 0 18px;
     height: 44px;
     border: 0;
     border-radius: var(--r-pill);

@@ -4796,13 +4796,26 @@ console.log('\n── 축하 폭죽 ──');
     /* **입력칸 위에 뜬다**(사용자 요청 — `메시지입력창 윗쪽에`).
        클래스가 아니라 **자리를 잰다.** */
     const at = await page.evaluate(() => {
-        const b = document.querySelector('.cheer-btn')?.getBoundingClientRect();
+        const el = document.querySelector('.cheer-btn');
+        const b = el?.getBoundingClientRect();
         const t = document.querySelector('.chat-input .textarea')?.getBoundingClientRect();
-        return b && t ? { btn: Math.round(b.bottom), ta: Math.round(t.top),
-                          h: Math.round(b.height) } : null;
+        const box = document.querySelector('.chat-over')?.getBoundingClientRect();
+        return b && t && box
+            ? { btn: Math.round(b.bottom), ta: Math.round(t.top), h: Math.round(b.height),
+                w: Math.round(b.width), boxW: Math.round(box.width),
+                mid: Math.round(b.left + b.width / 2), boxMid: Math.round(box.left + box.width / 2) }
+            : null;
     });
     ok(at && at.btn <= at.ta, `글칸보다 위에 있다 (단추 아래변 ${at?.btn} ≤ 글칸 윗변 ${at?.ta})`);
     ok(at && at.h >= 30, `누를 만큼 크다 (실제 ${at?.h}px)`);
+
+    /* **가로는 글자만큼만 쓰고 가운데에 선다**(사용자 요청 — `폭죽단추
+       좌우크기를 글씨크기만큼 줄여서 가운데에 뜨게해줘`).
+       **클래스 이름만 보면 `width: 100%`로 되돌려도 초록으로 뜨므로 잰다.** */
+    ok(at && at.w < at.boxW - 40,
+       `줄을 통째로 안 채운다 (단추 ${at?.w}px < 줄 ${at?.boxW}px)`);
+    ok(at && Math.abs(at.mid - at.boxMid) <= 2,
+       `줄 가운데에 선다 (어긋남 ${at ? Math.abs(at.mid - at.boxMid) : '?'}px)`);
 
     /* 누르면 그 자리에서 터지고 **단추는 사라진다.** 터지는 동안에도
        대화는 그대로 눌려야 하므로 `pointer-events`를 함께 잰다. */
@@ -4825,6 +4838,17 @@ console.log('\n── 축하 폭죽 ──');
        것처럼 보인다(뒤로 가기 그림에서 겪은 그 자리다). */
     await page.waitForTimeout(3200);
     ok(await page.$('.cheer-burst') === null, '다 터지면 스스로 걷힌다');
+
+    /* **단추도 10초 뒤에는 스스로 걷힌다**(사용자 요청 — `폭죽터트리기
+       단추는 10초만 보이게해줘. 채팅을 가리니까`). 입력칸 위에 얹히는
+       줄이라 남아 있으면 말풍선 한 줄을 계속 가린다.
+       예전 값(1분)으로 되돌리면 여기서 빨갛게 뜬다. */
+    await page.fill('.chat-input .textarea', '추카드려요');
+    await page.click('.chat-send');
+    await page.waitForTimeout(700);
+    ok(await page.$('.cheer-btn') !== null, '걷히는 것을 보려고 단추를 다시 띄운다');
+    await page.waitForTimeout(10_000);
+    ok(await page.$('.cheer-btn') === null, '10초가 지나면 단추가 스스로 걷힌다');
 }
 
 /* ── 생일 칸이 없는 저장소에서도 열린다 ─────────────────────────
