@@ -195,6 +195,8 @@ final class NativeStickerCell: UICollectionViewCell {
     let picture = UIImageView()
     let name = UILabel()
     private var url = ""
+    /// 움직이는 판이 왔는가 — 늦게 온 멈춘 그림이 그것을 덮지 않게 하는 표다.
+    private var live = false
     override init(frame: CGRect) {
         super.init(frame: frame)
         picture.contentMode = .scaleAspectFit; name.font = .systemFont(ofSize: 11); name.textAlignment = .center
@@ -216,10 +218,32 @@ final class NativeStickerCell: UICollectionViewCell {
         name.text = compact ? nil : item["label"] as? String
         name.isHidden = compact
         accessibilityLabel = item["label"] as? String
+        live = false
         ImageStore.put(nil, into: picture)
+        /* **움직이는 것은 멈춘 그림을 먼저 얹는다.** `<id>.webp` 옆에는 늘
+           `<id>.png` 한 장이 함께 있고(`lib/stickers.ts` — 옛 판을 든 폰의
+           예비 길이다) 그쪽은 9KB · 한 장짜리라 그 자리에서 뜬다. 움직이는
+           판은 4.3MB·216프레임이라 다 풀릴 때까지 칸이 비어 있었다
+           (사용자 제보 — `이모티콘을 누르면 바로 안뜨고`). 다 풀리면
+           그때 갈아 끼우므로 **움직이는 것은 그대로 움직인다.** */
+        if url.hasSuffix(".webp") {
+            let still = String(url.dropLast(4)) + "png"
+            ImageStore.shared.load(still) { [weak self] shot in
+                /* 움직이는 판이 이미 왔으면 덮지 않는다 — 늦게 온 멈춘
+                   그림이 움직이던 것을 세워 버리면 안 된다. */
+                guard let self = self, self.url == expected, !self.live, let shot = shot else { return }
+                ImageStore.put(shot, into: self.picture)
+            }
+        }
         ImageStore.shared.load(url) { [weak self] shot in
-            guard let self = self, self.url == expected else { return }; ImageStore.put(shot, into: self.picture)
+            guard let self = self, self.url == expected else { return }
+            /* 못 받았으면 얹어 둔 멈춘 그림이라도 남긴다 — 빈 칸보다 낫다. */
+            guard let shot = shot else { return }
+            self.live = true
+            ImageStore.put(shot, into: self.picture)
         }
     }
-    override func prepareForReuse() { super.prepareForReuse(); url = ""; ImageStore.put(nil, into: picture) }
+    override func prepareForReuse() {
+        super.prepareForReuse(); url = ""; live = false; ImageStore.put(nil, into: picture)
+    }
 }

@@ -1229,6 +1229,9 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
     private let line = UIView()
     private let grid = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
     private var picked = ""
+    /// 마지막으로 잰 그림 칸의 폭. **0에서 진짜 폭으로 바뀌는 그 순간이
+    /// 서랍이 처음 열리는 때다**(`layoutSubviews` 주석).
+    private var gridW: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1310,6 +1313,18 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
         grid.frame = CGRect(x: 0, y: Self.tabH + 1, width: bounds.width,
                             height: max(0, bounds.height - Self.tabH - 1))
         grid.contentInset = UIEdgeInsets(top: 6, left: 6, bottom: safeAreaInsets.bottom + 6, right: 6)
+        /* **폭이 처음 정해지는 순간 다시 그린다.** 묶음을 세우는 `load()`는
+           서랍이 아직 안 열렸을 때(폭 0) 도는데, 한 칸 크기를 `grid.bounds.width`
+           에서 내므로 그때 잡힌 배치는 칸보다 넓은 칸을 그리라는 말이 되어
+           **한 장도 안 그려진 채로 굳는다** — 탭을 한 번 눌러야(`choose`가
+           다시 그린다) 그제야 떴다(사용자 제보 — `이모티콘을 누르면 바로
+           안뜨고 골프공이나 다른걸 누른후에 떠`). 폭이 바뀔 때만 도므로
+           평소에는 한 번도 안 돈다. */
+        if grid.bounds.width != gridW {
+            gridW = grid.bounds.width
+            grid.collectionViewLayout.invalidateLayout()
+            if gridW > 0 { DispatchQueue.main.async { [weak self] in self?.grid.reloadData() } }
+        }
     }
 
     func collectionView(_ c: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }

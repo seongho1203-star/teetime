@@ -1608,7 +1608,17 @@ html.nc .chat-over { margin-top: 0; }
     border-radius: var(--r-sm);
     line-height: 0;
 }
-.sticker-btn img { width: 100%; height: 100%; object-fit: contain; }
+/* 바탕은 **움직이는 판이 오기 전에 깔아 두는 멈춘 그림**이다(`TrayImg`).
+   칸이 정사각이고 그림도 `contain`이라 자리가 한 픽셀도 안 어긋난다 —
+   움직이는 그림이 오면 그 위에 정확히 겹쳐 그려지고 바탕은 걷힌다. */
+.sticker-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+}
 .sticker-btn:active { background: var(--surface-3); transform: scale(0.94); }
 /* 골라 둔 것. 미리보기가 위에 떠 있지만, 서랍에서도 어느 것을 골랐는지
    보여야 다른 것으로 바꿀 때 헤매지 않는다. */

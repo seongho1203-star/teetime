@@ -4044,8 +4044,7 @@ export function Chat() {
                                         className={`sticker-btn${picked === s.id ? ' on' : ''}`}
                                         onClick={() => pickSticker(s.id)}
                                         aria-label={s.label}>
-                                    <img src={stickerSrc(stickerRef(s.id))}
-                                         alt="" loading="lazy" onError={otherExt} />
+                                    <TrayImg id={s.id} />
                                 </button>
                             ))}
                         </div>
@@ -4920,6 +4919,36 @@ function otherExt(e: SyntheticEvent<HTMLImageElement>) {
 /** 다른 확장자로 바꾼 주소. 위 `otherExt`와 같은 잣대다. */
 const swapExt = (url: string): string =>
     url.endsWith('.webp') ? `${url.slice(0, -4)}png` : `${url.slice(0, -3)}webp`;
+
+/**
+ * 서랍의 한 칸 — **멈춘 그림을 먼저 깔고** 움직이는 판이 오면 걷는다.
+ *
+ * 첫 묶음(`✨ 움직임`)이 통째로 움직이는 `.webp`라 **4.3MB**다. 칸은 곧바로
+ * 그려지지만 그림이 다 올 때까지 빈 네모라, LTE에서 서랍을 처음 열면
+ * 한참 아무것도 없다(사용자 제보 — `이모티콘을 누르면 바로 안뜨고 골프공이나
+ * 다른걸 누른후에 떠`. 골프공은 한 장 7KB짜리 정지 PNG라 그 자리에서 뜬다).
+ * **`<id>.png`가 늘 함께 있으므로**(`lib/stickers.ts` — 옛 판을 든 폰의
+ * 예비 길이다) 그 한 장을 칸의 바탕으로 깔아 둔다. 열여덟 장 다 합쳐 160KB다.
+ *
+ * - **움직이는 판이 오면 바탕을 반드시 걷는다.** 우리 이모티콘은 배경이
+ *   투명이라, 안 걷으면 움직이는 그림 **뒤로 멈춘 그림이 비쳐** 두 겹이 된다.
+ * - **`onLoad`만 믿지 말 것** — 이미 받아 둔 그림은 그 신호가 리액트보다
+ *   먼저 지나갈 수 있다. 칸이 붙는 자리(`ref`)에서 `complete`를 한 번 더 본다.
+ * - `loading="lazy"`는 그대로다 — 움직이는 4.3MB는 여전히 **보이는 것만** 받는다.
+ */
+function TrayImg({ id }: { id: string }) {
+    const live = stickerSrc(stickerRef(id));
+    const still = live.endsWith('.webp') ? swapExt(live) : '';
+    const clear = (el: HTMLImageElement | null) => {
+        if (el && el.complete && el.naturalWidth > 0) el.style.backgroundImage = 'none';
+    };
+    return (
+        <img src={live} alt="" loading="lazy" ref={clear}
+             style={still ? { backgroundImage: `url(${still})` } : undefined}
+             onLoad={e => { e.currentTarget.style.backgroundImage = 'none'; }}
+             onError={otherExt} />
+    );
+}
 
 /**
  * 보낸 이모티콘 한 장.

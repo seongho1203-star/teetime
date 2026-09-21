@@ -3083,7 +3083,20 @@ final class ImageStore {
            몇십 MB가 나간다(`AVURLAsset`은 앞부분만 읽는다).
            못 떠 와도 **지워진 것으로 보지 않는다** — 재생기는 그대로 열린다. */
         if ChatMedia.isVideo(s) { ImageStore.poster(s) { finish($0, false) }; return }
-        bytes(s) { data, gone in finish(data.flatMap { ImageStore.decode($0) }, gone) }
+        /* **푸는 일은 메인에서 하지 말 것.** 움직이는 이모티콘 한 장이
+           256px 열두 프레임이라, 서랍의 첫 묶음(움직임 18장)을 열면 216장을
+           푼다 — 그것을 메인에서 하면 **그동안 화면이 한 프레임도 안 그려져
+           서랍이 빈 채로 멈춰 있다**(사용자 제보 — `이모티콘을 누르면 바로
+           안뜨고 골프공이나 다른걸 누른후에 떠`. 골프공은 정지 PNG 한 장이라
+           싸다). 담아 두는 것(`finish`)은 그대로 메인에서 한다 —
+           `cache`·`waiting`을 건드리기 때문이다. */
+        bytes(s) { data, gone in
+            guard let data = data else { finish(nil, gone); return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let shot = ImageStore.decode(data)
+                DispatchQueue.main.async { finish(shot, gone) }
+            }
+        }
     }
 
     /**

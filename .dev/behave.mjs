@@ -109,6 +109,16 @@ for (const t of ['settle_reminders', 'settlement_shares']) {
     });
 }
 
+/* **움직이는 이모티콘을 일부러 늦출 수 있는 문**(아래 `이모티콘` 칸).
+   첫 묶음이 4.3MB짜리 `.webp`라 LTE에서는 서랍을 열고 한참을 기다리는데,
+   여기서는 몇 ms에 끝나 **고치기 전 코드도 초록으로 뜬다.** 늦춰야 그
+   사이가 만들어진다. 평소(0)에는 그냥 지나간다. */
+let slowSticker = 0;
+await ctx.route('**/stickers/*.webp', async route => {
+    if (slowSticker) await new Promise(r => setTimeout(r, slowSticker));
+    await route.fallback();
+});
+
 await ctx.route('**/auth/v1/**', r => r.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
 await stubOutside(ctx);
@@ -1258,10 +1268,45 @@ ok(await page.$('.chat-sticker') !== null
 /* 서랍은 **닫힌 채로 시작한다** — 열려 있으면 대화가 반쯤 가린 채 열린다. */
 ok(await page.$('.sticker-tray') === null, '이모티콘 서랍은 닫힌 채로 시작한다');
 
+/* **움직이는 판이 오기 전에도 빈 칸이 없어야 한다**(사용자 제보 —
+   `이모티콘을 누르면 바로 안뜨고 골프공이나 다른걸 누른후에 떠`).
+   첫 묶음은 통째로 움직이는 `.webp`라 4.3MB인데, 그동안 칸만 그려지고
+   그림은 빈 네모였다. `TrayImg`가 함께 있는 `<id>.png`(다 합쳐 160KB)를
+   칸의 바탕으로 먼저 깔아 둔다. **늦춰 놓고 재지 않으면 여기서는 몇 ms에
+   다 받아져 고치기 전 코드도 초록으로 뜬다.** */
+slowSticker = 2500;
 await page.click('[aria-label="이모티콘"]');
 await page.waitForTimeout(400);
 const trayCount = await page.$$eval('.sticker-btn', e => e.length);
 ok(trayCount > 0, `서랍을 열면 첫 묶음의 이모티콘이 늘어선다 (실제 ${trayCount}장)`);
+
+const early = await page.$$eval('.sticker-btn img', e => ({
+    칸: e.length,
+    /* 멈춘 그림이 깔렸거나(아직 안 온 것) 이미 움직이는 판이 온 것 —
+       **둘 중 하나여야 빈 칸이 아니다.** */
+    찬칸: e.filter(x => getComputedStyle(x).backgroundImage.includes('.png')
+                     || (x.complete && x.naturalWidth > 0)).length,
+    /* **첫 칸을 그냥 집지 말 것** — 대화에 이미 올라와 있는 이모티콘은
+       미리 받아 둔 것이라 곧바로 움직이는 판이 와서 바탕이 걷혀 있다.
+       아직 깔려 있는 칸을 골라야 그 파일을 확인할 수 있다. */
+    still: (e.map(x => getComputedStyle(x).backgroundImage)
+             .find(b => b.includes('.png')) ?? '').replace(/^url\("?|"?\)$/g, ''),
+}));
+ok(early.칸 > 0 && early.찬칸 === early.칸,
+   `움직이는 판이 오기 전에도 빈 칸이 없다 (실제 ${early.찬칸}/${early.칸})`);
+/* 주소만 적어 두고 **그 파일이 없으면** 아무것도 안 보인다 — 실제로 받아
+   지는지까지 본다(움직이는 것에는 `<id>.png`가 늘 함께 있다). */
+const stillOk = early.still.endsWith('.png')
+    && await page.evaluate(u => fetch(u).then(r => r.ok, () => false), early.still);
+ok(stillOk, `깔아 둔 멈춘 그림이 진짜로 받아진다 (${early.still.split('/').pop()})`);
+
+/* 움직이는 판이 오면 **바탕을 반드시 걷는다** — 우리 이모티콘은 배경이
+   투명이라, 안 걷으면 움직이는 그림 뒤로 멈춘 그림이 비쳐 두 겹이 된다. */
+await page.waitForTimeout(2600);
+slowSticker = 0;
+const late = await page.$$eval('.sticker-btn img', e =>
+    e.filter(x => getComputedStyle(x).backgroundImage !== 'none').length);
+ok(late === 0, `움직이는 판이 오면 깔아 둔 그림을 걷는다 (남은 ${late}장)`);
 
 /* **첫 묶음은 움직이는 것이고 파일이 `.webp`다**(그 밖은 `.png`). 확장자를
    글이 아니라 `stickerSrc()`가 붙이므로, 여기가 어긋나면 그림만 조용히 안 뜬다. */
