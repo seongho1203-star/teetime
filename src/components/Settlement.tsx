@@ -337,23 +337,27 @@ function SettlementForm({
        고른 것이 화면에서 사라져 지운 것처럼 보인다. */
     const restOpen = showRest || rest.some(p => picked.includes(p.id));
 
-    /* **쉰 명이면 이름을 늘어놓을 수가 없다.** 46명을 다 펴 봤더니 그
-       목록만 602px로 화면의 3/4를 먹었고, 한 명 찾으려면 눈으로 다 훑어야
-       했다. 그래서 사람이 많으면 **찾아서 고른다** — 적을 때는 예전처럼
-       그냥 다 보여 준다(칸이 하나 더 생겨 봐야 성가시기만 하다). */
+    /* **명단을 늘어놓고 눌러서 여럿 고른다**(사용자 요청 — `언급처럼 회원
+       목록이 보이고 거기에서 다중 선택할 수 있게 … 일일이 한 명씩 찾으려면
+       힘들잖아`). 예전에는 열둘이 넘으면 **검색칸만 두고 목록을 통째로
+       감췄는데**, 그러면 이름을 아는 사람만 넣을 수 있었다.
+       46명을 다 펴면 602px로 화면의 3/4을 먹던 그 문제는 **목록을 굴러가는
+       칸에 담아** 푼다(`.settle-pick.tall`) — 감추는 것이 아니라 높이를
+       잡아 두는 것이다. 찾기 칸은 **거르개로 남긴다**(없애지 말 것 —
+       쉰 명에서 한 사람을 집을 때는 그게 제일 빠르다). */
     const bigList = rest.length > FIND_AT;
     /* **거르는 값만 한 박자 늦춘다** — 회원 명단의 찾기 칸과 같은 이유다
        (`node .dev/type-bench.mjs`). 글자는 즉시 찍히고 알약 목록만 다음
        프레임에 따라온다. */
     const lazyFind = useDeferredValue(find);
     const shownRest = useMemo(() => {
-        if (!bigList) return rest;
         const q = lazyFind.replace(/\s/g, '').toLowerCase();
+        if (!q) return rest;
         // 고른 사람은 검색어와 상관없이 남긴다 — 사라지면 뺀 것처럼 보인다.
         return rest.filter(p => picked.includes(p.id)
-            || (!!q && [p.name, p.region].some(v =>
-            String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q))));
-    }, [bigList, rest, lazyFind, picked]);
+            || [p.name, p.region].some(v =>
+            String(v ?? '').replace(/\s/g, '').toLowerCase().includes(q)));
+    }, [rest, lazyFind, picked]);
 
     const totalNum = Number(total.replace(/[^0-9]/g, '')) || 0;
     const amounts = useMemo(
@@ -505,7 +509,7 @@ function SettlementForm({
                     <>
                         <div className="settle-group">
                             <span className="xs faint">
-                                그 외 {rest.length}명 · 뒷풀이만 오신 분을 여기서 넣으세요
+                                그 외 {rest.length}명 · 뒷풀이만 오신 분도 눌러서 고르세요
                             </span>
                         </div>
                         {/* **안내 글씨(placeholder)를 안 쓴다.** 한글을 치는
@@ -519,8 +523,11 @@ function SettlementForm({
                                        onChange={e => setFind(e.target.value)} />
                             </div>
                         )}
+                        {/* **사람이 많으면 굴러가는 칸에 담는다**(`tall`).
+                            감추지 않고 높이만 잡아 두는 것이라, 이름을
+                            몰라도 훑어서 고를 수 있다. */}
                         {shownRest.length > 0 && (
-                            <div className="settle-pick">
+                            <div className={`settle-pick${bigList ? ' tall' : ''}`}>
                                 {shownRest.map(p => (
                                     <PersonPill key={p.id} person={p}
                                                 on={picked.includes(p.id)}
@@ -528,11 +535,9 @@ function SettlementForm({
                                 ))}
                             </div>
                         )}
-                        {bigList && !shownRest.length && (
+                        {!shownRest.length && (
                             <p className="xs faint settle-find-hint">
-                                {find.trim()
-                                    ? `'${find.trim()}' 님을 못 찾았습니다.`
-                                    : '이름을 적으면 찾아 드립니다.'}
+                                '{find.trim()}' 님을 못 찾았습니다.
                             </p>
                         )}
                     </>

@@ -145,8 +145,23 @@
     margin-top: 8px;
 }
 
-/* 이름으로 찾기. 사람이 열둘을 넘을 때만 나온다 — 쉰 명을 늘어놓으면
-   그 목록만 화면의 3/4을 먹는다. */
+/* **사람이 많으면 굴러가는 칸에 담는다**(`그 외`가 `FIND_AT`을 넘을 때).
+   쉰 명을 그냥 펴면 그 목록만 602px로 화면의 3/4을 먹는데, 높이를 잡아
+   두면 다섯 줄쯤 보이고 나머지는 굴려서 본다 — **감추는 것이 아니라
+   자리를 정하는 것이다**(감췄더니 이름을 아는 사람만 넣을 수 있었다). */
+.settle-pick.tall {
+    max-height: 190px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    align-content: flex-start;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+}
+
+/* 이름으로 찾기. 사람이 열둘을 넘을 때만 나온다 — 굴려서 찾는 것보다
+   이름을 아는 사람에게는 이쪽이 훨씬 빠르다(목록은 그대로 보인다). */
 .settle-find { margin-bottom: 8px; }
 .settle-find-hint { margin: 2px 0 4px; }
 .settle-pill {

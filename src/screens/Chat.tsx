@@ -348,8 +348,12 @@ export function Chat() {
         typeof document === 'undefined' || !document.hidden);
     /** 지금 답장하려는 글. 입력칸 위에 인용으로 떠 있다. */
     const [replyTo, setReplyTo] = useState<Message | null>(null);
-    /** 캐럿 앞에 `@무엇`을 치고 있으면 그 글자. 아니면 null. */
+    /** 캐럿 앞에 `@무엇`을 치고 있으면 그 글자. 아니면 null.
+     *  **고른 뒤에는 빈 글자로 남는다** — 목록을 열어 둔 채 다음 사람을
+     *  이어 고르기 위해서다(아래 `insertMention`). */
     const [mention, setMention] = useState<string | null>(null);
+    /** 이미 글에 넣은 이름들. 목록의 그 줄에 체크가 붙고, 다시 누르면 빠진다. */
+    const [called, setCalled] = useState<string[]>([]);
     /** 이모티콘 서랍이 열려 있는가. 열면 키보드를 내린다(아래 `toggleTray`). */
     const [tray, setTray] = useState(false);
     /** 서랍에서 보고 있는 묶음. **기억해 두지 않는다** — 나갔다 오면 첫
@@ -437,6 +441,11 @@ export function Chat() {
     /** 언급에 쓸 이름들. 회원 이상만 — 대기·추방된 사람은 대화를 못 본다. */
     const mentionable = (data?.people ?? [])
         .filter(p => p.name && p.role !== 'pending' && p.role !== 'banned');
+    /* **매번 새 배열을 만들면 안 된다** — 말풍선이 이걸 그대로 받으므로,
+       내용이 같아도 배열이 새것이면 쉰 개가 전부 다시 그려진다.
+       **여기 위에 있는 것은 일부러다** — 아래 `syncMention`의 의존성에
+       들어가므로 그보다 늦게 선언하면 첫 렌더에서 그대로 죽는다. */
+    const mentionNames = useMemo(() => mentionable.map(p => p.name), [mentionable]);
     /* `@전체`는 운영진만 쓴다. **쓴 사람이 누구인지로 가른다** — 내가
        운영진이라고 남이 친 `@전체`까지 도드라져서는 안 된다. */
     const staffIds = new Set(
@@ -2025,7 +2034,9 @@ export function Chat() {
             }
             kbRef.current.typing = false;
             setFocused(false);
+            stick.current = null;
             setMention(null);
+            setCalled([]);
             applyKeyboard(true);
         };
         blurTimer.current = window.setTimeout(fold, 150);
@@ -2513,8 +2524,30 @@ export function Chat() {
         /* 예약해 둔 재기를 걷어낸다 — 방금 한 줄로 되돌려 놨는데 한 프레임
            뒤에 옛 글자로 잰 높이가 덮어쓰면 빈 칸이 늘어난 채로 남는다. */
         if (growAt.current) { cancelAnimationFrame(growAt.current); growAt.current = 0; }
+        stick.current = null;
         setMention(null);
+        setCalled([]);
     };
+
+    /**
+     * 방금 고르고 난 커서 자리.
+     *
+     * **여럿을 이어 고르려고 둔 표다**(앱의 길이 0짜리 `mentionRange`와
+     * 같은 몫이다). 고르고 나면 글이 `@이름 `으로 바뀌어 `mentionQuery`가
+     * 더는 `@`를 못 찾으므로, 그것만 믿으면 한 사람을 고르는 순간 목록이
+     * 닫힌다. 커서가 이 자리에 그대로 있는 동안에는 목록을 남겨 둔다 —
+     * **글자를 한 자 치거나 커서를 옮기면 저절로 닫힌다.**
+     */
+    const stick = useRef<number | null>(null);
+
+    /** 글에 이미 들어간 이름들. **자르는 규칙은 말풍선과 같은 것을 쓴다** —
+     *  `김지`와 `김지명`이 함께 있으면 긴 쪽이 걸려야 한다. */
+    const calledIn = useCallback((value: string) => splitMentions(value, mentionNames, isAdmin)
+        .map(p => p.name).filter((n): n is string => !!n), [mentionNames, isAdmin]);
+
+    /** 달라졌을 때만 갈아 끼운다 — 글자를 칠 때 헛되이 다시 그리지 않으려는 것이다. */
+    const markCalled = useCallback((names: string[]) => setCalled(prev =>
+        (prev.length === names.length && prev.every((n, i) => n === names[i])) ? prev : names), []);
 
     /**
      * 캐럿 앞에 `@무엇`을 치고 있는지 본다.
@@ -2523,19 +2556,74 @@ export function Chat() {
      * 때뿐 아니라 **캐럿만 옮겨도** 다시 봐야 해서 `onSelect`에서도 부른다.
      */
     const syncMention = useCallback(() => {
-        const found = mentionQuery(draftValue(), draftCaret());
-        setMention(found ? found.q : null);
-    }, [draftValue, draftCaret]);
+        const value = draftValue();
+        const caret = draftCaret();
+        const found = mentionQuery(value, caret);
+        if (found) stick.current = null;
+        // 방금 고른 자리에 커서가 그대로면 목록을 닫지 않는다(빈 글자 = 전원).
+        const q = found ? found.q : (stick.current === caret ? '' : null);
+        if (q === null) stick.current = null;
+        setMention(q);
+        markCalled(q === null ? [] : calledIn(value));
+    }, [draftValue, draftCaret, calledIn, markCalled]);
 
-    /** 언급 목록에서 고른 사람을 `@이름 `으로 끼워 넣는다. */
+    /**
+     * 언급 목록에서 고른 사람을 `@이름 `으로 끼워 넣는다.
+     *
+     * **이미 부른 사람을 다시 누르면 뺀다**(사용자 요청 — `선택했던 사람을
+     * 다시 누르게 되면 또 선택되는 게 아니고 선택 해제 될수 있게`).
+     * 넣든 빼든 **목록은 그대로 남는다** — 여럿을 이어 고르는 자리라,
+     * 한 번 누를 때마다 닫히면 `@`를 매번 다시 쳐야 한다.
+     */
     const insertMention = (name: string) => {
         const value = draftValue();
         const caret = draftCaret();
         const found = mentionQuery(value, caret);
-        if (!found) return;
-        const head = value.slice(0, found.at) + `@${name} `;
-        setDraft(head + value.slice(caret), head.length);
-        setMention(null);
+        /* 고른 직후에는 `@`가 이미 이름으로 바뀌어 있다 — 그때는 커서
+           자리에 이어 붙인다(앱의 길이 0짜리 `mentionRange`와 같다). */
+        const at = found ? found.at : (stick.current === caret ? caret : -1);
+        if (at < 0) return;
+
+        /* 빼기 — 그 이름 조각 하나와 뒤에 붙은 공백 하나만 걷어낸다.
+           조각은 말풍선과 같은 규칙으로 잘라 놓은 것이라, 이름이 다른
+           이름 안에 들어 있어도 엉뚱한 자리를 안 건드린다. */
+        if (called.includes(name)) {
+            let hs = -1, he = -1, pos = 0;
+            for (const piece of splitMentions(value, mentionNames, isAdmin)) {
+                if (hs < 0 && piece.name === name) { hs = pos; he = pos + piece.text.length; }
+                pos += piece.text.length;
+            }
+            if (hs >= 0) {
+                if (value[he] === ' ') he += 1;
+                /* **치던 `@…` 조각도 함께 걷는다** — 안 걷으면 `@김`이
+                   덩그러니 남아 그대로 보내진다(겹칠 때는 한 번만 자른다). */
+                const cuts = [[hs, he]];
+                if (found && (found.at >= he || caret <= hs)) cuts.push([found.at, caret]);
+                let out = value;
+                for (const [s, e] of [...cuts].sort((x, y) => y[0] - x[0])) {
+                    out = out.slice(0, s) + out.slice(e);
+                }
+                const back = found && hs < found.at ? he - hs : 0;
+                const cut = found ? found.at - back : hs;
+                /* **표를 먼저 세우고 글을 쓴다** — 칸에 커서를 놓으면
+                   `select`가 날아와 `syncMention`이 도는데, 그때 표가
+                   아직 없으면 목록을 닫아 버린다. */
+                stick.current = cut;
+                setDraft(out, cut);
+                setMention('');
+                markCalled(calledIn(out));
+                growDraft();
+                focusDraft();
+                return;
+            }
+        }
+
+        const head = value.slice(0, at) + `@${name} `;
+        const next = head + value.slice(caret);
+        stick.current = head.length;          // 위와 같은 까닭으로 먼저 세운다.
+        setDraft(next, head.length);
+        setMention('');
+        markCalled(calledIn(next));
         growDraft();
         // 고르고 나서도 키보드가 그대로 있어야 이어 칠 수 있다.
         focusDraft();
@@ -2552,7 +2640,9 @@ export function Chat() {
        닉네임이다** — 발송기의 `mentionedIds`가 글에서 `@<닉네임>`을 찾아
        누구를 부른 것인지 가리므로, 이름표를 넣으면 부르긴 했는데 알림이
        안 가는 글이 된다. **앱 목록(`MentionList.Item`)과 같은 규칙이니
-       한쪽만 고치지 말 것.** 찾는 글자도 이름표로 거른다. */
+       한쪽만 고치지 말 것.** 찾는 글자도 이름표로 거른다.
+       **이미 부른 사람은 그 줄에 체크가 붙는다**(`on`) — 여럿을 이어 고르는
+       자리라 누구를 이미 불렀는지 목록만 봐서는 알 수 없다. */
     const mentionHits = mention === null ? [] : [
         ...(isAdmin && norm(ALL_MENTION).includes(norm(mention))
             ? [{ id: '__all__', name: ALL_MENTION, label: ALL_MENTION, avatar_url: null,
@@ -2939,9 +3029,6 @@ export function Chat() {
 
     /** id → 글. 인용할 원본을 찾는다. 지난 묶음에 있으면 없을 수 있다. */
     const byMid = new Map(messages.map(m => [m.id, m]));
-    /* **매번 새 배열을 만들면 안 된다** — 말풍선이 이걸 그대로 받으므로,
-       내용이 같아도 배열이 새것이면 쉰 개가 전부 다시 그려진다. */
-    const mentionNames = useMemo(() => mentionable.map(p => p.name), [mentionable]);
 
     /** 지금 칸에 적힌 글. **칸이 값의 주인이라 늘 칸에서 직접 읽는다** —
      *  곁에 두는 것은 `hasText`(참/거짓) 하나뿐이다. */
@@ -3768,17 +3855,22 @@ export function Chat() {
                     단추와 같은 이유다. */}
                 {mentionHits.length > 0 && (
                     <div className="mention-list">
-                        {mentionHits.map(p => (
-                            <button key={p.id} className={`mention-item${p.all ? ' is-all' : ''}`}
-                                    onMouseDown={e => e.preventDefault()}
-                                    onClick={() => insertMention(p.name)}>
-                                {p.all
-                                    ? <span className="mention-all-icon" aria-hidden="true">📢</span>
-                                    : <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />}
-                                <span className="truncate">{p.label}</span>
-                                {p.all && <span className="xs faint">모두에게 알림</span>}
-                            </button>
-                        ))}
+                        {mentionHits.map(p => {
+                            const on = called.includes(p.name);
+                            return (
+                                <button key={p.id} aria-pressed={on}
+                                        className={`mention-item${p.all ? ' is-all' : ''}${on ? ' on' : ''}`}
+                                        onMouseDown={e => e.preventDefault()}
+                                        onClick={() => insertMention(p.name)}>
+                                    {p.all
+                                        ? <span className="mention-all-icon" aria-hidden="true">📢</span>
+                                        : <Avatar name={p.name} url={p.avatar_url} gender={p.gender} size="sm" />}
+                                    <span className="truncate">{p.label}</span>
+                                    {p.all && <span className="xs faint">모두에게 알림</span>}
+                                    {on && <CheckMark />}
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
                 </div>
@@ -4114,6 +4206,20 @@ function CheerIcon() {
  * `.chat-recent`). **그림글자를 쓰지 말 것**: 기기에 없으면 네모난 두부가
  * 나온다(투표 결과 카드의 `🗳`에서 겪었다).
  */
+/**
+ * 체크 — 언급 목록에서 **이미 부른 사람** 줄에 붙는다(앱은 SF Symbol
+ * `checkmark`이고 여기는 같은 모양의 선 SVG다).
+ * **그림글자를 쓰지 말 것**: 기기에 없으면 네모난 두부가 나온다.
+ */
+function CheckMark() {
+    return (
+        <svg className="mention-check" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12.5 10 17.5 19 7" fill="none" stroke="currentColor" strokeWidth="2.4"
+                  strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
 function ChevronDown() {
     return (
         <svg className="chat-jump-go" viewBox="0 0 24 24" aria-hidden="true">

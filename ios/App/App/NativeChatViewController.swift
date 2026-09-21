@@ -852,20 +852,27 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 글칸에서 칠할 이름들을 넘긴다 — 명단을 받은 뒤에 한 번이면 된다.
      * 나를 부른 자리와 `@전체`만 분홍이고 나머지는 파랑이다(웹 `.mention.me`).
      */
-    private func refreshMentionPaint() {
+    /// 부를 수 있는 이름들. 칠하기·체크·빼기가 **같은 목록**을 봐야 한다.
+    private func mentionNames() -> [String] {
         var names = members.compactMap { $0["name"] as? String }
         if isAdmin { names.append(ChatMentions.all) }
+        return names
+    }
+    private func refreshMentionPaint() {
+        let names = mentionNames()
         composer.mentionNames = names
         let myName = people.first { $0["id"] as? String == me }?["name"] as? String ?? ""
         composer.mentionMine = Set([myName, ChatMentions.all].filter { !$0.isEmpty })
     }
-    /// 글에 이미 들어간 이름 — 목록에서 그 줄에만 체크가 붙는다.
+    /**
+     * 글에 이미 들어간 이름 — 목록에서 그 줄에만 체크가 붙는다.
+     *
+     * **자르는 규칙은 말풍선 칠하기와 같은 것을 쓴다**(`ChatMentions.ranges`) —
+     * 글자만 훑으면 `@김지명`에서 `김지`가 걸려 **안 부른 사람에게 체크가
+     * 붙고, 다시 눌렀을 때 엉뚱한 자리가 지워진다.**
+     */
     private func mentioned() -> Set<String> {
-        let text = composer.text
-        var set: Set<String> = []
-        for p in people { if let n = p["name"] as? String, text.contains("@\(n)") { set.insert(n) } }
-        if text.contains("@전체") { set.insert("전체") }
-        return set
+        Set(ChatMentions.ranges(composer.text, names: mentionNames()).map { $0.name })
     }
     /**
      * 목록에서 골랐다 — 친 `@…`를 이름으로 갈아 끼우고 커서를 뒤에 둔다.
@@ -878,12 +885,41 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * **다시 여는 것은 `composer.caret`을 준 뒤에 한다** — 커서를 옮기면
      * `textViewDidChangeSelection`이 `composerChanged`를 불러 목록을
      * 걷어 내므로, 그 앞에서 열어 두면 조용히 닫힌다.
+     *
+     * **이미 부른 사람을 다시 누르면 뺀다**(사용자 요청 — `선택했던 사람을
+     * 다시 누르게 되면 또 선택되는 게 아니고 선택 해제 될수 있게`).
+     * 넣든 빼든 목록은 그대로 남으므로 이어서 고칠 수 있다.
      */
     private func mentionPicked(_ name: String) {
-        guard let r = mentionRange else { return }
-        let replacement = "@\(name) "
-        composer.text = (composer.text as NSString).replacingCharacters(in: r, with: replacement)
-        composer.caret = r.location + (replacement as NSString).length
+        guard mentionRange != nil else { return }
+        if let hit = ChatMentions.ranges(composer.text, names: mentionNames())
+            .first(where: { $0.name == name }) {
+            let ns = composer.text as NSString
+            var cut = hit.range
+            /* 뒤에 붙여 둔 공백 하나까지 걷어낸다 — 안 걷으면 뺀 자리에
+               빈칸이 남아 다음에 친 글자가 한 칸 밀려 적힌다. */
+            if NSMaxRange(cut) < ns.length,
+               ns.substring(with: NSRange(location: NSMaxRange(cut), length: 1)) == " " {
+                cut.length += 1
+            }
+            /* **치던 `@…` 조각도 함께 걷는다** — 안 걷으면 `@김`이 덩그러니
+               남아 그대로 보내진다. **겹치면 한 번만 자른다**(같은 자리를
+               두 번 자르면 범위가 글 밖으로 나가 그 자리에서 죽는다). */
+            var cuts = [cut]
+            let typed = mentionRange ?? NSRange(location: 0, length: 0)
+            if typed.length > 0, NSIntersectionRange(typed, cut).length == 0 { cuts.append(typed) }
+            var out = ns as String
+            for c in cuts.sorted(by: { $0.location > $1.location }) {
+                out = (out as NSString).replacingCharacters(in: c, with: "")
+            }
+            composer.text = out
+            let back = typed.length > 0 && cut.location < typed.location ? cut.length : 0
+            composer.caret = typed.length > 0 ? typed.location - back : cut.location
+        } else if let r = mentionRange {
+            let replacement = "@\(name) "
+            composer.text = (composer.text as NSString).replacingCharacters(in: r, with: replacement)
+            composer.caret = r.location + (replacement as NSString).length
+        }
         composer.textView.becomeFirstResponder()
         mentionRange = NSRange(location: composer.caret, length: 0)
         mentions.show(mentionItems(""), picked: mentioned())

@@ -626,6 +626,82 @@ ok(mText.includes('아직 만든 정산이 없습니다'),
    `내가 올린 것이 없으면 만들라고 알려 준다 (실제 ${JSON.stringify(mText.slice(0, 60))})`);
 await mCtx.close();
 
+/* ── 6-0. 정산 — `그 외`도 명단을 보고 고른다 ────────────────────
+ *
+ * 사용자 요청 — `다른 사람 추가할 때 … 언급처럼 회원 목록이 보이고
+ * 거기에서 다중 선택할 수 있게 … 일일이 한 명씩 찾으려면 힘들잖아`.
+ * 예전에는 열둘(`FIND_AT`)을 넘으면 **검색칸만 두고 목록을 통째로
+ * 감췄다** — 이름을 아는 사람만 넣을 수 있었다. 지금은 늘 늘어놓고
+ * **굴러가는 칸(`.settle-pick.tall`)에 담아** 높이만 잡는다.
+ *
+ * **고정 자료는 회원이 아홉이라 그 갈래를 통째로 지나친다** — 여기서만
+ * 열다섯을 더 넣어 띄우고, 끝나면 도로 걷는다.
+ * **클래스 이름만 보면 감춰 놓아도 초록으로 뜨므로 개수와 높이를 잰다.**
+ */
+console.log('\n── 정산 — 그 외 명단 ──');
+{
+    const when = new Date(Date.now() - 86400000 * 20).toISOString();
+    const extra = Array.from({ length: 15 }, (_, i) => ({
+        id: uid(40 + i), name: `손님${i}`, avatar_url: null, role: 'member',
+        joined_at: when, memo: '', region: '광산구', gender: 'm',
+        birth_year: 1990, created_at: when,
+    }));
+    tables.profiles.push(...extra);
+
+    const sCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await sCtx.route('**/rest/v1/**', restRoute(tables));
+    await stubOutside(sCtx);
+    await sCtx.addInitScript(s =>
+        localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const sp = await sCtx.newPage();
+    await sp.goto(BASE + '/#/rounds/r1', { waitUntil: 'networkidle' });
+    await sp.waitForTimeout(700);
+    await sp.getByRole('button', { name: '＋ 정산' }).click();
+    await sp.waitForTimeout(400);
+    await sp.click('.settle-more');
+    await sp.waitForTimeout(300);
+
+    const box = await sp.evaluate(() => {
+        const tall = document.querySelector('.settle-pick.tall');
+        if (!tall) return null;
+        return {
+            알약: tall.querySelectorAll('.settle-pill').length,
+            높이: Math.round(tall.getBoundingClientRect().height),
+            굴림: tall.scrollHeight > tall.clientHeight + 4,
+            찾기: !!document.querySelector('.settle-find input'),
+        };
+    });
+    ok(box && box.알약 >= 15,
+       `찾기 전에도 \`그 외\` 명단이 다 보인다 (실제 ${box?.알약 ?? '칸이 없음'}명)`);
+    ok(box && box.높이 <= 210,
+       `그래도 화면을 안 먹는다 — 굴러가는 칸이다 (실제 ${box?.높이}px)`);
+    ok(box && box.굴림, '넘치는 만큼은 굴려서 본다');
+    ok(box && box.찾기,
+       '찾기 칸은 거르개로 남는다 — 이름을 아는 사람에게는 그게 빠르다');
+
+    /* **눌러서 여럿 고르고, 다시 누르면 빠진다.** */
+    const pills = await sp.$$('.settle-pick.tall .settle-pill');
+    await pills[0].click();
+    await pills[1].click();
+    await sp.waitForTimeout(200);
+    const on2 = await sp.$$eval('.settle-pick.tall .settle-pill.on', e => e.length);
+    ok(on2 === 2, `목록에서 여럿을 고를 수 있다 (실제 ${on2}명)`);
+    await pills[0].click();
+    await sp.waitForTimeout(200);
+    const on1 = await sp.$$eval('.settle-pick.tall .settle-pill.on', e => e.length);
+    ok(on1 === 1, `고른 것을 다시 누르면 빠진다 (실제 ${on1}명)`);
+
+    /* 찾기 칸은 **거르개**다 — 치면 그 사람만 남는다(고른 사람은 그대로). */
+    await sp.fill('.settle-find input', '손님7');
+    await sp.waitForTimeout(400);
+    const few = await sp.$$eval('.settle-pick.tall .settle-pill', e => e.length);
+    ok(few > 0 && few < box.알약, `이름을 치면 그만큼 좁혀진다 (실제 ${few}명)`);
+
+    await sCtx.close();
+    tables.profiles.splice(tables.profiles.length - extra.length, extra.length);
+}
+
 /* ── 6-1. 스크린 모집 베껴 열기 ─────────────────────────────────
  *
  * **스크린만 베낀다.** 같은 매장에서 같은 게임비로 되풀이해 열리므로
@@ -2205,6 +2281,34 @@ await page.click('.mention-item:not(.is-all)');
 await page.waitForTimeout(200);
 const putIn = await page.$eval('.chat-input .textarea', el => el.value);
 ok(putIn === '@이관교 ', `넣는 글자는 닉네임 그대로다 (실제 ${JSON.stringify(putIn)})`);
+
+/* ── 고른 뒤에도 목록이 남고, 다시 누르면 빠진다 ────────────────
+ *
+ * 사용자 요청 — `언급도 … 선택했던 사람을 다시 누르게 되면 또 선택되는
+ * 게 아니고 선택 해제 될수 있게 바꿔줘`. 앱 목록(`MentionList`)은 벌써
+ * 이어 고르고 있었는데 **웹은 한 사람을 고르면 목록이 닫혀서**
+ * '다시 누르기'라는 것이 성립조차 안 했다.
+ *
+ * **클래스 이름만 보면 초록으로 뜨는 자리라 글자를 잰다.**
+ */
+ok(await page.$('.mention-list') !== null,
+   '고른 뒤에도 언급 목록이 남는다 — 여럿을 이어 고르는 자리다');
+ok(await page.$$eval('.mention-item.on .mention-check', e => e.length) === 1,
+   '이미 부른 사람 줄에 체크가 붙는다');
+await page.click('.mention-item:not(.is-all):not(.on)');
+await page.waitForTimeout(250);
+const twoIn = await page.$eval('.chat-input .textarea', el => el.value);
+ok(/^@이관교 @\S+ $/.test(twoIn),
+   `이어서 또 고르면 둘이 들어간다 (실제 ${JSON.stringify(twoIn)})`);
+/* 목록은 **이름 가나다순**이라 어느 줄이 먼저 걸릴지는 자료가 정한다 —
+   그래서 이름을 못박지 않고 **둘이던 것이 하나가 되는지**를 본다. */
+await page.click('.mention-item.on');
+await page.waitForTimeout(250);
+const offOne = await page.$eval('.chat-input .textarea', el => el.value);
+const left = offOne.trim().split(' ').filter(Boolean);
+ok(left.length === 1 && twoIn.trim().split(' ').includes(left[0]),
+   `이미 부른 사람을 다시 누르면 그 한 사람만 빠진다 (실제 ${JSON.stringify(offOne)})`);
+
 await page.$eval('.chat-input .textarea', el => { el.value = ''; });
 await page.keyboard.press('Backspace');
 await page.waitForTimeout(200);
