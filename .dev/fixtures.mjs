@@ -292,7 +292,7 @@ export const messages = [
        말풍선 없이 그림만 그려진다. 남·나 양쪽을 둔다 — 내 쪽은 노란
        말풍선이 사라지는 것까지 봐야 한다. */
     { id: 'm14', room_id: 'room1', user_id: uid(2), body: '',
-      image_url: 'sticker:mvp16', created_at: iso(0, 9, 42) },
+      image_url: 'sticker:mvfcheer', created_at: iso(0, 9, 42) },
     { id: 'm15', room_id: 'room1', user_id: ME, body: '',
       image_url: 'sticker:mvp13', created_at: iso(0, 9, 43) },
     /* 이모티콘에 글을 함께 보낸 것. 골라 두고 글을 마저 적어 한 마디로
