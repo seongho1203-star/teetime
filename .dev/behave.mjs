@@ -4910,6 +4910,100 @@ console.log('\n── 이름이 없으면 닉네임부터 받는다 ──');
  *   ③ 종을 누르면 목록이 뜨고, **여는 순간 다 읽음**으로 나가는가
  *   ④ 줄을 누르면 그 화면으로 가는가
  */
+/* ── 치는 글에 어울리는 이모티콘 줄 ────────────────────────────
+ *
+ * 사용자 요청 — `카톡처럼 메시지에 따라 이모티콘이 뜨는기능을 만들자.
+ * 굿모닝하면 관련 이모티콘이뜨는거말이야`.
+ *
+ * **고르는 규칙은 여기서 안 본다** — 그건 브라우저가 필요 없어
+ * `node --experimental-strip-types .dev/suggest-check.mts`가 92가지로
+ * 붙들어 둔다. 여기서 보는 것은 **화면에서 정말 그렇게 도는가**다:
+ * 줄이 뜨고 · 아무 때나 안 뜨고 · 누르면 미리보기로 물리고 · **글자를 칠 때
+ * 화면이 다시 안 그려지는가**(그 마지막이 이 기능의 값이 달린 자리다).
+ */
+console.log('\n── 치는 글에 어울리는 이모티콘 ──');
+{
+    await go('/#/chat', 1200);
+    const row = async () => page.evaluate(() => {
+        const box = document.querySelector('.chat-suggest');
+        if (!box || box.hidden) return 0;
+        return box.querySelectorAll('.chat-suggest-btn').length;
+    });
+    /* **`type`으로 친다** — `fill`은 한 번에 값을 넣어 `onChange`가 한 번만
+       돌므로 치는 중의 움직임이 안 잡힌다. */
+    const type = async (text) => {
+        await page.fill('.chat-input .textarea', '');
+        await page.click('.chat-input .textarea');
+        await page.type('.chat-input .textarea', text, { delay: 5 });
+        await page.waitForTimeout(150);
+    };
+
+    ok(await row() === 0, '들어올 때는 안 뜬다');
+    await type('내일 몇 명이나 되나요');
+    ok(await row() === 0, '아무 말에나 안 뜬다');
+    await type('굿모닝');
+    const hit = await row();
+    ok(hit > 0, `\`굿모닝\`을 치면 이모티콘이 뜬다 (${hit}장)`);
+    ok(hit <= 8, `여덟 장을 안 넘는다 (${hit}장)`);
+
+    /* **입력칸 위에 뜬다.** 클래스가 아니라 자리를 잰다 — 목록을 덮으면
+       치는 동안 말풍선이 가린다. */
+    const at = await page.evaluate(() => {
+        const b = document.querySelector('.chat-suggest')?.getBoundingClientRect();
+        const t = document.querySelector('.chat-input .textarea')?.getBoundingClientRect();
+        const one = document.querySelector('.chat-suggest-btn')?.getBoundingClientRect();
+        const st = document.querySelector('.chat-suggest')
+            ? getComputedStyle(document.querySelector('.chat-suggest')) : null;
+        return b && t && one && st
+            ? { bot: Math.round(b.bottom), ta: Math.round(t.top),
+                w: Math.round(one.width), h: Math.round(one.height),
+                bg: st.backgroundColor, x: st.overflowX }
+            : null;
+    });
+    ok(at && at.bot <= at.ta, `글칸보다 위에 있다 (줄 아래변 ${at?.bot} ≤ 글칸 윗변 ${at?.ta})`);
+    ok(at && at.h >= 30 && at.w >= 30, `누를 만큼 크다 (실제 ${at?.w}×${at?.h})`);
+    /* **뒤는 대화 바탕색이다** — 안 덮으면 밝은 띠가 남아 판이 하나 더
+       깔린 것처럼 보인다(`.chat-over`를 보라로 덮은 그 자리다). */
+    const chatBg = await page.evaluate(() =>
+        getComputedStyle(document.querySelector('.chat-list')).backgroundColor);
+    ok(at?.bg === chatBg, `뒤가 대화 바탕색이다 (줄 ${at?.bg} · 목록 ${chatBg})`);
+    /* **가로로만 굴러간다** — 세로로 접히면 두 줄이 되어 말풍선을 덮는다. */
+    ok(at?.x === 'auto' || at?.x === 'scroll', `가로로 굴러간다 (실제 ${at?.x})`);
+
+    /* **고르면 곧바로 안 나가고 미리보기로 물린다**(서랍에서 고른 것과 같다). */
+    const before = await page.$$eval('.chat-row', els => els.length);
+    await page.click('.chat-suggest-btn');
+    await page.waitForTimeout(300);
+    ok(await page.$('.sticker-peek') !== null, '누르면 미리보기로 물린다');
+    ok(await page.$$eval('.chat-row', els => els.length) === before,
+       '누른 것만으로는 안 나간다');
+    ok(await row() === 0, '고르고 나면 줄이 걷힌다 — 미리보기가 그 자리에 선다');
+
+    /* **`@`를 치는 동안은 접는다** — 입력칸 위에 두 줄이 겹치면 말풍선이
+       통째로 가린다(부르는 일이 먼저다). */
+    await page.click('.sticker-peek-x');
+    await type('굿모닝 @');
+    ok(await row() === 0, '`@`를 치는 동안은 접는다');
+    ok(await page.$('.mention-list') !== null, '그 자리는 언급 목록이 쓴다');
+
+    /* **글자를 칠 때 화면이 다시 안 그려진다.** 이 줄이 이 기능에서 제일
+       무거운 자리였다 — state로 두었더니 줄이 뜨는 그 한 글자에서
+       **말풍선 쉰 개가 통째로 다시 맞춰져 65ms**가 났다(`type-bench`).
+       지금은 DOM에 직접 그리므로 리액트가 아예 안 돈다.
+       **클래스 이름만 보면 state로 되돌려도 초록으로 뜨므로**, 말풍선
+       하나에 표를 심어 두고 그것이 살아남는지로 잰다. */
+    await page.fill('.chat-input .textarea', '');
+    await page.evaluate(() => {
+        const el = document.querySelector('.chat-row');
+        if (el) el.dataset.keep = '1';
+    });
+    await type('감사합니다');
+    ok(await row() > 0, '`감사합니다`를 치면 뜬다');
+    ok(await page.evaluate(() => document.querySelector('.chat-row')?.dataset.keep === '1'),
+       '줄이 떠도 말풍선은 다시 안 그려진다 (state로 되돌리면 표가 날아간다)');
+    await page.fill('.chat-input .textarea', '');
+}
+
 /* ── 축하 폭죽 ──────────────────────────────────────────────────
  *
  * 사용자 요청 — `ㅊㅋ,축하,ㅊㅋㅊㅋ,추카 문구를 입력하고 전송을하면

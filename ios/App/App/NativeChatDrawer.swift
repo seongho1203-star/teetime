@@ -1192,6 +1192,143 @@ final class ReplyBox: UIView {
     }
 }
 
+// MARK: - 치는 글에 어울리는 이모티콘 줄
+
+/**
+ * 글을 치면 입력칸 위에 어울리는 이모티콘이 한 줄로 뜬다 — 카톡의 그것이다
+ * (사용자 요청 — `카톡처럼 메시지에 따라 이모티콘이 뜨는기능을 만들자.
+ * 굿모닝하면 관련 이모티콘이뜨는거말이야`).
+ *
+ * **고르는 규칙은 여기 없다.** 웹의 `src/lib/suggest.ts`가 정하고, 열 때
+ * 표를 통째로 받아 온다(`NativeChatConfig.suggest`) — 서른 꼭지에 이백
+ * 줄이라 앱에 또 적으면 반드시 어긋난다. 여기가 하는 일은 **받은 줄을
+ * 그리는 것**뿐이고, 고르는 일은 `NativeChatViewController.suggestItems`가
+ * `글에 그 말이 들었는가`만 본다.
+ *
+ * **바탕을 깔지 않는다**(칩도 알약도 아니다). 이모티콘은 배경이 투명이라
+ * 보라 위에 그림만 떠 있는 것이 카톡의 그 모양이다 — 칠을 깔면 줄 하나가
+ * 판처럼 보인다. **분홍도 쓰지 말 것**(이 화면에서 '지금 눌러야 할 것'은
+ * 보내기 단추 하나다).
+ *
+ * 한 칸 54px은 웹(`.chat-suggest-btn`)과 같은 값이다 — **한쪽만 고치지 말 것.**
+ */
+final class SuggestBar: UIView {
+    /// 한 칸 · 사이 · 위아래 여백. 웹 `.chat-suggest`와 같은 값이다.
+    private static let cell: CGFloat = 54
+    private static let gap: CGFloat = 6
+    private static let padV: CGFloat = 6
+    private static let padSide: CGFloat = 10
+
+    var onPick: ((ChatJSON) -> Void)?
+    private let scroll = UIScrollView()
+    private let row = UIStackView()
+    /// 지금 그려 둔 줄. **달라졌을 때만 다시 만든다** — 글자마다 단추
+    /// 여덟 개를 새로 만들면 누르려던 것이 손가락 밑에서 갈린다.
+    private var key = ""
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        /* 입력칸 위에 쌓이는 것들과 **같은 대화 바탕색**이다 — 안 깔면
+           화면 바탕(크림색)이 비쳐 판이 하나 더 있는 것처럼 보인다
+           (`MentionList`·`ReplyBox`와 같은 자리다). */
+        backgroundColor = ChatSkin().bg
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.alwaysBounceHorizontal = false
+        row.axis = .horizontal; row.spacing = Self.gap; row.alignment = .center
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scroll); scroll.addSubview(row)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            heightAnchor.constraint(equalToConstant: Self.cell + Self.padV * 2),
+            row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: Self.padV),
+            row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -Self.padV),
+            row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: Self.padSide),
+            row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -Self.padSide)
+        ])
+        isHidden = true
+        isAccessibilityElement = false
+        accessibilityIdentifier = "native-chat-suggest"
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// 줄을 걷는다. 보낸 뒤·고른 뒤에 부른다.
+    func clear() { show([]) }
+
+    func show(_ items: [ChatJSON]) {
+        let next = items.compactMap { $0["id"] as? String }.joined(separator: ",")
+        guard next != key else { return }
+        key = next
+        for v in row.arrangedSubviews { v.removeFromSuperview() }
+        for item in items {
+            let cell = SuggestCell()
+            cell.show(item)
+            cell.onTap = { [weak self] in self?.onPick?(item) }
+            row.addArrangedSubview(cell)
+            cell.widthAnchor.constraint(equalToConstant: Self.cell).isActive = true
+            cell.heightAnchor.constraint(equalToConstant: Self.cell).isActive = true
+        }
+        isHidden = items.isEmpty
+        /* 줄이 갈리면 맨 앞으로 되돌린다 — 굴려 둔 자리가 남으면 새 줄의
+           첫 장이 화면 밖에 있다. */
+        scroll.setContentOffset(.zero, animated: false)
+    }
+}
+
+/**
+ * 줄의 한 칸.
+ *
+ * **움직이는 것은 멈춘 그림을 먼저 얹는다**(`NativeStickerCell`과 같은 수) —
+ * `<id>.webp` 옆에는 늘 `<id>.png` 한 장이 함께 있고 그쪽은 7KB짜리라 그
+ * 자리에서 뜬다. 움직이는 판은 3.1MB짜리 픽셀이라 다 풀릴 때까지 빈 칸이다.
+ */
+final class SuggestCell: UIControl {
+    private let picture = UIImageView()
+    private var url = ""
+    private var live = false
+    var onTap: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        picture.contentMode = .scaleAspectFit
+        picture.isUserInteractionEnabled = false
+        addSubview(picture)
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func layoutSubviews() { super.layoutSubviews(); picture.frame = bounds }
+
+    /// 누른 표시는 **살짝 줄어드는 것으로만** 한다 — 분홍을 쓰지 말 것.
+    override var isHighlighted: Bool {
+        didSet { transform = isHighlighted ? CGAffineTransform(scaleX: 0.92, y: 0.92) : .identity }
+    }
+
+    func show(_ item: ChatJSON) {
+        url = item["src"] as? String ?? ""
+        let expected = url
+        accessibilityLabel = "\(item["label"] as? String ?? "이모티콘") 넣기"
+        live = false
+        ImageStore.put(nil, into: picture)
+        if url.hasSuffix(".webp") {
+            let still = String(url.dropLast(4)) + "png"
+            ImageStore.shared.load(still) { [weak self] shot in
+                guard let self = self, self.url == expected, !self.live, let shot = shot else { return }
+                ImageStore.put(shot, into: self.picture)
+            }
+        }
+        ImageStore.shared.load(url) { [weak self] shot in
+            guard let self = self, self.url == expected, let shot = shot else { return }
+            self.live = true
+            ImageStore.put(shot, into: self.picture)
+        }
+    }
+}
+
 // MARK: - 이모티콘 서랍
 
 /**

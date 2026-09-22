@@ -55,6 +55,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private let reply = ReplyBox()
     /// `@`를 치면 입력칸 위에 뜨는 흰 카드(`MentionList`).
     private let mentions = MentionList()
+    /// 치는 글에 어울리는 이모티콘 줄(카톡의 그것). 규칙은 웹에 있다.
+    private let suggest = SuggestBar()
     /* ── 축하 폭죽(`ChatCheer.swift`) ───────────────────────
      * `ㅊㅋ`·`축하`·`추카`가 오가면 입력칸 위에 단추가 뜨고, 누르면 이
      * 화면에서만 폭죽이 터진다. 웹(`lib/cheer.ts`·`Fireworks.tsx`)과
@@ -222,11 +224,15 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         reply.onJump = { [weak self] in if let q = self?.quoted { self?.jumpToID(q.id) } }
         reply.onClose = { [weak self] in self?.quoted = nil; self?.retryRow = nil; self?.updateContext() }
         mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
+        suggest.onPick = { [weak self] item in self?.stickerPicked(item) }
         tray.onPick = { [weak self] item in self?.stickerPicked(item) }
         /* **폭죽 단추는 맨 위다**(웹 `.chat-over`와 같은 차례) — 언급 목록과
            인용은 입력칸에 가까이 붙어 있어야 무엇에 딸린 것인지 읽힌다. */
         cheer.onTap = { [weak self] in self?.fireCheer() }
-        let input = UIStackView(arrangedSubviews: [cheer, mentions, reply, context, composer, findBar]); input.axis = .vertical
+        /* **이모티콘 줄은 폭죽 바로 아래다**(웹 `.chat-over`와 같은 차례) —
+           언급 목록과 인용은 입력칸에 가까이 붙어 있어야 무엇에 딸린
+           것인지 읽힌다. */
+        let input = UIStackView(arrangedSubviews: [cheer, suggest, mentions, reply, context, composer, findBar]); input.axis = .vertical
         /* `footPad`가 맨 뒤다 — 서랍(`tray`)이 열리면 그 자리를 덮어야 한다. */
         footPad.backgroundColor = ChatSkin().bg
         footPad.isUserInteractionEnabled = false
@@ -388,6 +394,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     private func stickerPicked(_ item: ChatJSON) {
         sticker = item; picked = nil; retryRow = nil; updateContext()
+        /* **고르고 나면 줄을 걷는다** — 그 자리에 미리보기(`context`)가
+           이미 서 있고, 줄이 남으면 무엇을 고른 것인지 흐려진다. */
+        suggest.clear()
     }
 
     /**
@@ -731,7 +740,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 }
                 let sent = try await self.service.send(row)
                 self.retryRow = nil; self.quoted = nil; self.sticker = nil
-                if self.composer.text == text { self.composer.text = "" }
+                if self.composer.text == text { self.composer.text = ""; self.suggest.clear() }
                 self.updateContext()
                 if self.windowed {
                     let temps = self.messages.filter { $0.id.hasPrefix("tmp:") }
@@ -852,6 +861,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func composerChanged(text: String, sel: Int) {
         // Changing a failed draft is an explicit new message, never reuse its UUID.
         if let row = retryRow, row["body"] as? String != text.trimmingCharacters(in: .whitespacesAndNewlines) { retryRow = nil }
+        updateMention(text: text, sel: sel)
+        updateSuggest(text)
+    }
+    private func updateMention(text: String, sel: Int) {
         let ns = text as NSString; let before = ns.substring(to: min(sel, ns.length)) as NSString
         let range = before.range(of: "@", options: .backwards)
         mentions.clear(); mentionRange = nil
@@ -860,6 +873,62 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         guard !query.contains(" "), !query.contains("\n"), query.count <= 12 else { return }
         mentionRange = NSRange(location: range.location, length: before.length - range.location)
         mentions.show(mentionItems(query), picked: mentioned())
+    }
+
+    /**
+     * 치는 글에 어울리는 이모티콘 줄 — 카톡의 그것이다(사용자 요청 —
+     * `굿모닝하면 관련 이모티콘이뜨는거말이야`).
+     *
+     * **고르는 규칙은 웹에만 있다**(`src/lib/suggest.ts`). 열 때 표를 통째로
+     * 받아 오므로(`config.suggest`) 여기서 하는 일은 **글에 그 말이
+     * 들었는지**를 보는 것뿐이다 — 서른 꼭지에 이백 줄이라 앱에 또 적으면
+     * 반드시 어긋난다(축하 폭죽은 말이 셋뿐이라 양쪽에 적어 두었다).
+     *
+     * **이미 골라 둔 것이 있으면 접는다** — 그 자리에 미리보기가 이미 서
+     * 있다. **`@`를 치는 동안에도 접는다** — 입력칸 위에 두 줄이 겹쳐
+     * 쌓이면 말풍선이 통째로 가린다(부르는 일이 먼저다).
+     */
+    private func updateSuggest(_ text: String) {
+        guard sticker == nil, mentionRange == nil else { suggest.clear(); return }
+        suggest.show(suggestItems(text))
+    }
+
+    /**
+     * 표에서 고른다 — **차례는 이모티콘 목록 그대로**이고(웹의 `suggestFor`와
+     * 같은 잣대), 움직이는 것은 `suggestAnim`장까지만 섞는다. 한 장이
+     * 256px·열두 프레임이라 여덟을 다 움짤로 채우면 글자를 칠 때마다 폰이
+     * 주저앉는다(멈춘 것은 7KB다).
+     *
+     * **글자를 깎는 자리가 웹과 같아야 한다**(공백·문장부호를 지우고
+     * 소문자로) — 표의 말은 웹이 이미 그렇게 깎아 보낸 값이다.
+     */
+    private func suggestItems(_ text: String) -> [ChatJSON] {
+        let flat = service.config.stickers.flatMap { ($0["stickers"] as? [ChatJSON]) ?? [] }
+        guard !flat.isEmpty, !service.config.suggest.isEmpty else { return [] }
+        let drop = CharacterSet(charactersIn: " \t\n!?~.,…'\"“”()·:;-_/")
+        let kept = text.lowercased().unicodeScalars.filter { !drop.contains($0) }
+        let norm = String(String.UnicodeScalarView(kept))
+        /* 두 글자부터 본다 — 웹의 `SUGGEST_MIN`과 같은 값이다. */
+        guard norm.count >= 2 else { return [] }
+        var hit = Set<String>()
+        for rule in service.config.suggest {
+            guard let words = rule["words"] as? [String], let ids = rule["ids"] as? [String] else { continue }
+            guard words.contains(where: { !$0.isEmpty && norm.contains($0) }) else { continue }
+            for id in ids { hit.insert(id) }
+        }
+        guard !hit.isEmpty else { return [] }
+        var out: [ChatJSON] = []
+        var anim = 0
+        for item in flat {
+            guard let id = item["id"] as? String, hit.contains(id) else { continue }
+            if (item["src"] as? String)?.hasSuffix(".webp") == true {
+                if anim >= service.config.suggestAnim { continue }
+                anim += 1
+            }
+            out.append(item)
+            if out.count >= service.config.suggestMax { break }
+        }
+        return out
     }
     /**
      * 언급 목록 한 줄 — **보이는 것은 이름표(`83/악마제리/광산구`),

@@ -35,6 +35,19 @@ struct NativeChatConfig {
     /// 반응 그림글자 다섯 — **웹이 정한다**(`REACTIONS`). 앱에 또 적으면
     /// 한쪽만 고치게 된다.
     let reactions: [String]
+    /**
+     * 치는 글에 어울리는 이모티콘을 고르는 표 — **웹이 정한다**
+     * (`src/lib/suggest.ts`의 `suggestTable()`).
+     *
+     * 서른 꼭지에 이백 줄이라 **앱에 또 적으면 반드시 어긋난다.**
+     * 앱이 하는 일은 `글에 그 말이 들었는가`를 보는 것뿐이다
+     * (`NativeChatViewController.suggestItems`).
+     */
+    let suggest: [ChatJSON]
+    /// 한 줄에 몇 장까지 · 그 가운데 움직이는 것은 몇 장까지.
+    /// **웹의 `SUGGEST_MAX`·`SUGGEST_ANIM`과 같은 값이어야 한다.**
+    let suggestMax: Int
+    let suggestAnim: Int
     init?(_ d: ChatJSON) {
         guard let user = d["user"] as? String, !user.isEmpty,
               let base = d["url"] as? String, let url = URL(string: base), url.scheme == "https",
@@ -46,6 +59,10 @@ struct NativeChatConfig {
         back = d["back"] as? Bool ?? false
         let five = d["reactions"] as? [String] ?? []
         reactions = five.isEmpty ? ["👍", "❤️", "😂", "😮", "😢"] : five
+        /* 표가 없는 옛 웹에서 열리면 줄이 아예 안 뜰 뿐이다 — 막지 않는다. */
+        suggest = d["suggest"] as? [ChatJSON] ?? []
+        suggestMax = d["suggestMax"] as? Int ?? 8
+        suggestAnim = d["suggestAnim"] as? Int ?? 2
     }
 }
 

@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
 import { purgeOldPhotos } from '../lib/photos';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
+import { suggestTable, SUGGEST_MAX, SUGGEST_ANIM } from '../lib/suggest';
 import { chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, setChatShot, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
 import { lastSeen, markSeen } from '../lib/unread';
@@ -110,6 +111,13 @@ function NativeChatHost() {
                 reactions: REACTIONS,
                 stickers: STICKER_GROUPS.map(g => ({ ...g, stickers: g.stickers.map(s => ({ ...s,
                     src: new URL(stickerSrc(`sticker:${s.id}`), window.location.href).href })) })),
+                /* 치는 글에 어울리는 이모티콘을 고르는 표 — **규칙은 웹에만
+                   있다**(`lib/suggest.ts`). 서른 꼭지에 이백 줄이라 앱에 또
+                   적으면 반드시 어긋난다. 앱은 **글에 그 말이 들었는지만**
+                   본다(축하 폭죽은 말이 셋뿐이라 양쪽에 적어 두었다). */
+                suggest: suggestTable(),
+                suggestMax: SUGGEST_MAX,
+                suggestAnim: SUGGEST_ANIM,
             });
             /* **깔아 둔 떠나는 화면을 걷고 앞 화면 그림으로 갈아 놓는다** —
                이제부터는 끌어서 뒤로 갈 때 뒤에 깔릴 그림이 필요하다.

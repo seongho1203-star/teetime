@@ -1628,6 +1628,66 @@ html.nc .chat-over { margin-top: 0; }
    (사용자가 보여 준 카톡 모양). 곧바로 보내지 않고 여기 물려 두어야
    글을 마저 적어 함께 보낼 수 있다.
    대화를 가리지 않게 폭도 높이도 그림 하나만큼만 차지한다. */
+/* ── 치는 글에 어울리는 이모티콘 줄 (`lib/suggest.ts`) ──────────
+ *
+ * 사용자 요청 — `카톡처럼 메시지에 따라 이모티콘이 뜨는기능을 만들자.
+ * 굿모닝하면 관련 이모티콘이뜨는거말이야`.
+ *
+ * **`.chat-over` 안이 아니라 그 위에 형제로 선다.** 저쪽은 리액트가 넣었다
+ * 뺐다 하는 칸이라 **글자 하나에 말풍선 쉰 개가 다시 맞춰진다**(65ms —
+ * `syncSuggest` 머리말). 이 줄은 늘 DOM에 있고 비면 `hidden`이라,
+ * 화면을 다시 그리지 않고 안에 든 것만 갈아 끼운다.
+ * 그래서 **뒤를 덮는 일도 여기서 따로 한다** — `.chat-over`와 같은 음수
+ * 여백·같은 보라다(안 덮으면 밝은 띠가 남아 판이 하나 더 깔린 것처럼 보인다).
+ * 둘이 함께 뜨면 위쪽 몫은 이 줄이 이미 먹었으므로 `.chat-over`는 0이다.
+ *
+ * **가로로만 굴러간다** — 세로로 접히면 입력칸 위가 두 줄이 되어 말풍선을
+ * 통째로 덮는다(서랍의 사진 줄과 같은 까닭이다). 뒤로 가기 손짓
+ * (`useBackSwipe`)은 **가로로 넘치는 칸을 알아서 비켜 간다** — 클래스가
+ * 아니라 실제로 넘치는지를 보므로 여기에 따로 적을 것이 없다.
+ *
+ * **바탕을 깔지 않는다**(칩도 알약도 아니다). 이모티콘은 배경이 투명이라
+ * 보라 위에 그림만 떠 있는 것이 카톡의 그 모양이고, 칠을 깔면 줄 하나가
+ * 판처럼 보여 `.chat-over`를 보라로 덮은 뜻이 없어진다.
+ *
+ * **분홍을 쓰지 말 것** — 이 화면에서 '지금 눌러야 할 것'은 보내기 단추
+ * 하나다. 누른 표시는 살짝 줄어드는 것으로만 한다.
+ *
+ * 한 칸 54px이다 — 30px보다 작은 누름 자리는 `node .dev/audit.mjs`가 잡고,
+ * 미리보기(86px)보다는 작아야 고른 것과 고르는 것이 갈린다. */
+.chat-suggest {
+    display: flex;
+    gap: var(--gap-xs);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin: calc(-1 * var(--gap-sm) - 1px) calc(-1 * var(--gap-xs)) 0;
+    padding: var(--gap-sm) calc(var(--gap-sm) + var(--gap-xs)) 0;
+    background: var(--chat-bg);
+}
+/* 앱(네이티브 바)에서는 위 여백도 테두리도 0이다 — `.chat-over`와 같다. */
+html.nc .chat-suggest { margin-top: 0; }
+/* **`hidden`은 `display: flex`에 진다 — 이 줄이 한 쌍이다.**
+   빼면 비어 있는 줄이 안여백만큼(12px) 자리를 먹어 `.chat-over`가 그만큼
+   밀려 내려가고, 그 음수 여백이 반쯤 상쇄돼 **밝은 띠가 한 줄 남는다**
+   (`.dev/behave.mjs`의 `위로 여백과 테두리까지만 먹는다`가 −5px로 잡았다). */
+.chat-suggest[hidden] { display: none; }
+/* 위쪽 몫은 이 줄이 이미 먹었다 — 둘이 겹쳐 올라가면 그만큼 삐져나온다. */
+.chat-suggest:not([hidden]) + .chat-over { margin-top: 0; padding-top: 0; }
+.chat-suggest::-webkit-scrollbar { display: none; }
+.chat-suggest-btn {
+    flex: 0 0 auto;
+    width: 54px;
+    height: 54px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    line-height: 0;
+}
+.chat-suggest-btn img { width: 54px; height: 54px; object-fit: contain; }
+.chat-suggest-btn:active { transform: scale(0.92); }
+
 .sticker-peek {
     position: relative;
     align-self: center;

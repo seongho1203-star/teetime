@@ -62,6 +62,7 @@ type KbSignal = {
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
+import { suggestFor } from '../lib/suggest';
 import { HoldIcon } from '../components/HoldIcons';
 import { shareText, sharePhotoFile } from '../lib/share';
 import { purgeOldPhotos } from '../lib/photos';
@@ -364,6 +365,10 @@ export function Chat() {
     /** 골라 둔 이모티콘. 곧바로 나가지 않고 **입력칸 위에 미리보기로 물려
      *  둔다** — 글을 마저 적어 함께 보낼 수 있어야 한다(사용자 요청). */
     const [picked, setPicked] = useState<string | null>(null);
+    /* 치는 글에 어울리는 이모티콘 줄(카톡의 그것) — 규칙은 `lib/suggest.ts`에
+       있다. **state가 아니라 DOM에 직접 그린다**(아래 `syncSuggest`). */
+    const suggestBox = useRef<HTMLDivElement>(null);
+    const suggestNow = useRef('');
     const fileRef = useRef<HTMLInputElement>(null);
 
     const chatRef = useRef<HTMLDivElement>(null);
@@ -2527,6 +2532,7 @@ export function Chat() {
         stick.current = null;
         setMention(null);
         setCalled([]);
+        clearSuggest();
     };
 
     /**
@@ -2566,6 +2572,69 @@ export function Chat() {
         setMention(q);
         markCalled(q === null ? [] : calledIn(value));
     }, [draftValue, draftCaret, calledIn, markCalled]);
+
+    /** 줄을 걷는다. 보낸 뒤·고른 뒤에 부른다. */
+    const clearSuggest = useCallback(() => {
+        suggestNow.current = '';
+        const box = suggestBox.current;
+        if (!box) return;
+        box.replaceChildren();
+        box.hidden = true;
+    }, []);
+
+    /**
+     * 치는 글에 어울리는 이모티콘을 줄로 내놓는다 — 카톡의 그것이다
+     * (사용자 요청 — `굿모닝하면 관련 이모티콘이뜨는거말이야`).
+     *
+     * **state를 안 거치고 DOM에 직접 그린다.** 친 글을 state에 두지 않는
+     * 것과 같은 까닭이다(`hasText`가 `ref`인 그 자리) — 여기서 setState를
+     * 부르면 **글자 하나에 말풍선 쉰 개가 통째로 다시 맞춰져** 헤드리스로
+     * 재도 그 한 글자만 65ms가 났다(`node .dev/type-bench.mjs`. 줄을 아예
+     * 안 그려도 같은 값이라 **그리는 값이 아니라 다시 그리는 값이다**).
+     * 지금은 가운데값 1.6ms · 한 프레임 넘긴 글자 0개다.
+     *
+     * **달라졌을 때만 다시 만든다**(`suggestNow`) — 글자마다 단추 여덟 개를
+     * 새로 만들면 그것대로 무겁고, 누르려던 것이 손가락 밑에서 갈린다.
+     *
+     * 고르는 값은 `lib/suggest.ts` 한 곳에 있다 — **앱도 그 표를 받아 쓴다.**
+     */
+    const syncSuggest = useCallback(() => {
+        const box = suggestBox.current;
+        if (!box) return;
+        const value = draftValue();
+        /* `@`를 치는 동안은 부르는 일이 먼저다 — 입력칸 위에 두 줄이 겹쳐
+           쌓이면 말풍선이 통째로 가린다. */
+        const list = mentionQuery(value, draftCaret()) ? [] : suggestFor(value);
+        const key = list.map(s => s.id).join(',');
+        if (key === suggestNow.current) return;
+        suggestNow.current = key;
+        box.replaceChildren(...list.map(s => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chat-suggest-btn';
+            btn.setAttribute('role', 'listitem');
+            btn.setAttribute('aria-label', `${s.label} 이모티콘 넣기`);
+            /* 누르는 순간 키보드가 내려가면 안 된다 — 보내기 단추와 같은
+               사정이라 `mousedown`을 막는다. */
+            btn.addEventListener('mousedown', e => e.preventDefault());
+            /* **고르면 곧바로 안 나간다** — 서랍에서 고른 것과 똑같이
+               미리보기로 물려 두고 글을 마저 적어 함께 보낸다. */
+            btn.addEventListener('click', () => { setPicked(s.id); clearSuggest(); });
+            const img = document.createElement('img');
+            img.alt = '';
+            img.src = stickerSrc(stickerRef(s.id));
+            /* 확장자 규칙이 또 바뀌어도 한 번은 다른 쪽으로 해 본다
+               (`otherExt`와 같은 잣대 — 거기는 리액트 이벤트라 따로 있다). */
+            img.addEventListener('error', () => {
+                if (img.dataset.retried) return;
+                img.dataset.retried = '1';
+                img.src = swapExt(img.src);
+            });
+            btn.append(img);
+            return btn;
+        }));
+        box.hidden = list.length === 0;
+    }, [draftValue, draftCaret, clearSuggest]);
 
     /**
      * 언급 목록에서 고른 사람을 `@이름 `으로 끼워 넣는다.
@@ -3786,6 +3855,16 @@ export function Chat() {
             )}
 
             <div className="chat-input" ref={barRef}>
+                {/* 치는 글에 어울리는 이모티콘 줄(카톡의 그것).
+                    **늘 DOM에 있고 비면 `hidden`이다** — 리액트로 넣었다 뺐다
+                    하면 글자 하나에 말풍선 쉰 개가 다시 맞춰진다(`syncSuggest`
+                    머리말의 그 65ms). 그래서 `.chat-over` 안이 아니라 그 위에
+                    형제로 세우고, 뒤는 같은 대화 바탕색으로 덮는다.
+                    고르면 곧바로 안 나가고 아래 미리보기로 물려 둔다 —
+                    규칙은 `lib/suggest.ts` 한 곳에 있고 **앱도 그 표를 받아
+                    쓴다**(한쪽만 고치지 말 것). */}
+                <div className="chat-suggest" ref={suggestBox} hidden
+                     role="list" aria-label="어울리는 이모티콘" />
                 {/* **바 줄 위에 쌓이는 것 셋을 한 칸에 묶는다**(`.chat-over`) —
                     이모티콘 미리보기 · 인용(답장) · 언급 목록.
                     묶은 까닭은 **그 뒤를 대화 바탕색으로 덮기 위해서다**
@@ -3923,6 +4002,7 @@ export function Chat() {
                         onChange={e => {
                             markText(e.target.value);
                             syncMention();
+                            syncSuggest();
                             growDraft();
                         }}
                         onSelect={syncMention}
