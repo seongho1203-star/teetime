@@ -1202,24 +1202,32 @@ final class ReplyBox: UIView {
  * **고르는 규칙은 여기 없다.** 웹의 `src/lib/suggest.ts`가 정하고, 열 때
  * 표를 통째로 받아 온다(`NativeChatConfig.suggest`) — 서른 꼭지에 이백
  * 줄이라 앱에 또 적으면 반드시 어긋난다. 여기가 하는 일은 **받은 줄을
- * 그리는 것**뿐이고, 고르는 일은 `NativeChatViewController.suggestItems`가
+ * 그리는 것**뿐이고, 고르는 일은 `NativeChatViewController.suggestFind`가
  * `글에 그 말이 들었는가`만 본다.
  *
- * **바탕을 깔지 않는다**(칩도 알약도 아니다). 이모티콘은 배경이 투명이라
- * 보라 위에 그림만 떠 있는 것이 카톡의 그 모양이다 — 칠을 깔면 줄 하나가
- * 판처럼 보인다. **분홍도 쓰지 말 것**(이 화면에서 '지금 눌러야 할 것'은
- * 보내기 단추 하나다).
+ * **흰 알약 판 위에 얹힌다**(사용자 요청 — `카톡처럼 이모티콘배경 해주고`).
+ * 카톡 화면을 픽셀로 재서 맞춘 값이다(1206×2622 · 배율 3.0) — 화면 끝에서
+ * 10px · 높이 68px · 모서리 25px · 순백(`ChatSkin().card`).
+ * **한동안 바탕을 안 깔았는데 그것이 틀렸다** — 되돌리지 말 것.
+ * **분홍은 쓰지 말 것**(이 화면에서 '지금 눌러야 할 것'은 보내기 단추 하나다).
  *
- * 한 칸 54px은 웹(`.chat-suggest-btn`)과 같은 값이다 — **한쪽만 고치지 말 것.**
+ * 값은 웹(`.chat-suggest`)과 같다 — **한쪽만 고치지 말 것.**
  */
 final class SuggestBar: UIView {
-    /// 한 칸 · 사이 · 위아래 여백. 웹 `.chat-suggest`와 같은 값이다.
+    /// 한 칸 · 사이 · 위아래 여백 · 알약 안여백. 웹 `.chat-suggest`와 같은 값이다.
     private static let cell: CGFloat = 54
     private static let gap: CGFloat = 6
-    private static let padV: CGFloat = 6
+    private static let padV: CGFloat = 7
     private static let padSide: CGFloat = 10
+    /// 흰 알약이 화면 끝에서 떨어진 만큼과 모서리 — 카톡 화면을 픽셀로
+    /// 재서 맞춘 값이다(1206×2622 · 배율 3.0 → 30픽셀 = 10px · 75픽셀 = 25px).
+    /// **눈대중으로 고치지 말 것.**
+    private static let cardSide: CGFloat = 10
+    private static let cardRadius: CGFloat = 25
 
     var onPick: ((ChatJSON) -> Void)?
+    /// 그림이 얹히는 흰 알약. 웹 `.chat-suggest`의 칠과 같은 자리다.
+    private let card = UIView()
     private let scroll = UIScrollView()
     private let row = UIStackView()
     /// 지금 그려 둔 줄. **달라졌을 때만 다시 만든다** — 글자마다 단추
@@ -1232,17 +1240,29 @@ final class SuggestBar: UIView {
            화면 바탕(크림색)이 비쳐 판이 하나 더 있는 것처럼 보인다
            (`MentionList`·`ReplyBox`와 같은 자리다). */
         backgroundColor = ChatSkin().bg
+        /* **흰 알약 위에 그림이 얹힌다**(사용자 요청 — 카톡처럼).
+           `ChatSkin().card`를 쓰는 것은 길게 누른 창(`HoldMenu`)과 같은
+           자리라 색이 갈릴 데가 없어서다. */
+        card.backgroundColor = ChatSkin().card
+        card.layer.cornerRadius = Self.cardRadius
+        card.layer.cornerCurve = .continuous
+        card.clipsToBounds = true
         scroll.showsHorizontalScrollIndicator = false
         scroll.alwaysBounceHorizontal = false
         row.axis = .horizontal; row.spacing = Self.gap; row.alignment = .center
+        card.translatesAutoresizingMaskIntoConstraints = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
         row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll); scroll.addSubview(row)
+        addSubview(card); card.addSubview(scroll); scroll.addSubview(row)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            card.topAnchor.constraint(equalTo: topAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.cardSide),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.cardSide),
+            scroll.topAnchor.constraint(equalTo: card.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             heightAnchor.constraint(equalToConstant: Self.cell + Self.padV * 2),
             row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: Self.padV),
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -Self.padV),

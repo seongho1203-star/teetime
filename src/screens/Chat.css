@@ -1646,9 +1646,17 @@ html.nc .chat-over { margin-top: 0; }
  * (`useBackSwipe`)은 **가로로 넘치는 칸을 알아서 비켜 간다** — 클래스가
  * 아니라 실제로 넘치는지를 보므로 여기에 따로 적을 것이 없다.
  *
- * **바탕을 깔지 않는다**(칩도 알약도 아니다). 이모티콘은 배경이 투명이라
- * 보라 위에 그림만 떠 있는 것이 카톡의 그 모양이고, 칠을 깔면 줄 하나가
- * 판처럼 보여 `.chat-over`를 보라로 덮은 뜻이 없어진다.
+ * **흰 알약 판 위에 얹힌다**(사용자 요청 — `카톡처럼 이모티콘배경 해주고`,
+ * 카톡 오픈톡 화면을 받아 픽셀로 맞췄다. 1206×2622 · 배율 3.0 —
+ * 대화 화면을 맞출 때와 같은 자다). **눈대중으로 고치지 말 것:**
+ * 화면 끝에서 30픽셀 → **10px** · 높이 204픽셀 → **68px** ·
+ * 모서리 75픽셀 → **25px** · 칠은 **순백(`--surface`)**이다.
+ * (말풍선은 `#f5f5f5`인데 이 판은 `#ffffff`로 한 톤 밝다 — 카톡에서도
+ * 그렇게 갈려 있고, 그래야 **대화 위에 떠 있는 판**으로 읽힌다.)
+ *
+ * **한동안 바탕을 안 깔았다** — `이모티콘은 배경이 투명이라 보라 위에
+ * 그림만 떠 있는 것이 카톡의 그 모양`이라고 적어 두었는데, 카톡 화면을
+ * 재 보니 **흰 알약이 맞았다.** 되돌리지 말 것.
  *
  * **분홍을 쓰지 말 것** — 이 화면에서 '지금 눌러야 할 것'은 보내기 단추
  * 하나다. 누른 표시는 살짝 줄어드는 것으로만 한다.
@@ -1662,18 +1670,18 @@ html.nc .chat-over { margin-top: 0; }
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    margin: calc(-1 * var(--gap-sm) - 1px) calc(-1 * var(--gap-xs)) 0;
-    padding: var(--gap-sm) calc(var(--gap-sm) + var(--gap-xs)) 0;
-    background: var(--chat-bg);
+    /* 화면 끝에서 10px — `.chat-input`의 좌우 여백이 6px이라 4px만 더 준다. */
+    margin: 0 4px;
+    padding: 7px 10px;
+    border-radius: 25px;
+    background: var(--surface);
 }
-/* 앱(네이티브 바)에서는 위 여백도 테두리도 0이다 — `.chat-over`와 같다. */
-html.nc .chat-suggest { margin-top: 0; }
 /* **`hidden`은 `display: flex`에 진다 — 이 줄이 한 쌍이다.**
-   빼면 비어 있는 줄이 안여백만큼(12px) 자리를 먹어 `.chat-over`가 그만큼
-   밀려 내려가고, 그 음수 여백이 반쯤 상쇄돼 **밝은 띠가 한 줄 남는다**
+   빼면 비어 있는 줄이 안여백만큼 자리를 먹어 빈 흰 알약이 한 줄 남는다
    (`.dev/behave.mjs`의 `위로 여백과 테두리까지만 먹는다`가 −5px로 잡았다). */
 .chat-suggest[hidden] { display: none; }
-/* 위쪽 몫은 이 줄이 이미 먹었다 — 둘이 겹쳐 올라가면 그만큼 삐져나온다. */
+/* 위쪽 몫은 이 줄이 이미 먹었다 — `.chat-over`의 음수 여백을 그대로 두면
+   인용·언급 목록이 이 알약 위로 11px 올라타 겹친다. */
 .chat-suggest:not([hidden]) + .chat-over { margin-top: 0; padding-top: 0; }
 .chat-suggest::-webkit-scrollbar { display: none; }
 .chat-suggest-btn {

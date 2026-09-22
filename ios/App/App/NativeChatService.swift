@@ -41,7 +41,7 @@ struct NativeChatConfig {
      *
      * 서른 꼭지에 이백 줄이라 **앱에 또 적으면 반드시 어긋난다.**
      * 앱이 하는 일은 `글에 그 말이 들었는가`를 보는 것뿐이다
-     * (`NativeChatViewController.suggestItems`).
+     * (`NativeChatViewController.suggestFind`).
      */
     let suggest: [ChatJSON]
     /// 한 줄에 몇 장까지 · 그 가운데 움직이는 것은 몇 장까지.

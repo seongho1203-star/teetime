@@ -396,7 +396,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         sticker = item; picked = nil; retryRow = nil; updateContext()
         /* **고르고 나면 줄을 걷는다** — 그 자리에 미리보기(`context`)가
            이미 서 있고, 줄이 남으면 무엇을 고른 것인지 흐려진다. */
-        suggest.clear()
+        suggest.clear(); composer.suggestHits = []
     }
 
     /**
@@ -740,7 +740,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 }
                 let sent = try await self.service.send(row)
                 self.retryRow = nil; self.quoted = nil; self.sticker = nil
-                if self.composer.text == text { self.composer.text = ""; self.suggest.clear() }
+                if self.composer.text == text {
+                    self.composer.text = ""; self.suggest.clear(); self.composer.suggestHits = []
+                }
                 self.updateContext()
                 if self.windowed {
                     let temps = self.messages.filter { $0.id.hasPrefix("tmp:") }
@@ -889,8 +891,46 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 쌓이면 말풍선이 통째로 가린다(부르는 일이 먼저다).
      */
     private func updateSuggest(_ text: String) {
-        guard sticker == nil, mentionRange == nil else { suggest.clear(); return }
-        suggest.show(suggestItems(text))
+        guard sticker == nil, mentionRange == nil else {
+            suggest.clear(); composer.suggestHits = []; return
+        }
+        let found = suggestFind(text)
+        suggest.show(found.items)
+        /* **줄이 떠 있을 때만 칠한다** — 그래야 `이 글자 때문에 이 줄이
+           떴다`가 그대로 읽힌다(카톡도 그 자리에서만 파랗다). */
+        composer.suggestHits = found.items.isEmpty ? [] : found.hits
+    }
+
+    /**
+     * 깎은 글과 **그 글자가 원문 어디였는지**. 깎으면서 공백·문장부호가
+     * 빠지므로, 되짚어 칠하려면 자리를 함께 들고 있어야 한다.
+     * 자리는 **UTF-16 기준**이라 그대로 `NSRange`로 쓴다.
+     */
+    private struct NormText {
+        let scalars: [Unicode.Scalar]
+        /// `scalars[i]`가 원문에서 시작·끝나는 UTF-16 자리.
+        let from: [Int]
+        let to: [Int]
+    }
+
+    /**
+     * **글자를 깎는 자리가 웹과 같아야 한다**(공백·문장부호를 지우고
+     * 소문자로) — 표의 말은 웹이 이미 그렇게 깎아 보낸 값이다.
+     */
+    private func normalize(_ text: String) -> NormText {
+        let drop = CharacterSet(charactersIn: " \t\n!?~.,…'\"“”()·:;-_/")
+        var kept: [Unicode.Scalar] = [], from: [Int] = [], to: [Int] = []
+        var at = 0
+        for u in text.unicodeScalars {
+            let w = UTF16.width(u)
+            if !drop.contains(u) {
+                for low in String(u).lowercased().unicodeScalars {
+                    kept.append(low); from.append(at); to.append(at + w)
+                }
+            }
+            at += w
+        }
+        return NormText(scalars: kept, from: from, to: to)
     }
 
     /**
@@ -899,24 +939,29 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 256px·열두 프레임이라 여덟을 다 움짤로 채우면 글자를 칠 때마다 폰이
      * 주저앉는다(멈춘 것은 7KB다).
      *
-     * **글자를 깎는 자리가 웹과 같아야 한다**(공백·문장부호를 지우고
-     * 소문자로) — 표의 말은 웹이 이미 그렇게 깎아 보낸 값이다.
+     * **걸린 말의 자리도 함께 돌려준다** — 글칸에서 그 글자만 파랗게
+     * 칠하는 데 쓴다(`ComposerBar.suggestHits`).
      */
-    private func suggestItems(_ text: String) -> [ChatJSON] {
+    private func suggestFind(_ text: String) -> (items: [ChatJSON], hits: [NSRange]) {
+        let none: (items: [ChatJSON], hits: [NSRange]) = ([], [])
         let flat = service.config.stickers.flatMap { ($0["stickers"] as? [ChatJSON]) ?? [] }
-        guard !flat.isEmpty, !service.config.suggest.isEmpty else { return [] }
-        let drop = CharacterSet(charactersIn: " \t\n!?~.,…'\"“”()·:;-_/")
-        let kept = text.lowercased().unicodeScalars.filter { !drop.contains($0) }
-        let norm = String(String.UnicodeScalarView(kept))
+        guard !flat.isEmpty, !service.config.suggest.isEmpty else { return none }
+        let norm = normalize(text)
         /* 두 글자부터 본다 — 웹의 `SUGGEST_MIN`과 같은 값이다. */
-        guard norm.count >= 2 else { return [] }
+        guard norm.scalars.count >= 2 else { return none }
         var hit = Set<String>()
+        var spots: [NSRange] = []
         for rule in service.config.suggest {
             guard let words = rule["words"] as? [String], let ids = rule["ids"] as? [String] else { continue }
-            guard words.contains(where: { !$0.isEmpty && norm.contains($0) }) else { continue }
+            var any = false
+            for word in words where !word.isEmpty {
+                let found = places(of: word, in: norm)
+                if !found.isEmpty { any = true; spots.append(contentsOf: found) }
+            }
+            guard any else { continue }
             for id in ids { hit.insert(id) }
         }
-        guard !hit.isEmpty else { return [] }
+        guard !hit.isEmpty else { return none }
         var out: [ChatJSON] = []
         var anim = 0
         for item in flat {
@@ -927,6 +972,44 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             }
             out.append(item)
             if out.count >= service.config.suggestMax { break }
+        }
+        return (out, merged(spots))
+    }
+
+    /// 깎은 글에서 `word`가 나온 자리를 **원문 UTF-16 범위**로 돌려준다.
+    private func places(of word: String, in norm: NormText) -> [NSRange] {
+        let w = Array(word.unicodeScalars)
+        guard !w.isEmpty, norm.scalars.count >= w.count else { return [] }
+        var out: [NSRange] = []
+        var i = 0
+        while i + w.count <= norm.scalars.count {
+            var same = true
+            for k in 0..<w.count where norm.scalars[i + k] != w[k] { same = false; break }
+            if same {
+                let a = norm.from[i], b = norm.to[i + w.count - 1]
+                out.append(NSRange(location: a, length: b - a))
+                i += w.count
+            } else {
+                i += 1
+            }
+        }
+        return out
+    }
+
+    /// 겹치거나 맞닿은 자리를 합친다 — 한 말이 여러 꼭지에 걸리면 같은
+    /// 자리가 여러 번 나온다.
+    private func merged(_ spots: [NSRange]) -> [NSRange] {
+        guard spots.count > 1 else { return spots }
+        let sorted = spots.sorted { $0.location < $1.location }
+        var out: [NSRange] = [sorted[0]]
+        for r in sorted.dropFirst() {
+            let last = out[out.count - 1]
+            if r.location <= NSMaxRange(last) {
+                let end = max(NSMaxRange(last), NSMaxRange(r))
+                out[out.count - 1] = NSRange(location: last.location, length: end - last.location)
+            } else {
+                out.append(r)
+            }
         }
         return out
     }

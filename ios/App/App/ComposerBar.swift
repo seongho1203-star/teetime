@@ -179,6 +179,16 @@ final class ComposerBar: UIView, UITextViewDelegate {
     var mentionNames: [String] = [] { didSet { paintMentions() } }
     /// 그 가운데 **분홍**으로 칠할 것(나를 부른 자리와 `@전체`).
     var mentionMine: Set<String> = [] { didSet { paintMentions() } }
+    /**
+     * **이모티콘 줄을 띄운 그 말의 자리**(사용자 요청 — `해당 글씨는 색상을
+     * 카톡처럼 다르게해줘`). 카톡에서 뽑은 그 파랑은 `#3271d5`인데 우리
+     * `--info`(`#2c7bd4`)와 사실상 같은 값이라 **새 색을 만들지 않고**
+     * `@언급`과 같은 것을 쓴다.
+     *
+     * **`@언급`보다 먼저 칠한다** — 겹치면 부른 이름 쪽이 더 또렷한 뜻이다.
+     * 줄이 걷히면 대화 화면이 빈 배열을 넣어 함께 지운다.
+     */
+    var suggestHits: [NSRange] = [] { didSet { paintMentions() } }
 
     // ── 색 (JS가 덮어쓴다) ─────────────────────────────────
     var cBg: UIColor = .white
@@ -799,6 +809,10 @@ final class ComposerBar: UIView, UITextViewDelegate {
         guard storage.length == ns.length else { return }
         storage.beginEditing()
         storage.setAttributes(base, range: NSRange(location: 0, length: ns.length))
+        /* 이모티콘 줄을 띄운 말이 먼저다 — `@이름`과 겹치면 아래에서 덮인다. */
+        for r in suggestHits where r.length > 0 && NSMaxRange(r) <= ns.length {
+            storage.addAttribute(.foregroundColor, value: ChatMentions.other, range: r)
+        }
         for hit in ChatMentions.ranges(ns as String, names: mentionNames) {
             storage.addAttribute(.foregroundColor,
                                  value: mentionMine.contains(hit.name) ? ChatMentions.mine : ChatMentions.other,

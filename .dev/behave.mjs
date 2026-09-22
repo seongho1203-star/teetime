@@ -4957,16 +4957,21 @@ console.log('\n── 치는 글에 어울리는 이모티콘 ──');
         return b && t && one && st
             ? { bot: Math.round(b.bottom), ta: Math.round(t.top),
                 w: Math.round(one.width), h: Math.round(one.height),
+                left: Math.round(b.left), right: Math.round(innerWidth - b.right),
+                box: Math.round(b.height), r: parseFloat(st.borderTopLeftRadius),
                 bg: st.backgroundColor, x: st.overflowX }
             : null;
     });
     ok(at && at.bot <= at.ta, `글칸보다 위에 있다 (줄 아래변 ${at?.bot} ≤ 글칸 윗변 ${at?.ta})`);
     ok(at && at.h >= 30 && at.w >= 30, `누를 만큼 크다 (실제 ${at?.w}×${at?.h})`);
-    /* **뒤는 대화 바탕색이다** — 안 덮으면 밝은 띠가 남아 판이 하나 더
-       깔린 것처럼 보인다(`.chat-over`를 보라로 덮은 그 자리다). */
-    const chatBg = await page.evaluate(() =>
-        getComputedStyle(document.querySelector('.chat-list')).backgroundColor);
-    ok(at?.bg === chatBg, `뒤가 대화 바탕색이다 (줄 ${at?.bg} · 목록 ${chatBg})`);
+    /* **흰 알약 판 위에 얹힌다**(사용자 요청 — 카톡처럼). 카톡 화면을
+       픽셀로 재서 맞춘 값이라(화면 끝 10px · 높이 68 · 모서리 25 · 순백)
+       **클래스 이름만 보면 CSS가 뒤집혀도 초록으로 뜨므로 값을 잰다.** */
+    ok(at?.bg === 'rgb(255, 255, 255)', `흰 알약이다 (실제 ${at?.bg})`);
+    ok(at && at.left === 10 && at.right === 10,
+       `화면 끝에서 10px 띄운다 (실제 왼 ${at?.left} · 오 ${at?.right})`);
+    ok(at && at.box === 68, `높이가 68px이다 (실제 ${at?.box})`);
+    ok(at && Math.round(at.r) === 25, `모서리가 25px이다 (실제 ${at?.r})`);
     /* **가로로만 굴러간다** — 세로로 접히면 두 줄이 되어 말풍선을 덮는다. */
     ok(at?.x === 'auto' || at?.x === 'scroll', `가로로 굴러간다 (실제 ${at?.x})`);
 
