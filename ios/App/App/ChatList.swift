@@ -3042,6 +3042,61 @@ final class ImageStore {
     }
     static func drop(_ key: String) { shared.held.removeValue(forKey: key) }
 
+    /// 미리 풀어 둘 차례 — 한 번에 하나씩만 푼다(`warm`).
+    private var warmQ: [String] = []
+    private var warming = false
+
+    /**
+     * **미리 풀어 둔다 — 서랍을 열기 전에**(사용자 제보 — `채팅을 누르면
+     * 이모티콘을 다운받게해서 이모티콘이 빨리뜨게할수없을까? 카톡은 바로
+     * 뜨던데 우리는 너무 안떠`).
+     *
+     * **앱에서는 받아 올 것이 없다** — 이모티콘 그림은 `dist`에 담겨
+     * 앱 안에 있고(`inApp`) 읽는 것은 디스크에서다. 늦는 것은 **푸는 값**
+     * 이다: 서랍을 열면 보이는 칸 열대여섯에 대해 그 자리에서 파일을 읽고
+     * 풀기 시작하는데, 첫 묶음이 통째로 움직이는 판이라 한 장이
+     * 256px × 12프레임 = **3.1MB**짜리 픽셀이 된다.
+     *
+     * 그래서 **대화방에 들어갈 때 첫 묶음의 멈춘 그림(`<id>.png`)을 미리
+     * 풀어 담아 둔다.** 서른 장이 파일로 1.4MB · 푼 값으로 7.9MB라
+     * 캐시 한도(48MB)에 여유롭게 든다 — 움직이는 판 서른 장은 94MB라
+     * **미리 풀면 서로를 밀어내므로 여기 넣지 말 것.**
+     * 그러면 서랍을 여는 그 프레임에 `fetch`가 캐시에서 곧바로 답해
+     * **칸이 채워진 채로 뜨고**, 움직이는 판은 예전처럼 뒤따라 갈아 끼운다.
+     *
+     * - **한 번에 하나씩 푼다.** 사람이 보고 있는 것(대화의 사진·이모티콘)과
+     *   다투면 미리 푸는 뜻이 없어진다 — 웹의 `미리 받아 두기`가 세 장씩
+     *   나눠 켜는 것과 같은 결이다.
+     * - **이미 담아 둔 것과 줄 서 있는 것은 건너뛴다.**
+     * - `fetch`가 `cache`·`waiting`을 건드리므로 **메인에서만 돈다.**
+     */
+    static func warm(_ srcs: [String]) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { ImageStore.warm(srcs) }; return
+        }
+        let store = shared
+        for s in srcs where store.cache.object(forKey: s as NSString) == nil
+            && !store.warmQ.contains(s) {
+            store.warmQ.append(s)
+        }
+        store.warmNext()
+    }
+
+    private func warmNext() {
+        guard !warming else { return }
+        while let s = warmQ.first {
+            warmQ.removeFirst()
+            guard cache.object(forKey: s as NSString) == nil else { continue }
+            warming = true
+            fetch(s) { [weak self] _, _ in
+                guard let self else { return }
+                self.warming = false
+                self.warmNext()
+            }
+            return
+        }
+    }
+
     init() {
         /* 움직이는 이모티콘은 푼 프레임이 한 장에 3MB쯤이라(256px × 12장)
            개수로 막으면 안 되고 **무게로 막아야 한다.** */

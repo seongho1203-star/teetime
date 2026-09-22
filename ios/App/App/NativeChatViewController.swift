@@ -296,6 +296,31 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.realtime?.stop() }
         })
+        /* 서랍을 열기 전에 첫 묶음을 미리 풀어 둔다 — 대화가 한 번 그려진
+           뒤에 시작한다(그 전에 하면 지금 보고 있는 것과 다툰다). */
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.warmStickers() }
+    }
+
+    /**
+     * **첫 묶음의 멈춘 그림을 미리 풀어 둔다**(`ImageStore.warm` 주석).
+     *
+     * 서랍은 늘 첫 묶음으로 열리고(`고른 묶음을 기억해 두지 않는다`)
+     * 그 묶음이 통째로 움직이는 판이라 **여는 그 자리에서 열대여섯 장을
+     * 풀기 시작해 칸이 비어 있었다.** 멈춘 그림(`<id>.png`)은 늘 함께
+     * 있으므로(`lib/stickers.ts`) 그것만 미리 담아 둔다.
+     *
+     * **움직이는 판(`.webp`)은 미리 풀지 말 것** — 서른 장이 94MB라
+     * 캐시 한도(48MB)를 넘겨 서로를 밀어낸다.
+     */
+    private func warmStickers() {
+        guard let first = service.config.stickers.first,
+              let list = first["stickers"] as? [ChatJSON] else { return }
+        let stills = list.compactMap { item -> String? in
+            guard let src = item["src"] as? String, src.hasSuffix(".webp") else { return nil }
+            return String(src.dropLast(4)) + "png"
+        }
+        guard !stills.isEmpty else { return }
+        ImageStore.warm(stills)
     }
 
     func resume() {
