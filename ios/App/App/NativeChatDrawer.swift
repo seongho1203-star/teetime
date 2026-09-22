@@ -1229,9 +1229,10 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
     private let line = UIView()
     private let grid = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
     private var picked = ""
-    /// 마지막으로 잰 그림 칸의 폭. **0에서 진짜 폭으로 바뀌는 그 순간이
-    /// 서랍이 처음 열리는 때다**(`layoutSubviews` 주석).
-    private var gridW: CGFloat = 0
+    /// 마지막으로 잰 그림 칸의 크기. **폭이 아니라 크기를 본다** —
+    /// 서랍은 좌우가 화면에 묶여 있어 **닫혀 있을 때도 폭이 제 폭**이고
+    /// 높이만 0이다(`layoutSubviews` 주석).
+    private var gridBox: CGSize = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1313,18 +1314,36 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
         grid.frame = CGRect(x: 0, y: Self.tabH + 1, width: bounds.width,
                             height: max(0, bounds.height - Self.tabH - 1))
         grid.contentInset = UIEdgeInsets(top: 6, left: 6, bottom: safeAreaInsets.bottom + 6, right: 6)
-        /* **폭이 처음 정해지는 순간 다시 그린다.** 묶음을 세우는 `load()`는
-           서랍이 아직 안 열렸을 때(폭 0) 도는데, 한 칸 크기를 `grid.bounds.width`
-           에서 내므로 그때 잡힌 배치는 칸보다 넓은 칸을 그리라는 말이 되어
-           **한 장도 안 그려진 채로 굳는다** — 탭을 한 번 눌러야(`choose`가
-           다시 그린다) 그제야 떴다(사용자 제보 — `이모티콘을 누르면 바로
-           안뜨고 골프공이나 다른걸 누른후에 떠`). 폭이 바뀔 때만 도므로
-           평소에는 한 번도 안 돈다. */
-        if grid.bounds.width != gridW {
-            gridW = grid.bounds.width
-            grid.collectionViewLayout.invalidateLayout()
-            if gridW > 0 { DispatchQueue.main.async { [weak self] in self?.grid.reloadData() } }
+        /* **칸 크기가 처음 정해지는 순간 다시 그린다.** 묶음을 세우는
+           `load()`와 `mark()`는 서랍이 아직 안 열렸을 때 도는데, 그때 이
+           칸은 **폭은 제 폭이고 높이만 0**이라 보이는 자리가 없어
+           **한 칸도 안 만들어지고**, 그다음 높이가 자라도 다시 묻지 않는다 —
+           탭을 한 번 눌러야(`choose`가 그때 다시 그린다) 그제야 떴다
+           (사용자 제보 — `이모티콘을 누르면 바로 안뜨고 골프공이나 다른걸
+           누른후에 떠` → 고친 뒤에도 `몇분이지나도 … 다른 이모티콘탭을
+           누르지않는이상`).
+           **폭만 보지 말 것** — 서랍은 좌우가 화면에 묶여 있어 폭은
+           닫혀 있을 때 이미 정해져 있고 **영영 안 바뀐다.** 그래서 폭
+           하나만 보던 검사는 한 번도 안 걸렸다.
+           크기가 바뀔 때만 도므로 평소에는 한 번도 안 돈다. */
+        if grid.bounds.size != gridBox {
+            let grew = gridBox.height <= 0 && grid.bounds.height > 0
+            let wider = grid.bounds.width != gridBox.width
+            gridBox = grid.bounds.size
+            if wider { grid.collectionViewLayout.invalidateLayout() }
+            if (wider || grew) && gridBox.width > 0 && gridBox.height > 0 {
+                DispatchQueue.main.async { [weak self] in self?.grid.reloadData() }
+            }
         }
+    }
+
+    /// 칸을 다시 묻는다 — **높이가 정해진 뒤에** 부를 것(`setTray`).
+    /// 탭을 누를 때(`choose`)와 같은 일이라, 그 길에서만 그림이 뜨던
+    /// 자국을 여는 길에도 그대로 옮긴 것이다.
+    func refresh() {
+        guard grid.bounds.width > 0, grid.bounds.height > 0 else { return }
+        grid.collectionViewLayout.invalidateLayout()
+        grid.reloadData()
     }
 
     func collectionView(_ c: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }

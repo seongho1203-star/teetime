@@ -371,9 +371,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             trayH.constant = 0
         }
         tray.isHidden = !on
-        if on { tray.mark(sticker?["id"] as? String ?? "") }
         composer.setTray(on)
         view.layoutIfNeeded()
+        /* **그림 칸을 다시 그리는 것은 높이가 정해진 _뒤_다.** 서랍이 닫혀
+           있는 동안 그 칸은 **폭은 제 폭인데 높이가 0**이라(좌우가 화면에
+           묶여 있다), 그 상태에서 `reloadData()`를 부르면 보이는 자리가
+           없어 **한 칸도 안 만들어지고**, 그다음 높이가 자라도 다시 묻지
+           않는다 — 탭을 한 번 눌러야(`choose`가 그때 다시 그린다) 그제야
+           떴다(사용자 제보 — `앱을 처음켜서 … 이모티콘버튼을 누르면 몇분이
+           지나도 … 다른 이모티콘탭을 누르지않는이상`).
+           **`layoutIfNeeded()` 앞으로 도로 옮기지 말 것** — 폭은 안 바뀌므로
+           `layoutSubviews`의 폭 검사에도 안 걸린다. */
+        if on { tray.mark(sticker?["id"] as? String ?? ""); tray.refresh() }
         if bottom { list.scrollToBottom(animated: false) }
     }
 
