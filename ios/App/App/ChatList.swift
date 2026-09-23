@@ -910,8 +910,6 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
                 listDelegate?.chatListBackEnded(dx: max(0, t.x),
                                                 vx: g.velocity(in: self).x,
                                                 cancelled: g.state != .ended)
-            } else if g.state == .ended, t.x >= backAt, t.x > abs(t.y) {
-                listDelegate?.chatListTap(kind: "back", id: "", to: nil)
             }
         default:
             break

@@ -370,15 +370,21 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
     }
 
-    func beginNavigationEntry() { composer.acceptsFocus = false }
-    func finishNavigationEntry() {
+    private var entering = false
+    func beginNavigationEntry() { entering = true; composer.acceptsFocus = false }
+    func finishNavigationEntry(_ done: @escaping () -> Void = {}) {
         // Let UIKit finish responder restoration before accepting a fresh tap.
-        DispatchQueue.main.async { [weak self] in self?.composer.acceptsFocus = true }
+        DispatchQueue.main.async { [weak self] in
+            self?.entering = false
+            self?.composer.acceptsFocus = true
+            done()
+        }
     }
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
         if parent != nil { linkEdge() }
+        else if visible && !navigating { leftByIOS() }
     }
 
     func resume() {
@@ -471,8 +477,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             if backLive {
                 backLive = false
                 chatListBackEnded(dx: max(0, t.x), vx: g.velocity(in: view).x, cancelled: g.state != .ended)
-            } else if g.state == .ended, t.x >= 60, t.x > abs(t.y) {
-                goBack(drag: false)
             }
         default:
             break
@@ -489,20 +493,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 세우고 `pause()`(플러그인의 `remove`가 부른다)는 `visible`을 내리므로,
      * 둘 다 여기서 그냥 지나간다.
      */
-    override func willMove(toParent parent: UIViewController?) {
-        super.willMove(toParent: parent)
-        guard parent == nil, visible, !navigating else { return }
-        /* **덜 끌고 놓으면 iOS가 화면을 도로 올려 놓는다** — 그때 웹까지
-           옮겨 버리면 **화면은 대화방인데 주소만 홈**이 된다. 손을 떼는
-           순간(`notifyWhenInteractionChanges`) 넘어간 것만 골라 알린다. */
-        guard let tc = navigationController?.transitionCoordinator, tc.isInteractive else {
-            leftByIOS(); return
-        }
-        tc.notifyWhenInteractionChanges { [weak self] ctx in
-            guard !ctx.isCancelled else { return }
-            self?.leftByIOS()
-        }
-    }
+    // willMove(nil) can precede creation of UIKit's interactive coordinator.
+    // didMove(nil), above, is the completed removal; cancellation keeps its parent.
 
     /**
      * **키보드를 내린다 — `holdFocus`를 먼저 푼다.**
@@ -567,7 +559,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * `drag`면 이미 화면을 다 내보낸 뒤라 웹이 곧바로 옮긴다.
      */
     private func goBack(drag: Bool) {
-        guard !navigating else { return }; navigating = true
+        guard !navigating, !entering else { return }; navigating = true
         /* **화면은 다시 쓰인다**(`NativeChatPlugin.open`이 한 번 만든 것을
            들고 있다) — 검색 중에 나가면 다음에 들어올 때 검색칸이 그대로
            남는다. 나가는 길 넷(화살표·끌기·카드·알림)이 다 여기를 지난다. */
@@ -1508,7 +1500,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 한 몸으로 옮겨 준다.
      */
     func chatListBackBegan() -> Bool {
-        guard service.config.back, !navigating, hold.isHidden, drawer.isHidden,
+        guard service.config.back, !navigating, !entering,
+              navigationController?.transitionCoordinator == nil,
+              !backDrag.live, hold.isHidden, drawer.isHidden,
               gallery.isHidden, profile.isHidden,
               /* 화면 틀에 얹은 판에서는 웹뷰가 화면에 없다 — 그때 뒤에서
                  1/4만큼 따라 나오는 것은 플러그인이 깔아 둔 그림이다. */
@@ -1524,13 +1518,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         let go = !cancelled && backDrag.wants(dx: dx, vx: vx)
         backDrag.finish(go: go) { [weak self] in
             guard let self = self else { return }
-            if go { self.goBack(drag: true) } else { self.event?("back", ["phase": "cancel"]) }
-            /* **웹이 손을 쓴 뒤에 걷는다.** 되돌아오는 판에서는 감춰 둔
-               화면을 다시 내보이는 데 한 프레임이면 되고, 넘어가는 판에서는
-               목적지가 그려질 때까지 기다린다 — 먼저 걷으면 옛 화면이
-               새 화면 위에 잠깐 되살아난다. */
-            DispatchQueue.main.asyncAfter(deadline: .now() + (go ? 0.4 : 0.05)) {
+            if go {
+                // The close lifecycle removes this snapshot after navigation.
+                self.goBack(drag: true)
+            } else {
+                // Restore now, while the returned snapshot still covers the view.
+                // A delayed cleanup could otherwise erase the NEXT swipe.
                 self.backDrag.end()
+                self.event?("back", ["phase": "cancel"])
             }
         }
     }

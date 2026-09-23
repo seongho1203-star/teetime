@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
@@ -29,7 +29,7 @@ function NativeChatHost() {
     const cameBack = useRef(useNavigationType() === 'POP');
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!user) return;
         const screen = crypto.randomUUID();
         let dead = false;
@@ -90,7 +90,7 @@ function NativeChatHost() {
             /* **깔아 둔 떠나는 화면이 한 번 그려진 뒤에 연다.** 앱은 열면서
                웹뷰를 그 자리에서 찍는데, 그리기 전에 찍으면 **떠나는 화면
                대신 빈 스피너가 찍혀** 나가는 그림이 통째로 흰 화면이 된다. */
-            if (back) await new Promise<void>(go =>
+            await new Promise<void>(go =>
                 requestAnimationFrame(() => requestAnimationFrame(() => go())));
             if (dead) return;
             await openNativeChat(screen, {

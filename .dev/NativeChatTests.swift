@@ -83,7 +83,7 @@ final class NativeChatTests: XCTestCase {
         ])
         chat.didMove(toParent: root); root.view.layoutIfNeeded(); chat.resume()
     }
-    private func prepare(navigation: Bool = false) async {
+    private func prepare(navigation: Bool = false, back: Bool = false) async {
         ChatFixtureProtocol.requests = []; ChatFixtureProtocol.rejectWrites = false
         ChatFixtureProtocol.rows = (0..<100).map { i in [
             "id": String(format: "00000000-0000-0000-0001-%012d", i),
@@ -92,7 +92,7 @@ final class NativeChatTests: XCTestCase {
             "created_at": String(format: "2026-09-17T09:%02d:%02dZ", i / 60, i % 60)
         ] }
         let config = NativeChatConfig(["user": ChatFixtureProtocol.user, "url": "https://native-chat.test",
-            "key": "test-anon", "token": "test-member-token"])!
+            "key": "test-anon", "token": "test-member-token", "back": back])!
         let network = URLSessionConfiguration.ephemeral; network.protocolClasses = [ChatFixtureProtocol.self]
         service = NativeChatService(config, session: URLSession(configuration: network), liveUpdates: false)
         chat = NativeChatViewController(service: service)
@@ -262,6 +262,62 @@ final class NativeChatTests: XCTestCase {
             XCTAssertEqual(composer.text, "Preserved draft \(cycle)")
             XCTAssertEqual(chat.view.transform, .identity)
         }
+    }
+
+    func testNavigationRemovalNotifiesOnlyAfterDisappearance() async throws {
+        await prepare(navigation: true); defer { finish() }
+        let nav = try XCTUnwrap(root.navigationController)
+        var backs = 0
+        chat.event = { type, data in
+            if type == "back", data["phase"] as? String == "plain" { backs += 1 }
+        }
+        // UIKit may announce removal before its interactive coordinator exists.
+        // Abandoning that removal must not navigate the web route.
+        chat.willMove(toParent: nil)
+        XCTAssertEqual(backs, 0)
+        chat.didMove(toParent: nav)
+        XCTAssertFalse(chat.view.isHidden)
+        XCTAssertTrue(nav.topViewController === chat)
+        nav.popViewController(animated: true)
+        XCTAssertEqual(backs, 0, "Do not remove the live screen when a swipe starts")
+        await settle(1)
+        XCTAssertEqual(backs, 1)
+        chat.pause()
+        var opened = false
+        NativeChatPlugin.presentChat(chat, from: root, animated: true) { opened = true }
+        XCTAssertFalse(opened, "The bridge queue must wait until entry finishes")
+        await settle(1)
+        XCTAssertTrue(opened)
+        XCTAssertFalse(chat.view.isHidden)
+        XCTAssertEqual(chat.view.alpha, 1)
+    }
+
+    func testCancelledDragCanImmediatelyStartAgain() async throws {
+        await prepare(navigation: true, back: true); defer { finish() }
+        let nav = try XCTUnwrap(root.navigationController)
+        let under = UIView(frame: nav.view.bounds)
+        nav.view.insertSubview(under, at: 0); chat.backdrop = under
+        var cancels = 0
+        chat.event = { [weak self] type, data in
+            guard type == "back", data["phase"] as? String == "cancel", let self else { return }
+            cancels += 1
+            if cancels == 1 {
+                XCTAssertTrue(self.chat.chatListBackBegan())
+                self.chat.chatListBackMoved(dx: 100)
+            }
+        }
+        XCTAssertTrue(chat.chatListBackBegan())
+        chat.chatListBackMoved(dx: 80)
+        chat.chatListBackEnded(dx: 80, vx: 0, cancelled: true)
+        await settle(0.6)
+        XCTAssertEqual(cancels, 1)
+        XCTAssertTrue(chat.view.isHidden, "The new drag still owns its visible snapshot")
+        XCTAssertTrue(nav.topViewController === chat)
+        chat.chatListBackEnded(dx: 100, vx: 0, cancelled: true)
+        await settle(0.6)
+        XCTAssertEqual(cancels, 2)
+        XCTAssertFalse(chat.view.isHidden)
+        XCTAssertEqual(chat.view.transform, .identity)
     }
 
     func testRejectedSendPreservesDraftAndDoesNotAddMessage() async throws {

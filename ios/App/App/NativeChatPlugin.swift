@@ -43,6 +43,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.notifyListeners("event", data: ["screen": self.screen, "type": "auth", "data": [:]])
             }
             let fresh = chat.parent == nil
+            var waitsForEntry = false
             let ms = call.getDouble("slide") ?? 0
             let pop = call.getDouble("pop") ?? 0
             /* **떠나는 화면은 대화 화면을 붙이기 _전에_ 찍는다.**
@@ -65,7 +66,10 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 if let nav = nav {
                     // UINavigationController alone owns the live screen transition.
                     // Do not combine its pop with a transform animation on the next push.
-                    Self.presentChat(chat, from: root, animated: ms > 40 && pop <= 40)
+                    waitsForEntry = true
+                    Self.presentChat(chat, from: root, animated: ms > 40 && pop <= 40) {
+                        call.resolve(["ok": true])
+                    }
                     /* **뒤에 깔 그림은 밀어 올리기 _전에_ 찍는다** — 밀고 나면
                        웹뷰가 화면에서 빠져 빈손이 된다. 틀의 맨 아래(0번)에
                        깔아 두고, 끌 때 `BackDrag`가 이것을 움직인다. */
@@ -110,7 +114,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if nav == nil {
                 chat.view.transform = .identity
             }
-            call.resolve(["ok": true])
+            if !waitsForEntry { call.resolve(["ok": true]) }
         }
     }
     /**
@@ -167,7 +171,8 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Shared with the navigation regression tests: prepare while detached, then let
     /// UIKit position and animate the controller without changing its root layer.
     @MainActor static func presentChat(_ chat: NativeChatViewController,
-                                      from root: UIViewController, animated: Bool) {
+                                      from root: UIViewController, animated: Bool,
+                                      completion: @escaping () -> Void = {}) {
         guard let nav = root.navigationController else { return }
         chat.prepareForEntry(in: nav.view.bounds)
         chat.resume()
@@ -175,9 +180,9 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
         nav.pushViewController(chat, animated: animated)
         if let coordinator = nav.transitionCoordinator,
            coordinator.animate(alongsideTransition: nil, completion: { _ in
-               chat.finishNavigationEntry()
+               chat.finishNavigationEntry(completion)
            }) { return }
-        chat.finishNavigationEntry()
+        chat.finishNavigationEntry(completion)
     }
 
     @objc func close(_ call: CAPPluginCall) {
