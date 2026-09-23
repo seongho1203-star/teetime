@@ -20,9 +20,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      *
      * 까닭은 하나다 — **키보드가 올라온 채로 뒤로 갈 때 키보드까지 함께
      * 옮기는 일을 iOS에게 맡기려는 것**이다(카톡이 그 길이다).
-     * 우리가 손으로 그림을 찍어 미는 길(`BackDrag`의 `liftKeyboard`)은
+     * 우리가 손으로 화면을 찍어 미는 길(1.170~1.175의 `liftKeyboard`)은
      * **`UIScreen.snapshotView`가 키보드를 못 담아** 막혔다 — iOS는
      * 키보드를 딴 프로세스로 그리므로 앱이 그 픽셀을 가져갈 길이 없다.
+     * **그 길은 걷어냈다**(`BackDrag.begin` 주석) — 다시 파지 말 것.
      *
      * **실기기에서 확인했다**(사용자 — `잘 돼`). `←`를 누르면 키보드가
      * 화면과 한 몸으로 오른쪽으로 밀려 나간다. 그래서 **손가락 끌기도
@@ -58,6 +59,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        // ── 창이 밀린 채로 굳었으면 제자리로 ─────────────────────
+        //
+        // **`UIWindow`에 건 `transform`은 화면을 옮겨도 안 걷힌다.** 한때
+        // 뒤로 끌 때 키보드까지 함께 밀려고 창을 밀던 길이 있었는데
+        // (1.170~1.175), 손짓이 한 번만 끊겨도 **앱이 통째로 1/4만큼 밀린
+        // 채로 굳었다**(사용자 제보 · 사진 — 탭바까지 함께 밀렸다).
+        // 그 길은 걷어냈지만(`BackDrag.begin` 주석) 값이 싼 그물이라 남겨
+        // 둔다 — 무엇이 걸어 두든 앱으로 돌아오면 제자리로 온다.
+        if let win = window, win.transform != .identity { win.transform = .identity }
+
         // ── 아이콘 위 빨간 숫자를 지운다 ──────────────────────────
         //
         // **앱 안에는 서비스워커가 없다.** 웹에서 그 숫자를 세고 지우던

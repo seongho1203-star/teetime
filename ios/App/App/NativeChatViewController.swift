@@ -163,22 +163,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /// 길게 눌러 창을 띄운 글. 고른 것이 돌아올 때 이 값으로 찾는다.
     private var holdId = ""
     private var observers: [NSObjectProtocol] = []
-    /**
-     * **지금 키보드가 덮고 있는 자리**(창 좌표). 없으면 `.zero`.
-     *
-     * 뒤로 끌 때 키보드까지 함께 밀려면 그 자리를 알아야 하는데,
-     * **대화 화면의 아랫변에서 빼내려 들지 말 것**(1.171이 그래서 빗나갔다).
-     * 이 화면은 웹뷰의 자식이고 웹뷰는 `resize: 'native'`로 줄어드는데,
-     * **줄어들든 안 줄어들든 화면은 똑같이 보인다** — 바가
-     * `keyboardLayoutGuide`에 묶여 있어 어느 쪽이든 키보드 윗변에 서기
-     * 때문이다. 그래서 `창 높이 − 화면 아랫변`은 **0이 될 수도 있고**
-     * 그때는 `gap.height > kbMin`에 걸려 키보드를 드는 갈래가 통째로
-     * 건너뛰어진다 — 겉으로는 이 기능을 안 넣은 것과 똑같다.
-     *
-     * **iOS가 알려 주는 키보드 네모가 유일하게 확실한 값이다.**
-     * `ComposerBar.follow`가 `kbTop`을 잡는 것과 같은 길이다.
-     */
-    private var kbCover: CGRect = .zero
     private var navigating = false
     private var revision = 0
     private var changedAt: [String: Int] = [:]
@@ -329,18 +313,6 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.realtime?.stop() }
         })
-        /* **키보드가 덮은 자리를 적어 둔다**(`kbCover` 주석 — 뒤로 끌 때
-           그것까지 함께 밀려면 이 값이 있어야 한다). 화면 밖으로 내려간
-           네모는 없는 것으로 본다. */
-        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] n in
-            guard let self = self, let win = self.view.window,
-                  let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            let box = win.convert(end, from: nil)
-            self.kbCover = box.minY < win.bounds.height - 1 ? box : .zero
-        })
-        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.kbCover = .zero
-        })
         /* 서랍을 열기 전에 첫 묶음을 미리 풀어 둔다 — 대화가 한 번 그려진
            뒤에 시작한다(그 전에 하면 지금 보고 있는 것과 다툰다). */
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.warmStickers() }
@@ -390,13 +362,25 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func resume() {
         loadViewIfNeeded(); visible = true; navigating = false; leaving = false
         linkEdge()
+        /* **들어올 때는 늘 키보드가 내려가 있다**(카톡과 같다 · 사용자 요청 —
+           `다시 채팅을 눌러서 진입했을때 … 키보드가 꺼진 상태로 나오게`).
+           나갈 때 키보드를 **일부러 안 내리므로**(`goBack`의 그 줄이 곧
+           키보드를 화면과 함께 내보내는 장치다) 글칸이 초점을 쥔 채
+           떠나는데, 이 화면은 다시 쓰이는 것이라 도로 붙이면 키보드가
+           따라 올라온다. **나가는 길이 넷이라 한 곳씩 챙기지 말고 여기서
+           한 번에 내린다.** */
+        dropKeyboard()
+        /* 끌던 그림이 남아 있으면 걷는다 — 손짓이 어디서 끊겨도 다음에
+           들어올 때 깨끗해진다(`BackDrag`는 여러 번 걷어도 안전하다). */
+        backDrag.end()
         if loaded {
             _ = list.beginSession("native:\(me):\(room)"); view.layoutIfNeeded(); list.restoreSession()
             render(); realtime?.start(); sync()
         } else { startLoad() }
     }
     func pause() {
-        visible = false; list.pauseSession(); view.endEditing(true); setTray(false)
+        visible = false; list.pauseSession(); dropKeyboard(); setTray(false)
+        backDrag.end()
         /* 덮는 창은 화면을 떠날 때 함께 걷는다 — 남으면 다시 들어왔을 때
            엉뚱한 창이 떠 있는 꼴이 된다(토스트도 같다). */
         hold.hide(); drawer.hide(); gallery.hide(); profile.hide(); ToastHUD.clear()
@@ -509,12 +493,53 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
     }
 
+    /**
+     * **키보드를 내린다 — `holdFocus`를 먼저 푼다.**
+     *
+     * 초점을 준 뒤 0.8초는 글칸이 놓기를 거절하므로(3판의 `holdFocus`)
+     * 안 풀면 우리가 내리는 것까지 막힌다. 화면을 훑는 `endEditing`만으로는
+     * 초점이 이 화면 밖(검색칸 등)에 있는 판을 놓치므로 둘 다 부른다.
+     */
+    private func dropKeyboard() {
+        composer.holdFocus = false
+        composer.textView.resignFirstResponder()
+        searchField.resignFirstResponder()
+        view.endEditing(true)
+    }
+
+    /**
+     * **화면 틀이 다 내려간 뒤에 키보드를 내린다.**
+     *
+     * 나가는 그 순간에 내리면 **키보드가 화면과 함께 안 밀려 나간다** —
+     * 그것을 되찾으려고 화면 틀에 얹은 것이라 거기서 내리면 안 된다.
+     * 그렇다고 그냥 두면 글칸이 초점을 쥔 채로 떠나고, 이 화면은 다시
+     * 쓰이는 것이라 **다음에 들어올 때 키보드가 그대로 올라온다**
+     * (사용자 요청 — 카톡처럼 꺼진 상태로 들어가야 한다).
+     * `resume()`이 한 번 더 내리는 것은 그 위에 얹은 그물이다.
+     */
+    private func dropKeyboardAfterPop() {
+        composer.holdFocus = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.popMS) { [weak self] in
+            /* **`visible`로 가리지 말 것** — 그 표는 `pause()`가 내리는데
+               그것도 같은 0.42초 뒤라(`exitWait`) 어느 쪽이 먼저일지
+               모른다. `navigating`은 나가는 순간 서고 `resume()`이 내리므로,
+               그 사이에 다시 들어왔으면 거기서 이미 내렸다. */
+            guard let self = self, self.navigating else { return }
+            self.dropKeyboard()
+        }
+    }
+
     /// iOS가 화면을 내렸다 — 웹의 주소만 되돌린다.
     private func leftByIOS() {
         guard visible, !navigating else { return }
         navigating = true; leaving = true
         if searching { setSearch(false) }
         list.pauseSession(); setTray(false)
+        /* 이 길에는 `goBack`이 아예 안 불린다 — 깔아 둔 그림을 걷고
+           키보드를 내리는 일도 여기서 함께 한다. */
+        backdrop?.removeFromSuperview(); backdrop = nil
+        backDrag.end()
+        dropKeyboardAfterPop()
         /* **`plain`이다 — `commit`이 아니다.** `commit`은 `BackDrag`가 깔아 둔
            앞 화면 그림을 걷는 갈래라(`nativeBackEnd`) 시작한 적이 없는 여기서
            부르면 짝이 안 맞는다. 화면을 옮기는 일은 이미 iOS가 다 했으므로
@@ -535,11 +560,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         list.pauseSession(); setTray(false)
         /* ── 화면 틀이 내려 준다 ───────────────────────────────────
          *
-         * **여기서 키보드를 안 내리는 것이 이 판의 전부다.** 카톡처럼
-         * 키보드가 화면과 **한 몸으로** 오른쪽으로 밀려 나가는지 폰에서
-         * 재려는 것이라, 우리가 먼저 내려 버리면 잴 것이 없어진다
-         * (손으로 그림을 찍어 미는 길은 `UIScreen.snapshotView`가 키보드를
-         * 못 담아 막혔다 — `AppDelegate`의 `wrapInNavigation` 주석).
+         * **여기서 키보드를 먼저 내리지 말 것.** 카톡처럼 키보드가 화면과
+         * **한 몸으로** 밀려 나가는 것이 이 틀에 얹은 까닭이라(실기기에서
+         * 확인했다 — `AppDelegate`의 `wrapInNavigation` 주석), 우리가 먼저
+         * 내려 버리면 그 자리가 없어진다. 대신 **다 내려간 뒤에** 내린다
+         * (`dropKeyboardAfterPop`) — 안 내리면 글칸이 초점을 쥔 채 떠나
+         * 다음에 들어올 때 키보드가 그대로 올라온다.
          *
          * 끌어서 넘어온 판(`drag`)은 `BackDrag`가 이미 다 보여 줬으므로
          * 움직임 없이 내리기만 한다. */
@@ -547,6 +573,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             leaving = true
             backdrop?.removeFromSuperview(); backdrop = nil
             nav.popViewController(animated: !drag)
+            dropKeyboardAfterPop()
             event?("back", ["phase": drag ? "commit" : "plain"])
             return
         }
@@ -1458,10 +1485,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 얹고(그래야 웹뷰를 밀 때 같이 안 밀린다) 이 화면은 감춘다 —
      * 웹은 그 뒤에서 앞 화면 그림만 깔아 준다(`nativeBackStart`).
      *
-     * **키보드가 올라와 있으면 그것까지 함께 민다**(사용자 제보 — `카톡은
-     * 키보드가 올라온상태에서 뒤로끌면 키보드까지 같이 밀리는데`).
-     * 짜임은 `BackDrag.begin`에 적어 두었고, 여기서 맡는 것은 둘이다 —
-     * **진짜 키보드를 내리는 것**과, 되돌아오는 판에서 **도로 올리는 것.**
+     * **키보드는 안 건드린다.** 여기서 함께 밀려던 길은 막다른 길이었고
+     * (`BackDrag.begin`의 `키보드는 건드리지 않는다` 꼭지) 그 일은 이제
+     * **왼쪽 가장자리 끌기**가 맡는다 — 거기서는 iOS가 키보드를 화면과
+     * 한 몸으로 옮겨 준다.
      */
     func chatListBackBegan() -> Bool {
         guard service.config.back, !navigating, hold.isHidden, drawer.isHidden,
@@ -1469,17 +1496,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
               /* 화면 틀에 얹은 판에서는 웹뷰가 화면에 없다 — 그때 뒤에서
                  1/4만큼 따라 나오는 것은 플러그인이 깔아 둔 그림이다. */
               let web = backdrop ?? view.superview else { return false }
-        guard backDrag.begin(root: view, web: web, cover: [view], keyboard: kbCover, dropKeyboard: { [weak self] in
-            guard let self = self else { return }
-            /* **`holdFocus`를 먼저 푼다** — 초점을 준 뒤 0.8초는 글칸이
-               놓기를 거절하므로(3판) 안 풀면 우리가 내리는 것까지 막힌다. */
-            self.composer.holdFocus = false
-            /* **창째로 내린다.** `self.view`만 훑으면 초점이 이 화면 밖에
-               있는 판(웹뷰 글칸 등)에서 키보드가 그대로 남는다 — 그때는
-               그림만 밀리고 진짜 키보드가 드러난다. */
-            self.view.endEditing(true)
-            self.view.window?.endEditing(true)
-        }) else { return false }
+        guard backDrag.begin(root: view, web: web, cover: [view]) else { return false }
         event?("back", ["phase": "start"])
         return true
     }
@@ -1488,22 +1505,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool) {
         let go = !cancelled && backDrag.wants(dx: dx, vx: vx)
-        /* **끝나기 전에 집어 둔다** — `end()`가 이 표를 지운다. */
-        let hadKb = backDrag.tookKeyboard
         backDrag.finish(go: go) { [weak self] in
             guard let self = self else { return }
             if go { self.goBack(drag: true) } else { self.event?("back", ["phase": "cancel"]) }
-            if !go && hadKb {
-                /* 되돌아오는 판 — 내려 둔 키보드를 도로 올린다. 찍어 둔
-                   그림이 아직 덮고 있어 올라오는 동안이 안 보인다. */
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    self.backDrag.restore()
-                    if self.searching { self.searchField.becomeFirstResponder() }
-                    else if !self.composer.isHidden { self.composer.textView.becomeFirstResponder() }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { self.backDrag.end() }
-                }
-                return
-            }
             /* **웹이 손을 쓴 뒤에 걷는다.** 되돌아오는 판에서는 감춰 둔
                화면을 다시 내보이는 데 한 프레임이면 되고, 넘어가는 판에서는
                목적지가 그려질 때까지 기다린다 — 먼저 걷으면 옛 화면이
