@@ -41,7 +41,6 @@ function NativeChatHost() {
            오면 그 사이에 빈 화면이 한 번 지나간다.
            **깔아 둔 그림은 가만히 있는다** — 미는 것은 앱이 그리는 대화
            화면 하나뿐이고, `ms`는 그쪽에만 넘긴다. */
-        const ms = slideLeft();
         /* **라운드·투표에서 돌아온 것이면 반대로 그린다** — 떠나는 화면이
            오른쪽으로 빠져나가고 대화 화면이 그 밑에서 따라 들어온다.
            웹은 떠나는 화면을 **깔아 두기만** 하고(앱 대화 화면이 웹 DOM을
@@ -93,6 +92,9 @@ function NativeChatHost() {
             await new Promise<void>(go =>
                 requestAnimationFrame(() => requestAnimationFrame(() => go())));
             if (dead) return;
+            // Parent layout effects establish the route transition after this
+            // child's layout effect. Read its timing only once they have run.
+            const ms = slideLeft();
             await openNativeChat(screen, {
                 user, token, url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
                 seen: lastSeen('chat', user),
