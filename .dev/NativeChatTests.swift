@@ -72,6 +72,7 @@ final class NativeChatTests: XCTestCase {
         root.view.layoutIfNeeded(); chat.view.layoutIfNeeded()
     }
     private func attach() {
+        chat.prepareForEntry(in: root.view.bounds)
         root.addChild(chat); chat.view.translatesAutoresizingMaskIntoConstraints = false
         root.view.addSubview(chat.view)
         NSLayoutConstraint.activate([
@@ -82,7 +83,7 @@ final class NativeChatTests: XCTestCase {
         ])
         chat.didMove(toParent: root); root.view.layoutIfNeeded(); chat.resume()
     }
-    private func prepare() async {
+    private func prepare(navigation: Bool = false) async {
         ChatFixtureProtocol.requests = []; ChatFixtureProtocol.rejectWrites = false
         ChatFixtureProtocol.rows = (0..<100).map { i in [
             "id": String(format: "00000000-0000-0000-0001-%012d", i),
@@ -96,7 +97,14 @@ final class NativeChatTests: XCTestCase {
         service = NativeChatService(config, session: URLSession(configuration: network), liveUpdates: false)
         chat = NativeChatViewController(service: service)
         root = UIViewController(); window = UIWindow(frame: UIScreen.main.bounds)
-        window.rootViewController = root; window.makeKeyAndVisible(); attach()
+        if navigation {
+            let nav = UINavigationController(rootViewController: root)
+            nav.isNavigationBarHidden = true
+            window.rootViewController = nav; window.makeKeyAndVisible()
+            NativeChatPlugin.presentChat(chat, from: root, animated: false)
+        } else {
+            window.rootViewController = root; window.makeKeyAndVisible(); attach()
+        }
         for _ in 0..<50 {
             await settle(0.1)
             if find(chat.view, ChatList.self)?.rowCount == 100 { break }
@@ -204,6 +212,56 @@ final class NativeChatTests: XCTestCase {
         chat.composerTapped("sticker")
         await settle(0.3)
         XCTAssertTrue(tray.isHidden)
+    }
+
+    /// Exercise the production navigation host, not the old addChild-only fixture.
+    /// Check the presentation layer throughout entry, not just the final frame.
+    func testKeyboardButtonBackThenReentryStaysHorizontal() async throws {
+        await prepare(navigation: true); defer { finish() }
+        let nav = try XCTUnwrap(root.navigationController)
+        let composer = try XCTUnwrap(find(chat.view, ComposerBar.self))
+        func backButton(_ v: UIView) -> UIButton? {
+            if v.accessibilityIdentifier == "native-chat-back" { return v as? UIButton }
+            return v.subviews.lazy.compactMap { backButton($0) }.first
+        }
+        let button = try XCTUnwrap(backButton(chat.view))
+        for cycle in 0..<6 {
+            composer.text = "Preserved draft \(cycle)"
+            composer.textView.becomeFirstResponder()
+            await settle(0.9)
+            XCTAssertTrue(composer.textView.isFirstResponder)
+            var closed = false
+            chat.event = { [weak self] type, _ in
+                guard type == "back", let self = self else { return }
+                self.chat.whenExitFinishes {
+                    self.chat.pause(); closed = true
+                }
+            }
+            button.sendActions(for: .touchUpInside)
+            XCTAssertFalse(closed, "Closing must wait for the animated UIKit pop")
+            for _ in 0..<100 {
+                if closed { break }
+                await settle(0.02)
+            }
+            XCTAssertTrue(closed)
+            XCTAssertTrue(nav.topViewController === root)
+            XCTAssertNil(chat.parent)
+            XCTAssertFalse(composer.textView.isFirstResponder)
+            // Reenter immediately when close resolves: no arbitrary extra wait.
+            NativeChatPlugin.presentChat(chat, from: root, animated: true)
+            for _ in 0..<45 {
+                try? await Task.sleep(nanoseconds: 16_000_000)
+                let layer = chat.view.layer.presentation() ?? chat.view.layer
+                let destination = window.layer.presentation() ?? window.layer
+                let box = layer.convert(layer.bounds, to: destination)
+                XCTAssertEqual(box.minY, window.bounds.minY, accuracy: 1.5, "Diagonal entry at cycle \(cycle)")
+                XCTAssertEqual(box.height, window.bounds.height, accuracy: 1.5)
+            }
+            XCTAssertTrue(nav.topViewController === chat)
+            XCTAssertFalse(composer.textView.isFirstResponder)
+            XCTAssertEqual(composer.text, "Preserved draft \(cycle)")
+            XCTAssertEqual(chat.view.transform, .identity)
+        }
     }
 
     func testRejectedSendPreservesDraftAndDoesNotAddMessage() async throws {

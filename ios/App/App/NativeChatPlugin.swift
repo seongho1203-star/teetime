@@ -61,22 +61,11 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
             let nav = root.navigationController
             let under = fresh && nav != nil ? root.view.snapshotView(afterScreenUpdates: false) : nil
             if fresh {
-                /* **밀어 올리기 직전에 옮겨진 자리를 지운다.** 눌러서 나간
-                   판(`←`)은 `animated: true`로 내려가므로 UIKit이 이 화면의
-                   `transform`을 옮겨 놓는데, 끝나기 전에 창에서 빠지면
-                   마무리가 안 돌아 **그 자리가 그대로 남는다** — 그 위에
-                   우리 슬라이드가 얹히면 엉뚱한 데서 들어온다(사용자 제보 —
-                   `뒤로가기 버튼으로 나갔다가 다시 들어올 때만 대각선 위에서
-                   내려와`). 끌어서 나간 판은 `animated: false`라 UIKit이
-                   아무것도 안 옮겨 그 자국이 없었다.
-                   화면 쪽도 `afterPop`·`resume`에서 같은 일을 한다 —
-                   **한쪽만 고치지 말 것.** */
-                chat.view.layer.removeAllAnimations()
-                chat.view.transform = .identity
                 root.view.endEditing(true)
                 if let nav = nav {
-                    nav.pushViewController(chat, animated: false)
-                    nav.view.layoutIfNeeded()
+                    // UINavigationController alone owns the live screen transition.
+                    // Do not combine its pop with a transform animation on the next push.
+                    Self.presentChat(chat, from: root, animated: ms > 40 && pop <= 40)
                     /* **뒤에 깔 그림은 밀어 올리기 _전에_ 찍는다** — 밀고 나면
                        웹뷰가 화면에서 빠져 빈손이 된다. 틀의 맨 아래(0번)에
                        깔아 두고, 끌 때 `BackDrag`가 이것을 움직인다. */
@@ -88,6 +77,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                         self.backdrop = under; chat.backdrop = under
                     }
                 } else {
+                    chat.prepareForEntry(in: root.view.bounds)
                     root.addChild(chat); chat.view.translatesAutoresizingMaskIntoConstraints = false
                     root.view.addSubview(chat.view)
                     NSLayoutConstraint.activate([
@@ -100,32 +90,14 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
             if nav == nil { root.view.bringSubviewToFront(chat.view) }
-            (nav?.view ?? root.view).layoutIfNeeded(); chat.resume()
-            /* **자리를 물려받지 말고 못박는다.** 이 화면은 한 번 만들어
-               다시 쓰는 것이라(`self.chat`) **지난번에 남은 자리가 그대로
-               따라온다.** `transform`은 이미 세 곳에서 지우고 있는데
-               (`afterPop`·`resume`·위의 `fresh` 갈래) **`frame`은 아무도
-               안 되돌려 놓고 있었다** — 아래 슬라이드는 그 자리에 가로로
-               `W`를 더할 뿐이라, 물려받은 자리가 (x,y)만큼 어긋나 있으면
-               **거기서 대각선으로 들어온다**(사용자 제보 — `키보드있는상태에서
-               뒤로가기 버튼으로 뒤로갔다 다시 채팅들어가면 화면 전체가
-               우측상단에서 대각선으로 내려와`).
-               `←`로 나간 판에서만 나는 까닭도 그것이다 — 거기만
-               `animated: true`라 UIKit이 내리며 이 뷰의 자리를 옮긴다
-               (끌어서 나간 판은 `animated: false`라 아무것도 안 옮긴다).
-               **`transform`이 `identity`일 때만 적을 것** — 아니면 UIKit이
-               `center`를 거꾸로 셈해 되레 뷰가 튄다(`ChatProfile`에서
-               겪은 그 자리다). */
-            if let nav = nav, chat.view.transform == .identity, chat.view.frame != nav.view.bounds {
-                chat.view.frame = nav.view.bounds
-            }
+            if nav == nil || !fresh { root.view.layoutIfNeeded(); chat.resume() }
             /* **오른쪽에서 통째로 밀려 들어온다**(웹의 `screen-in`과 같은
                움직임이다). **남은 시간만큼만 간다** — 이 화면은 웹이 먼저
                그려진 뒤에 서므로 제 시간을 다 쓰면 머리말보다 늦게 끝나
                두 단계로 보인다(웹의 `slideLeft()`가 그 값이다). */
             if fresh, pop > 40, self.runPop(chat: chat, root: root, ms: pop, shot: leaving) {
                 // 뒤로 온 길 — 아래 `runPop`이 자리를 다 잡았다.
-            } else if fresh, ms > 40 {
+            } else if fresh, nav == nil, ms > 40 {
                 chat.view.transform = CGAffineTransform(translationX: root.view.bounds.width, y: 0)
                 /* **`.beginFromCurrentState`를 쓰지 말 것.** 그 값은 방금
                    적어 둔 시작 자리 대신 **그려지고 있는 자리**에서
@@ -135,7 +107,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 UIView.animate(withDuration: ms / 1000, delay: 0, options: [.curveEaseOut]) {
                     chat.view.transform = .identity
                 }
-            } else {
+            } else if nav == nil {
                 chat.view.transform = .identity
             }
             call.resolve(["ok": true])
@@ -192,22 +164,28 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
         return true
     }
 
+    /// Shared with the navigation regression tests: prepare while detached, then let
+    /// UIKit position and animate the controller without changing its root layer.
+    @MainActor static func presentChat(_ chat: NativeChatViewController,
+                                      from root: UIViewController, animated: Bool) {
+        guard let nav = root.navigationController else { return }
+        chat.prepareForEntry(in: nav.view.bounds)
+        chat.resume()
+        nav.pushViewController(chat, animated: animated)
+    }
+
     @objc func close(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard call.getString("screen") == self.screen else { call.resolve(); return }
-            /* **빠져나가는 중이면 그것이 끝난 뒤에 걷는다**(`goBack`의
-               `leaving`). 먼저 걷으면 화면이 한가운데서 툭 사라진다.
-               **그 사이에 다시 열렸으면 손대지 않는다** — 그때는 `screen`이
-               새 것으로 바뀌어 있어, 그대로 걷으면 방금 연 화면을 걷는다. */
-            guard self.chat?.leaving == true else { self.remove(clear: false); call.resolve(); return }
             let mine = self.screen
-            /* 화면 틀이 내리는 움직임은 우리 것보다 길다 — 그만큼 기다린다
-               (`exitWait`). 먼저 걷으면 내려가는 도중에 화면이 툭 사라진다. */
-            DispatchQueue.main.asyncAfter(deadline: .now() + (self.chat?.exitWait ?? NativeChatViewController.exitMS)) {
-                guard self.screen == mine else { return }
-                self.remove(clear: false)
+            let finish = { [weak self] in
+                if let self = self, self.screen == mine { self.remove(clear: false) }
+                call.resolve()
             }
-            call.resolve()
+            // Resolve only after UIKit finishes. The JS queue consequently cannot
+            // reopen the retained controller or restore web keyboard resizing mid-pop.
+            if let chat = self.chat { chat.whenExitFinishes(finish) }
+            else { finish() }
         }
     }
     @objc func session(_ call: CAPPluginCall) {

@@ -57,9 +57,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private weak var headerBack: UIPanGestureRecognizer?
     /** 가장자리 끌기에 `require(toFail:)`을 이미 걸었는가. */
     private var edgeLinked = false
-    /** 화면 틀이 내리는 움직임 길이 — 우리 것(`exitMS`)보다 길다. */
-    static let popMS = 0.42
-    var exitWait: Double { navigationController != nil ? Self.popMS : Self.exitMS }
+    private var exitSettled = true
+    private var exitWaiters: [() -> Void] = []
     private let context = UIStackView()
     /// 댓글(답장)을 달 때 입력칸 위에 물리는 라벤더 카드(`ReplyBox`).
     private let reply = ReplyBox()
@@ -359,25 +358,26 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         list.requireFail(edge)
     }
 
+    /// Clear the previous keyboard/geometry state before reattaching this view.
+    /// Once UIKit starts pushing, its root frame/layer must not be reset by us.
+    func prepareForEntry(in bounds: CGRect) {
+        loadViewIfNeeded()
+        UIView.performWithoutAnimation {
+            dropKeyboard(); backDrag.end()
+            view.layer.removeAllAnimations(); view.transform = .identity
+            view.frame = bounds
+            view.layoutIfNeeded()
+        }
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent != nil { linkEdge() }
+    }
+
     func resume() {
         loadViewIfNeeded(); visible = true; navigating = false; leaving = false
         linkEdge()
-        /* **들어올 때는 늘 키보드가 내려가 있다**(카톡과 같다 · 사용자 요청 —
-           `다시 채팅을 눌러서 진입했을때 … 키보드가 꺼진 상태로 나오게`).
-           나갈 때 키보드를 **일부러 안 내리므로**(`goBack`의 그 줄이 곧
-           키보드를 화면과 함께 내보내는 장치다) 글칸이 초점을 쥔 채
-           떠나는데, 이 화면은 다시 쓰이는 것이라 도로 붙이면 키보드가
-           따라 올라온다. **나가는 길이 넷이라 한 곳씩 챙기지 말고 여기서
-           한 번에 내린다.** */
-        dropKeyboard()
-        /* 끌던 그림이 남아 있으면 걷는다 — 손짓이 어디서 끊겨도 다음에
-           들어올 때 깨끗해진다(`BackDrag`는 여러 번 걷어도 안전하다). */
-        backDrag.end()
-        /* **내려가며 옮겨진 자리도 여기서 지운다**(`afterPop`과 같은 일이다).
-           그쪽이 못 돌고 지나간 판이 있어도 들어오는 문에서 한 번 더 지우면
-           우리 슬라이드가 늘 제자리에서 시작한다. */
-        view.layer.removeAllAnimations()
-        view.transform = .identity
         if loaded {
             _ = list.beginSession("native:\(me):\(room)"); view.layoutIfNeeded(); list.restoreSession()
             render(); realtime?.start(); sync()
@@ -512,54 +512,30 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         view.endEditing(true)
     }
 
-    /**
-     * **화면 틀이 다 내려간 뒤에 뒷정리를 한다.**
-     *
-     * 나가는 그 순간에 키보드를 내리면 **키보드가 화면과 함께 안 밀려
-     * 나간다** — 그것을 되찾으려고 화면 틀에 얹은 것이라 거기서 내리면
-     * 안 된다. 그렇다고 그냥 두면 글칸이 초점을 쥔 채로 떠나고, 이 화면은
-     * 다시 쓰이는 것이라 **다음에 들어올 때 키보드가 그대로 올라온다**
-     * (사용자 요청 — 카톡처럼 꺼진 상태로 들어가야 한다).
-     *
-     * **끝나는 때를 시각으로 못박지 말 것 — 조정자에게 물을 것.**
-     * `popMS`(0.42초)는 어림값이라 실제 전환과 어긋나고, 어긋나면
-     * `afterPop`의 뒷정리가 **전환이 돌고 있는 한가운데서** 돌아
-     * UIKit이 걸어 둔 자리를 반쯤 지운다. `animated: false`로 내린
-     * 판(끌기)에는 조정자가 아예 없으므로 그때만 예전처럼 시간을 쓴다.
-     */
-    private func settleAfterPop() {
-        composer.holdFocus = false
-        if let tc = navigationController?.transitionCoordinator {
-            tc.animate(alongsideTransition: nil) { [weak self] _ in self?.afterPop() }
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.popMS) { [weak self] in
-            self?.afterPop()
-        }
+    /// All close callers wait for the actual navigation completion, not a guessed
+    /// 0.42 seconds (which can be shorter than UIKit's keyboard transition).
+    func whenExitFinishes(_ done: @escaping () -> Void) {
+        if exitSettled { done() } else { exitWaiters.append(done) }
     }
 
-    /**
-     * 다 내려간 뒤 — **UIKit이 내리며 옮겨 놓은 자리를 지우고** 키보드를 내린다.
-     *
-     * 밀어 내리는 움직임(`animated: true`)은 이 화면의 `transform`을
-     * 옮겨 놓는데, 끝나기 전에 화면이 창에서 빠지면 **마무리가 안 돌아
-     * 옮겨진 자리가 그대로 남는다.** 이 화면은 다시 쓰이는 것이라
-     * (`NativeChatPlugin`이 한 번 만든 것을 들고 있다) 다음에 밀어 올릴 때
-     * **우리 슬라이드가 그 위에 얹혀 엉뚱한 자리에서 들어온다** —
-     * 눌러서 나간 판에서만 나는 자국인 까닭이 이것이다(끌기는
-     * `animated: false`라 UIKit이 아무것도 안 옮긴다).
-     * 플러그인도 밀어 올리기 **직전에** 한 번 더 지운다 — 한쪽만 고치지 말 것.
-     *
-     * **`visible`로 가리지 말 것** — 그 표는 `pause()`가 내리는데 그것도
-     * 같은 0.42초 뒤라(`exitWait`) 어느 쪽이 먼저일지 모른다. `navigating`은
-     * 나가는 순간 서고 `resume()`이 내리므로, 그 사이에 다시 들어왔으면
-     * 거기서 이미 다 했다.
-     */
+    private func settleAfterPop(_ coordinator: UIViewControllerTransitionCoordinator?) {
+        composer.holdFocus = false
+        exitSettled = false
+        if let coordinator = coordinator,
+           coordinator.animate(alongsideTransition: nil, completion: { [weak self] context in
+               guard !context.isCancelled else { return }
+               self?.afterPop()
+           }) { return }
+        afterPop()
+    }
+
     private func afterPop() {
         guard navigating else { return }
-        view.layer.removeAllAnimations()
-        view.transform = .identity
-        dropKeyboard()
+        // UIKit has finished; keyboard callbacks must not animate an offscreen view.
+        UIView.performWithoutAnimation { dropKeyboard() }
+        exitSettled = true
+        let waiters = exitWaiters; exitWaiters.removeAll()
+        waiters.forEach { $0() }
     }
 
     /// iOS가 화면을 내렸다 — 웹의 주소만 되돌린다.
@@ -572,7 +548,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            키보드를 내리는 일도 여기서 함께 한다. */
         backdrop?.removeFromSuperview(); backdrop = nil
         backDrag.end()
-        settleAfterPop()
+        settleAfterPop(navigationController?.transitionCoordinator)
         /* **`plain`이다 — `commit`이 아니다.** `commit`은 `BackDrag`가 깔아 둔
            앞 화면 그림을 걷는 갈래라(`nativeBackEnd`) 시작한 적이 없는 여기서
            부르면 짝이 안 맞는다. 화면을 옮기는 일은 이미 iOS가 다 했으므로
@@ -606,7 +582,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             leaving = true
             backdrop?.removeFromSuperview(); backdrop = nil
             nav.popViewController(animated: !drag)
-            settleAfterPop()
+            settleAfterPop(nav.transitionCoordinator)
             event?("back", ["phase": drag ? "commit" : "plain"])
             return
         }
@@ -617,11 +593,11 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            **플러그인이 이만큼 기다렸다 걷는다**(`leaving`) — 먼저 걷으면
            움직임이 한가운데서 잘린다. */
         if !drag {
-            leaving = true
+            leaving = true; exitSettled = false
             UIView.animate(withDuration: Self.exitMS, delay: 0,
                            options: [.curveEaseOut, .beginFromCurrentState]) {
                 self.view.transform = CGAffineTransform(translationX: self.view.bounds.width, y: 0)
-            }
+            } completion: { [weak self] _ in self?.afterPop() }
         }
         event?("back", ["phase": drag ? "commit" : "plain"])
     }
@@ -1497,6 +1473,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func composerFocus(_ on: Bool) { if on { setTray(false) } }
     func composerResized(_ height: Double, y: Double, fr: Bool, kb: Bool) {}
     func composerKeyboard(on: Bool, dur: Double, at: Double, chatH: Double, pad: Double, s: Double, slide: Bool) {
+        guard visible, !navigating, view.window != nil,
+              navigationController?.transitionCoordinator == nil else { return }
         UIView.animate(withDuration: dur, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) { self.view.layoutIfNeeded() }
     }
     func composerFrame(bottom: Double, h: Double, p: Double, end: Bool, chatH: Double, pad: Double) {}
