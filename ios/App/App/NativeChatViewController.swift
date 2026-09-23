@@ -50,6 +50,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     static let exitMS = 0.28
     /// 지금 빠져나가는 중인가 — 플러그인이 본다.
     private(set) var leaving = false
+    /** 화면 틀에 얹었을 때 뒤에 깔린 그림 — 플러그인이 넣어 준다.
+        끌 때 `BackDrag`가 이것을 뒤로 민다(웹뷰가 화면에 없기 때문이다). */
+    weak var backdrop: UIView?
+    /** 화면 틀이 내리는 움직임 길이 — 우리 것(`exitMS`)보다 길다. */
+    static let popMS = 0.42
+    var exitWait: Double { navigationController != nil ? Self.popMS : Self.exitMS }
     private let context = UIStackView()
     /// 댓글(답장)을 달 때 입력칸 위에 물리는 라벤더 카드(`ReplyBox`).
     private let reply = ReplyBox()
@@ -463,7 +469,25 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            들고 있다) — 검색 중에 나가면 다음에 들어올 때 검색칸이 그대로
            남는다. 나가는 길 넷(화살표·끌기·카드·알림)이 다 여기를 지난다. */
         if searching { setSearch(false) }
-        list.pauseSession(); view.endEditing(true); setTray(false)
+        list.pauseSession(); setTray(false)
+        /* ── 화면 틀이 내려 준다 ───────────────────────────────────
+         *
+         * **여기서 키보드를 안 내리는 것이 이 판의 전부다.** 카톡처럼
+         * 키보드가 화면과 **한 몸으로** 오른쪽으로 밀려 나가는지 폰에서
+         * 재려는 것이라, 우리가 먼저 내려 버리면 잴 것이 없어진다
+         * (손으로 그림을 찍어 미는 길은 `UIScreen.snapshotView`가 키보드를
+         * 못 담아 막혔다 — `AppDelegate`의 `wrapInNavigation` 주석).
+         *
+         * 끌어서 넘어온 판(`drag`)은 `BackDrag`가 이미 다 보여 줬으므로
+         * 움직임 없이 내리기만 한다. */
+        if let nav = navigationController, nav.topViewController === self {
+            leaving = true
+            backdrop?.removeFromSuperview(); backdrop = nil
+            nav.popViewController(animated: !drag)
+            event?("back", ["phase": drag ? "commit" : "plain"])
+            return
+        }
+        view.endEditing(true)
         /* **화살표로 나갈 때도 오른쪽으로 빠져나간다** — 끌어서 나가는
            길에는 이미 앱이 그림을 내보내고 있지만(`BackDrag`), 눌러서
            나가는 길에는 아무것도 없어 화면이 그 자리에서 툭 사라졌다.
@@ -1379,7 +1403,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     func chatListBackBegan() -> Bool {
         guard service.config.back, !navigating, hold.isHidden, drawer.isHidden,
               gallery.isHidden, profile.isHidden,
-              let web = view.superview else { return false }
+              /* 화면 틀에 얹은 판에서는 웹뷰가 화면에 없다 — 그때 뒤에서
+                 1/4만큼 따라 나오는 것은 플러그인이 깔아 둔 그림이다. */
+              let web = backdrop ?? view.superview else { return false }
         guard backDrag.begin(root: view, web: web, cover: [view], keyboard: kbCover, dropKeyboard: { [weak self] in
             guard let self = self else { return }
             /* **`holdFocus`를 먼저 푼다** — 초점을 준 뒤 0.8초는 글칸이

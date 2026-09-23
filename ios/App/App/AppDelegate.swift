@@ -8,8 +8,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        wrapInNavigation()
         return true
+    }
+
+    /**
+     * **화면 틀(`UINavigationController`)에 앱을 얹는다.**
+     *
+     * 까닭은 하나다 — **키보드가 올라온 채로 뒤로 갈 때 키보드까지 함께
+     * 옮기는 일을 iOS에게 맡기려는 것**이다(카톡이 그 길이다).
+     * 우리가 손으로 그림을 찍어 미는 길(`BackDrag`의 `liftKeyboard`)은
+     * **`UIScreen.snapshotView`가 키보드를 못 담아** 막혔다 — iOS는
+     * 키보드를 딴 프로세스로 그리므로 앱이 그 픽셀을 가져갈 길이 없다.
+     *
+     * **이 판은 재려고 만든 것이다.** 대화방에서 `←`를 누르는 길만
+     * 이 틀의 `pop`으로 보내고(그때 **키보드를 안 내린다**), 나머지는
+     * 예전 그대로다. 폰에서 볼 것은 하나 — **키보드가 화면과 함께
+     * 오른쪽으로 밀려 나가는가.** 그 답이 다음 판을 정한다
+     * (안 밀리면 글칸을 `inputAccessoryView`로 바꿔야 한다).
+     *
+     * **막대는 감춘다** — 우리 화면은 저마다 제 머리말을 그린다.
+     * 그러면 iOS가 가장자리 끌기(`interactivePopGestureRecognizer`)를
+     * 스스로 꺼 주므로 우리 `BackDrag`와 다툴 일도 없다.
+     */
+    private func wrapInNavigation() {
+        guard let win = window, let root = win.rootViewController,
+              !(root is UINavigationController) else { return }
+        let nav = UINavigationController(rootViewController: root)
+        nav.isNavigationBarHidden = true
+        nav.view.backgroundColor = root.view.backgroundColor ?? .systemBackground
+        win.rootViewController = nav
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

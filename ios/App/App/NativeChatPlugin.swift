@@ -13,6 +13,11 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
     private var chat: NativeChatViewController?
     private var screen = ""
+    /* **화면 틀에 얹었을 때 뒤에 까는 그림**(아래 `open` 참고).
+       `UINavigationController`는 밀어 올린 화면 아래의 웹뷰를 **화면에서
+       빼 버리므로**, 끌 때 뒤에 드러날 것이 한 장도 없다. 들어오기
+       직전의 웹뷰를 찍어 그 자리에 깔아 둔다. */
+    private var backdrop: UIView?
 
     @objc func open(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -48,19 +53,42 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                화면이 보이고`). 웹이 `.exit-ghost`로 깔아 둔 라운드·투표
                화면이 아직 혼자 있는 이 자리가 찍을 수 있는 유일한 때다. */
             let leaving = fresh && pop > 40 ? root.view.snapshotView(afterScreenUpdates: false) : nil
+            /* **화면 틀(`UINavigationController`)이 있으면 거기에 밀어 올린다.**
+               까닭은 하나다 — **키보드가 올라온 채로 뒤로 갈 때 키보드까지
+               함께 옮기는 일을 iOS에게 맡기려는 것**이다(`AppDelegate`의
+               `wrapInNavigation` 주석을 볼 것). 틀이 없는 판(옛 껍데기)에서는
+               예전처럼 웹뷰 화면의 자식으로 붙는다. */
+            let nav = root.navigationController
+            let under = fresh && nav != nil ? root.view.snapshotView(afterScreenUpdates: false) : nil
             if fresh {
                 root.view.endEditing(true)
-                root.addChild(chat); chat.view.translatesAutoresizingMaskIntoConstraints = false
-                root.view.addSubview(chat.view)
-                NSLayoutConstraint.activate([
-                    chat.view.topAnchor.constraint(equalTo: root.view.topAnchor),
-                    chat.view.bottomAnchor.constraint(equalTo: root.view.bottomAnchor),
-                    chat.view.leadingAnchor.constraint(equalTo: root.view.leadingAnchor),
-                    chat.view.trailingAnchor.constraint(equalTo: root.view.trailingAnchor)
-                ])
-                chat.didMove(toParent: root)
+                if let nav = nav {
+                    nav.pushViewController(chat, animated: false)
+                    nav.view.layoutIfNeeded()
+                    /* **뒤에 깔 그림은 밀어 올리기 _전에_ 찍는다** — 밀고 나면
+                       웹뷰가 화면에서 빠져 빈손이 된다. 틀의 맨 아래(0번)에
+                       깔아 두고, 끌 때 `BackDrag`가 이것을 움직인다. */
+                    if let under = under {
+                        under.frame = nav.view.bounds
+                        under.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                        under.isUserInteractionEnabled = false
+                        nav.view.insertSubview(under, at: 0)
+                        self.backdrop = under; chat.backdrop = under
+                    }
+                } else {
+                    root.addChild(chat); chat.view.translatesAutoresizingMaskIntoConstraints = false
+                    root.view.addSubview(chat.view)
+                    NSLayoutConstraint.activate([
+                        chat.view.topAnchor.constraint(equalTo: root.view.topAnchor),
+                        chat.view.bottomAnchor.constraint(equalTo: root.view.bottomAnchor),
+                        chat.view.leadingAnchor.constraint(equalTo: root.view.leadingAnchor),
+                        chat.view.trailingAnchor.constraint(equalTo: root.view.trailingAnchor)
+                    ])
+                    chat.didMove(toParent: root)
+                }
             }
-            root.view.bringSubviewToFront(chat.view); root.view.layoutIfNeeded(); chat.resume()
+            if nav == nil { root.view.bringSubviewToFront(chat.view) }
+            (nav?.view ?? root.view).layoutIfNeeded(); chat.resume()
             /* **오른쪽에서 통째로 밀려 들어온다**(웹의 `screen-in`과 같은
                움직임이다). **남은 시간만큼만 간다** — 이 화면은 웹이 먼저
                그려진 뒤에 서므로 제 시간을 다 쓰면 머리말보다 늦게 끝나
@@ -102,8 +130,10 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
      */
     @MainActor private func runPop(chat: NativeChatViewController, root: UIViewController,
                                    ms: Double, shot: UIView?) -> Bool {
-        guard let win = root.view.window, let shot = shot else { return false }
-        let W = root.view.bounds.width
+        /* **창은 대화 화면에서 찾는다.** 화면 틀에 얹은 판에서는 웹뷰가
+           화면에서 빠져 `root.view.window`가 비어 있다. */
+        guard let win = chat.view.window ?? root.view.window, let shot = shot else { return false }
+        let W = chat.view.bounds.width
         shot.frame = win.bounds
         let dim = UIView(frame: win.bounds)
         dim.backgroundColor = UIColor(white: 0, alpha: 0.18)
@@ -137,7 +167,9 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                새 것으로 바뀌어 있어, 그대로 걷으면 방금 연 화면을 걷는다. */
             guard self.chat?.leaving == true else { self.remove(clear: false); call.resolve(); return }
             let mine = self.screen
-            DispatchQueue.main.asyncAfter(deadline: .now() + NativeChatViewController.exitMS) {
+            /* 화면 틀이 내리는 움직임은 우리 것보다 길다 — 그만큼 기다린다
+               (`exitWait`). 먼저 걷으면 내려가는 도중에 화면이 툭 사라진다. */
+            DispatchQueue.main.asyncAfter(deadline: .now() + (self.chat?.exitWait ?? NativeChatViewController.exitMS)) {
                 guard self.screen == mine else { return }
                 self.remove(clear: false)
             }
@@ -158,7 +190,15 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
     @MainActor private func remove(clear: Bool) {
         chat?.pause()
         chat?.dismiss(animated: false)
-        chat?.willMove(toParent: nil); chat?.view.removeFromSuperview(); chat?.removeFromParent()
+        /* 화면 틀에 얹었으면 **내려야** 한다 — 손으로 떼면 틀이 그 화면을
+           그대로 들고 있어 다음에 들어올 때 두 겹이 된다. `←`로 이미
+           내려간 판에서는 `navigationController`가 비어 아무 일도 안 한다. */
+        if let c = chat, let nav = c.navigationController {
+            if nav.topViewController === c { nav.popViewController(animated: false) }
+        } else {
+            chat?.willMove(toParent: nil); chat?.view.removeFromSuperview(); chat?.removeFromParent()
+        }
+        backdrop?.removeFromSuperview(); backdrop = nil; chat?.backdrop = nil
         screen = ""
         if clear { chat = nil }
     }
