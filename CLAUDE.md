@@ -6540,6 +6540,10 @@ TestFlight까지 올라갔는데 폰에서는 **고친 것이 하나도 없어 �
     JS의 열기/닫기 큐도 이 완료를 기다리므로 빠른 재진입이 pop과 겹치지 않는다.
   - `composerKeyboard`는 떠나는 중·창 밖·화면 전환 중에는 별도 배치
     애니메이션을 만들지 않는다. 나갈 때 키보드는 여전히 iOS가 함께 옮긴다.
+  - `open`도 UIKit 진입 완료를 기다린다. 진입 중에는 별도 끌기를 시작하지
+    않는다. UIKit의 이전 키보드 초점 복원은 진입 중에만 막는다.
+  - 앞 화면 그림은 `useLayoutEffect`로 첫 그리기 전에 깔고, 그려진 뒤
+    네이티브에서 찍는다. 스피너가 잠깐 노출되는 순서를 만들지 않는다.
   - 돌아왔을 때 키보드는 내려가 있고 초안과 읽던 위치는 유지한다.
     `holdFocus`를 풀고 `dropKeyboard`를 호출하는 규칙은 유지한다.
   - `.dev/NativeChatTests.swift`는 UINavigationController에 화면을 얹고
@@ -6559,15 +6563,20 @@ TestFlight까지 올라갔는데 폰에서는 **고친 것이 하나도 없어 �
     **`BackDrag`를 아직 걷어내지 말 것** — 목록 한가운데서 미는 길은
     그것뿐이다.
   - **iOS가 내렸을 때 웹에 알리는 곳이 따로 있어야 한다**
-    (`willMove(toParent:)` → `leftByIOS()`). 그 길에서는 `goBack`이 아예
+    (`didMove(toParent: nil)` → `leftByIOS()`). 그 길에서는 `goBack`이 아예
     안 불려, 없으면 **화면은 사라졌는데 주소만 대화방에 남는다.**
     **거기서 하는 일이 `goBack`과 같아야 한다** — 깔아 둔 그림(`backdrop`)을
     걷고 · 끌던 것을 걷고(`backDrag.end()`) · 키보드를 내린다
-    (`dropKeyboardAfterPop`). 한 곳만 빠뜨리면 **그 길로 나갔을 때만**
+    (`afterPop` → `dropKeyboard`). 한 곳만 빠뜨리면 **그 길로 나갔을 때만**
     조용히 어긋난다.
   - **덜 끌고 놓은 것과 갈라야 한다** — iOS가 화면을 도로 올려놓는데 웹만
     옮기면 **화면은 대화방인데 주소는 홈**이 된다.
-    `transitionCoordinator.notifyWhenInteractionChanges`로 넘어간 것만 고른다.
+    `willMove(nil)` 시점에는 전환 조정자가 아직 없을 수 있으므로 그곳에서
+    나갔다고 판단하지 않는다. 실제 제거 완료인 `didMove(nil)`에서 알린다.
+    끌기 시작·취소 중에는 웹 주소와 살아 있는 화면을 그대로 둔다.
+  - 끌기 취소 정리는 복귀 애니메이션 완료 안에서 끝낸다. 늦은 타이머가
+    다음 끌기의 그림까지 지우면 안 된다. 끌기 준비에 실패한 손짓을
+    뒤로가기 버튼 동작으로 바꾸지 않는다.
   - **보내는 것은 `plain`이지 `commit`이 아니다.** `commit`은 `BackDrag`가
     깔아 둔 앞 화면 그림을 걷는 갈래라(`nativeBackEnd`) 시작한 적이 없는
     여기서 부르면 짝이 안 맞는다.
