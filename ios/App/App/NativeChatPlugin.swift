@@ -101,6 +101,24 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             if nav == nil { root.view.bringSubviewToFront(chat.view) }
             (nav?.view ?? root.view).layoutIfNeeded(); chat.resume()
+            /* **자리를 물려받지 말고 못박는다.** 이 화면은 한 번 만들어
+               다시 쓰는 것이라(`self.chat`) **지난번에 남은 자리가 그대로
+               따라온다.** `transform`은 이미 세 곳에서 지우고 있는데
+               (`afterPop`·`resume`·위의 `fresh` 갈래) **`frame`은 아무도
+               안 되돌려 놓고 있었다** — 아래 슬라이드는 그 자리에 가로로
+               `W`를 더할 뿐이라, 물려받은 자리가 (x,y)만큼 어긋나 있으면
+               **거기서 대각선으로 들어온다**(사용자 제보 — `키보드있는상태에서
+               뒤로가기 버튼으로 뒤로갔다 다시 채팅들어가면 화면 전체가
+               우측상단에서 대각선으로 내려와`).
+               `←`로 나간 판에서만 나는 까닭도 그것이다 — 거기만
+               `animated: true`라 UIKit이 내리며 이 뷰의 자리를 옮긴다
+               (끌어서 나간 판은 `animated: false`라 아무것도 안 옮긴다).
+               **`transform`이 `identity`일 때만 적을 것** — 아니면 UIKit이
+               `center`를 거꾸로 셈해 되레 뷰가 튄다(`ChatProfile`에서
+               겪은 그 자리다). */
+            if let nav = nav, chat.view.transform == .identity, chat.view.frame != nav.view.bounds {
+                chat.view.frame = nav.view.bounds
+            }
             /* **오른쪽에서 통째로 밀려 들어온다**(웹의 `screen-in`과 같은
                움직임이다). **남은 시간만큼만 간다** — 이 화면은 웹이 먼저
                그려진 뒤에 서므로 제 시간을 다 쓰면 머리말보다 늦게 끝나
@@ -109,8 +127,12 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                 // 뒤로 온 길 — 아래 `runPop`이 자리를 다 잡았다.
             } else if fresh, ms > 40 {
                 chat.view.transform = CGAffineTransform(translationX: root.view.bounds.width, y: 0)
-                UIView.animate(withDuration: ms / 1000, delay: 0,
-                               options: [.curveEaseOut, .beginFromCurrentState]) {
+                /* **`.beginFromCurrentState`를 쓰지 말 것.** 그 값은 방금
+                   적어 둔 시작 자리 대신 **그려지고 있는 자리**에서
+                   출발하라는 뜻이라, 앞 판의 움직임이 아직 안 끝났으면
+                   그 자리를 그대로 물려받는다 — 위의 대각선과 같은 자리다.
+                   시작 자리는 바로 윗줄에서 우리가 정한다. */
+                UIView.animate(withDuration: ms / 1000, delay: 0, options: [.curveEaseOut]) {
                     chat.view.transform = .identity
                 }
             } else {
