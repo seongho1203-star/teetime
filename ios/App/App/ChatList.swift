@@ -1744,6 +1744,9 @@ final class BackDrag {
      *
      * 못 찍으면 거짓을 돌려주고, 그때는 목록이 25판처럼 곧바로 넘어간다.
      *
+     * - Parameter keyboard: **지금 키보드가 덮고 있는 자리**(창 좌표).
+     *   없으면 `.zero`. 아래 `gap` 주석을 볼 것 — 이것이 없으면 키보드를
+     *   드는 갈래가 조용히 안 돌 수 있다.
      * - Parameter dropKeyboard: 키보드를 들어 올린 판에서만 불린다 —
      *   진짜 키보드를 내린다(부르는 쪽이 `holdFocus`를 먼저 푼다).
      *   **안 주면 키보드를 아예 안 든다** — 내릴 길이 없는데 그림만 밀면
@@ -1751,6 +1754,7 @@ final class BackDrag {
      *   옛 다리(`NativeComposerPlugin`)가 그 갈래다.
      */
     func begin(root: UIView, web: UIView, cover: [UIView],
+               keyboard: CGRect = .zero,
                dropKeyboard: (() -> Void)? = nil) -> Bool {
         end()
         guard root.bounds.width > 1,
@@ -1763,11 +1767,23 @@ final class BackDrag {
         shot.frame = box
         shot.isUserInteractionEnabled = false
 
-        /* 키보드 자리 = **웹뷰 아랫변부터 창 아랫변까지.** `resize: 'native'`라
-           키보드가 올라오면 웹뷰가 딱 그만큼 줄어 있다. */
-        let gap = CGRect(x: 0, y: box.maxY,
+        /* 키보드 자리 — **부르는 쪽이 알려 준 네모가 먼저다.**
+           `resize: 'native'`라 키보드가 올라오면 웹뷰가 그만큼 줄어 있다고
+           보고 `창 아랫변 − 화면 아랫변`으로 셈했는데, **그 값이 0이 되는
+           판이 있다**: 대화 화면은 웹뷰의 자식이고 바가
+           `keyboardLayoutGuide`에 묶여 있어 **웹뷰가 줄든 안 줄든 화면은
+           똑같이 보인다.** 그래서 1.171에서 `gap.height > kbMin`에 걸려
+           키보드를 드는 갈래가 통째로 안 돌았고, 겉으로는 이 기능을 안 넣은
+           것과 똑같았다(사용자 제보 — `똑같은데`).
+           **재서 얻은 값(iOS가 알려 준 키보드 네모)을 그대로 쓴다.** */
+        var gap = CGRect(x: 0, y: box.maxY,
                          width: stage.bounds.width,
                          height: stage.bounds.height - box.maxY)
+        if keyboard.height > gap.height {
+            gap = CGRect(x: 0, y: keyboard.minY,
+                         width: stage.bounds.width,
+                         height: stage.bounds.height - keyboard.minY)
+        }
         var fall: (() -> Void)?
         let host: UIView
         if let drop = dropKeyboard, gap.height > Self.kbMin,
@@ -1788,6 +1804,11 @@ final class BackDrag {
            따로 따질 것이 없다 — 둘 다 맨 위에 붙이면 그대로 그 차례다. */
         host.addSubview(veil)
         host.addSubview(shot)
+        /* **키보드 그림은 맨 위다.** 웹뷰가 안 줄어든 판에서는 `shot`이
+           화면 전체라 키보드 자리까지 덮어 버린다 — 진짜 화면에서도 키보드가
+           맨 위이므로 차례가 그래야 맞다. 막(`veil`)도 안 덮는다: 그 막은
+           **뒤에 드러나는 앞 화면**을 어둡게 하는 것이지 떠나는 쪽이 아니다. */
+        if let kb = kbBox, kb.superview === host { host.bringSubviewToFront(kb) }
         self.shot = shot
         self.veil = veil
 

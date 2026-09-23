@@ -153,6 +153,22 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /// 길게 눌러 창을 띄운 글. 고른 것이 돌아올 때 이 값으로 찾는다.
     private var holdId = ""
     private var observers: [NSObjectProtocol] = []
+    /**
+     * **지금 키보드가 덮고 있는 자리**(창 좌표). 없으면 `.zero`.
+     *
+     * 뒤로 끌 때 키보드까지 함께 밀려면 그 자리를 알아야 하는데,
+     * **대화 화면의 아랫변에서 빼내려 들지 말 것**(1.171이 그래서 빗나갔다).
+     * 이 화면은 웹뷰의 자식이고 웹뷰는 `resize: 'native'`로 줄어드는데,
+     * **줄어들든 안 줄어들든 화면은 똑같이 보인다** — 바가
+     * `keyboardLayoutGuide`에 묶여 있어 어느 쪽이든 키보드 윗변에 서기
+     * 때문이다. 그래서 `창 높이 − 화면 아랫변`은 **0이 될 수도 있고**
+     * 그때는 `gap.height > kbMin`에 걸려 키보드를 드는 갈래가 통째로
+     * 건너뛰어진다 — 겉으로는 이 기능을 안 넣은 것과 똑같다.
+     *
+     * **iOS가 알려 주는 키보드 네모가 유일하게 확실한 값이다.**
+     * `ComposerBar.follow`가 `kbTop`을 잡는 것과 같은 길이다.
+     */
+    private var kbCover: CGRect = .zero
     private var navigating = false
     private var revision = 0
     private var changedAt: [String: Int] = [:]
@@ -301,6 +317,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         })
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.realtime?.stop() }
+        })
+        /* **키보드가 덮은 자리를 적어 둔다**(`kbCover` 주석 — 뒤로 끌 때
+           그것까지 함께 밀려면 이 값이 있어야 한다). 화면 밖으로 내려간
+           네모는 없는 것으로 본다. */
+        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] n in
+            guard let self = self, let win = self.view.window,
+                  let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let box = win.convert(end, from: nil)
+            self.kbCover = box.minY < win.bounds.height - 1 ? box : .zero
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.kbCover = .zero
         })
         /* 서랍을 열기 전에 첫 묶음을 미리 풀어 둔다 — 대화가 한 번 그려진
            뒤에 시작한다(그 전에 하면 지금 보고 있는 것과 다툰다). */
@@ -1352,12 +1380,16 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         guard service.config.back, !navigating, hold.isHidden, drawer.isHidden,
               gallery.isHidden, profile.isHidden,
               let web = view.superview else { return false }
-        guard backDrag.begin(root: view, web: web, cover: [view], dropKeyboard: { [weak self] in
+        guard backDrag.begin(root: view, web: web, cover: [view], keyboard: kbCover, dropKeyboard: { [weak self] in
             guard let self = self else { return }
             /* **`holdFocus`를 먼저 푼다** — 초점을 준 뒤 0.8초는 글칸이
                놓기를 거절하므로(3판) 안 풀면 우리가 내리는 것까지 막힌다. */
             self.composer.holdFocus = false
+            /* **창째로 내린다.** `self.view`만 훑으면 초점이 이 화면 밖에
+               있는 판(웹뷰 글칸 등)에서 키보드가 그대로 남는다 — 그때는
+               그림만 밀리고 진짜 키보드가 드러난다. */
             self.view.endEditing(true)
+            self.view.window?.endEditing(true)
         }) else { return false }
         event?("back", ["phase": "start"])
         return true
