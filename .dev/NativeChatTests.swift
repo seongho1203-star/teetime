@@ -284,9 +284,12 @@ final class NativeChatTests: XCTestCase {
         XCTAssertEqual(backs, 1)
         chat.pause()
         var opened = false
-        NativeChatPlugin.presentChat(chat, from: root, animated: true) { opened = true }
+        let entered = expectation(description: "UIKit entry completion")
+        NativeChatPlugin.presentChat(chat, from: root, animated: true) {
+            opened = true; entered.fulfill()
+        }
         XCTAssertFalse(opened, "The bridge queue must wait until entry finishes")
-        await settle(1)
+        await fulfillment(of: [entered], timeout: 10)
         XCTAssertTrue(opened)
         XCTAssertFalse(chat.view.isHidden)
         XCTAssertEqual(chat.view.alpha, 1)
