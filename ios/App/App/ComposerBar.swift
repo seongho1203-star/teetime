@@ -843,6 +843,10 @@ final class ComposerBar: UIView, UITextViewDelegate {
         afterEdit(tell: true)
     }
 
+    // A retained controller must not restore its previous responder during push.
+    var acceptsFocus = true
+    func textViewShouldBeginEditing(_ tv: UITextView) -> Bool { acceptsFocus }
+
     func textViewDidBeginEditing(_ tv: UITextView) {
         kbOwner = true
         refreshHint()

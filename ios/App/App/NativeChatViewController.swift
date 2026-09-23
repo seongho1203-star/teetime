@@ -370,6 +370,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         }
     }
 
+    func beginNavigationEntry() { composer.acceptsFocus = false }
+    func finishNavigationEntry() {
+        // Let UIKit finish responder restoration before accepting a fresh tap.
+        DispatchQueue.main.async { [weak self] in self?.composer.acceptsFocus = true }
+    }
+
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
         if parent != nil { linkEdge() }

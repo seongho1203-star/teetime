@@ -171,7 +171,13 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let nav = root.navigationController else { return }
         chat.prepareForEntry(in: nav.view.bounds)
         chat.resume()
+        chat.beginNavigationEntry()
         nav.pushViewController(chat, animated: animated)
+        if let coordinator = nav.transitionCoordinator,
+           coordinator.animate(alongsideTransition: nil, completion: { _ in
+               chat.finishNavigationEntry()
+           }) { return }
+        chat.finishNavigationEntry()
     }
 
     @objc func close(_ call: CAPPluginCall) {
