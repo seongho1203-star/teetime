@@ -105,19 +105,22 @@ function taken(from: EventTarget | null): boolean {
  */
 type Shot = {
     path: string; node: HTMLElement; scroll: number; list: number;
+    tabbar?: HTMLElement;
     stub?: true; chat?: true;
 };
 const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
 
 /** 지금 화면을 한 장 찍는다(위 `Shot`). */
-function takeShot(el: HTMLElement): Shot {
+function takeShot(el: HTMLElement, includeTabBar = false): Shot {
     const list = el.querySelector<HTMLElement>('.chat-list');
+    const tabbar = includeTabBar ? document.querySelector<HTMLElement>('.app > .tabbar') : null;
     return {
         path: routeOf(location.href),
         node: el.cloneNode(true) as HTMLElement,
         scroll: window.scrollY,
         list: list?.scrollTop ?? 0,
+        tabbar: tabbar ? tabbar.cloneNode(true) as HTMLElement : undefined,
     };
 }
 
@@ -218,7 +221,7 @@ function snap(toPath: string) {
     const prev = shots[shots.length - 1];
     const shot: Shot | undefined = blank
         ? (plate ?? (prev && { ...prev, stub: true as const }))
-        : el ? takeShot(el) : undefined;
+        : el ? takeShot(el, hasNativeChat() && toPath === '/chat') : undefined;
     if (!shot) return;
     shots.push(shot);
     while (shots.length > MAX_SHOTS) shots.shift();
@@ -579,6 +582,13 @@ function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElem
         const made = cloneShot(shot);
         list = made.list;
         g.appendChild(made.c);
+        if (shot.tabbar) {
+            // The native transition moves this entire previous screen, including
+            // its bottom bar. Keep it independent of the page's scroll offset.
+            const bar = shot.tabbar.cloneNode(true) as HTMLElement;
+            Object.assign(bar.style, { position: 'absolute', display: 'flex', zIndex: '0' });
+            g.appendChild(bar);
+        }
     }
     const dim = document.createElement('div');
     dim.className = 'back-ghost-dim';
