@@ -1342,12 +1342,23 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * **이 화면은 웹뷰 위에 얹힌 앱 부품이다.** 그래서 찍은 그림은 창에
      * 얹고(그래야 웹뷰를 밀 때 같이 안 밀린다) 이 화면은 감춘다 —
      * 웹은 그 뒤에서 앞 화면 그림만 깔아 준다(`nativeBackStart`).
+     *
+     * **키보드가 올라와 있으면 그것까지 함께 민다**(사용자 제보 — `카톡은
+     * 키보드가 올라온상태에서 뒤로끌면 키보드까지 같이 밀리는데`).
+     * 짜임은 `BackDrag.begin`에 적어 두었고, 여기서 맡는 것은 둘이다 —
+     * **진짜 키보드를 내리는 것**과, 되돌아오는 판에서 **도로 올리는 것.**
      */
     func chatListBackBegan() -> Bool {
         guard service.config.back, !navigating, hold.isHidden, drawer.isHidden,
               gallery.isHidden, profile.isHidden,
               let web = view.superview else { return false }
-        guard backDrag.begin(root: view, web: web, cover: [view]) else { return false }
+        guard backDrag.begin(root: view, web: web, cover: [view], dropKeyboard: { [weak self] in
+            guard let self = self else { return }
+            /* **`holdFocus`를 먼저 푼다** — 초점을 준 뒤 0.8초는 글칸이
+               놓기를 거절하므로(3판) 안 풀면 우리가 내리는 것까지 막힌다. */
+            self.composer.holdFocus = false
+            self.view.endEditing(true)
+        }) else { return false }
         event?("back", ["phase": "start"])
         return true
     }
@@ -1356,9 +1367,22 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     func chatListBackEnded(dx: CGFloat, vx: CGFloat, cancelled: Bool) {
         let go = !cancelled && backDrag.wants(dx: dx, vx: vx)
+        /* **끝나기 전에 집어 둔다** — `end()`가 이 표를 지운다. */
+        let hadKb = backDrag.tookKeyboard
         backDrag.finish(go: go) { [weak self] in
             guard let self = self else { return }
             if go { self.goBack(drag: true) } else { self.event?("back", ["phase": "cancel"]) }
+            if !go && hadKb {
+                /* 되돌아오는 판 — 내려 둔 키보드를 도로 올린다. 찍어 둔
+                   그림이 아직 덮고 있어 올라오는 동안이 안 보인다. */
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    self.backDrag.restore()
+                    if self.searching { self.searchField.becomeFirstResponder() }
+                    else if !self.composer.isHidden { self.composer.textView.becomeFirstResponder() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { self.backDrag.end() }
+                }
+                return
+            }
             /* **웹이 손을 쓴 뒤에 걷는다.** 되돌아오는 판에서는 감춰 둔
                화면을 다시 내보이는 데 한 프레임이면 되고, 넘어가는 판에서는
                목적지가 그려질 때까지 기다린다 — 먼저 걷으면 옛 화면이

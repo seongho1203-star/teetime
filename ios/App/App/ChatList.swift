@@ -1680,11 +1680,23 @@ final class BackDrag {
     /// 손을 뗀 뒤 마무리에 걸리는 시간. 웹 `end()`의 230ms와 같다.
     static let ease = 0.23
 
+    /// 키보드가 올라온 것으로 보는 최소 높이(pt). 홈 인디케이터 자리(34)만
+    /// 남았을 때를 키보드로 보면 안 되므로 넉넉히 잡는다.
+    static let kbMin: CGFloat = 80
+    /// 키보드 그림을 얹는 창의 높이. **키보드 창보다 위여야 한다** —
+    /// `UIRemoteKeyboardWindow`가 1,000만 언저리라 그 위로 하나 올려 잡는다.
+    static let kbLevel: CGFloat = 10_000_001
+
     private weak var web: UIView?
     private var shot: UIView?
     private var veil: UIView?
-    /// 그림을 얹는 곳 — **창(`UIWindow`)이다.** 아래 `begin` 주석을 볼 것.
-    private weak var stage: UIView?
+    /// 앱 창. 키보드를 든 판에서는 **이것을 밀어** 앞 화면을 따라 나오게 한다.
+    private weak var stage: UIWindow?
+    /// 키보드를 찍어 둔 그림과 그것을 얹은 창(아래 `liftKeyboard`).
+    private var kbBox: UIView?
+    private var kbWin: UIWindow?
+    /// 끌기 시작할 때 키보드를 들어 올렸는가 — 되돌릴 때 도로 올린다.
+    private(set) var tookKeyboard = false
     /// 감춰 둔 앱 부품과 **감추기 전 값**. 바는 `hidden`이 진짜 기능이라
     /// (7판) 덮어놓고 내보이면 감춰 둔 것까지 살아난다.
     private var hid: [(view: UIView, was: Bool)] = []
@@ -1708,9 +1720,38 @@ final class BackDrag {
      * **앱 부품(목록·바)이 웹뷰와 함께 밀리는 것은 상관없다** — 그 둘은
      * 여기서 감춰지고, 찍어 둔 그림이 그 자리를 대신한다.
      *
+     * ## 키보드가 올라와 있으면 한 겹 더 쓴다
+     *
+     * 사용자 제보 — `카톡은 키보드가 올라온상태에서 뒤로끌면 키보드까지
+     * 같이 밀리는데 우리껀 안되네`. **키보드는 우리 창이 아니라
+     * `UIRemoteKeyboardWindow`라, 앱 창에 무엇을 얹어도 못 덮고 찍히지도
+     * 않는다.** 그래서 갈래가 이렇게 갈린다:
+     *
+     * ```
+     * [키보드 창]   화면 전체를 찍어 키보드 자리만 오려낸 그림 → 손끝을 따라간다
+     *   ＋ 그 창에 떠나는 화면 그림(shot)과 막(veil)도 함께 얹는다
+     * [앱 창]       진짜 키보드는 그 뒤에서 조용히 내려가고, 웹뷰가 제 높이로
+     *               자라 앞 화면이 **키보드 자리까지** 드러난다
+     * ```
+     *
+     * - **앞 화면은 웹뷰가 아니라 앱 창을 밀어 따라오게 한다**(`back`).
+     *   키보드가 내려가면 Capacitor 키보드 플러그인이 **웹뷰의 `frame`을
+     *   고쳐 잡는데**(`Keyboard.m`의 `_updateFrame`), `transform`이 걸린 뷰에
+     *   `frame`을 넣으면 UIKit이 거꾸로 셈해 **웹뷰가 폭까지 늘어난다.**
+     *   창은 그 함수가 `bounds`로만 보므로 밀어도 안전하다.
+     * - **그림을 못 찍거나 창을 못 만들면 키보드를 건드리지 않는다** —
+     *   그때는 예전 그대로(키보드는 그 자리에 남고 화면만 끌린다).
+     *
      * 못 찍으면 거짓을 돌려주고, 그때는 목록이 25판처럼 곧바로 넘어간다.
+     *
+     * - Parameter dropKeyboard: 키보드를 들어 올린 판에서만 불린다 —
+     *   진짜 키보드를 내린다(부르는 쪽이 `holdFocus`를 먼저 푼다).
+     *   **안 주면 키보드를 아예 안 든다** — 내릴 길이 없는데 그림만 밀면
+     *   그림이 비켜난 자리에서 진짜 키보드가 그대로 드러난다. 잡종 시절의
+     *   옛 다리(`NativeComposerPlugin`)가 그 갈래다.
      */
-    func begin(root: UIView, web: UIView, cover: [UIView]) -> Bool {
+    func begin(root: UIView, web: UIView, cover: [UIView],
+               dropKeyboard: (() -> Void)? = nil) -> Bool {
         end()
         guard root.bounds.width > 1,
               let stage = root.window,
@@ -1722,22 +1763,86 @@ final class BackDrag {
         shot.frame = box
         shot.isUserInteractionEnabled = false
 
-        let veil = UIView(frame: box)
+        /* 키보드 자리 = **웹뷰 아랫변부터 창 아랫변까지.** `resize: 'native'`라
+           키보드가 올라오면 웹뷰가 딱 그만큼 줄어 있다. */
+        let gap = CGRect(x: 0, y: box.maxY,
+                         width: stage.bounds.width,
+                         height: stage.bounds.height - box.maxY)
+        var fall: (() -> Void)?
+        let host: UIView
+        if let drop = dropKeyboard, gap.height > Self.kbMin,
+           let win = liftKeyboard(stage: stage, gap: gap) {
+            fall = drop
+            kbWin = win
+            tookKeyboard = true
+            host = win
+        } else {
+            host = stage
+        }
+
+        let veil = UIView(frame: stage.bounds)
         veil.backgroundColor = .black
         veil.alpha = Self.dim
         veil.isUserInteractionEnabled = false
         /* **막은 웹뷰 위·그림 아래다.** 창에서 화면 다음에 얹으므로 차례를
            따로 따질 것이 없다 — 둘 다 맨 위에 붙이면 그대로 그 차례다. */
-        stage.addSubview(veil)
-        stage.addSubview(shot)
+        host.addSubview(veil)
+        host.addSubview(shot)
         self.shot = shot
         self.veil = veil
 
         hid = cover.map { ($0, $0.isHidden) }
         for v in cover { v.isHidden = true }
-        web.transform = CGAffineTransform(translationX: -width * Self.parallax, y: 0)
+        back(0)
         live = true
+        /* **밀 자리를 다 잡은 뒤에 내린다.** 앱 창은 `transform`을 걸어도
+           플러그인이 웹뷰 `frame`을 고치는 데 지장이 없다(위 주석). */
+        fall?()
         return true
+    }
+
+    /**
+     * 화면을 통째로 찍어 **키보드 자리만 오려** 키보드보다 위에 뜨는 창에 얹는다.
+     *
+     * - **`UIScreen`으로 찍는다.** `UIView.snapshotView`는 제 화면만 그리므로
+     *   키보드가 안 담긴다 — 화면 전체를 찍는 것이 유일한 길이다.
+     * - **키보드 자리만 오려 쓴다.** 대화 화면은 이미 `root`를 찍은 그림
+     *   (`shot`)이 맡고 있어, 화면 찍기가 키보드를 못 담는 판이어도
+     *   **어긋나는 곳이 그 띠 하나로 그친다.**
+     * - 못 담았을 때를 대비해 **키보드색 바탕을 깔아 둔다** — 그래야
+     *   까만 띠 대신 키보드 비슷한 것이 남는다.
+     * - **`makeKeyAndVisible`을 쓰지 말 것** — 키를 뺏으면 글칸의 초점이 풀린다.
+     * - **손짓을 안 받는다**(`isUserInteractionEnabled = false`) — 받으면
+     *   끌고 있는 그 손가락이 이 창에 잡혀 아래 목록까지 안 내려간다.
+     */
+    private func liftKeyboard(stage: UIWindow, gap: CGRect) -> UIWindow? {
+        guard let scene = stage.windowScene else { return nil }
+        /* `UIScreen`의 것은 `UIView`와 달리 늘 돌려준다(옵셔널이 아니다). */
+        let screen = stage.screen.snapshotView(afterScreenUpdates: false)
+        let win = UIWindow(windowScene: scene)
+        win.frame = stage.frame
+        let top = scene.windows.map { $0.windowLevel.rawValue }.max() ?? 0
+        win.windowLevel = UIWindow.Level(rawValue: max(top + 1, Self.kbLevel))
+        win.backgroundColor = .clear
+        win.isUserInteractionEnabled = false
+        let empty = UIViewController()
+        empty.view.backgroundColor = .clear
+        win.rootViewController = empty
+        win.isHidden = false
+
+        let box = UIView(frame: gap)
+        box.clipsToBounds = true
+        box.isUserInteractionEnabled = false
+        box.backgroundColor = UIColor { t in
+            t.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1)
+                                          : UIColor(red: 0.82, green: 0.83, blue: 0.85, alpha: 1)
+        }
+        screen.frame = CGRect(origin: CGPoint(x: -gap.minX, y: -gap.minY), size: screen.bounds.size)
+        screen.isUserInteractionEnabled = false
+        box.addSubview(screen)
+        win.addSubview(box)
+        kbBox = box
+        return win
     }
 
     /// 손끝을 따라간다. **웹의 `paint()`와 같은 셈이다.**
@@ -1745,9 +1850,18 @@ final class BackDrag {
         guard live else { return }
         let d = max(0, min(width, dx))
         let p = d / width
-        shot?.transform = CGAffineTransform(translationX: d, y: 0)
-        web?.transform = CGAffineTransform(translationX: (p - 1) * width * Self.parallax, y: 0)
+        let slide = CGAffineTransform(translationX: d, y: 0)
+        shot?.transform = slide
+        kbBox?.transform = slide
+        back(p)
         veil?.alpha = Self.dim * (1 - p)
+    }
+
+    /// 뒤에 깔린 앞 화면을 `p`(0~1)만큼 따라 나오게 한다.
+    /// **키보드를 든 판에서는 웹뷰가 아니라 앱 창을 민다**(위 `begin` 주석).
+    private func back(_ p: CGFloat) {
+        let move = CGAffineTransform(translationX: (p - 1) * width * Self.parallax, y: 0)
+        if tookKeyboard { stage?.transform = move } else { web?.transform = move }
     }
 
     /// 놓았을 때 넘어갈 것인가(웹 `end()`의 잣대 그대로다).
@@ -1764,21 +1878,37 @@ final class BackDrag {
      * 기다렸다 `nav(-1)`을 부르는 그 자리다).
      */
     func finish(go: Bool, done: @escaping () -> Void) {
-        guard live, let shot = shot, let web = web else { done(); return }
+        guard live, let shot = shot else { done(); return }
         let toShot = go ? width : 0
-        let toWeb: CGFloat = go ? 0 : -width * Self.parallax
         UIView.animate(withDuration: Self.ease, delay: 0,
                        options: [.curveEaseOut, .beginFromCurrentState],
                        animations: {
-            shot.transform = CGAffineTransform(translationX: toShot, y: 0)
-            web.transform = CGAffineTransform(translationX: toWeb, y: 0)
+            let slide = CGAffineTransform(translationX: toShot, y: 0)
+            shot.transform = slide
+            self.kbBox?.transform = slide
+            self.back(go ? 1 : 0)
             self.veil?.alpha = go ? 0 : Self.dim
         }, completion: { _ in done() })
     }
 
+    /**
+     * 감춰 둔 것을 되돌리고 민 것을 제자리에 놓는다 — **깔아 둔 그림은 그대로 둔다.**
+     *
+     * 되돌아오는 판에서 쓴다. 키보드를 내려 둔 판이라면 부르는 쪽이 여기서
+     * 초점을 다시 줘 키보드를 올리는데, **찍어 둔 그림이 아직 덮고 있어**
+     * 올라오는 동안이 안 보인다 — 다 올라온 뒤에 `end()`로 걷으면 된다.
+     */
+    func restore() {
+        for h in hid { h.view.isHidden = h.was }
+        hid = []
+        web?.transform = .identity
+        stage?.transform = .identity
+        live = false
+    }
+
     /// 깔아 둔 것을 걷고 감춰 둔 것을 되돌린다. **여러 번 불러도 안전하다.**
     func end() {
-        for h in hid { h.view.isHidden = h.was }
+        restore()
         drop()
     }
 
@@ -1794,12 +1924,20 @@ final class BackDrag {
     func drop() {
         shot?.removeFromSuperview()
         veil?.removeFromSuperview()
+        kbBox?.removeFromSuperview()
+        /* 창은 감추고 놓아 준다 — 붙들고 있으면 화면 위에 죽은 창이 남는다. */
+        kbWin?.isHidden = true
+        kbWin?.rootViewController = nil
         shot = nil
         veil = nil
-        stage = nil
+        kbBox = nil
+        kbWin = nil
         web?.transform = .identity
+        stage?.transform = .identity
+        stage = nil
         web = nil
         hid = []
+        tookKeyboard = false
         live = false
     }
 }
