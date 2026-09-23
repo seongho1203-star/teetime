@@ -1803,13 +1803,38 @@ final class BackDrag {
         /* **막은 웹뷰 위·그림 아래다.** 창에서 화면 다음에 얹으므로 차례를
            따로 따질 것이 없다 — 둘 다 맨 위에 붙이면 그대로 그 차례다. */
         host.addSubview(veil)
-        host.addSubview(shot)
-        /* **키보드 그림은 맨 위다.** 웹뷰가 안 줄어든 판에서는 `shot`이
-           화면 전체라 키보드 자리까지 덮어 버린다 — 진짜 화면에서도 키보드가
-           맨 위이므로 차례가 그래야 맞다. 막(`veil`)도 안 덮는다: 그 막은
-           **뒤에 드러나는 앞 화면**을 어둡게 하는 것이지 떠나는 쪽이 아니다. */
+
+        /* **떠나는 화면 그림은 키보드 자리 위에서 잘라 낸다**(`lid`).
+           웹뷰가 안 줄어든 판에서는 `shot`이 **화면 전체**라 키보드 띠까지
+           덮어 버린다 — `bringSubviewToFront(kbBox)`로도 막을 수 있지만,
+           **아예 안 겹치게 자르는 쪽이 확실하다.** 진짜 화면에서도 그 띠는
+           키보드 몫이고, 웹뷰가 줄어든 판에서는 `gap.minY == box.maxY`라
+           자르는 높이가 그대로여서 **아무것도 안 바뀐다.**
+
+           **`shot`의 `frame`을 직접 줄이지 말 것** — `snapshotView`는 제
+           그림을 프레임에 맞춰 **늘였다 줄였다** 하므로 높이만 깎으면
+           화면이 납작하게 찌그러진다. 그래서 잘라 내는 칸을 하나 씌우고
+           그 안에 제 크기 그대로 넣는다(움직이는 것도 이 칸이다). */
+        var lid: UIView = shot
+        if tookKeyboard {
+            let cut = max(0, gap.minY - box.minY)
+            if cut > 0 && cut < box.height {
+                let clip = UIView(frame: CGRect(x: box.minX, y: box.minY,
+                                                width: box.width, height: cut))
+                clip.clipsToBounds = true
+                clip.isUserInteractionEnabled = false
+                shot.frame = CGRect(origin: .zero, size: box.size)
+                clip.addSubview(shot)
+                lid = clip
+            }
+        }
+        host.addSubview(lid)
+        /* **키보드 그림은 맨 위다.** 위에서 잘라 두었으므로 겹칠 일이 없지만,
+           자를 수 없던 판(`cut`이 0이거나 화면 전체)을 위해 한 번 더 올린다.
+           막(`veil`)은 안 덮는다: 그 막은 **뒤에 드러나는 앞 화면**을
+           어둡게 하는 것이지 떠나는 쪽이 아니다. */
         if let kb = kbBox, kb.superview === host { host.bringSubviewToFront(kb) }
-        self.shot = shot
+        self.shot = lid
         self.veil = veil
 
         hid = cover.map { ($0, $0.isHidden) }
