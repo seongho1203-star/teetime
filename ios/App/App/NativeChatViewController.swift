@@ -53,6 +53,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     /** 화면 틀에 얹었을 때 뒤에 깔린 그림 — 플러그인이 넣어 준다.
         끌 때 `BackDrag`가 이것을 뒤로 민다(웹뷰가 화면에 없기 때문이다). */
     weak var backdrop: UIView?
+    /** 머리말에서 오른쪽으로 미는 손짓 — 가장자리 끌기에 자리를 내준다. */
+    private weak var headerBack: UIPanGestureRecognizer?
+    /** 가장자리 끌기에 `require(toFail:)`을 이미 걸었는가. */
+    private var edgeLinked = false
     /** 화면 틀이 내리는 움직임 길이 — 우리 것(`exitMS`)보다 길다. */
     static let popMS = 0.42
     var exitWait: Double { navigationController != nil ? Self.popMS : Self.exitMS }
@@ -316,6 +320,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         back.delegate = backGuard
         back.cancelsTouchesInView = false
         header.addGestureRecognizer(back)
+        headerBack = back
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self, self.visible else { return }; self.realtime?.start(); self.sync()
@@ -363,8 +368,28 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         ImageStore.warm(stills)
     }
 
+    /**
+     * **왼쪽 가장자리에서는 iOS의 뒤로 가기가 이긴다**(`EdgeBack`).
+     *
+     * 그 길로 가야 **키보드가 화면과 한 몸으로 밀려 나간다** — 우리가 손으로
+     * 미는 `BackDrag`는 키보드를 못 데려간다(딴 창이라 그림에 안 담긴다).
+     * 우리 손짓 둘에 `require(toFail:)`을 걸어 두면 가장자리에서는 저쪽이
+     * 먼저 서고, **가장자리가 아닌 자리에서는 저 손짓이 그 자리에서 실패해**
+     * 예전처럼 우리가 끈다(늦어지는 것이 없다).
+     *
+     * 화면이 틀에 얹힌 뒤라야 그 손짓을 찾을 수 있어 여기서 건다.
+     */
+    private func linkEdge() {
+        guard !edgeLinked, let edge = navigationController?.interactivePopGestureRecognizer
+        else { return }
+        edgeLinked = true
+        headerBack?.require(toFail: edge)
+        list.requireFail(edge)
+    }
+
     func resume() {
         loadViewIfNeeded(); visible = true; navigating = false; leaving = false
+        linkEdge()
         if loaded {
             _ = list.beginSession("native:\(me):\(room)"); view.layoutIfNeeded(); list.restoreSession()
             render(); realtime?.start(); sync()
@@ -457,6 +482,44 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         default:
             break
         }
+    }
+
+    /**
+     * **iOS가 화면을 내렸을 때도 웹에 알린다**(가장자리 끌기 · `EdgeBack`).
+     *
+     * 그 길에서는 `goBack`이 아예 안 불리므로, 이 한 곳이 없으면 **화면은
+     * 사라졌는데 웹의 주소는 대화방에 그대로 남는다.**
+     *
+     * **우리가 내리는 길과는 갈린다** — `goBack`은 `navigating`을 미리
+     * 세우고 `pause()`(플러그인의 `remove`가 부른다)는 `visible`을 내리므로,
+     * 둘 다 여기서 그냥 지나간다.
+     */
+    override func willMove(toParent parent: UIViewController?) {
+        super.willMove(toParent: parent)
+        guard parent == nil, visible, !navigating else { return }
+        /* **덜 끌고 놓으면 iOS가 화면을 도로 올려 놓는다** — 그때 웹까지
+           옮겨 버리면 **화면은 대화방인데 주소만 홈**이 된다. 손을 떼는
+           순간(`notifyWhenInteractionChanges`) 넘어간 것만 골라 알린다. */
+        guard let tc = navigationController?.transitionCoordinator, tc.isInteractive else {
+            leftByIOS(); return
+        }
+        tc.notifyWhenInteractionChanges { [weak self] ctx in
+            guard !ctx.isCancelled else { return }
+            self?.leftByIOS()
+        }
+    }
+
+    /// iOS가 화면을 내렸다 — 웹의 주소만 되돌린다.
+    private func leftByIOS() {
+        guard visible, !navigating else { return }
+        navigating = true; leaving = true
+        if searching { setSearch(false) }
+        list.pauseSession(); setTray(false)
+        /* **`plain`이다 — `commit`이 아니다.** `commit`은 `BackDrag`가 깔아 둔
+           앞 화면 그림을 걷는 갈래라(`nativeBackEnd`) 시작한 적이 없는 여기서
+           부르면 짝이 안 맞는다. 화면을 옮기는 일은 이미 iOS가 다 했으므로
+           웹은 `←`로 나갈 때와 똑같이 주소만 되돌리면 된다. */
+        event?("back", ["phase": "plain"])
     }
 
     /**

@@ -778,6 +778,8 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     private let backAt: CGFloat = 60
     /// 그 손짓의 문지기 — **오른쪽으로 그은 것만** 받는다(`BackGuard` 참고).
     private let backGuard = BackGuard()
+    /// 말풍선 자리에서 오른쪽으로 미는 손짓 — 가장자리 끌기에 자리를 내준다.
+    private weak var backRecognizer: UIPanGestureRecognizer?
     /// 지금 **손가락을 따라** 끌고 있는가(35판). 거짓이면 25판처럼 놓을 때
     /// 한 번만 보고 넘어간다 — 한 손짓 안에서 갈래가 안 바뀌어야 하므로
     /// `.began`에서 한 번 정하고 그대로 간다.
@@ -854,6 +856,7 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         back.delegate = backGuard
         back.cancelsTouchesInView = false
         table.addGestureRecognizer(back)
+        backRecognizer = back
 
         jumpBar.isHidden = true
         jumpBar.addTarget(self, action: #selector(jumpTapped), for: .touchUpInside)
@@ -869,6 +872,15 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
     }
 
     @objc private func tapped() { listDelegate?.chatListDismissKeyboard() }
+
+    /**
+     * **왼쪽 가장자리에서는 iOS의 뒤로 가기에 자리를 내준다.**
+     *
+     * 그 길로 가야 키보드가 화면과 한 몸으로 밀려 나간다
+     * (`AppDelegate`의 `EdgeBack` 주석). 가장자리가 아닌 자리에서는 저
+     * 손짓이 그 자리에서 실패하므로 우리 것이 예전 그대로 돈다.
+     */
+    func requireFail(_ g: UIGestureRecognizer) { backRecognizer?.require(toFail: g) }
 
     /**
      * 오른쪽으로 밀어 뒤로 가기(25판 · **35판에서 손가락을 따라온다**).

@@ -12,6 +12,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    /// 가장자리 끌기를 살려 두는 문지기 — 아래 `wrapInNavigation` 참고.
+    private let edgeBack = EdgeBack()
+
     /**
      * **화면 틀(`UINavigationController`)에 앱을 얹는다.**
      *
@@ -21,15 +24,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      * **`UIScreen.snapshotView`가 키보드를 못 담아** 막혔다 — iOS는
      * 키보드를 딴 프로세스로 그리므로 앱이 그 픽셀을 가져갈 길이 없다.
      *
-     * **이 판은 재려고 만든 것이다.** 대화방에서 `←`를 누르는 길만
-     * 이 틀의 `pop`으로 보내고(그때 **키보드를 안 내린다**), 나머지는
-     * 예전 그대로다. 폰에서 볼 것은 하나 — **키보드가 화면과 함께
-     * 오른쪽으로 밀려 나가는가.** 그 답이 다음 판을 정한다
-     * (안 밀리면 글칸을 `inputAccessoryView`로 바꿔야 한다).
+     * **실기기에서 확인했다**(사용자 — `잘 돼`). `←`를 누르면 키보드가
+     * 화면과 한 몸으로 오른쪽으로 밀려 나간다. 그래서 **손가락 끌기도
+     * 이 틀에 넘긴다** — 아래 `EdgeBack`이 그 자리다.
      *
      * **막대는 감춘다** — 우리 화면은 저마다 제 머리말을 그린다.
-     * 그러면 iOS가 가장자리 끌기(`interactivePopGestureRecognizer`)를
-     * 스스로 꺼 주므로 우리 `BackDrag`와 다툴 일도 없다.
+     * 그런데 막대를 감추면 iOS가 가장자리 끌기를 **스스로 꺼 버리므로**
+     * (그 대리자가 막대를 보고 거절한다) 우리 문지기를 대신 세운다.
      */
     private func wrapInNavigation() {
         guard let win = window, let root = win.rootViewController,
@@ -37,6 +38,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let nav = UINavigationController(rootViewController: root)
         nav.isNavigationBarHidden = true
         nav.view.backgroundColor = root.view.backgroundColor ?? .systemBackground
+        edgeBack.nav = nav
+        nav.interactivePopGestureRecognizer?.delegate = edgeBack
         win.rootViewController = nav
     }
 
@@ -113,4 +116,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+}
+
+/**
+ * **왼쪽 가장자리에서 끌면 iOS가 뒤로 보내 준다.**
+ *
+ * `UINavigationController`는 막대를 감추면 그 손짓을 스스로 꺼 버린다
+ * (기본 대리자가 막대를 보고 거절한다). 우리 화면은 저마다 머리말을
+ * 그리므로 막대는 감춘 채로 손짓만 되살리는 것이 이 클래스의 전부다.
+ *
+ * **이 길로 가면 키보드가 화면과 한 몸으로 밀려 나간다** — 우리가 손으로
+ * 미는 `BackDrag`로는 못 하는 일이다(키보드는 딴 창이라 우리 그림에
+ * 안 담긴다). 그래서 **가장자리에서는 이쪽이 이긴다**:
+ * `NativeChatViewController.linkEdge()`가 우리 손짓들에
+ * `require(toFail:)`을 걸어 비켜 준다. 가장자리가 아닌 자리에서는 이
+ * 손짓이 곧바로 실패하므로 `BackDrag`가 예전 그대로 돈다.
+ *
+ * **대리자는 약하게 잡히므로** `AppDelegate`가 이 객체를 들고 있어야 한다.
+ */
+final class EdgeBack: NSObject, UIGestureRecognizerDelegate {
+    weak var nav: UINavigationController?
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let nav = nav else { return false }
+        /* 돌고 있는 전환 위에 또 시작하면 화면이 반쯤 겹친 채로 굳는다. */
+        return nav.viewControllers.count > 1 && nav.transitionCoordinator == nil
+    }
 }
