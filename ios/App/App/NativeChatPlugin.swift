@@ -61,6 +61,18 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
             let nav = root.navigationController
             let under = fresh && nav != nil ? root.view.snapshotView(afterScreenUpdates: false) : nil
             if fresh {
+                /* **밀어 올리기 직전에 옮겨진 자리를 지운다.** 눌러서 나간
+                   판(`←`)은 `animated: true`로 내려가므로 UIKit이 이 화면의
+                   `transform`을 옮겨 놓는데, 끝나기 전에 창에서 빠지면
+                   마무리가 안 돌아 **그 자리가 그대로 남는다** — 그 위에
+                   우리 슬라이드가 얹히면 엉뚱한 데서 들어온다(사용자 제보 —
+                   `뒤로가기 버튼으로 나갔다가 다시 들어올 때만 대각선 위에서
+                   내려와`). 끌어서 나간 판은 `animated: false`라 UIKit이
+                   아무것도 안 옮겨 그 자국이 없었다.
+                   화면 쪽도 `afterPop`·`resume`에서 같은 일을 한다 —
+                   **한쪽만 고치지 말 것.** */
+                chat.view.layer.removeAllAnimations()
+                chat.view.transform = .identity
                 root.view.endEditing(true)
                 if let nav = nav {
                     nav.pushViewController(chat, animated: false)
