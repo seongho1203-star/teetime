@@ -1814,14 +1814,27 @@ final class BackDrag {
      * - **`makeKeyAndVisible`을 쓰지 말 것** — 키를 뺏으면 글칸의 초점이 풀린다.
      * - **손짓을 안 받는다**(`isUserInteractionEnabled = false`) — 받으면
      *   끌고 있는 그 손가락이 이 창에 잡혀 아래 목록까지 안 내려간다.
+     *
+     * - **씬(`windowScene`)을 요구하지 말 것 — 우리 앱에는 아예 없다.**
+     *   Capacitor 기본 틀은 `UIApplicationSceneManifest`도 `SceneDelegate`도
+     *   없이 `AppDelegate`가 `var window: UIWindow?`를 직접 들고 있는
+     *   **레거시 앱**이라, iOS 13+에서도 `window.windowScene`이 **늘 nil**이다.
+     *   처음에 `guard let scene = stage.windowScene else { return nil }`로
+     *   시작했더니 **첫 줄에서 그대로 돌아서** 키보드를 드는 갈래가 통째로
+     *   안 돌았다 — 실기기에서 **화면만 끌리고 키보드는 제자리에 굳은**
+     *   자국으로 나타났다(사용자 제보 — `키보드가 한몸으로 안움직여`).
+     *   씬이 있으면 그 창으로, 없으면 `UIWindow(frame:)`으로 만든다.
      */
     private func liftKeyboard(stage: UIWindow, gap: CGRect) -> UIWindow? {
-        guard let scene = stage.windowScene else { return nil }
         /* `UIScreen`의 것은 `UIView`와 달리 늘 돌려준다(옵셔널이 아니다). */
         let screen = stage.screen.snapshotView(afterScreenUpdates: false)
-        let win = UIWindow(windowScene: scene)
+        let win: UIWindow
+        if let scene = stage.windowScene { win = UIWindow(windowScene: scene) }
+        else { win = UIWindow(frame: stage.frame) }
         win.frame = stage.frame
-        let top = scene.windows.map { $0.windowLevel.rawValue }.max() ?? 0
+        /* 씬이 없으면 이웃 창을 훑을 길이 없다 — 그때는 `kbLevel`이 곧 답이다
+           (`UITextEffectsWindow`가 10,000,000이라 그 위로 하나 올려 잡았다). */
+        let top = stage.windowScene?.windows.map { $0.windowLevel.rawValue }.max() ?? 0
         win.windowLevel = UIWindow.Level(rawValue: max(top + 1, Self.kbLevel))
         win.backgroundColor = .clear
         win.isUserInteractionEnabled = false

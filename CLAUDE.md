@@ -6497,6 +6497,20 @@ TestFlight까지 올라갔는데 폰에서는 **고친 것이 하나도 없어 �
   키보드가 안 담긴다. **다만 키보드 자리만 오려 쓴다**: 대화 화면은 이미
   `root`를 찍은 그림이 맡고 있으므로, 화면 찍기가 키보드를 못 담는 판이어도
   **어긋나는 곳이 그 띠 하나로 그친다**(그때는 깔아 둔 키보드색 바탕이 뜬다).
+- **씬(`windowScene`)을 요구하지 말 것 — 우리 앱에는 아예 없다.**
+  **첫 판(1.170)이 여기서 통째로 막혔다**(사용자 제보 — `키보드가 한몸으로
+  안움직여`). Capacitor 기본 틀은 `Info.plist`에 `UIApplicationSceneManifest`도
+  없고 `SceneDelegate`도 없이 `AppDelegate`가 `var window: UIWindow?`를 직접
+  들고 있는 **레거시 앱**이라, iOS 13+에서도 `window.windowScene`이 **늘
+  nil**이다. `liftKeyboard`를
+  `guard let scene = stage.windowScene else { return nil }`로 시작해 두었더니
+  **첫 줄에서 그대로 돌아서** 키보드를 드는 갈래가 한 번도 안 돌았고,
+  `dropKeyboard`도 안 불려 **화면만 끌리고 키보드는 제자리에 굳었다** —
+  겉으로는 이 기능을 아예 안 넣은 것과 똑같이 보인다.
+  지금은 씬이 있으면 `UIWindow(windowScene:)`, 없으면 `UIWindow(frame:)`으로
+  만들고 층은 `kbLevel`이 예비값이다.
+  **`UIApplication.shared.windows`로 물러나지도 말 것**(iOS 15에서 deprecated).
+  **앱 창을 다루는 코드에 씬을 문지기로 세우지 말 것** — 이 앱에서는 늘 nil이다.
 - **앞 화면은 웹뷰가 아니라 앱 창을 밀어 따라오게 한다**(`BackDrag.back`).
   키보드가 내려가면 Capacitor 키보드 플러그인이 **웹뷰의 `frame`을 고쳐
   잡는데**(`Keyboard.m`의 `_updateFrame`이 `webView.frame`을 읽어 다시 넣는다),
