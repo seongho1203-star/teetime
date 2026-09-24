@@ -3007,22 +3007,161 @@ final class AvatarView: UIView {
         } else {
             layer.borderWidth = 0
         }
-        image.isHidden = true
         token = nil
-        guard let url = url, !url.isEmpty else { return }
+        guard let url = url, !url.isEmpty else { image.isHidden = true; shown = nil; return }
+        let key = FaceStore.key(url)
+        /* **이미 그 얼굴이 떠 있으면 손대지 않는다.** 목록은 새 글·읽음·
+           반응마다 통째로 다시 그리는데(`reloadData`), 그때마다 그림을
+           감췄다 다시 얹으면 받아 두지 못한 판에서 글자가 비친다. */
+        if shown == key, image.image != nil, !image.isHidden { return }
+        if let hit = FaceStore.shared.cached(key) {
+            image.image = hit; image.alpha = 1; image.isHidden = false; shown = key
+            return
+        }
+        image.isHidden = true; shown = nil
         let mine = UUID()
         token = mine
-        ImageStore.shared.load(url) { [weak self] shot in
-            guard let self, self.token == mine, let img = shot?.first else { return }
-            self.image.image = img
-            self.image.isHidden = false
+        FaceStore.shared.load(key) { [weak self] img in
+            guard let self, self.token == mine, let img else { return }
+            self.image.image = img; self.shown = key
+            /* 늦게 온 것만 살짝 떠오르게 한다 — 툭 바뀌면 깜빡인 것으로 보인다. */
+            self.image.alpha = 0; self.image.isHidden = false
+            UIView.animate(withDuration: 0.15) { self.image.alpha = 1 }
         }
     }
+    private var shown: String?
 
     override func layoutSubviews() {
         super.layoutSubviews()
         image.frame = bounds
         letter.frame = bounds
+    }
+}
+
+/**
+ * **얼굴 그림만 따로 담아 두는 곳**(사용자 제보 — `홈에서 채팅들어갈때
+ * 프로필이 깜빡거리는 이유가 뭐야?`).
+ *
+ * 예전에는 얼굴도 `ImageStore`의 `NSCache`(48MB)에 담았는데, 그 칸을
+ * **움직이는 이모티콘이 같이 쓴다** — 한 장이 푼 값으로 3MB쯤이라 우리
+ * 대화방처럼 이모티콘이 대부분인 방에서는 열몇 장이면 칸이 차서 **얼굴이
+ * 밀려났다.** 그러면 목록을 다시 그릴 때마다(들어올 때 · 새 글 · 읽음)
+ * 얼굴이 **이름 두 글자로 먼저 그려졌다가** 사진이 다시 받아져 바뀌었다 —
+ * 그것이 깜빡임이다. 앱을 새로 켠 뒤 처음 들어갈 때도 같은 자국이 났다
+ * (그때는 담아 둔 것이 아예 없다).
+ *
+ * - **작게 줄여 담는다**(가로·세로 128픽셀) — 얼굴은 29·36pt라 3배로도
+ *   108픽셀이면 된다. 백 명이 다 담겨도 6MB 남짓이라 **안 밀어낸다**
+ *   (메모리 경고가 올 때만 비운다 — 디스크 것은 남는다).
+ * - **디스크에도 남긴다**(`Caches/faces`). 앱을 새로 켜도 첫 입장에서
+ *   인터넷을 안 기다린다. 주소가 바뀌면(`avatars/{uid}/{시각}.jpg`) 새
+ *   열쇠라 옛 그림이 남아도 안 쓰인다.
+ * - **전체화면 프로필은 여기를 안 쓴다** — 그 자리는 큰 그림이 필요하다
+ *   (`ImageStore`).
+ */
+final class FaceStore {
+    static let shared = FaceStore()
+    private static let edge = 128
+    private var mem: [String: UIImage] = [:]
+    private var waiting: [String: [(UIImage?) -> Void]] = [:]
+    private let dir: URL? = {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        else { return nil }
+        let d = base.appendingPathComponent("faces", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }()
+
+    init() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.mem.removeAll() }
+    }
+
+    /// 카카오 프사는 `http://`로 저장돼 있다 — `ImageStore.fetch`와 같은 잣대로 올린다.
+    static func key(_ raw: String) -> String {
+        raw.hasPrefix("http://") ? "https://" + raw.dropFirst("http://".count) : raw
+    }
+
+    /// 담아 둔 것만 곧바로 준다(없으면 `nil` — 받으러 가지 않는다).
+    func cached(_ raw: String) -> UIImage? { mem[FaceStore.key(raw)] }
+
+    /// 디스크 → 인터넷 차례로 찾는다. 답은 늘 **메인에서** 준다.
+    func load(_ raw: String, done: @escaping (UIImage?) -> Void) {
+        let s = FaceStore.key(raw)
+        if let hit = mem[s] { done(hit); return }
+        if waiting[s] != nil { waiting[s]?.append(done); return }
+        waiting[s] = [done]
+        let file = dir?.appendingPathComponent(FaceStore.fileName(s))
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let file = file, let d = try? Data(contentsOf: file), let img = FaceStore.thumb(d) {
+                DispatchQueue.main.async { self.finish(s, img) }
+                return
+            }
+            guard let url = URL(string: s), url.scheme == "https" else {
+                DispatchQueue.main.async { self.finish(s, nil) }
+                return
+            }
+            URLSession.shared.dataTask(with: url) { data, res, _ in
+                let code = (res as? HTTPURLResponse)?.statusCode ?? 0
+                var img: UIImage?
+                if code / 100 == 2, let data = data { img = FaceStore.thumb(data) }
+                if let img = img, let file = file, let png = img.pngData() {
+                    try? png.write(to: file, options: .atomic)
+                }
+                DispatchQueue.main.async { self.finish(s, img) }
+            }.resume()
+        }
+    }
+
+    /**
+     * 여럿을 미리 담아 두고, **다 담기거나 `timeout`이 지나면** `done`을
+     * 한 번 부른다. 대화방에 처음 들어갈 때 목록을 그리기 전에 부른다 —
+     * 디스크에 있으면 몇 ms에 끝나고, 없으면 그 시간만큼만 기다린다.
+     */
+    func warm(_ urls: [String], timeout: TimeInterval, done: @escaping () -> Void) {
+        var left = Set(urls.filter { !$0.isEmpty }.map(FaceStore.key).filter { mem[$0] == nil })
+        var fired = false
+        let fire = { if !fired { fired = true; done() } }
+        if left.isEmpty { fire(); return }
+        for s in Array(left) {
+            load(s) { _ in
+                left.remove(s)
+                if left.isEmpty { fire() }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { fire() }
+    }
+
+    func warm(_ urls: [String], timeout: TimeInterval) async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { self.warm(urls, timeout: timeout) { c.resume() } }
+        }
+    }
+
+    private func finish(_ s: String, _ img: UIImage?) {
+        if let img = img { mem[s] = img }
+        (waiting.removeValue(forKey: s) ?? []).forEach { $0(img) }
+    }
+
+    /// 파일 이름 — 주소를 그대로 쓰면 `/`가 섞여 자리가 안 된다.
+    private static func fileName(_ s: String) -> String {
+        var h: UInt64 = 1469598103934665603          // FNV-1a
+        for b in s.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
+        return String(h, radix: 16) + ".png"
+    }
+
+    /// 줄여서 **다 풀어 둔** 그림 — 그릴 때 메인에서 푸는 일이 없다.
+    private static func thumb(_ d: Data) -> UIImage? {
+        guard let src = CGImageSourceCreateWithData(d as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: edge,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
     }
 }
 

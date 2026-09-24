@@ -651,8 +651,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 let latest = try await self.service.messages(self.room, limit: 100)
                 try Task.checkCancellation()
                 self.messages = latest.reversed(); self.hasMore = latest.count == 100
+                /* **얼굴을 목록보다 먼저 담아 둔다**(`FaceStore` 머리말) — 안 그러면
+                   처음 그릴 때 얼굴이 이름 두 글자로 떴다가 사진으로 바뀐다.
+                   읽음·반응을 받는 동안 함께 받고, 그리기 직전에 조금만 더 기다린다. */
+                let faces = self.recentFaces()
+                FaceStore.shared.warm(faces, timeout: 0) {}
                 self.reads = (try? await self.service.reads(self.room)) ?? [:]
                 self.reactions = (try? await self.service.reactions(self.messages.map { $0.id })) ?? []
+                await FaceStore.shared.warm(faces, timeout: 0.3)
                 try Task.checkCancellation()
                 let seen = NativeChatRows.date(self.service.config.seen)
                 if seen > NativeChatRows.date("1970-01-02T00:00:00Z"),
@@ -669,6 +675,15 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 if Task.isCancelled { return }
                 self.status.setTitle("\(error.localizedDescription)\n눌러서 다시 시도", for: .normal)
             }
+        }
+    }
+    /// 첫 화면에 보일 만한 줄(맨 아래 마흔)의 글쓴이 얼굴 주소.
+    private func recentFaces() -> [String] {
+        let who = Set(messages.suffix(40).filter { !$0.system }.map { $0.user })
+        return people.compactMap { p in
+            guard let id = p["id"] as? String, who.contains(id),
+                  let u = p["avatar_url"] as? String, !u.isEmpty else { return nil }
+            return u
         }
     }
     private func installRealtime() {
