@@ -125,6 +125,23 @@ function takeShot(el: HTMLElement, includeTabBar = false): Shot {
 }
 
 /**
+ * **사본 속 그림을 곧바로 받게 한다.**
+ *
+ * 얼굴 사진은 `loading="lazy"`인데, 복사한 `<img>`는 **새 요소**라 그 표를
+ * 그대로 물려받아 화면에 붙은 뒤 몇 프레임이 지나서야 그림을 푼다 —
+ * 캐시에 이미 있어도 그렇다. 그 사이 사진 자리가 비어, 홈에서 `대화`를
+ * 누를 때 **머리말의 내 얼굴이 한 번 깜빡였다**(사용자 제보). 헤드리스로
+ * 재서 붙인 직후 · 다음 프레임 · 그다음 프레임 셋 다 빈 것을 확인했다.
+ * 사본은 이미 화면에 보이던 것이라 미룰 까닭이 없다.
+ */
+function wakeImages(root: HTMLElement): void {
+    for (const img of root.querySelectorAll('img')) {
+        img.loading = 'eager';
+        img.decoding = 'sync';
+    }
+}
+
+/**
  * 찍어 둔 그림을 화면에 깔 사본으로 만든다.
  *
  * 굴린 자리는 **붙인 뒤에** 잡아야 한다(`placeChatList`) — 아직 문서에
@@ -132,6 +149,7 @@ function takeShot(el: HTMLElement, includeTabBar = false): Shot {
  */
 function cloneShot(shot: Shot): { c: HTMLElement; list: HTMLElement | null } {
     const c = shot.node.cloneNode(true) as HTMLElement;
+    wakeImages(c);
     /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
        늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
     if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
@@ -586,6 +604,7 @@ function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElem
             // The native transition moves this entire previous screen, including
             // its bottom bar. Keep it independent of the page's scroll offset.
             const bar = shot.tabbar.cloneNode(true) as HTMLElement;
+            wakeImages(bar);
             Object.assign(bar.style, { position: 'absolute', display: 'flex', zIndex: '0' });
             g.appendChild(bar);
         }
