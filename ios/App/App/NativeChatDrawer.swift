@@ -1349,6 +1349,115 @@ final class SuggestCell: UIControl {
     }
 }
 
+// MARK: - 고른 이모티콘 미리보기
+
+/**
+ * **고른 이모티콘을 대화 위에 어두운 카드로 크게 띄운다** — 카톡의 그것이다
+ * (사용자 요청 — `메시지창에 굿모닝입력하면 이모티콘 선택하면 카톡처럼
+ * 뜨게해줘` · 카톡 화면을 받아 맞췄다).
+ *
+ * 예전에는 입력칸 바로 위에 `[그림] 까꿍~ ✕` 한 줄이었고, 고르는 순간 추천
+ * 줄(`SuggestBar`)을 걷었다. 그러면 **고른 것이 작게만 보이고 다른 것으로
+ * 바꾸려면 글을 다시 쳐야 했다.** 지금은 카드가 줄 **위에** 뜨고 줄은 남아
+ * 있어 옆의 것을 누르면 카드만 갈린다.
+ *
+ * - **자리와 크기는 카톡 사진을 재서 얻었다**(390pt 폭 화면으로 환산 —
+ *   카드 182×135 · 모서리 13 · 가운데 · 추천 줄과 9pt 사이). 눈대중으로
+ *   고치지 말 것.
+ * - **칠은 짙은 회색에 투명도를 준 것이다** — 뒤의 대화가 살짝 비쳐야
+ *   '떠 있는 카드'로 읽힌다. **분홍을 쓰지 말 것**(이 화면에서 '지금 눌러야
+ *   할 것'은 보내기 단추 하나다).
+ * - **카드를 누르면 그 이모티콘만 곧바로 나간다**(웹의 미리보기와 같은
+ *   규칙 — 글은 입력칸에 그대로 남는다). 글과 함께 보내려면 보내기를 누른다.
+ * - `✕`는 오른쪽 위다. 카톡의 ☆(즐겨찾기)·🔍(크게 보기)는 **우리에게 없는
+ *   기능이라 안 그린다.**
+ */
+final class StickerPeek: UIView {
+    static let size = CGSize(width: 182, height: 135)
+    var onSend: (() -> Void)?
+    var onClose: (() -> Void)?
+    private let picture = UIImageView()
+    private let close = UIButton(type: .system)
+    private var url = ""
+    private var live = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor(red: 0.23, green: 0.24, blue: 0.27, alpha: 0.86)
+        layer.cornerRadius = 13
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        picture.contentMode = .scaleAspectFit
+        picture.isUserInteractionEnabled = false
+        addSubview(picture)
+        close.setImage(UIImage(systemName: "xmark", withConfiguration:
+            UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)), for: .normal)
+        close.tintColor = .white
+        close.accessibilityLabel = "이모티콘 빼기"
+        close.accessibilityIdentifier = "native-sticker-peek-close"
+        close.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        addSubview(close)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        isAccessibilityElement = false
+        accessibilityIdentifier = "native-sticker-peek"
+        isHidden = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side = min(bounds.width, bounds.height) - 22
+        picture.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2 + 4,
+                               width: side, height: side)
+        close.frame = CGRect(x: bounds.width - 40, y: 2, width: 38, height: 38)
+    }
+
+    @objc private func tapped(_ g: UITapGestureRecognizer) {
+        /* `✕` 자리를 누른 것은 빼기다 — 단추가 먼저 받지만 혹시 모를 겹침을 막는다. */
+        if close.frame.insetBy(dx: -4, dy: -4).contains(g.location(in: self)) { return }
+        onSend?()
+    }
+
+    /// 고른 이모티콘을 띄운다. 같은 것이면 그대로 둔다.
+    func show(_ item: ChatJSON) {
+        let next = item["src"] as? String ?? ""
+        let fresh = isHidden
+        if next != url {
+            url = next
+            let expected = url
+            live = false
+            ImageStore.put(nil, into: picture)
+            /* **움직이는 것은 멈춘 그림을 먼저 얹는다**(`SuggestCell`과 같은 수). */
+            if url.hasSuffix(".webp") {
+                let still = String(url.dropLast(4)) + "png"
+                ImageStore.shared.load(still) { [weak self] shot in
+                    guard let self = self, self.url == expected, !self.live, let shot = shot else { return }
+                    ImageStore.put(shot, into: self.picture)
+                }
+            }
+            ImageStore.shared.load(url) { [weak self] shot in
+                guard let self = self, self.url == expected, let shot = shot else { return }
+                self.live = true
+                ImageStore.put(shot, into: self.picture)
+            }
+        }
+        accessibilityLabel = "\(item["label"] as? String ?? "이모티콘") 보내기"
+        isHidden = false
+        guard fresh else { return }
+        /* 뜰 때만 한 번 살짝 커지며 나타난다 — `transform`·`alpha`만 움직인다. */
+        alpha = 0; transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+        UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            self.alpha = 1; self.transform = .identity
+        }
+    }
+
+    func hide() {
+        guard !isHidden else { return }
+        isHidden = true; url = ""; live = false
+        ImageStore.put(nil, into: picture)
+    }
+}
+
 // MARK: - 이모티콘 서랍
 
 /**

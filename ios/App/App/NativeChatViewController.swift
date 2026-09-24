@@ -66,6 +66,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private let mentions = MentionList()
     /// 치는 글에 어울리는 이모티콘 줄(카톡의 그것). 규칙은 웹에 있다.
     private let suggest = SuggestBar()
+    /// 고른 이모티콘을 대화 위에 크게 띄우는 카드(카톡의 그것 — `StickerPeek`).
+    private let peek = StickerPeek()
     /* ── 축하 폭죽(`ChatCheer.swift`) ───────────────────────
      * `ㅊㅋ`·`축하`·`추카`가 오가면 입력칸 위에 단추가 뜨고, 누르면 이
      * 화면에서만 폭죽이 터진다. 웹(`lib/cheer.ts`·`Fireworks.tsx`)과
@@ -235,6 +237,12 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
         suggest.onPick = { [weak self] item in self?.stickerPicked(item) }
         tray.onPick = { [weak self] item in self?.stickerPicked(item) }
+        /* 카드를 누르면 **그 이모티콘만** 나간다(글은 입력칸에 남는다 —
+           웹의 미리보기와 같은 규칙). `✕`는 고른 것을 뗀다. */
+        peek.onSend = { [weak self] in self?.composerSend(text: "") }
+        peek.onClose = { [weak self] in
+            self?.sticker = nil; self?.retryRow = nil; self?.updateContext()
+        }
         /* **폭죽 단추는 맨 위다**(웹 `.chat-over`와 같은 차례) — 언급 목록과
            인용은 입력칸에 가까이 붙어 있어야 무엇에 딸린 것인지 읽힌다. */
         cheer.onTap = { [weak self] in self?.fireCheer() }
@@ -269,6 +277,17 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
             list.trailingAnchor.constraint(equalTo: safe.trailingAnchor), list.bottomAnchor.constraint(equalTo: input.topAnchor),
             status.centerXAnchor.constraint(equalTo: list.centerXAnchor), status.centerYAnchor.constraint(equalTo: list.centerYAnchor),
             status.widthAnchor.constraint(lessThanOrEqualTo: list.widthAnchor, constant: -32)
+        ])
+        /* **고른 이모티콘 카드는 목록 위, 입력칸 묶음 바로 위에 뜬다** — 추천
+           줄이 떠 있으면 그 줄 위다(줄이 `input` 안에 있다). 가운데에 선다.
+           뒤에 얹는 길게 누른 창·서랍·프로필보다는 아래다(그것들이 다 덮는다). */
+        peek.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(peek)
+        NSLayoutConstraint.activate([
+            peek.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            peek.bottomAnchor.constraint(equalTo: input.topAnchor, constant: -9),
+            peek.widthAnchor.constraint(equalToConstant: StickerPeek.size.width),
+            peek.heightAnchor.constraint(equalToConstant: StickerPeek.size.height),
         ])
         status.titleLabel?.numberOfLines = 0; status.titleLabel?.textAlignment = .center
         status.setTitleColor(.white, for: .normal); status.setTitle("대화를 불러오는 중…", for: .normal)
@@ -454,9 +473,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     private func stickerPicked(_ item: ChatJSON) {
         sticker = item; picked = nil; retryRow = nil; updateContext()
-        /* **고르고 나면 줄을 걷는다** — 그 자리에 미리보기(`context`)가
-           이미 서 있고, 줄이 남으면 무엇을 고른 것인지 흐려진다. */
-        suggest.clear(); composer.suggestHits = []
+        /* **추천 줄은 그대로 둔다**(카톡과 같다 — 사용자 요청). 고른 것은
+           그 위의 카드(`peek`)가 크게 보여 주므로 흐려질 일이 없고, 줄이
+           남아 있어야 **옆의 것을 눌러 바로 바꿀 수 있다.** 예전에는 걷었다가
+           다른 것을 고르려면 글을 다시 쳐야 했다. */
     }
 
     /**
@@ -1055,7 +1075,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 쌓이면 말풍선이 통째로 가린다(부르는 일이 먼저다).
      */
     private func updateSuggest(_ text: String) {
-        guard sticker == nil, mentionRange == nil else {
+        guard mentionRange == nil else {
             suggest.clear(); composer.suggestHits = []; return
         }
         let found = suggestFind(text)
@@ -1427,7 +1447,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         } else {
             reply.isHidden = true
         }
-        if sticker != nil || picked != nil || loadingWhat != nil {
+        /* **이모티콘은 이 줄이 아니라 대화 위 카드(`peek`)가 보여 준다.**
+           여기 남는 것은 사진·동영상을 불러오거나 다시 보내려고 물려 둔 것뿐이다. */
+        if let s = sticker { peek.show(s) } else { peek.hide() }
+        if picked != nil || loadingWhat != nil {
             let row = UIStackView(); row.alignment = .center; row.distribution = .fill; row.spacing = 8
             /* 그림 칸은 **상자 안에** 둔다 — 아직 읽어 오는 중이면 그 위에
                도는 표시가 겹쳐 앉는다(`UIImageView`는 손짓도 겹판도
@@ -1446,10 +1469,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 image.topAnchor.constraint(equalTo: box.topAnchor),
                 image.bottomAnchor.constraint(equalTo: box.bottomAnchor),
             ])
-            if let src = sticker?["src"] as? String { ImageStore.shared.load(src) { shot in ImageStore.put(shot, into: image) } }
             let label = UILabel(); label.font = .systemFont(ofSize: 14)
             label.textColor = ChatSkin().on
-            label.text = sticker?["label"] as? String ?? picked?.label ?? loadingLabel()
+            label.text = picked?.label ?? loadingLabel()
             row.addArrangedSubview(box); row.addArrangedSubview(label)
 
             if loadingWhat != nil {

@@ -83,7 +83,13 @@ final class NativeChatTests: XCTestCase {
         ])
         chat.didMove(toParent: root); root.view.layoutIfNeeded(); chat.resume()
     }
-    private func prepare(navigation: Bool = false, back: Bool = false) async {
+    private func findAll<T: UIView>(_ view: UIView, _ type: T.Type) -> [T] {
+        var out: [T] = []
+        if let found = view as? T { out.append(found) }
+        for child in view.subviews { out += findAll(child, type) }
+        return out
+    }
+    private func prepare(navigation: Bool = false, back: Bool = false, extra: [String: Any] = [:]) async {
         ChatFixtureProtocol.requests = []; ChatFixtureProtocol.rejectWrites = false
         ChatFixtureProtocol.rows = (0..<100).map { i in [
             "id": String(format: "00000000-0000-0000-0001-%012d", i),
@@ -91,8 +97,10 @@ final class NativeChatTests: XCTestCase {
             "body": "Message \(i)\nA wrapped message for viewport measurement.",
             "created_at": String(format: "2026-09-17T09:%02d:%02dZ", i / 60, i % 60)
         ] }
-        let config = NativeChatConfig(["user": ChatFixtureProtocol.user, "url": "https://native-chat.test",
-            "key": "test-anon", "token": "test-member-token", "back": back])!
+        var raw: [String: Any] = ["user": ChatFixtureProtocol.user, "url": "https://native-chat.test",
+            "key": "test-anon", "token": "test-member-token", "back": back]
+        raw.merge(extra) { _, new in new }
+        let config = NativeChatConfig(raw)!
         let network = URLSessionConfiguration.ephemeral; network.protocolClasses = [ChatFixtureProtocol.self]
         service = NativeChatService(config, session: URLSession(configuration: network), liveUpdates: false)
         chat = NativeChatViewController(service: service)
@@ -212,6 +220,60 @@ final class NativeChatTests: XCTestCase {
         chat.composerTapped("sticker")
         await settle(0.3)
         XCTAssertTrue(tray.isHidden)
+    }
+
+    /// 추천 줄에서 이모티콘을 고르면 **대화 위에 카드로 크게 뜨고 줄은 남는다**
+    /// (카톡과 같다 — 사용자 요청). 카드를 누르면 그 이모티콘만 나간다.
+    func testSuggestPickShowsFloatingPeekAndKeepsStrip() async throws {
+        let stickers: [[String: Any]] = [["label": "g", "stickers": [
+            ["id": "a1", "label": "굿모닝", "src": "https://native-chat.test/a1.png"],
+            ["id": "a2", "label": "좋은 아침", "src": "https://native-chat.test/a2.png"],
+        ]]]
+        await prepare(extra: ["stickers": stickers,
+                              "suggest": [["words": ["굿모닝"], "ids": ["a1", "a2"]]]])
+        defer { finish() }
+        let composer = try XCTUnwrap(find(chat.view, ComposerBar.self))
+        let strip = try XCTUnwrap(find(chat.view, SuggestBar.self))
+        let peek = try XCTUnwrap(find(chat.view, StickerPeek.self))
+        composer.text = "굿모닝"
+        chat.composerChanged(text: "굿모닝", sel: 3)
+        await settle()
+        XCTAssertFalse(strip.isHidden)
+        XCTAssertTrue(peek.isHidden)
+        let cells = findAll(strip, SuggestCell.self)
+        XCTAssertEqual(cells.count, 2)
+        cells[0].sendActions(for: .touchUpInside)
+        await settle(0.3)
+        XCTAssertFalse(peek.isHidden, "고르면 카드가 뜬다")
+        XCTAssertFalse(strip.isHidden, "추천 줄은 그대로 남는다")
+        /* **자리를 잰다** — 카드는 줄 위에 가운데로 선다. */
+        let box = peek.convert(peek.bounds, to: chat.view)
+        let bar = strip.convert(strip.bounds, to: chat.view)
+        XCTAssertLessThanOrEqual(box.maxY, bar.minY + 0.5)
+        XCTAssertEqual(box.midX, chat.view.bounds.midX, accuracy: 1)
+        XCTAssertEqual(box.width, StickerPeek.size.width, accuracy: 0.5)
+        /* 옆의 것을 누르면 카드만 갈린다. */
+        findAll(strip, SuggestCell.self)[1].sendActions(for: .touchUpInside)
+        await settle()
+        XCTAssertFalse(peek.isHidden)
+        XCTAssertEqual(peek.accessibilityLabel, "좋은 아침 보내기")
+        /* `✕`는 고른 것만 뗀다 — 줄은 남는다. */
+        peek.onClose?()
+        await settle()
+        XCTAssertTrue(peek.isHidden)
+        XCTAssertFalse(strip.isHidden)
+        /* 카드를 누르면 그 이모티콘만 나가고 글은 입력칸에 남는다. */
+        findAll(strip, SuggestCell.self)[0].sendActions(for: .touchUpInside)
+        await settle()
+        let before = ChatFixtureProtocol.rows.count
+        peek.onSend?()
+        for _ in 0..<30 { await settle(0.1); if ChatFixtureProtocol.rows.count > before { break } }
+        XCTAssertEqual(ChatFixtureProtocol.rows.count, before + 1)
+        XCTAssertEqual(ChatFixtureProtocol.rows.last?["image_url"] as? String, "sticker:a1")
+        XCTAssertEqual(ChatFixtureProtocol.rows.last?["body"] as? String, "")
+        await settle(0.2)
+        XCTAssertEqual(composer.text, "굿모닝")
+        XCTAssertTrue(peek.isHidden)
     }
 
     /// Exercise the production navigation host, not the old addChild-only fixture.
