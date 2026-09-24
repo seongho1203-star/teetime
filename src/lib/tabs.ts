@@ -115,9 +115,13 @@ const shots: Shot[] = [];
 const MAX_SHOTS = 6;   // 뒤로 여섯 번이면 넉넉하다
 
 /** 지금 화면을 한 장 찍는다(위 `Shot`). */
-function takeShot(el: HTMLElement, includeTabBar = false): Shot {
+function takeShot(el: HTMLElement): Shot {
     const list = el.querySelector<HTMLElement>('.chat-list');
-    const tabbar = includeTabBar ? document.querySelector<HTMLElement>('.app > .tabbar') : null;
+    /* **탭바도 함께 찍는다 — 화면에 떠 있으면 늘.** 화면을 밀 때 탭바도
+       그 화면과 한 몸으로 움직이므로(아래 `tabBarEl`), 뒤에 깔리는 앞 화면과
+       떠나는 화면 그림에도 제 탭바가 있어야 한다. 대화방처럼 탭바가 없는
+       화면은 요소 자체가 없어 저절로 빠진다. */
+    const tabbar = tabBarEl();
     return {
         path: routeOf(location.href),
         pics: grabImages(el),
@@ -248,6 +252,42 @@ function pageEl(): HTMLElement | null {
 }
 
 /**
+ * **화면에 떠 있는 탭바**(없거나 감춰져 있으면 null).
+ *
+ * 사용자 요청 — `투표나 라운드에서 끌기나 뒤로가기할때 탭바도 같이
+ * 밀리도록해줘`(사진 — 라운드를 끌어 대화방으로 돌아가는데 탭바만
+ * 제자리에 남아 대화방 그림 위에 얹혀 있었다). 탭바는 `position: fixed`라
+ * 화면을 `transform`으로 밀어도 안 따라온다 — 그래서 **화면을 미는 곳마다
+ * 같은 값을 탭바에도 적는다**(`moveBar`). 들어갈 때(`runPush`)도 같다 —
+ * 한쪽만 밀면 들어갈 땐 가만있던 탭바가 나올 때만 움직여 어색하다.
+ */
+function tabBarEl(): HTMLElement | null {
+    const b = document.querySelector<HTMLElement>('.app > .tabbar');
+    if (!b) return null;
+    try { if (getComputedStyle(b).display === 'none') return null; } catch { /* 그대로 쓴다 */ }
+    return b;
+}
+
+/** 탭바를 화면과 같은 자리로 옮긴다. 빈 글자면 제자리로 되돌린다. */
+function moveBar(transform: string): void {
+    const b = document.querySelector<HTMLElement>('.app > .tabbar');
+    if (!b) return;
+    b.style.transform = transform;
+    if (!transform) b.style.transition = '';
+}
+
+/** 찍어 둔 탭바를 그림 칸 맨 아래에 붙인다(앞 화면·떠나는 화면이 같이 쓴다). */
+function addBar(box: HTMLElement, shot: Shot): void {
+    if (!shot.tabbar) return;
+    /* 그 화면을 굴려 둔 자리(`marginTop`)와 상관없이 늘 바닥에 선다. */
+    const bar = shot.tabbar.cloneNode(true) as HTMLElement;
+    paintImages(bar, undefined);
+    Object.assign(bar.style, { position: 'absolute', display: 'flex', zIndex: '0',
+                               transform: '', transition: '' });
+    box.appendChild(bar);
+}
+
+/**
  * 주소에서 **화면 경로**를 꺼낸다.
  *
  * **이 앱은 해시 라우팅이다**(`/#/rounds` — 그 까닭은 CLAUDE.md에 있다).
@@ -311,7 +351,7 @@ function snap(toPath: string) {
     const prev = shots[shots.length - 1];
     const shot: Shot | undefined = blank
         ? (plate ?? (prev && { ...prev, stub: true as const }))
-        : el ? takeShot(el, hasNativeChat() && toPath === '/chat') : undefined;
+        : el ? takeShot(el) : undefined;
     if (!shot) return;
     shots.push(shot);
     while (shots.length > MAX_SHOTS) shots.shift();
@@ -398,6 +438,7 @@ function sweepGhosts(force = false): void {
     document.removeEventListener('touchmove', blockScroll);
     const el = pageEl();
     if (el) { el.style.transform = ''; el.style.transition = ''; }
+    moveBar('');
     ghostAt = 0;
 }
 
@@ -672,14 +713,7 @@ function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElem
         const made = cloneShot(shot);
         list = made.list;
         g.appendChild(made.c);
-        if (shot.tabbar) {
-            // The native transition moves this entire previous screen, including
-            // its bottom bar. Keep it independent of the page's scroll offset.
-            const bar = shot.tabbar.cloneNode(true) as HTMLElement;
-            paintImages(bar, undefined);
-            Object.assign(bar.style, { position: 'absolute', display: 'flex', zIndex: '0' });
-            g.appendChild(bar);
-        }
+        addBar(g, shot);
     }
     const dim = document.createElement('div');
     dim.className = 'back-ghost-dim';
@@ -719,11 +753,13 @@ function runPush(el: HTMLElement, shot: Shot | undefined): void {
     const { g, dim } = layGhost(shot);
     root.classList.add('screen-push');
     el.style.transform = `translate3d(${W}px,0,0)`;
+    moveBar(`translate3d(${W}px,0,0)`);
     g.style.transform = 'translate3d(0,0,0)';
     dim.style.opacity = '0';
     nextFrames(() => {
         root.classList.add('screen-ease');
         el.style.transform = 'translate3d(0,0,0)';
+        moveBar('translate3d(0,0,0)');
         g.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
         dim.style.opacity = String(DIM);
     });
@@ -744,16 +780,19 @@ function runPop(el: HTMLElement, shot: Shot): void {
     gx.className = 'exit-ghost';
     const { c, list } = cloneShot(shot);
     gx.appendChild(c);
+    addBar(gx, shot);
     document.body.appendChild(dim);
     document.body.appendChild(gx);
     if (list) placeChatList(list, shot);
     ghostAt = Date.now();
     root.classList.add('screen-pop');
     el.style.transform = `translate3d(${-W * PARALLAX}px,0,0)`;
+    moveBar(`translate3d(${-W * PARALLAX}px,0,0)`);
     gx.style.transform = 'translate3d(0,0,0)';
     nextFrames(() => {
         root.classList.add('screen-ease');
         el.style.transform = 'translate3d(0,0,0)';
+        moveBar('translate3d(0,0,0)');
         gx.style.transform = `translate3d(${W}px,0,0)`;
         dim.style.opacity = '0';
     });
@@ -779,7 +818,10 @@ export function useBackSwipe(): void {
 
         const paint = () => {
             const p = Math.max(0, Math.min(1, dx / W));
-            if (page) page.style.transform = `translate3d(${dx}px,0,0)`;
+            if (page) {
+                page.style.transform = `translate3d(${dx}px,0,0)`;
+                moveBar(`translate3d(${dx}px,0,0)`);
+            }
             if (ghost) ghost.style.transform = `translate3d(${(p - 1) * W * PARALLAX}px,0,0)`;
             if (dim) dim.style.opacity = String(DIM * (1 - p));
         };
@@ -817,6 +859,7 @@ export function useBackSwipe(): void {
             for (const el of [page, pageEl()]) {
                 if (el) { el.style.transform = ''; el.style.transition = ''; }
             }
+            moveBar('');
             page = null;
             live = false;
         };

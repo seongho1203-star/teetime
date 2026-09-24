@@ -3496,6 +3496,16 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     /* **여기가 해시 라우팅에 걸렸던 자리다** — 0장이면 그림을 안 찍은 것이다. */
     ok(ghost.장 === 1, `앞 화면 그림이 실제로 들어 있다 (${ghost.장}장)`);
     ok(ghost.눌림 === 'none', '그 그림은 눌리지 않는다(죽은 그림이다)');
+    /* **탭바도 손끝을 따라온다**(사용자 요청 — `끌기나 뒤로가기할때 탭바도
+       같이 밀리도록해줘`). 탭바는 `position: fixed`라 화면만 밀면 제자리에
+       남아 뒤에 깔린 그림 위에 얹힌다. */
+    const barMid = await bp.evaluate(() => {
+        const b = document.querySelector('.app > .tabbar');
+        return { 있나: !!b, x: b ? Math.round(new DOMMatrixReadOnly(getComputedStyle(b).transform).e) : null,
+                 뒤탭바: !!document.querySelector('.back-ghost .tabbar') };
+    });
+    ok(barMid.있나 && barMid.x === mid.page, `끄는 동안 탭바가 화면과 같이 밀린다 (탭바 ${barMid.x}px · 화면 ${mid.page}px)`);
+    ok(barMid.뒤탭바, '뒤에 깔린 앞 화면에도 제 탭바가 있다');
 
     /* 끌다가 멈추고 놓으면 되돌아온다 — 위 `STALE`이 지키는 자리다. */
     const stay = await at();
@@ -3504,12 +3514,16 @@ console.log('\n── 손가락을 따라 뒤로 가기 ──');
     ok((await at()) === stay, '조금 끌다 멈추고 놓으면 안 넘어간다');
     const home = await shift();
     ok(home.page === 0 && !home.있나, '제자리로 돌아오고 그림도 걷힌다');
+    const barHome = await bp.evaluate(() => document.querySelector('.app > .tabbar')?.style.transform ?? 'none');
+    ok(barHome === '', `탭바도 제자리로 돌아온다 (${barHome || '빈 값'})`);
 
     await draw(300);
     await bp.waitForTimeout(700);
     ok((await at()) === '#/rounds', `충분히 끌면 뒤로 간다 (${await at()})`);
     const done = await shift();
     ok(done.page === 0 && !done.있나, '넘어간 뒤에 옛 자리가 안 남는다');
+    const barDone = await bp.evaluate(() => document.querySelector('.app > .tabbar')?.style.transform ?? 'none');
+    ok(barDone === '', `넘어간 뒤에 탭바에도 옛 자리가 안 남는다 (${barDone || '빈 값'})`);
 
     await dive();
     const before = await at();
@@ -4172,25 +4186,38 @@ console.log('\n── 화면이 통째로 밀려 들어오고 나간다 ──')
     const watch = (p, ms) => p.evaluate(async (ms) => {
         const app = document.querySelector('.app');
         let 화면 = 0, 뒤 = false, 떠남 = 0, on = true;
+        /* **탭바가 화면과 한 몸으로 움직이는가**(사용자 요청 — `끌기나
+           뒤로가기할때 탭바도 같이 밀리도록해줘`). 프레임마다 두 자리의
+           차이 중 가장 큰 것을 본다 — 같이 가면 0이다. */
+        let 탭바 = 0, 어긋남 = 0, 뒤탭바 = false, 떠남탭바 = false;
         const tick = () => {
             if (!on) return;
             const kid = app?.firstElementChild;
+            const bar = document.querySelector('.app > .tabbar');
             if (kid) {
                 const x = new DOMMatrixReadOnly(getComputedStyle(kid).transform).e;
                 if (Math.abs(x) > 화면) 화면 = Math.abs(x);
+                if (bar) {
+                    const bx = new DOMMatrixReadOnly(getComputedStyle(bar).transform).e;
+                    if (Math.abs(bx) > 탭바) 탭바 = Math.abs(bx);
+                    if (Math.abs(bx - x) > 어긋남) 어긋남 = Math.abs(bx - x);
+                }
             }
             if (document.querySelector('.back-ghost')) 뒤 = true;
+            if (document.querySelector('.back-ghost .tabbar')) 뒤탭바 = true;
             const gx = document.querySelector('.exit-ghost');
             if (gx) {
                 const x = new DOMMatrixReadOnly(getComputedStyle(gx).transform).e;
                 if (x > 떠남) 떠남 = x;
+                if (gx.querySelector('.tabbar')) 떠남탭바 = true;
             }
             requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
         await new Promise(r => setTimeout(r, ms));
         on = false;
-        return { 화면: Math.round(화면), 뒤, 떠남: Math.round(떠남) };
+        return { 화면: Math.round(화면), 뒤, 떠남: Math.round(떠남),
+                 탭바: Math.round(탭바), 어긋남: Math.round(어긋남), 뒤탭바, 떠남탭바 };
     }, ms);
 
     const 남은것 = (p) => p.evaluate(() => ({
@@ -4208,6 +4235,9 @@ console.log('\n── 화면이 통째로 밀려 들어오고 나간다 ──')
     const got = await inW;
     ok(got.화면 > 300, `들어갈 때 화면 폭만큼 밀려 들어온다 (가장 많이 ${got.화면}px)`);
     ok(got.뒤, '그 뒤에 앞 화면이 깔린다');
+    ok(got.탭바 > 300 && got.어긋남 <= 1,
+       `들어갈 때 탭바도 화면과 함께 밀려 들어온다 (탭바 ${got.탭바}px · 어긋남 ${got.어긋남}px)`);
+    ok(got.뒤탭바, '뒤에 깔린 앞 화면 그림에도 탭바가 있다');
 
     await page.waitForTimeout(700);
     const 뒤끝 = await 남은것(page);
@@ -4221,6 +4251,9 @@ console.log('\n── 화면이 통째로 밀려 들어오고 나간다 ──')
     const back = await outW;
     ok(back.떠남 > 300, `나올 때 떠나는 화면이 오른쪽으로 빠져나간다 (${back.떠남}px)`);
     ok(back.화면 > 40, `그 밑에서 앞 화면이 제자리로 돌아온다 (${back.화면}px에서)`);
+    ok(back.떠남탭바, '떠나는 화면 그림이 제 탭바를 싣고 나간다');
+    ok(back.탭바 > 40 && back.어긋남 <= 1,
+       `목적지의 탭바도 화면과 함께 제자리로 온다 (탭바 ${back.탭바}px · 어긋남 ${back.어긋남}px)`);
 
     /* 4. 끝나면 남는 것이 없다. */
     await page.waitForTimeout(700);

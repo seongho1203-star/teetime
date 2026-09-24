@@ -139,6 +139,7 @@ html.screen-pop .app > :first-child { z-index: 1; }
 
 /* **시간은 위 `screen-in`과 같아야 한다**(`SCREEN_MS`). */
 html.screen-ease .app > :first-child,
+html.screen-ease .app > .tabbar,
 html.screen-ease .back-ghost,
 html.screen-ease .back-ghost-dim,
 html.screen-ease .exit-ghost,
@@ -196,6 +197,7 @@ html.back-drag .app > :first-child {
 /* 손을 뗀 뒤 남은 거리를 마저 간다. **끄는 동안에는 걸지 않는다** —
    손가락을 그대로 따라와야 하므로 그때 전환이 걸리면 늦게 따라온다. */
 html.back-ease .app > :first-child,
+html.back-ease .app > .tabbar,
 html.back-ease .back-ghost,
 html.back-ease .back-ghost-dim {
     transition: transform 230ms cubic-bezier(.32, .72, 0, 1),
