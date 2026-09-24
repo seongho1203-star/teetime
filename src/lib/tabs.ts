@@ -106,6 +106,9 @@ function taken(from: EventTarget | null): boolean {
 type Shot = {
     path: string; node: HTMLElement; scroll: number; list: number;
     tabbar?: HTMLElement;
+    /** 찍을 때 화면에 떠 있던 그림의 **픽셀**(`paintImages`). 칸 차례가
+     *  `node`의 `img` 차례와 같다 — 못 뜬 것은 빈칸이다. */
+    pics?: (HTMLCanvasElement | undefined)[];
     stub?: true; chat?: true;
 };
 const shots: Shot[] = [];
@@ -117,6 +120,7 @@ function takeShot(el: HTMLElement, includeTabBar = false): Shot {
     const tabbar = includeTabBar ? document.querySelector<HTMLElement>('.app > .tabbar') : null;
     return {
         path: routeOf(location.href),
+        pics: grabImages(el),
         node: el.cloneNode(true) as HTMLElement,
         scroll: window.scrollY,
         list: list?.scrollTop ?? 0,
@@ -125,20 +129,79 @@ function takeShot(el: HTMLElement, includeTabBar = false): Shot {
 }
 
 /**
- * **사본 속 그림을 곧바로 받게 한다.**
+ * **사본 속 그림은 새로 받지 않고, 찍을 때의 픽셀을 그대로 옮겨 그린다.**
  *
- * 얼굴 사진은 `loading="lazy"`인데, 복사한 `<img>`는 **새 요소**라 그 표를
- * 그대로 물려받아 화면에 붙은 뒤 몇 프레임이 지나서야 그림을 푼다 —
- * 캐시에 이미 있어도 그렇다. 그 사이 사진 자리가 비어, 홈에서 `대화`를
- * 누를 때 **머리말의 내 얼굴이 한 번 깜빡였다**(사용자 제보). 헤드리스로
- * 재서 붙인 직후 · 다음 프레임 · 그다음 프레임 셋 다 빈 것을 확인했다.
- * 사본은 이미 화면에 보이던 것이라 미룰 까닭이 없다.
+ * 복사한 `<img>`는 **새 요소**라 캐시에 있어도 붙은 뒤에 다시 받아 푼다 —
+ * 그동안 얼굴 자리가 회색 동그라미(`.avatar`의 바탕)로 비어, 홈에서
+ * `대화`를 누를 때 **머리말의 내 얼굴이 다시 불러오듯 깜빡였다**(사용자
+ * 제보 두 번). 처음에는 `loading`·`decoding`만 바꿔 봤는데(1.186) 폰에서는
+ * 그대로였다 — 받는 때를 당겨도 **푸는 일이 붙은 뒤에 도는 것**은 남는다.
+ *
+ * 그래서 찍는 그 자리에서 **이미 풀려 화면에 떠 있는 그림**을 캔버스에
+ * 옮겨 둔다(`grabImages`). 캔버스는 픽셀을 들고 있어 붙이는 그 프레임에
+ * 곧바로 보인다. `.avatar`의 `object-fit`·둥근 모서리·테두리는 캔버스에도
+ * 그대로 먹는다(클래스를 옮겨 붙인다).
+ *
+ * - **화면 안에 보이는 것만, 마흔 장까지** 뜬다 — 찍는 일은 `pushState`
+ *   자리라 길게 끌면 누른 반응이 늦어진다. 나머지는 예전처럼 `img`로
+ *   남기되 곧바로 받게 한다.
+ * - **보이는 크기 × 화면 배율까지만** 담는다 — 원본 사진을 통째로 들고
+ *   있으면 여섯 장(`MAX_SHOTS`)이 쌓일 때 메모리가 헤프다.
+ * - 남의 서버 그림(카카오 프사·Supabase)은 캔버스가 '오염'되지만 **그리는
+ *   것은 되고** 읽는 것만 막힌다. 우리는 읽지 않는다.
  */
-function wakeImages(root: HTMLElement): void {
-    for (const img of root.querySelectorAll('img')) {
-        img.loading = 'eager';
-        img.decoding = 'sync';
+const MAX_PICS = 40;
+function grabImages(el: HTMLElement): (HTMLCanvasElement | undefined)[] {
+    const out: (HTMLCanvasElement | undefined)[] = [];
+    let n = 0;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    for (const img of el.querySelectorAll('img')) {
+        let pic: HTMLCanvasElement | undefined;
+        try {
+            if (n < MAX_PICS && img.complete && img.naturalWidth > 0) {
+                const r = img.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw) {
+                    const k = Math.min(1, Math.max(r.width / img.naturalWidth, r.height / img.naturalHeight) * dpr);
+                    const w = Math.max(1, Math.round(img.naturalWidth * k));
+                    const h = Math.max(1, Math.round(img.naturalHeight * k));
+                    const cv = document.createElement('canvas');
+                    cv.width = w; cv.height = h;
+                    cv.getContext('2d')?.drawImage(img, 0, 0, w, h);
+                    pic = cv; n++;
+                }
+            }
+        } catch { pic = undefined; }
+        out.push(pic);
     }
+    return out;
+}
+
+/** 사본의 `img`를 찍어 둔 픽셀로 갈아 끼운다(위 `grabImages`). */
+function paintImages(root: HTMLElement, pics: Shot['pics']): void {
+    const imgs = root.querySelectorAll('img');
+    imgs.forEach((img, i) => {
+        const pic = pics?.[i];
+        if (!pic) {
+            img.loading = 'eager';
+            img.decoding = 'sync';
+            return;
+        }
+        try {
+            const cv = document.createElement('canvas');
+            cv.width = pic.width; cv.height = pic.height;
+            cv.getContext('2d')?.drawImage(pic, 0, 0);
+            for (const a of img.getAttributeNames()) {
+                if (a === 'src' || a === 'srcset' || a === 'loading' || a === 'decoding' || a === 'alt') continue;
+                cv.setAttribute(a, img.getAttribute(a) ?? '');
+            }
+            cv.setAttribute('aria-hidden', 'true');
+            img.replaceWith(cv);
+        } catch {
+            img.loading = 'eager';
+            img.decoding = 'sync';
+        }
+    });
 }
 
 /**
@@ -149,7 +212,7 @@ function wakeImages(root: HTMLElement): void {
  */
 function cloneShot(shot: Shot): { c: HTMLElement; list: HTMLElement | null } {
     const c = shot.node.cloneNode(true) as HTMLElement;
-    wakeImages(c);
+    paintImages(c, shot.pics);
     /* 찍을 때 굴려 둔 자리까지 되살린다 — 안 그러면 앞 화면이
        늘 맨 위부터 보여 딴 화면처럼 느껴진다. */
     if (shot.scroll) c.style.marginTop = `${-shot.scroll}px`;
@@ -604,7 +667,7 @@ function layGhost(shot: Shot | undefined): { g: HTMLDivElement; dim: HTMLDivElem
             // The native transition moves this entire previous screen, including
             // its bottom bar. Keep it independent of the page's scroll offset.
             const bar = shot.tabbar.cloneNode(true) as HTMLElement;
-            wakeImages(bar);
+            paintImages(bar, undefined);
             Object.assign(bar.style, { position: 'absolute', display: 'flex', zIndex: '0' });
             g.appendChild(bar);
         }

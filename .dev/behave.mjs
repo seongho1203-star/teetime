@@ -4034,6 +4034,62 @@ console.log('\n── 들고 있던 줄이 없을 때 ──');
     await wCtx.close();
 }
 
+/* ── 뒤에 깔린 앞 화면의 얼굴이 다시 안 불러와진다 ──────────────
+ *
+ * 사용자 제보 — `홈에서 대화를 누르면 홈에있는 프로필이 깜빡이는 증상이있어.
+ * 프로필 사진을 다시 불러오는 느낌이야`. 앞 화면 그림은 떠날 때 찍어 둔
+ * **사본**인데, 사본의 `<img>`는 새 요소라 캐시에 있어도 다시 받아 풀었다.
+ * 그 사이 얼굴 자리가 회색 동그라미로 비었다.
+ *
+ * **두 번째부터는 사진을 일부러 늦게 준다** — 빠른 서버에서는 다시 받아도
+ * 거의 곧바로 와서 고치기 전 코드도 초록으로 뜬다(1.186이 그렇게
+ * 헤드리스에서만 고쳐진 것처럼 보였다). 늦추면 다시 받는 순간이 드러난다.
+ */
+console.log('\n── 뒤에 깔린 앞 화면의 얼굴이 다시 안 불러와진다 ──');
+{
+    const faceTables = { ...tables,
+        profiles: tables.profiles.map(p => p.id === ME ? { ...p, avatar_url: 'https://img.example.com/me.png' } : p) };
+    const fCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+    await fCtx.route('**/rest/v1/**', restRoute(faceTables));
+    await stubOutside(fCtx);
+    /* 64×64 빨간 네모 한 장(PNG). */
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeUlEQVR4nO3PQQkAMAzAwMqpfz0TMxF7HINABFzm7H7dcEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFj13zk8EPp8weQAAAAABJRU5ErkJggg==', 'base64');
+    let hits = 0;
+    await fCtx.route('**img.example.com/**', async route => {
+        if (hits++) await new Promise(r => setTimeout(r, 400));
+        return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+    });
+    await fCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    const fp = await fCtx.newPage();
+    await fp.goto(BASE + '/#/');
+    await fp.waitForSelector('.head-me img.avatar');
+    await fp.waitForFunction(() => document.querySelector('.head-me img.avatar')?.naturalWidth > 0);
+    await fp.evaluate(() => {
+        window.__faces = [];
+        new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) {
+            if (!n.classList?.contains('back-ghost')) continue;
+            const look = () => {
+                const cv = n.querySelector('.head-me canvas.avatar');
+                const im = n.querySelector('.head-me img.avatar');
+                return cv ? { 그림: true, 둥금: getComputedStyle(cv).borderRadius, 폭: Math.round(cv.getBoundingClientRect().width) }
+                     : { 그림: !!im && im.complete && im.naturalWidth > 0 };
+            };
+            window.__faces.push(look());
+            requestAnimationFrame(() => window.__faces.push(look()));
+        } }).observe(document.body, { childList: true });
+    });
+    await fp.locator('a[href*="rounds/"]').first().click();
+    await fp.waitForTimeout(300);
+    const faces = await fp.evaluate(() => window.__faces);
+    ok(faces.length > 0, `앞 화면 그림이 깔린다 (${faces.length}번 봄)`);
+    ok(faces.length > 0 && faces.every(f => f.그림),
+       `깔리는 그 프레임부터 얼굴이 차 있다 (${JSON.stringify(faces)})`);
+    ok(faces.length > 0 && faces[0].둥금 === '50%' && faces[0].폭 === 34,
+       '옮겨 그린 얼굴이 원래 모양(둥근 34px) 그대로다');
+    await fCtx.close();
+}
+
 /* ── 화면이 통째로 밀려 들어오고 나간다 ──────────────────────────
  *
  * 사용자 제보 — `카톡과 비교하면 아직도 엄청빨라`. **빠르게 느껴지던 것은
