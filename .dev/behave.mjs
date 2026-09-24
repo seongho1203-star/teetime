@@ -4087,7 +4087,66 @@ console.log('\n── 뒤에 깔린 앞 화면의 얼굴이 다시 안 불러와
        `깔리는 그 프레임부터 얼굴이 차 있다 (${JSON.stringify(faces)})`);
     ok(faces.length > 0 && faces[0].둥금 === '50%' && faces[0].폭 === 34,
        '옮겨 그린 얼굴이 원래 모양(둥근 34px) 그대로다');
+
+    /* **돌아와서 새로 그려진 홈도 얼굴을 다시 안 불러온다**(사용자 제보 —
+       `채팅에서 홈으로 갈때 프로필을 다시 불러드리는 것처럼 한번 깜빡이고`).
+       한 번 받은 얼굴은 `Avatar`가 픽셀째 기억해 캔버스로 곧바로 그린다.
+       **새 홈이 붙는 그 프레임을 본다** — 그 뒤에 보면 늦게 온 사진도 차 있다. */
+    await fp.waitForTimeout(700);
+    await fp.evaluate(() => {
+        window.__home = null;
+        new MutationObserver((ms, ob) => {
+            const el = document.querySelector('.app > :first-child .head-me .avatar');
+            if (!el) return;
+            ob.disconnect();
+            window.__home = el instanceof HTMLCanvasElement
+                ? { 캔버스: true, 폭: el.width, 보임: Math.round(el.getBoundingClientRect().width) }
+                : { 캔버스: false, 차있음: el instanceof HTMLImageElement && el.complete && el.naturalWidth > 0 };
+        }).observe(document.body, { childList: true, subtree: true });
+    });
+    const hitsBack = hits;
+    await fp.evaluate(() => history.back());
+    await fp.waitForTimeout(700);
+    const home = await fp.evaluate(() => window.__home);
+    ok(!!home && (home.캔버스 ? home.폭 > 0 : home.차있음),
+       `돌아온 홈이 붙는 그 순간 얼굴이 차 있다 (${JSON.stringify(home)})`);
+    ok(hits === hitsBack, `돌아올 때 얼굴을 다시 받지 않는다 (${hits - hitsBack}번 받음)`);
     await fCtx.close();
+}
+
+/* ── 회원 명단에서 얼굴을 누르면 전체화면 프로필이 뜬다 ─────────
+ *
+ * 사용자 요청 — `회원 명단에서 프로필을 누르면 채팅에서 프로필 눌렀을 때
+ * 뜨는 것처럼 프로필을 띄워줘`. 대화와 **같은 조각**(`ProfileFull`)이다.
+ * 명단에는 부를 대화가 없으므로 `@언급하기`·`선물하기`는 안 선다.
+ */
+console.log('\n── 회원 명단에서 얼굴을 누르면 전체화면 프로필이 뜬다 ──');
+{
+    await go('/#/members', 800);
+    const n = await page.locator('.member-face').count();
+    ok(n > 0, `얼굴이 누르는 단추다 (${n}개)`);
+    const face = page.locator('.member-face').first();
+    const box = await face.boundingBox();
+    ok(!!box && box.width >= 30 && box.height >= 30, `누르는 자리가 30px 위다 (${box && Math.round(box.width)}px)`);
+    const want = await face.evaluate(b => b.closest('.member-row')?.querySelector('.b.truncate')?.textContent?.trim() ?? '');
+    await face.click();
+    await page.waitForTimeout(250);
+    const got = await page.evaluate(() => {
+        const f = document.querySelector('.profile-full');
+        if (!f) return null;
+        const r = f.getBoundingClientRect();
+        const at = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+        return { 덮음: r.width >= innerWidth - 1 && r.height >= innerHeight - 1,
+                 위: !!at && f.contains(at),
+                 이름: f.querySelector('.profile-full-name')?.textContent?.trim() ?? '',
+                 단추: f.querySelectorAll('.profile-full-btn').length };
+    });
+    ok(!!got && got.덮음 && got.위, `전체화면 프로필이 화면을 덮고 맨 위에 있다 (${JSON.stringify(got)})`);
+    ok(!!got && got.이름 === want, `누른 사람의 이름표가 뜬다 (${got?.이름} / ${want})`);
+    ok(!!got && got.단추 === 0, '명단에서는 `@언급하기`·`선물하기`가 안 선다');
+    await page.click('.profile-full-x');
+    await page.waitForTimeout(200);
+    ok(await page.locator('.profile-full').count() === 0, '`✕`로 닫힌다');
 }
 
 /* ── 화면이 통째로 밀려 들어오고 나간다 ──────────────────────────

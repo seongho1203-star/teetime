@@ -151,23 +151,31 @@ function takeShot(el: HTMLElement, includeTabBar = false): Shot {
  *   것은 되고** 읽는 것만 막힌다. 우리는 읽지 않는다.
  */
 const MAX_PICS = 40;
+/* **캔버스도 함께 옮긴다** — 얼굴(`Avatar`)은 한 번 받은 뒤로 캔버스로
+   그려지는데, `cloneNode`는 캔버스의 픽셀을 안 가져와 사본의 얼굴이 통째로
+   빈다. 두 곳(`grabImages`·`paintImages`)이 **같은 차례로** 훑어야 하므로
+   고르는 글자를 하나로 둔다. */
+const PICS = 'img, canvas';
 function grabImages(el: HTMLElement): (HTMLCanvasElement | undefined)[] {
     const out: (HTMLCanvasElement | undefined)[] = [];
     let n = 0;
     const vw = window.innerWidth, vh = window.innerHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    for (const img of el.querySelectorAll('img')) {
+    for (const node of el.querySelectorAll<HTMLImageElement | HTMLCanvasElement>(PICS)) {
         let pic: HTMLCanvasElement | undefined;
         try {
-            if (n < MAX_PICS && img.complete && img.naturalWidth > 0) {
-                const r = img.getBoundingClientRect();
+            const isImg = node instanceof HTMLImageElement;
+            const nw = isImg ? node.naturalWidth : node.width;
+            const nh = isImg ? node.naturalHeight : node.height;
+            if (n < MAX_PICS && (!isImg || node.complete) && nw > 0 && nh > 0) {
+                const r = node.getBoundingClientRect();
                 if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw) {
-                    const k = Math.min(1, Math.max(r.width / img.naturalWidth, r.height / img.naturalHeight) * dpr);
-                    const w = Math.max(1, Math.round(img.naturalWidth * k));
-                    const h = Math.max(1, Math.round(img.naturalHeight * k));
+                    const k = Math.min(1, Math.max(r.width / nw, r.height / nh) * dpr);
+                    const w = Math.max(1, Math.round(nw * k));
+                    const h = Math.max(1, Math.round(nh * k));
                     const cv = document.createElement('canvas');
                     cv.width = w; cv.height = h;
-                    cv.getContext('2d')?.drawImage(img, 0, 0, w, h);
+                    cv.getContext('2d')?.drawImage(node, 0, 0, w, h);
                     pic = cv; n++;
                 }
             }
@@ -177,29 +185,30 @@ function grabImages(el: HTMLElement): (HTMLCanvasElement | undefined)[] {
     return out;
 }
 
-/** 사본의 `img`를 찍어 둔 픽셀로 갈아 끼운다(위 `grabImages`). */
+/** 사본의 `img`·`canvas`를 찍어 둔 픽셀로 채운다(위 `grabImages`). */
 function paintImages(root: HTMLElement, pics: Shot['pics']): void {
-    const imgs = root.querySelectorAll('img');
-    imgs.forEach((img, i) => {
+    const nodes = root.querySelectorAll<HTMLImageElement | HTMLCanvasElement>(PICS);
+    nodes.forEach((node, i) => {
         const pic = pics?.[i];
+        const isImg = node instanceof HTMLImageElement;
         if (!pic) {
-            img.loading = 'eager';
-            img.decoding = 'sync';
+            if (isImg) { node.loading = 'eager'; node.decoding = 'sync'; }
             return;
         }
         try {
-            const cv = document.createElement('canvas');
+            const cv = isImg ? document.createElement('canvas') : node;
             cv.width = pic.width; cv.height = pic.height;
             cv.getContext('2d')?.drawImage(pic, 0, 0);
-            for (const a of img.getAttributeNames()) {
-                if (a === 'src' || a === 'srcset' || a === 'loading' || a === 'decoding' || a === 'alt') continue;
-                cv.setAttribute(a, img.getAttribute(a) ?? '');
+            if (isImg) {
+                for (const a of node.getAttributeNames()) {
+                    if (a === 'src' || a === 'srcset' || a === 'loading' || a === 'decoding' || a === 'alt') continue;
+                    cv.setAttribute(a, node.getAttribute(a) ?? '');
+                }
+                cv.setAttribute('aria-hidden', 'true');
+                node.replaceWith(cv);
             }
-            cv.setAttribute('aria-hidden', 'true');
-            img.replaceWith(cv);
         } catch {
-            img.loading = 'eager';
-            img.decoding = 'sync';
+            if (isImg) { node.loading = 'eager'; node.decoding = 'sync'; }
         }
     });
 }

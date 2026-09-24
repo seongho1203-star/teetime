@@ -1,0 +1,162 @@
+/* ── 전체화면 프로필 ────────────────────────────────────────────
+   얼굴을 누르면 뜬다(사용자 요청 — 카톡처럼). 아래로 내리면 사라진다.
+   예전의 작은 카드(`.chat-card`)를 갈음한 자리다 — 100명 모임에서 얼굴을
+   누르는 까닭이 `누군지 떠올리려고`라, 사진이 작으면 답이 안 된다.
+
+   **크게 본 사진(`.photo-zoom`)과 같은 층(1000)이다** — 탭바(800) 위,
+   토스트(1200) 아래. 그 사이를 넘기지 말 것. */
+.profile-full {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    /* 손짓이 우리 것이라 브라우저에 넘기지 않는다(`.photo-zoom-view`와
+       같은 자리 — React의 touchmove는 passive라 `preventDefault`로는
+       못 막는다). */
+    touch-action: none;
+    overflow: hidden;
+}
+/* 바탕. **따로 둔 것은 내리는 동안 이것만 걷히게 하려는 것이다** —
+   사진째 흐려지면 '치우는 중'이 아니라 '꺼지는 중'으로 보인다. */
+.profile-full-back {
+    position: absolute;
+    inset: 0;
+    background: #000;
+}
+/* 손끝을 따라 움직이는 덩어리. 자리는 JS가 매 프레임 직접 적는다
+   (state로 두면 느린 폰에서 그대로 끊긴다). */
+.profile-full-sheet {
+    position: absolute;
+    inset: 0;
+    will-change: transform;
+    animation: profile-up 0.18s ease-out;
+}
+@keyframes profile-up {
+    from { transform: translateY(18px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+/* 사진은 화면을 채운다(카톡과 같다). 어떤 비율이 올지 모르므로 `cover`다. */
+.profile-full-photo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #14161a;
+}
+/* 사진이 없는 사람. 얼굴에 쓰는 그 두 글자를 크게 놓는다. */
+.profile-full-photo.blank {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(160deg, #3c4250, #20242c);
+    color: rgba(255, 255, 255, 0.86);
+    font-family: var(--font-display);
+    font-size: 72px;
+    font-weight: 800;
+    letter-spacing: 2px;
+}
+/* 위아래만 어둡게 깐다 — 밝은 사진에서 `✕`와 이름이 묻히지 않게.
+   **`filter`·`blur`을 쓰지 말 것**(늘 켜져 있는 그리기 비용이다). */
+.profile-full-scrim {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0) 22%),
+        linear-gradient(to top, rgba(0, 0, 0, 0.66), rgba(0, 0, 0, 0) 38%);
+}
+/* **왼쪽 위다**(카톡과 같다). 크게 본 사진의 `✕`는 오른쪽인데, 그건 사진
+   위에 얹힌 것이고 이건 화면을 통째로 차지하는 창이다. 44px을 지킨다. */
+.profile-full-x {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    left: 8px;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.38);
+    color: #fff;
+    font-size: 18px;
+    line-height: 1;
+}
+.profile-full-x:active { background: rgba(0, 0, 0, 0.58); }
+/* 이름 묶음. 카톡은 가운데 언저리에 두는데, 우리는 그 아래에 `@언급하기`가
+   붙으므로 엄지가 닿는 아래쪽으로 내렸다. */
+.profile-full-info {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: 0 var(--gap);
+    text-align: center;
+}
+.profile-full-name {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    /* 이름표가 `83/신성호/광산구`라 좁은 화면(320px)에서 길다 — 넘치면
+       줄을 바꾼다(자르지 않는다. 누군지 알아보라고 띄운 화면이다). */
+    overflow-wrap: anywhere;
+}
+.profile-full-sub {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--gap-xs);
+    min-height: 20px;
+}
+.profile-full-n {
+    font-size: var(--fs-sm);
+    color: rgba(255, 255, 255, 0.72);
+}
+/* **직책표는 글자가 아니라 칠이 된다.** 명단의 직책 색(`--warn`·`--brand-deep`
+   따위)은 **흰 바탕에서 읽히라고 낮춰 둔 값**이라, 사진 위에서는 총무의
+   누런색이 그대로 죽어 버린다(보라 대화 목록에서 겪은 그 자리다).
+   **색을 새로 정하지는 않는다** — `background: currentColor`로 명단이 정한
+   그 색을 그대로 물려받고 글자만 흰색으로 뒤집는다(얼굴에 붙는 직책 표
+   `RankMark`와 같은 수다). 한쪽만 고쳐 명단과 어긋날 자리가 없다. */
+.profile-full .role-tag {
+    padding: 3px 9px;
+    border-radius: var(--r-pill);
+    background: currentColor;
+    -webkit-text-fill-color: #fff;
+    text-fill-color: #fff;
+}
+/* **분홍을 안 쓴다** — 이 화면에서 '지금 눌러야 할 것'은 보내기 단추
+   하나다. 크게 본 사진의 단추(`.photo-zoom-btn`)와 같은 값이다.
+   `🎁 선물하기`도 **같은 값이다** — 그쪽은 카카오 페이지를 여는 지름길이라
+   더더욱 눈에 띌 자리가 아니다(정산의 `토스로 보내기`와 같은 잣대다). */
+.profile-full-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    flex: 1 1 0;
+    height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: rgba(255, 255, 255, 0.30);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    /* 좁은 화면(320px)에서 `🎁 선물하기`가 세로로 접히지 않게 —
+       `.btn`이 `nowrap`인 것과 같은 까닭이다. */
+    white-space: nowrap;
+    text-decoration: none;
+}
+.profile-full-btn:active { background: rgba(255, 255, 255, 0.44); }
+/* **둘을 한 줄에 나란히 놓고 자리를 똑같이 나눈다**(`flex: 1 1 0`).
+   320px에서도 한 칸이 137px이라 두 단추 다 안 접힌다. */
+.profile-full-acts {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-xs);
+    width: 100%;
+}

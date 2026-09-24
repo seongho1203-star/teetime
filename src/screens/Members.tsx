@@ -9,6 +9,7 @@ import {
 } from '../lib/types';
 import { TopBar } from '../components/TopBar';
 import { Avatar } from '../components/Avatar';
+import { ProfileFull } from '../components/ProfileFull';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
@@ -114,6 +115,9 @@ export function Members() {
     // 관리 버튼은 **누른 사람 것만** 펼친다. 줄마다 세 개씩 늘어놓으면
     // 이름 칸이 밀려 잘리고, 아랫줄로 내리면 명단이 두 배로 길어진다.
     const [openId, setOpenId] = useState<string | null>(null);
+    /** 얼굴을 눌러 크게 보는 사람(사용자 요청 — `회원 명단에서 프로필을
+     *  누르면 채팅에서 프로필 눌렀을 때 뜨는 것처럼`). */
+    const [face, setFace] = useState<Profile | null>(null);
     /** 이름·차량번호·전화번호로 찾기. 사람이 많을 때만 칸이 나온다. */
     const [find, setFind] = useState('');
     /* **차례는 기본이 이름순이다**(`fetchProfiles`도 이름으로 받아 온다) —
@@ -230,7 +234,10 @@ export function Members() {
                     <div className="card" style={{ padding: 0, gap: 0 }}>
                         {pending.map(p => (
                             <div className="member-row" key={p.id}>
-                                <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                                <button className="member-face" aria-label={`${p.name || '이름 없음'} 프로필 보기`}
+                                        onClick={() => setFace(p)}>
+                                    <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                                </button>
                                 <div className="grow" style={{ minWidth: 0 }}>
                                     <div className="b truncate">
                                         {personLabel(p) || '이름 없음'}
@@ -296,7 +303,10 @@ export function Members() {
                     return (
                         <div key={p.id}>
                             <div className="member-row">
-                                <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                                <button className="member-face" aria-label={`${p.name || '이름 없음'} 프로필 보기`}
+                                        onClick={() => setFace(p)}>
+                                    <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                                </button>
                                 <div className="grow" style={{ minWidth: 0 }}>
                                     <div className="row" style={{ gap: 6 }}>
                                         <span className="b truncate">
@@ -389,7 +399,10 @@ export function Members() {
                     <div className="card" style={{ padding: 0, gap: 0 }}>
                         {banned.map(p => (
                             <div className="member-row" key={p.id}>
-                                <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                                <button className="member-face" aria-label={`${p.name || '이름 없음'} 프로필 보기`}
+                                        onClick={() => setFace(p)}>
+                                    <Avatar name={p.name} url={p.avatar_url} gender={p.gender} />
+                                </button>
                                 <div className="grow" style={{ minWidth: 0 }}>
                                     <div className="row" style={{ gap: 6 }}>
                                         <span className="b truncate">
@@ -414,6 +427,13 @@ export function Members() {
                     있습니다. <b>추방</b>은 다시 신청조차 못 하게 막습니다.
                     카카오로 로그인한 사람은 승인 전까지 아무것도 볼 수 없습니다.
                 </p>
+            )}
+            {/* **참석 횟수는 운영진에게만**(명단의 줄과 같은 잣대 —
+                `attend`는 회원에게 애초에 안 실려 온다). */}
+            {face && (
+                <ProfileFull p={face}
+                             attend={attend ? attend[face.id] ?? 0 : null}
+                             onClose={() => setFace(null)} />
             )}
         </div>
     );
