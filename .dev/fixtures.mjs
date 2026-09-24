@@ -305,6 +305,9 @@ export const messages = [
        그림을 먼저 까는 길(`TrayImg`)이 여기서만 확인된다. */
     { id: 'm19', room_id: 'room1', user_id: uid(2), body: '',
       image_url: 'sticker:mvp12', created_at: iso(0, 9, 44) },
+    /* 정지 그림(흰곰 — 사용자가 만든 세트). `.png`로 걸리는지 함께 본다. */
+    { id: 'm19b', room_id: 'room1', user_id: uid(4), body: '',
+      image_url: 'sticker:wbhello', created_at: iso(0, 9, 44) },
     /* **운영진이 가린 글**(카톡의 '가리기'). 글도 사진도 안 보이고
        `가려진 메시지입니다` 한 줄만 남아야 한다 — 여기로 내용이
        새어 나가면 가린 뜻이 없다. */

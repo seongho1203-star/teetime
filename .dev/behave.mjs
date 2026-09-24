@@ -1256,7 +1256,7 @@ if (!hasStickers) {
 
 /* 그린 것부터. 말풍선을 두르지 않는다(이모지만 보낸 글과 같은 결이다). */
 const stickerShots = await page.$$eval('.chat-sticker', e => e.map(x => x.getAttribute('src')));
-ok(stickerShots.length === 4 && stickerShots.every(s => s?.includes('/stickers/')),
+ok(stickerShots.length === 5 && stickerShots.every(s => s?.includes('/stickers/')),
    `보낸 이모티콘은 그림으로 그려진다 (실제 ${JSON.stringify(stickerShots)})`);
 ok((await page.$$eval('.chat-bubble', e => e.map(x => x.textContent))).every(t => t?.trim()),
    '글 없이 보낸 이모티콘에는 빈 말풍선이 안 붙는다');
@@ -2089,7 +2089,7 @@ ok(await page.$eval('.chat-person-me', e => {
    **이모티콘이 안 섞이는지가 핵심이다** — 사진과 같은 칸(`image_url`)을
    쓰므로 서버에서 걸러 내는 조건(`not.ilike.sticker:%`)이 빠지면 우리
    대화방은 대부분이 이모티콘이라 서른 칸이 죄다 이모티콘으로 찬다.
-   (고정 자료는 사진 한 장 · 이모티콘 넷이라 그 한 줄로 갈린다.) */
+   (고정 자료는 사진 한 장 · 이모티콘 다섯이라 그 한 줄로 갈린다.) */
 const shots = await page.$$eval('.chat-shot img', els => els.map(e => e.src));
 ok(shots.length > 0, `서랍에 최근 사진이 늘어선다 (실제 ${shots.length}장)`);
 ok(!shots.some(s => s.includes('/stickers/')),
