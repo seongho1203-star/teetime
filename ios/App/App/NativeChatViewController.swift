@@ -1102,11 +1102,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 소문자로) — 표의 말은 웹이 이미 그렇게 깎아 보낸 값이다.
      */
     private func normalize(_ text: String) -> NormText {
-        let drop = CharacterSet(charactersIn: " \t\n!?~.,…'\"“”()·:;-_/")
+        /* **물음표는 남긴다** — 웹 `suggest.ts`의 `norm`과 같다(`응?`·`뭐?`가
+           그 물음표로 갈린다). 전각 `？`는 `?`로 본다. **한쪽만 고치지 말 것.** */
+        let drop = CharacterSet(charactersIn: " \t\n!~.,…'\"“”()·:;-_/")
         var kept: [Unicode.Scalar] = [], from: [Int] = [], to: [Int] = []
         var at = 0
-        for u in text.unicodeScalars {
-            let w = UTF16.width(u)
+        for raw in text.unicodeScalars {
+            let u: Unicode.Scalar = raw == "？" ? "?" : raw
+            let w = UTF16.width(raw)
             if !drop.contains(u) {
                 for low in String(u).lowercased().unicodeScalars {
                     kept.append(low); from.append(at); to.append(at + w)
