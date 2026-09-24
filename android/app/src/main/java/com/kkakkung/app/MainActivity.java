@@ -32,6 +32,11 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        /* **앱 안에 넣어 둔 플러그인은 손으로 등록해야 한다** — Capacitor는
+           npm으로 깐 것만 스스로 찾는다(아이폰에서 첫판이 통째로 막혔던 자리.
+           `MainViewController.swift`의 `registerPluginInstance`와 같다).
+           `super.onCreate` **앞**이어야 다리가 만들어질 때 함께 실린다. */
+        registerPlugin(com.kkakkung.app.chat.NativeChatPlugin.class);
         super.onCreate(savedInstanceState);
         createNotifyChannel();
     }

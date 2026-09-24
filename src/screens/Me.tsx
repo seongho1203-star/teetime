@@ -18,6 +18,8 @@ import { Hinted } from '../components/Hinted';
 import { saveMyProfile } from '../lib/db';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
+import { Capacitor } from '@capacitor/core';
+import { androidChatOn, setAndroidChat } from '../lib/native-chat';
 import { shrinkImage } from '../lib/image';
 import { lunarToSolar } from '../lib/lunar';
 import { kstDate } from '../lib/format';
@@ -174,6 +176,8 @@ export function Me() {
        종일 울려서, 그것 때문에 알림을 통째로 끄면 라운드 소식까지 놓친다. */
     const [push, setPush] = useState<PushState | null>(null);
     const [chat, setChat] = useState(true);
+    /* 안드로이드 코틀린 대화 화면 스위치(시험 중 — 아래 참고). */
+    const [androidChat, setAndroidChatState] = useState(() => androidChatOn());
     const [pushBusy, setPushBusy] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
 
@@ -521,6 +525,25 @@ export function Me() {
                     {/* 소리 시험 줄은 걷어냈다(사용자 요청). 소리 자체는
                         그대로 나고, 잠금 푸는 일은 `lib/sound.ts`가 첫 손짓에서
                         알아서 한다 — 이 단추가 있어야 도는 것이 아니었다. */}
+                </div>
+            )}
+
+            {/* **안드로이드 코틀린 대화 화면 — 시험 중**(`docs/안드로이드-네이티브.md`).
+                아이폰만큼 되기 전까지 스위치 뒤에 둔다. 켠 폰에서만 `대화`가
+                앱 화면으로 가고, 끄면 지금의 웹 대화다. 다 되면 이 줄과
+                `androidChatOn()`을 걷어낸다. 플러그인이 실린 앱에서만 뜬다. */}
+            {Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('NativeChat') && (
+                <div className="card">
+                    <div className="switch-row">
+                        <div className="grow">
+                            <div className="switch-label">🧪 시험 중: 앱 대화 화면</div>
+                            <div className="switch-desc">
+                                {androidChat ? '대화를 앱 화면으로 엽니다 (만드는 중)' : '꺼짐 — 지금까지의 대화 화면'}
+                            </div>
+                        </div>
+                        <Switch label="앱 대화 화면" on={androidChat}
+                                onChange={next => { setAndroidChat(next); setAndroidChatState(next); }} />
+                    </div>
                 </div>
             )}
 

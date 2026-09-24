@@ -9,6 +9,11 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.7.2'
         classpath 'com.google.gms:google-services:4.4.2'
+        /* **대화 화면은 코틀린이다**(`app/src/main/java/com/kkakkung/app/chat/`).
+           판은 Capacitor가 쓰는 것과 같다(`node_modules/@capacitor/android/
+           capacitor/build.gradle`의 `kotlin_version`) — 둘이 갈리면 컴파일이
+           `kotlin-stdlib` 두 판으로 다툰다. */
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25'
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
