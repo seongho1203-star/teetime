@@ -264,14 +264,13 @@ function Form({
                     칸 하나만 든 카드는 여백만 차지한다. */}
                 <div className="field">
                     <label htmlFor="f-note">전달 내용 <span className="faint">(선택)</span></label>
-                    <Hinted empty={!note}
-                            hint={screen
-                                ? '모이는 곳, 게임 방식, 내기 같은 것'
-                                : '모이는 곳, 준비물 같은 것'}>
-                        <textarea id="f-note" className="textarea" value={note}
-                                  onChange={e => setNote(e.target.value)}
-                                  maxLength={1000} />
-                    </Hinted>
+                    {/* **안내 글씨를 안 둔다**(사용자 요청 — `전달내용에 적혀있는
+                        내용 삭제해줘`). 칸 이름이 이미 무엇을 적는 자리인지
+                        말해 주고, 흐린 예시가 있으면 적어 둔 것처럼 보인다
+                        (정산 칸에서 예시 글씨를 걷어낸 것과 같은 까닭이다). */}
+                    <textarea id="f-note" className="textarea" value={note}
+                              onChange={e => setNote(e.target.value)}
+                              maxLength={1000} />
                 </div>
             </div>
 
