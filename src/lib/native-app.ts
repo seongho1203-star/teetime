@@ -19,7 +19,8 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 export type NativeAppEvent = {
     screen: string;
     type: 'navigate' | 'auth' | 'back';
-    data: { path?: string; phase?: string };
+    /** `replace`면 이 화면의 자리를 그 화면이 대신한다(지운 글에서 목록으로). */
+    data: { path?: string; phase?: string; replace?: boolean };
 };
 export const NativeApp = registerPlugin<{
     ready(): Promise<{ v: number; screens: string[] }>;
@@ -33,7 +34,18 @@ export const NativeApp = registerPlugin<{
  * **앱이 그릴 줄 아는 주소.** Swift의 `NativeAppPlugin.screens`와 같아야 한다 —
  * 한쪽만 고치면 웹이 보냈는데 앱이 `모르는 화면`으로 거절한다.
  */
-export const NATIVE_SCREENS = ['/members'];
+export const NATIVE_SCREENS = ['/members', '/alerts', '/board/:id'];
+
+/**
+ * 주소가 그 꼴인가 — `:id`는 **uuid 한 조각**이다. 그래서 `/board/new`와
+ * `/board/<id>/edit`(쓰는 화면 · 아직 웹)는 `/board/:id`에 안 걸린다.
+ * Swift의 `NativeAppPlugin.make`가 같은 잣대(`UUID(uuidString:)`)로 가른다.
+ */
+function matches(pattern: string, path: string): boolean {
+    if (!pattern.includes(':')) return pattern === path;
+    const re = new RegExp('^' + pattern.replace(/:[^/]+/g, '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}') + '$', 'i');
+    return re.test(path);
+}
 
 export const NATIVE_APP_KEY = 'teetime:native-app';
 export function nativeAppOn(): boolean {
@@ -50,5 +62,5 @@ export function hasNativeApp(): boolean {
 
 /** 이 주소를 앱이 그리는가(스위치·플러그인·목록 셋 다 맞을 때). */
 export function nativeScreen(path: string): boolean {
-    return hasNativeApp() && NATIVE_SCREENS.includes(path);
+    return hasNativeApp() && NATIVE_SCREENS.some(p => matches(p, path));
 }

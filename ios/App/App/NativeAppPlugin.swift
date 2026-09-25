@@ -34,9 +34,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "session", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 1
+    static let version = 2
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
-    static let screens: [String] = ["/members"]
+    /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`(쓰는 화면)는 아직 웹이다.
+    static let screens: [String] = ["/members", "/alerts", "/board/:id"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -49,7 +50,13 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     @MainActor static func make(_ path: String, service: NativeChatService) -> NativeScreenController? {
         switch path {
         case "/members": return MembersViewController(service: service)
-        default: return nil
+        case "/alerts": return AlertsViewController(service: service)
+        default:
+            /* `/board/<uuid>` — 그 뒤에 무엇이 더 붙으면(`/edit`) uuid가 아니라 걸러진다. */
+            if path.hasPrefix("/board/"), let id = UUID(uuidString: String(path.dropFirst("/board/".count))) {
+                return PostViewController(service: service, id: id.uuidString.lowercased())
+            }
+            return nil
         }
     }
 
@@ -162,6 +169,8 @@ class NativeScreenController: UIViewController {
     let header = UIView()
     let titleLabel = UILabel()
     let backButton = UIButton(type: .system)
+    /// 머리말 오른쪽 단추(웹 `TopBar`의 `right` — `수정` 같은 것). 기본은 감춰져 있다.
+    let rightButton = UIButton(type: .system)
     /// 머리말 아래 본문 자리. 화면이 여기에 제 뷰를 얹는다.
     let body = UIView()
     private var flashLabel: UILabel?
@@ -188,9 +197,17 @@ class NativeScreenController: UIViewController {
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
         titleLabel.textColor = AppSkin.text
+        rightButton.translatesAutoresizingMaskIntoConstraints = false
+        rightButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        rightButton.setTitleColor(AppSkin.text, for: .normal)
+        rightButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        rightButton.isHidden = true
         view.addSubview(header); view.addSubview(body)
-        header.addSubview(backButton); header.addSubview(titleLabel)
+        header.addSubview(backButton); header.addSubview(titleLabel); header.addSubview(rightButton)
         NSLayoutConstraint.activate([
+            rightButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -8),
+            rightButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            rightButton.heightAnchor.constraint(equalToConstant: 44),
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -200,7 +217,7 @@ class NativeScreenController: UIViewController {
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
             titleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 2),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -16),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: rightButton.leadingAnchor, constant: -8),
             titleLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
             body.topAnchor.constraint(equalTo: header.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -243,10 +260,11 @@ class NativeScreenController: UIViewController {
     }
 
     /// 카드를 눌러 다른 화면으로 — 어디로 갈지는 웹이 안다.
-    func navigate(_ path: String) {
+    /// `replace`면 이 화면의 자리를 그 화면이 대신한다(지운 글에서 목록으로 갈 때).
+    func navigate(_ path: String, replace: Bool = false) {
         guard !navigating else { return }
         navigating = true
-        event?("navigate", ["path": path])
+        event?("navigate", ["path": path, "replace": replace])
     }
 
     /// 짧은 안내 — 화면 아래 알약 하나가 떴다 사라진다(웹의 토스트 몫).
@@ -283,7 +301,8 @@ class NativeScreenController: UIViewController {
 
     /// 글자 둘레에 여백이 있는 알약 — `UILabel`은 안여백이 없어 글자가 모서리에 닿는다.
     final class PillLabel: UILabel {
-        private let pad = UIEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        /// 안여백 — 토스트는 넉넉하게, 작은 표(`고정`)는 `pad`를 줄여 쓴다.
+        var pad = UIEdgeInsets(top: 10, left: 16, bottom: 10, right: 16) { didSet { invalidateIntrinsicContentSize() } }
         override func drawText(in rect: CGRect) { super.drawText(in: rect.inset(by: pad)) }
         override var intrinsicContentSize: CGSize {
             let s = super.intrinsicContentSize

@@ -68,7 +68,20 @@ struct NativeChatConfig {
 
 struct NativeChatError: LocalizedError {
     let message: String
+    /// PostgREST가 준 오류 코드(`42703` · `PGRST204` …). **칸이 아직 없는
+    /// 저장소를 가리는 데 쓴다** — 공유 글에서 없는 칸을 하나씩 빼며 다시
+    /// 넣는 그 자리다(웹 `PostDetail`·`RoundDetail`의 `share`).
+    var code: String? = nil
     var errorDescription: String? { message }
+
+    /// 서버가 준 말을 사람 말로 — 웹 `readableError`와 같은 잣대다.
+    static func readable(_ detail: String?) -> String? {
+        guard let d = detail, !d.isEmpty else { return nil }
+        if d.range(of: "duplicate key|already exists", options: .regularExpression) != nil { return "이미 처리된 요청입니다." }
+        if d.range(of: "row-level security|permission denied", options: .regularExpression) != nil { return "권한이 없습니다." }
+        if d.range(of: "JWT|not authenticated", options: .regularExpression) != nil { return "로그인이 필요합니다." }
+        return nil
+    }
 }
 
 /// Authentication is supplied by the existing app account. All chat I/O is native;
@@ -130,9 +143,14 @@ final class NativeChatService {
                 continue
             }
             guard (200..<300).contains(status) else {
-                if status == 401 { throw NativeChatError(message: "로그인이 만료됐습니다. 다시 로그인해 주세요.") }
-                if status == 403 { throw NativeChatError(message: "이 작업을 할 권한이 없습니다.") }
-                throw NativeChatError(message: "서버에 연결하지 못했습니다(\(status)). 다시 시도해 주세요.")
+                /* PostgREST는 오류 본문에 `code`·`message`를 실어 준다 — 코드는
+                   없는 칸을 가리는 데, 말은 사람 말로 바꿔 띄우는 데 쓴다. */
+                let info = (try? JSONSerialization.jsonObject(with: data)) as? ChatJSON
+                let code = info?["code"] as? String
+                let said = NativeChatError.readable(info?["message"] as? String)
+                if status == 401 { throw NativeChatError(message: "로그인이 만료됐습니다. 다시 로그인해 주세요.", code: code) }
+                if status == 403 { throw NativeChatError(message: said ?? "이 작업을 할 권한이 없습니다.", code: code) }
+                throw NativeChatError(message: said ?? "서버에 연결하지 못했습니다(\(status)). 다시 시도해 주세요.", code: code)
             }
             return data.isEmpty ? [] : try JSONSerialization.jsonObject(with: data)
         }

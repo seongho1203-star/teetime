@@ -5239,6 +5239,8 @@ src/screens/NativeScreen.tsx ← 주소마다 앱/웹을 가르는 자리 (Membe
 ios/App/App/NativeAppPlugin.swift        ← 문 · AppSkin · NativeScreenController
 ios/App/App/NativeAppData.swift          ← NativeChatService에 얹은 조회
 ios/App/App/MembersViewController.swift  ← 1단계: 회원 명단
+ios/App/App/PostViewController.swift     ← 2단계: 공지 상세 + 댓글
+ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5261,6 +5263,16 @@ ios/App/App/MembersViewController.swift  ← 1단계: 회원 명단
 - **규칙은 웹과 같아야 한다** — 이름표 · 차례 · `FIND_AT` · 운영진만 보는
   값 · 한 계단 임명. Swift에 옮겨 적은 자리마다 웹의 함수 이름을 주석에
   적어 두었다. **한쪽만 고치지 말 것.**
+- **주소에 `:id`가 있는 화면은 uuid로만 걸린다**(`/board/:id`). 웹 `matches()`와
+  Swift `make`의 `UUID(uuidString:)`이 같은 잣대라 `/board/new`·`/board/<id>/edit`
+  (쓰는 화면 · 아직 웹)는 안 걸린다. **한쪽만 고치지 말 것.**
+- **PostgREST 오류 코드는 `NativeChatError.code`로 온다** — 공유 글에서 없는 칸을
+  하나씩 빼며 다시 넣는 `shareToChat`(42703 · PGRST204)이 그것을 본다. 말은
+  `readable()`이 웹 `readableError`와 같은 잣대로 사람 말로 바꾼다.
+- **댓글 칸은 `keyboardLayoutGuide`에 묶은 붙박이 바다**(`PostViewController`) —
+  키보드와 한 몸으로 오르내리고 천지인 깜빡임도 없다. 웹처럼 카드 안에 넣지 말 것.
+- **알림함은 여는 순간 다 읽음으로 찍고 `fresh`로 가른다** — 웹 `Alerts.tsx`와 같은
+  규칙(`read_at`으로 그리지 말 것 · id마다 한 번만 판단).
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).

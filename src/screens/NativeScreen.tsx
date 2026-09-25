@@ -1,19 +1,36 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate, useNavigationType } from 'react-router-dom';
+import { useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeApp, nativeScreen } from '../lib/native-app';
 import { chatDragged, hasBackShot, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, slideLeft } from '../lib/tabs';
 import { Members } from './Members';
+import { PostDetail } from './PostDetail';
+import { Alerts } from './Alerts';
 
 /**
  * **주소마다 앱 화면인지 웹 화면인지 가르는 자리**(`docs/아이폰-네이티브.md`).
  * 아이폰 앱에서 스위치가 켜져 있고 앱이 그 주소를 알면 앱 화면, 아니면
  * 지금까지의 웹 화면이다 — 대화의 `ChatRoute`와 같은 결이다.
+ * 화면을 하나 더 옮기면 여기 `…Route`와 `NATIVE_SCREENS`, 그리고 Swift의
+ * `screens`·`make`를 함께 더한다(넷이 한 벌이다).
  */
 export function MembersRoute() {
     return nativeScreen('/members') ? <NativeScreenHost path="/members" /> : <Members />;
 }
+
+export function PostRoute() {
+    const { id } = useParams<{ id: string }>();
+    const path = `/board/${id ?? ''}`;
+    return nativeScreen(path) ? <NativeScreenHost path={path} /> : <PostDetail />;
+}
+
+export function AlertsRoute() {
+    return nativeScreen('/alerts') ? <NativeScreenHost path="/alerts" /> : <Alerts />;
+}
+
+/** 앱 화면이 `navigate`로 보내올 수 있는 주소 — 그 밖은 무시한다(알림의 `url`도 이 안이다). */
+const NAV_OK = /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$|members$|alerts$|settle$|help$|me$)/;
 
 /**
  * 앱이 그리는 동안 **웹에 남는 것은 자리를 지키는 스피너 한 장**이다.
@@ -45,8 +62,8 @@ function NativeScreenHost({ path }: { path: string }) {
         void (async () => {
             const listener = await NativeApp.addListener('event', e => {
                 if (dead || e.screen !== screen) return;
-                if (e.type === 'navigate' && e.data.path && /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$|members$)/.test(e.data.path)) {
-                    navigate(e.data.path);
+                if (e.type === 'navigate' && e.data.path && NAV_OK.test(e.data.path)) {
+                    navigate(e.data.path, { replace: e.data.replace === true });
                 }
                 if (e.type === 'back') goBack();
                 if (e.type === 'auth') {
