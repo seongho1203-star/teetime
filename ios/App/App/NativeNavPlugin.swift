@@ -364,6 +364,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
                 chat.resume()
             } else {
                 self.systemAttachWeb(to: dest, keepCover: true)
+                self.systemBackGesture(dest is WebRoutePageController)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 self.systemClearCover()
@@ -397,7 +398,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             chat.resume()
         } else {
             systemAttachWeb(to: dest, keepCover: true)
-            systemBackGesture(true)
+            systemBackGesture(dest is WebRoutePageController)
         }
         onBack?("commit")
     }
