@@ -53,14 +53,21 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                화면이 보인다**(사용자 제보 — `되돌아올 때 뒷배경이 엉뚱한
                화면이 보이고`). 웹이 `.exit-ghost`로 깔아 둔 라운드·투표
                화면이 아직 혼자 있는 이 자리가 찍을 수 있는 유일한 때다. */
-            let leaving = fresh && pop > 40 ? root.view.snapshotView(afterScreenUpdates: false) : nil
+            let leaving = fresh && pop > 40
+                ? (root.navigationController?.topViewController?.view ?? root.view)
+                    .snapshotView(afterScreenUpdates: false)
+                : nil
             /* **화면 틀(`UINavigationController`)이 있으면 거기에 밀어 올린다.**
                까닭은 하나다 — **키보드가 올라온 채로 뒤로 갈 때 키보드까지
                함께 옮기는 일을 iOS에게 맡기려는 것**이다(`AppDelegate`의
                `wrapInNavigation` 주석을 볼 것). 틀이 없는 판(옛 껍데기)에서는
                예전처럼 웹뷰 화면의 자식으로 붙는다. */
             let nav = root.navigationController
-            let under = fresh && nav != nil ? root.view.snapshotView(afterScreenUpdates: false) : nil
+            /* 201부터 웹 상세도 native page가 될 수 있다. root.view는 그때 뒤에
+               숨은 holder이므로, 실제로 보이는 top 화면을 찍어 채팅 뒤에 깐다. */
+            let under = fresh && nav != nil
+                ? nav?.topViewController?.view.snapshotView(afterScreenUpdates: false)
+                : nil
             if fresh {
                 root.view.endEditing(true)
                 if let nav = nav {

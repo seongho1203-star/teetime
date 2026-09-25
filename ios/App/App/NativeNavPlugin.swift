@@ -93,7 +93,60 @@ public class NativeNavPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
-/// 위 주석의 그 층. `root`는 웹뷰를 화면으로 쓰는 Capacitor 화면이다.
+/** iOS 26+ 웹 상세 화면 한 칸.
+ * React 화면은 그대로 두고, 살아 있는 Capacitor WKWebView 하나만 현재 칸이 품는다.
+ * 뒤 칸은 들어갈 때 떠 둔 픽셀만 가진다. UINavigationController가 실제 화면
+ * 계층을 pop하므로 키보드도 시스템 interactive transition에 함께 붙는다.
+ */
+@available(iOS 26.0, *)
+fileprivate final class WebRoutePageController: UIViewController {
+    weak var owner: NavLayer?
+    private(set) var cover: UIView?
+
+    init(owner: NavLayer) { self.owner = owner; super.init(nibName: nil, bundle: nil) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let v = UIView()
+        v.backgroundColor = .systemBackground
+        view = v
+    }
+
+    func freeze(_ shot: UIView?) {
+        view.subviews.forEach { $0.removeFromSuperview() }
+        guard let shot = shot else { return }
+        shot.frame = view.bounds
+        shot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        shot.isUserInteractionEnabled = false
+        view.addSubview(shot)
+        cover = shot
+    }
+
+    func attach(_ web: WKWebView, keepCover: Bool) {
+        web.removeFromSuperview()
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        if web.frame.width < 1 || abs(web.frame.width - view.bounds.width) > 1 {
+            web.frame = view.bounds
+        } else {
+            web.frame.origin = .zero
+            web.frame.size.width = view.bounds.width
+        }
+        view.insertSubview(web, at: 0)
+        if !keepCover { clearCover() }
+    }
+
+    func clearCover() {
+        cover?.removeFromSuperview()
+        cover = nil
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isMovingFromParent { owner?.systemPagePopped(self) }
+    }
+}
+
+/// 위 주석의 그 층. root는 웹뷰를 화면으로 쓰는 Capacitor 화면이다.
 final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     static let TAKE: CGFloat = 0.34
     static let FLICK: CGFloat = 0.8
@@ -109,6 +162,14 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     static let EASE = (CGPoint(x: 0.32, y: 0.72), CGPoint(x: 0, y: 1))
 
     private weak var root: UIViewController?
+
+    /* iOS 26+에서는 웹 상세 화면도 실제 UINavigationController 칸으로 쌓는다. */
+    private weak var systemWeb: WKWebView?
+    private var systemRootHolder: UIView?
+    private weak var systemContentPop: UIGestureRecognizer?
+    private var systemProgrammaticPop = false
+    private var systemInstalled = false
+
     /** 키보드가 떠 있는 동안 웹뷰는 resize:native로 작아진다. 그 크기의
         snapshot을 화면 틀 크기로 늘리면 '확대된 화면 + 제자리에 남은 키보드'가
         된다. 그래서 그 상태에서는 끌기를 시작하지 않고 첫 손짓으로 키보드만
@@ -138,13 +199,149 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         ) { [weak self] _ in
             guard let self = self else { return }
             self.keyboardVisible = false
-            /* resize:native가 원래 높이로 돌아온 다음, 키보드를 내리게 한
-               바로 그 손짓의 현재 거리에서 화면 끌기를 이어 간다. */
             DispatchQueue.main.async {
                 self.web?.layoutIfNeeded()
                 self.resumeAfterKeyboard()
             }
         })
+        installSystemWebNavigation()
+    }
+
+    private func installSystemWebNavigation() {
+        guard #available(iOS 26.0, *),
+              let root = root,
+              let nav = root.navigationController,
+              let web = root.view as? WKWebView else { return }
+
+        let holder = UIView(frame: web.frame)
+        holder.backgroundColor = web.backgroundColor ?? .systemBackground
+        holder.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        root.view = holder
+        web.removeFromSuperview()
+        web.frame = holder.bounds
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        holder.addSubview(web)
+
+        systemWeb = web
+        systemRootHolder = holder
+        systemInstalled = true
+
+        let g = nav.interactiveContentPopGestureRecognizer
+        g?.delegate = self
+        systemContentPop = g
+    }
+
+    private var usesSystemWebNavigation: Bool {
+        if #available(iOS 26.0, *) { return systemInstalled }
+        return false
+    }
+
+    @available(iOS 26.0, *)
+    private func systemFreezeCurrent(_ shot: UIView?) {
+        guard let nav = root?.navigationController else { return }
+        if let page = nav.topViewController as? WebRoutePageController {
+            page.freeze(shot)
+        } else if nav.topViewController === root, let holder = systemRootHolder {
+            holder.subviews.forEach { $0.removeFromSuperview() }
+            if let shot = shot {
+                shot.frame = holder.bounds
+                shot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                shot.isUserInteractionEnabled = false
+                holder.addSubview(shot)
+            }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func systemAttachWeb(to vc: UIViewController, keepCover: Bool) {
+        guard let web = systemWeb else { return }
+        if let page = vc as? WebRoutePageController {
+            page.attach(web, keepCover: keepCover)
+            return
+        }
+        guard vc === root, let holder = systemRootHolder else { return }
+        web.removeFromSuperview()
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        web.frame.origin = .zero
+        web.frame.size.width = holder.bounds.width
+        holder.insertSubview(web, at: 0)
+        if !keepCover {
+            holder.subviews.filter { $0 !== web }.forEach { $0.removeFromSuperview() }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func systemClearCover() {
+        guard let top = root?.navigationController?.topViewController else { return }
+        if let page = top as? WebRoutePageController {
+            page.clearCover()
+        } else if top === root, let holder = systemRootHolder, let web = systemWeb {
+            holder.subviews.filter { $0 !== web }.forEach { $0.removeFromSuperview() }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func systemPush(ms: Double, supplied: UIView?, done: @escaping () -> Void) {
+        guard let root = root, let nav = root.navigationController, let web = systemWeb else {
+            done(); return
+        }
+        let fromChat = nav.topViewController is NativeChatViewController
+        if !fromChat {
+            let shot = supplied ?? web.snapshotView(afterScreenUpdates: false)
+            systemFreezeCurrent(shot)
+        }
+        let page = WebRoutePageController(owner: self)
+        page.loadViewIfNeeded()
+        page.attach(web, keepCover: false)
+        nav.pushViewController(page, animated: ms > 40)
+        done()
+    }
+
+    @available(iOS 26.0, *)
+    private func systemResetToRoot(done: @escaping () -> Void) {
+        guard let root = root, let nav = root.navigationController else { done(); return }
+        systemAttachWeb(to: root, keepCover: false)
+        systemWeb?.endEditing(true)
+        nav.setViewControllers([root], animated: false)
+        done()
+    }
+
+    @available(iOS 26.0, *)
+    private func systemPop(ms: Double, done: @escaping () -> Void) {
+        guard let nav = root?.navigationController,
+              nav.topViewController is WebRoutePageController else { done(); return }
+        systemProgrammaticPop = true
+        nav.popViewController(animated: ms > 40)
+        let finish = { [weak self, weak nav] in
+            guard let self = self, let dest = nav?.topViewController else { done(); return }
+            if dest is NativeChatViewController {
+                if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+            } else {
+                self.systemAttachWeb(to: dest, keepCover: true)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.systemClearCover()
+                self.systemProgrammaticPop = false
+                done()
+            }
+        }
+        if let c = nav.transitionCoordinator {
+            c.animate(alongsideTransition: nil) { _ in finish() }
+        } else {
+            DispatchQueue.main.async { finish() }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    fileprivate func systemPagePopped(_ page: WebRoutePageController) {
+        guard !systemProgrammaticPop, let nav = root?.navigationController,
+              let dest = nav.topViewController else { return }
+        if dest is NativeChatViewController {
+            if let root = root { systemAttachWeb(to: root, keepCover: false) }
+        } else {
+            systemAttachWeb(to: dest, keepCover: true)
+        }
+        onBack?("commit")
     }
 
     deinit {
@@ -189,8 +386,8 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     /** 판을 까는 자리 — 화면 틀의 뷰. 틀이 없는 옛 껍데기에서는 웹뷰의 부모다. */
     private var host: UIView? { root?.navigationController?.view ?? root?.view.superview }
-    private var web: UIView? { root?.view }
-    private var chatUp: Bool { (root?.navigationController?.viewControllers.count ?? 1) > 1 }
+    private var web: UIView? { systemWeb ?? root?.view }
+    private var chatUp: Bool { root?.navigationController?.topViewController is NativeChatViewController }
 
     private func snap() -> UIView? { web?.snapshotView(afterScreenUpdates: false) }
     private func fill(_ v: UIView, in host: UIView) {
@@ -217,6 +414,18 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 밀어 올린다. `ms`가 0이면(탭으로 가는 길) 자리만 하나 더한다.
      */
     func push(ms: Double, native: Bool, supplied: UIView? = nil, done: @escaping () -> Void) {
+        if #available(iOS 26.0, *), usesSystemWebNavigation {
+            if ms <= 0 && !native {
+                systemResetToRoot(done: done)
+                return
+            }
+            if !native {
+                systemPush(ms: ms, supplied: supplied, done: done)
+                return
+            }
+            done()
+            return
+        }
         /* 채팅 화면이 직접 떠 준 픽셀이 있으면 그것이 가장 확실한 앞 화면이다.
            bridge를 건너는 동안 UINavigationController가 먼저 pop되어도 안전하다. */
         if let supplied = supplied {
@@ -279,6 +488,11 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 버린다. `native`면(대화방에서 나오는 길) 판만 버린다.
      */
     func pop(ms: Double, native: Bool, done: @escaping () -> Void) {
+        if #available(iOS 26.0, *), usesSystemWebNavigation,
+           root?.navigationController?.topViewController is WebRoutePageController {
+            systemPop(ms: ms > 40 ? ms : 230, done: done)
+            return
+        }
         let prev = popPlate()
         prev?.removeFromSuperview()
         guard !native, ms > 40, let host = host, let web = web, let exit = snap() else { done(); return }
@@ -340,6 +554,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     /** 손짓은 처음 `back({on: true})`가 올 때 건다 — 그때는 화면 틀이 서 있다. */
     private func armPan() {
+        if usesSystemWebNavigation { return }
         guard pan == nil, armed, let host = host else { return }
         let p = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         p.maximumNumberOfTouches = 1
@@ -367,6 +582,12 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 움직이는 동안 잰다.
      */
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if #available(iOS 26.0, *), g === systemContentPop {
+            guard armed, !moving, !systemProgrammaticPop,
+                  let nav = root?.navigationController,
+                  nav.topViewController is WebRoutePageController else { return false }
+            return free
+        }
         guard let p = g as? UIPanGestureRecognizer, let host = host, canDrag() else { return false }
         let t = p.translation(in: host)
         let at = p.location(in: host)
@@ -517,6 +738,10 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     /** 웹이 목적지를 다 그렸다 — 깔아 둔 판을 걷는다. */
     func rendered() {
+        if #available(iOS 26.0, *), usesSystemWebNavigation {
+            systemClearCover()
+            return
+        }
         guard let d = settling else { return }
         settling = nil
         d.under.removeFromSuperview(); d.dim.removeFromSuperview()
