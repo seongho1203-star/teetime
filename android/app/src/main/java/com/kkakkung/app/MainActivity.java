@@ -37,7 +37,16 @@ public class MainActivity extends BridgeActivity {
            `MainViewController.swift`의 `registerPluginInstance`와 같다).
            `super.onCreate` **앞**이어야 다리가 만들어질 때 함께 실린다. */
         registerPlugin(com.kkakkung.app.chat.NativeChatPlugin.class);
+        registerPlugin(com.kkakkung.app.nav.NativeNavPlugin.class);
         super.onCreate(savedInstanceState);
+        /* **화면 전환·뒤로 끌기를 맡는 층에 웹뷰를 담는다**(`nav/NavLayer.kt`).
+           `super.onCreate`가 웹뷰를 세운 **뒤**여야 한다. 그리고 여기서 거는
+           뒤로 단추 처리가 `@capacitor/app`의 것보다 **나중에 걸려야** 이긴다 —
+           안드로이드는 마지막에 건 것부터 본다. 층이 꺼져 있는 화면(탭)에서는
+           그 처리를 꺼 두므로 예전처럼 웹뷰 히스토리로 간다. */
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            com.kkakkung.app.nav.NavLayer.Companion.install(this, getBridge().getWebView());
+        }
         createNotifyChannel();
     }
 

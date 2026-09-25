@@ -29,6 +29,10 @@ class MainViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeComposerPlugin())
         bridge?.registerPluginInstance(NativeChatPlugin())
+        /* 화면 전환·뒤로 끌기를 맡는 층(`NativeNavPlugin.swift`). 판을 까는
+           자리(화면 틀의 뷰)는 부를 때마다 찾는다 — 여기서는 아직
+           `wrapInNavigation`이 안 끝났다. */
+        bridge?.registerPluginInstance(NativeNavPlugin())
         hushChatBanner()
     }
 

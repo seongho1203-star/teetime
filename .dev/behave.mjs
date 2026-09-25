@@ -4279,6 +4279,150 @@ console.log('\n── 화면이 통째로 밀려 들어오고 나간다 ──')
     ok(대화끝.그림 === 0, `대화에 들어간 뒤에도 남는 그림이 없다 (${대화끝.그림}장)`);
 }
 
+/* ── 앱이 화면 전환을 맡는 판 ────────────────────────────────
+ *
+ * 사용자 요청 — `화면 전환 / 뒤로끌기 → Native Navigation Layer 이렇게
+ * 만들어줘` · `전부 네이티브`. 앱이 웹뷰를 찍어 밀고 끄는 것은 여기서 볼
+ * 수 없지만(`NavLayer.kt`·`NativeNavPlugin.swift`), **웹이 앱에 무엇을 언제
+ * 부르는가**는 잴 수 있다 — 플러그인을 흉내 내어 부른 차례를 적어 둔다.
+ *
+ * 핵심은 둘이다:
+ *  1. `push`·`pop`을 부르는 그 순간 **지금 화면의 사본이 맨 위에 덮여
+ *     있는가**(`.nav-hold`). 앱이 그때 웹뷰를 찍으므로, 안 덮여 있으면
+ *     리액트가 먼저 그린 새 화면이 앞 화면으로 찍힌다.
+ *  2. **웹은 아무것도 안 민다** — `.back-ghost`·`.exit-ghost`가 한 번도
+ *     안 깔리고 화면 `transform`도 없어야 한다. 웹과 앱이 둘 다 밀면
+ *     두 번 움직인다.
+ */
+console.log('\n── 앱이 화면 전환을 맡는 판 ──');
+{
+    const nCtx = await browser.newContext({
+        viewport: { width: 390, height: 844 }, locale: 'ko-KR',
+        timezoneId: 'Asia/Seoul', hasTouch: true, isMobile: true });
+    await nCtx.route('**/rest/v1/**', restRoute(tables));
+    await nCtx.route('**/auth/v1/**', r => r.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(SESSION) }));
+    await stubOutside(nCtx);
+    await nCtx.addInitScript(s => localStorage.setItem('sb-demo-auth-token', JSON.stringify(s)), SESSION);
+    /* **앱인 척한다** — `NativeNav`만 실린 안드로이드. 부른 것마다
+       `{method, args, hold(사본이 덮여 있었나), route}`를 적어 둔다. */
+    await nCtx.addInitScript(() => {
+        window.CapacitorCustomPlatform = { name: 'android' };
+        window.__nav = [];
+        window.__navCb = null;
+        window.__ghosts = 0;
+        const methods = ['ready', 'push', 'pop', 'back', 'touch', 'rendered'];
+        window.Capacitor = {
+            PluginHeaders: [{ name: 'NativeNav', methods: [
+                ...methods.map(name => ({ name, rtype: 'promise' })),
+                { name: 'addListener', rtype: 'callback' }, { name: 'removeListener', rtype: 'callback' }] }],
+            nativePromise: async (plugin, method, args) => {
+                /* 이 자리는 부른 뒤 한 틈 지나서 돈다(다리가 비동기다) — 그래서
+                   주소가 아니라 **덮인 사본이 어느 화면 것인가**를 적는다. */
+                const hold = document.querySelector('.nav-hold');
+                window.__nav.push({ method, args, hold: !!hold, route: hold?.dataset.route ?? '' });
+                await new Promise(r => setTimeout(r, 8));
+                return method === 'ready' ? { v: 1 } : {};
+            },
+            nativeCallback: (plugin, method, options, cb) => {
+                if (method === 'addListener' && options.eventName === 'nav') window.__navCb = cb;
+                return 'cb1';
+            },
+        };
+        /* 웹이 그림을 깔면 센다 — 앱이 미는 판에서는 0이어야 한다. */
+        new MutationObserver(() => {
+            if (document.querySelector('.back-ghost, .exit-ghost, .exit-dim')) window.__ghosts++;
+        }).observe(document.documentElement, { childList: true, subtree: true });
+    });
+    const np = await nCtx.newPage();
+    const calls = () => np.evaluate(() => window.__nav.splice(0));
+    const transformOf = () => np.evaluate(() =>
+        getComputedStyle(document.querySelector('.app > :first-child')).transform);
+
+    await np.goto(`${BASE}/#/rounds`, { waitUntil: 'networkidle' });
+    await np.waitForTimeout(700);
+    await calls();
+
+    /* 1. 들어간다 — `push`를 부를 때 사본이 덮여 있고, 답이 오면 걷힌다. */
+    await np.click('.round-card a, .round-card');
+    await np.waitForTimeout(700);
+    let got = await calls();
+    const push = got.find(c => c.method === 'push');
+    ok(!!push && push.args.ms === 500 && push.args.native === false,
+       `들어갈 때 앱에 \`push\`를 부른다 (${JSON.stringify(push?.args)})`);
+    ok(push?.hold === true, '그때 지금 화면의 사본이 맨 위에 덮여 있다 (`.nav-hold`)');
+    ok(push?.route === '/rounds', `그 사본은 떠나는 화면 것이다 — 찍히는 것이 앞 화면이다 (${push?.route})`);
+    ok(await np.evaluate(() => !document.querySelector('.nav-hold')), '앱이 답하면 사본을 걷는다');
+    const armed = got.filter(c => c.method === 'back').pop();
+    ok(armed?.args.on === true, '상세 화면에서는 끌 수 있다고 알린다 (`back({on:true})`)');
+    ok((await np.evaluate(() => window.__ghosts)) === 0, '웹은 그림을 한 장도 안 깐다');
+    ok((await transformOf()) === 'none', '웹은 화면을 안 민다');
+
+    /* 2. 손을 대면 그 자리가 비었는지 알린다. */
+    const touchAt = (sel) => np.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        const b = el.getBoundingClientRect();
+        const t = new Touch({ identifier: 1, target: el, clientX: b.left + 5, clientY: b.top + b.height / 2 });
+        el.dispatchEvent(new TouchEvent('touchstart', { touches: [t], targetTouches: [t], changedTouches: [t], bubbles: true }));
+        return true;
+    }, sel);
+    await touchAt('.page h1, .page h2, .page');
+    await np.waitForTimeout(60);
+    got = await calls();
+    ok(got.some(c => c.method === 'touch' && c.args.free === true), '빈 자리에 손을 대면 `touch({free:true})`');
+    const hasInput = await touchAt('textarea, input');
+    await np.waitForTimeout(60);
+    got = await calls();
+    ok(!hasInput || got.some(c => c.method === 'touch' && c.args.free === false),
+       '글칸에 손을 대면 `touch({free:false})` — 그 손짓의 임자가 따로 있다');
+
+    /* 3. 앱이 끌어서 넘어갔다고 하면 — 웹이 뒤로 가고, 다 그린 뒤 `rendered`. */
+    await np.evaluate(() => window.__navCb({ type: 'back', phase: 'commit' }));
+    await np.waitForTimeout(700);
+    got = await calls();
+    ok(await np.evaluate(() => location.hash === '#/rounds'), '`commit`이 오면 웹이 뒤로 간다');
+    ok(got.some(c => c.method === 'rendered'), '목적지를 그린 뒤 `rendered()`로 알린다');
+    ok(!got.some(c => c.method === 'pop'), '그때는 `pop`을 또 부르지 않는다 — 앱이 이미 내보냈다');
+    const disarmed = got.filter(c => c.method === 'back').pop();
+    ok(disarmed?.args.on === false, '탭으로 돌아오면 끌 수 없다고 알린다');
+
+    /* 4. 눌러서 뒤로 — `pop`을 부를 때도 사본이 덮여 있다. */
+    await np.click('.round-card a, .round-card');
+    await np.waitForTimeout(700);
+    await calls();
+    await np.evaluate(() => history.back());
+    await np.waitForTimeout(700);
+    got = await calls();
+    const pop = got.find(c => c.method === 'pop');
+    ok(!!pop && pop.args.ms === 500 && pop.args.native === false,
+       `뒤로 갈 때 앱에 \`pop\`을 부른다 (${JSON.stringify(pop?.args)})`);
+    ok(pop?.hold === true && pop?.route === '/rounds/r1', `그때도 떠나는 화면의 사본이 덮여 있다 (${pop?.route})`);
+    ok(await np.evaluate(() => !document.querySelector('.nav-hold')), '답이 오면 사본을 걷는다');
+
+    /* 5. 안드로이드 뒤로 단추(`plain`) — 여느 길로 민다. */
+    await np.click('.round-card a, .round-card');
+    await np.waitForTimeout(700);
+    await calls();
+    await np.evaluate(() => window.__navCb({ type: 'back', phase: 'plain' }));
+    await np.waitForTimeout(700);
+    got = await calls();
+    ok(await np.evaluate(() => location.hash === '#/rounds') && got.some(c => c.method === 'pop'),
+       '`plain`이 오면 뒤로 가고 `pop`으로 민다');
+    ok((await np.evaluate(() => window.__ghosts)) === 0 && (await transformOf()) === 'none',
+       '끝까지 웹은 그림도 안 깔고 화면도 안 민다');
+
+    /* 탭 사이 — 자리만 하나 더한다(`ms: 0`). */
+    await np.click('.tabbar a[href="#/polls"], .tabbar a:nth-child(4)');
+    await np.waitForTimeout(400);
+    got = await calls();
+    const tabPush = got.find(c => c.method === 'push');
+    ok(!!tabPush && tabPush.args.ms === 0 && tabPush.hold === false,
+       '탭으로 가는 길은 사본도 안 덮고 자리만 더한다 (`push({ms:0})`)');
+
+    await nCtx.close();
+}
+
 /* ── 대화방에 들어갈 때와 나올 때 ────────────────────────────────
  *
  * 둘 다 사용자 제보로 잡은 자리다 — `우측에서 밀려오는게 아니고 화면이

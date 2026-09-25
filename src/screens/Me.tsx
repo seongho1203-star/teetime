@@ -20,6 +20,7 @@ import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
 import { Capacitor } from '@capacitor/core';
 import { androidChatOn, setAndroidChat } from '../lib/native-chat';
+import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
 import { shrinkImage } from '../lib/image';
 import { lunarToSolar } from '../lib/lunar';
 import { kstDate } from '../lib/format';
@@ -178,6 +179,8 @@ export function Me() {
     const [chat, setChat] = useState(true);
     /* 안드로이드 코틀린 대화 화면 스위치(시험 중 — 아래 참고). */
     const [androidChat, setAndroidChatState] = useState(() => androidChatOn());
+    /* 앱이 화면 전환·뒤로 끌기를 맡는 층 스위치(아래 참고). */
+    const [navOn, setNavOnState] = useState(() => !nativeNavOff());
     const [pushBusy, setPushBusy] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
 
@@ -543,6 +546,27 @@ export function Me() {
                         </div>
                         <Switch label="앱 대화 화면" on={androidChat}
                                 onChange={next => { setAndroidChat(next); setAndroidChatState(next); }} />
+                    </div>
+                </div>
+            )}
+
+            {/* **앱이 화면 전환과 뒤로 끌기를 맡는 층**(`lib/native-nav.ts` —
+                사용자 요청 `Native Navigation Layer`). 켜져 있는 것이 기본이고,
+                끄면 예전처럼 웹이 민다 — 폰에서 두 길을 견줄 때와, 어긋나는
+                판이 나왔을 때 되돌리는 문이다. **바꾸면 새로고침해야 먹는다**
+                (`hasNativeNav()`가 한 번 정하면 그대로다). 플러그인이 실린
+                앱에서만 뜬다. */}
+            {Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('NativeNav') && (
+                <div className="card">
+                    <div className="switch-row">
+                        <div className="grow">
+                            <div className="switch-label">앱이 화면을 밀고 끌기</div>
+                            <div className="switch-desc">
+                                {navOn ? '화면 전환과 뒤로 끌기를 앱이 맡습니다' : '꺼짐 — 웹이 밉니다 (앱을 다시 열면 적용)'}
+                            </div>
+                        </div>
+                        <Switch label="앱이 화면을 밀고 끌기" on={navOn}
+                                onChange={next => { setNativeNavOff(!next); setNavOnState(next); }} />
                     </div>
                 </div>
             )}

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { useLocation, useNavigate, useNavigationType, type NavigateFunction } from 'react-router-dom';
 import { hasNativeChat } from './native-chat';
+import { NativeNav, hasNativeNav } from './native-nav';
 
 /**
  * **오른쪽으로 밀면 뒤로 간다**(사용자 요청 — `내정보를 들어갔다가 왼쪽에서
@@ -410,7 +411,7 @@ let moveSeq = 0;
 
 /** 깔거나 얹는 그림 전부. **새로 만들면 여기에 더할 것** — 하나라도
  *  빠지면 그것만 화면에 남아 앱이 죽은 것처럼 보인다. */
-const GHOSTS = '.back-ghost, .exit-ghost, .exit-dim';
+const GHOSTS = '.back-ghost, .exit-ghost, .exit-dim, .nav-hold';
 /** 화면을 옮기는 동안에만 붙는 표 전부. 위와 같은 이유로 한곳에 모아 둔다. */
 const MOVING = ['back-drag', 'back-ease', 'screen-push', 'screen-pop', 'screen-ease'];
 
@@ -454,6 +455,77 @@ function watchGhosts() {
 }
 watchGhosts();
 
+/* ── 앱이 화면 전환을 맡는 판 ────────────────────────────────
+ *
+ * `lib/native-nav.ts`의 그 층이다. 여기서 웹이 하는 일은 넷뿐이다:
+ *  1. 주소가 바뀌는 그 자리(`pushState`·`popstate`)에서 **지금 화면의
+ *     사본을 맨 위에 덮고**(`holdScreen`) 앱에 `push`/`pop`을 부른다.
+ *     앱이 웹뷰를 찍고 답하면 사본을 걷는다 — 다리를 건너는 사이에
+ *     리액트가 새 화면을 그려도 **찍히는 것은 옛 화면**이다.
+ *  2. 화면마다 끌어서 뒤로 갈 수 있는지 알린다(`back`).
+ *  3. 손을 댄 자리가 다른 손짓의 임자인지 알린다(`touch` — `taken()`).
+ *  4. 앱이 끌어서 넘어갔다고 하면 `뒤로`를 하고, 다 그린 뒤 `rendered()`.
+ *
+ * **웹의 그림(`shots`)은 그대로 찍어 둔다.** 앱 대화 화면이 뒤에 깔
+ * 앞 화면으로 아직 그것을 쓴다(`nativeChatEnter`).
+ */
+
+/** 앱에 부른 뒤 답을 기다리는 동안 맨 위에 덮어 둔 지금 화면의 사본. */
+let holdEl: HTMLDivElement | null = null;
+let holdTimer = 0;
+/** 지금 보이는 화면의 경로 — `pushState`·`popstate`가 지날 때마다 적는다.
+ *  `popstate`에서는 주소가 **이미 목적지**라 떠나는 화면의 경로를 따로 들고
+ *  있어야 한다(사본에 적어 두는 표 몫이다). */
+let seenRoute = typeof location === 'undefined' ? '/' : routeOf(location.href);
+/** 지금 화면의 사본을 맨 위에 덮는다(위 참고). 이미 있으면 갈아 끼운다. */
+function holdScreen(route: string): void {
+    releaseHold();
+    const el = pageEl();
+    if (!el) return;
+    const shot = takeShot(el);
+    shot.path = route;
+    const g = document.createElement('div');
+    g.className = 'nav-hold';
+    /* 어느 화면의 사본인지 적어 둔다 — 검사(`behave`)가 이것으로 '찍히는
+       것이 앞 화면인가'를 가린다. */
+    g.dataset.route = shot.path;
+    const { c, list } = cloneShot(shot);
+    g.appendChild(c);
+    addBar(g, shot);
+    document.body.appendChild(g);
+    if (list) placeChatList(list, shot);
+    holdEl = g;
+    /* **rAF도 답도 안 오는 판을 위한 그물** — 사본이 남으면 앱이 죽은
+       것처럼 보인다(웹의 `sweepGhosts`와 같은 자리다). */
+    holdTimer = window.setTimeout(releaseHold, 1500);
+}
+function releaseHold(): void {
+    window.clearTimeout(holdTimer);
+    holdEl?.remove(); holdEl = null;
+}
+
+/** 앱이 끌어서 넘어가는 참이다 — `popstate`에서 앱에 `pop`을 또 부르지 않는다. */
+let nativeDragging = false;
+
+/** `pushState` 자리 — 앱이 맡는 판. */
+function nativePush(toPath: string): void {
+    /* 탭으로 가는 길은 안 민다(웹과 같다). **앱 쪽 더미와 짝을 맞추려고**
+       그때도 부른다 — `popstate`가 하나씩 꺼내므로 한 자리도 비울 수 없다. */
+    const tab = TAB_PATHS.includes(toPath);
+    const chat = hasNativeChat() && toPath === '/chat';
+    if (!tab) holdScreen(seenRoute);
+    void NativeNav.push({ ms: tab ? 0 : chat ? CHAT_MS : SCREEN_MS, native: chat })
+        .catch(() => {}).finally(releaseHold);
+}
+/** `popstate` 자리 — 앱이 맡는 판. */
+function nativePop(): void {
+    if (nativeDragging) return;     // 앱이 이미 내보냈다(`commit`)
+    const fromChat = hasNativeChat() && seenRoute === '/chat';
+    if (!fromChat) holdScreen(seenRoute);
+    void NativeNav.pop({ ms: SCREEN_MS, native: fromChat })
+        .catch(() => {}).finally(releaseHold);
+}
+
 let patched = false;
 function watchHistory() {
     if (patched || typeof history === 'undefined') return;
@@ -461,7 +533,12 @@ function watchHistory() {
     const push = history.pushState.bind(history);
     history.pushState = function (data: unknown, title: string, url?: string | URL | null) {
         try {
-            if (url != null) snap(routeOf(String(url)));
+            if (url != null) {
+                const to = routeOf(String(url));
+                snap(to);
+                if (hasNativeNav()) nativePush(to);
+                seenRoute = to;
+            }
         } catch { /* 주소가 이상해도 넘어가는 것이 낫다 */ }
         return push(data as never, title, url);
     } as typeof history.pushState;
@@ -473,9 +550,11 @@ function watchHistory() {
            붙고 라우터 것은 화면을 그리며 붙으므로 **우리가 먼저 돈다.**
            그래서 여기서는 아직 떠나는 화면이 그대로 있다.
            손가락으로 끌어 가는 참이면 이미 손을 따라 내보냈으므로 안 찍는다. */
-        if (!skipSlide) snapExit();
+        if (hasNativeNav()) nativePop();
+        else if (!skipSlide) snapExit();
         /* 뒤로 갔으면 그 그림은 다 쓴 것이다. */
         shots.pop();
+        seenRoute = routeOf(location.href);
     });
 }
 watchHistory();
@@ -798,14 +877,73 @@ function runPop(el: HTMLElement, shot: Shot): void {
     });
 }
 
+/**
+ * **앱이 끄는 판** — 웹은 손짓을 안 받고 셋만 한다(위 `앱이 화면 전환을
+ * 맡는 판`): 이 화면에서 끌 수 있는지 알리고(`back`), 손을 댄 자리가
+ * 다른 손짓의 임자인지 알리고(`touch`), 넘어갔다고 하면 `뒤로`를 한다.
+ *
+ * **`touch`는 손을 댈 때마다 보낸다.** 앱은 DOM을 모르므로 `taken()`의
+ * 답을 웹이 줘야 하는데, 물어보고 기다릴 수는 없다(다리가 비동기다).
+ * 앱 손짓은 가로로 12px을 그어야 깨어나므로 그 사이에 답이 닿는다.
+ */
+function useNativeBack(nav: NavigateFunction, pathname: string, onTab: boolean): void {
+    useEffect(() => {
+        if (!hasNativeNav()) return;
+        const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+        /* 앱이 그리는 대화방은 제 손짓이 있다(아이폰 `BackDrag`·화면 틀). */
+        const chat = hasNativeChat() && pathname === '/chat';
+        const on = !onTab && !chat && idx > 0;
+        void NativeNav.back({ on }).catch(() => {});
+        if (!on) return;
+        const onStart = (e: TouchEvent) => {
+            if (e.touches.length !== 1) return;
+            void NativeNav.touch({ free: !taken(e.target) }).catch(() => {});
+        };
+        document.addEventListener('touchstart', onStart, { passive: true });
+        return () => document.removeEventListener('touchstart', onStart);
+    }, [pathname, onTab]);
+
+    useEffect(() => {
+        if (!hasNativeNav()) return;
+        let dead = false;
+        let handle: { remove(): Promise<void> } | undefined;
+        void NativeNav.addListener('nav', e => {
+            if (dead || e.type !== 'back') return;
+            const idx0 = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+            /* 끌리는 것 없이 뒤로(안드로이드 뒤로 단추) — 여느 길로 민다. */
+            if (e.phase === 'plain') { if (idx0 > 0) nav(-1); else nav('/'); return; }
+            if (e.phase !== 'commit') { nativeDragging = false; return; }
+            /* 넘어갔다 — 웹이 뒤로 간다. `popstate`에서 앱에 또 부르지 않게
+               표를 세우고, 목적지가 한 번 그려진 뒤 `rendered()`로 알린다. */
+            nativeDragging = true;
+            skipSlide = true;
+            const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+            if (idx > 0) nav(-1); else nav('/');
+            let told = false;
+            const done = () => {
+                if (told) return;
+                told = true;
+                nativeDragging = false;
+                void NativeNav.rendered().catch(() => {});
+            };
+            requestAnimationFrame(() => requestAnimationFrame(done));
+            window.setTimeout(done, 600);
+        }).then(h => { handle = h; if (dead) void h.remove(); });
+        return () => { dead = true; void handle?.remove(); };
+    }, [nav]);
+}
+
 export function useBackSwipe(): void {
     const nav = useNavigate();
     const { pathname } = useLocation();
     const onTab = TAB_PATHS.includes(pathname);
+    useNativeBack(nav, pathname, onTab);
 
     useEffect(() => {
         // 탭 화면에서는 뒤로 갈 데가 없다.
         if (onTab) return;
+        // 앱이 끄는 판에서는 웹이 손짓을 안 받는다(위 `useNativeBack`).
+        if (hasNativeNav()) return;
 
         let x0 = 0, y0 = 0, dx = 0, vx = 0, lastX = 0, lastT = 0;
         let cand = false, live = false, plain = false, W = 1;
@@ -1078,6 +1216,16 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
         /* **손가락으로 끌어 뒤로 온 참이면 아무것도 안 한다.** 이미 손을
            따라 끝까지 옮겨 놓은 화면을 여기서 또 미끄러뜨리면 두 번 움직인다. */
         if (skipSlide) { skipSlide = false; return; }
+        /* **앱이 화면을 미는 판에서는 웹이 아무것도 안 민다**(`lib/native-nav.ts`).
+           주소가 바뀌는 자리에서 이미 앱에 부탁했다(`nativePush`·`nativePop`).
+           앱 대화 화면이 남은 시간을 셈하는 표(`slideMark`)만 그대로 적는다. */
+        if (hasNativeNav()) {
+            if (!(wasTab && isTab)) {
+                slideMark.at = Date.now();
+                slideMark.ms = hasNativeChat() && pathname === '/chat' ? CHAT_MS : SCREEN_MS;
+            }
+            return;
+        }
         // **탭 사이는 안 움직인다.**
         if (wasTab && isTab) return;
         /* **앱이 대화 화면을 그리는 판에서는 웹이 아무것도 안 민다.**

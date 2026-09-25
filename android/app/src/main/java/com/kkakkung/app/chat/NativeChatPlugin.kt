@@ -60,9 +60,14 @@ class NativeChatPlugin : Plugin() {
                 val d = JSObject().put("screen", screen).put("type", "auth").put("data", JSObject())
                 notifyListeners("event", d)
             }
-            val root = activity.findViewById<ViewGroup>(android.R.id.content)
+            /* **화면 전환 층이 있으면 거기에 얹는다**(`nav/NavLayer.kt`) — 그래야
+               끌어서 뒤로 가는 손짓이 이 화면 위에서도 먹는다. 없는 판(옛 껍데기)
+               에서는 예전처럼 창 맨 위에 붙는다. */
+            val root: ViewGroup = com.kkakkung.app.nav.NavLayer.instance?.host()
+                ?: activity.findViewById(android.R.id.content)
             val fresh = c.parent == null
             c.attach(root)
+            com.kkakkung.app.nav.NavLayer.instance?.refreshBack()
             installBack()
             val ms = call.getDouble("slide") ?: 0.0
             if (fresh && ms > 40) {
@@ -117,6 +122,7 @@ class NativeChatPlugin : Plugin() {
     private fun remove(clear: Boolean) {
         backGuard?.remove(); backGuard = null
         chat?.detach()
+        com.kkakkung.app.nav.NavLayer.instance?.refreshBack()
         screen = ""
         if (clear) { chat?.destroy(); chat = null }
     }

@@ -5133,6 +5133,73 @@ GitHub Pages가 그대로 내주므로 주소가 곧
 - 문의 이메일이 적혀 있다. **공개되는 페이지**라 바꾸려면 두 파일의
   그 줄만 고치면 된다.
 
+### 화면 전환과 뒤로 끌기는 앱이 맡는다 — Native Navigation Layer
+
+사용자 요청 — `라운드·투표·게시판·내정보 = Web, 채팅 = Native, 하지만
+화면 전환 / 뒤로끌기 → Native Navigation Layer 이렇게 만들어줘` · 어디까지로
+할지 물으니 **`전부 네이티브`**(웹↔웹·웹↔대화 모두 · 아이폰·안드로이드 둘 다).
+
+**웹 화면은 그대로 웹이 그린다.** 갈린 것은 **밀려 들어오고 나가는
+움직임과 손가락으로 끌어 뒤로 가는 일**뿐이다 — 그것을 앱이 웹뷰 자체를
+옮겨서 한다. 웹의 `transform`으로 밀던 길(`lib/tabs.ts`의 `runPush`·`runPop`·
+`useBackSwipe`)은 **플러그인이 없는 판(브라우저 · 옛 앱)에서 그대로 돈다** —
+지우지 말 것.
+
+```
+웹  src/lib/native-nav.ts (NativeNav 플러그인) ← src/lib/tabs.ts가 부른다
+앱  ios/App/App/NativeNavPlugin.swift (NavLayer)
+    android/.../nav/NavLayer.kt + NativeNavPlugin.kt
+```
+
+- **오가는 말은 `native-nav.ts` 머리말에 있다** — `push`·`pop`·`back`·
+  `touch`·`rendered`, 그리고 앱→웹 `nav` 이벤트(`commit`·`cancel`·`plain`).
+  두 플랫폼이 같은 이름·같은 값을 쓴다(`TAKE` 0.34 · `FLICK` 0.8 ·
+  `PARALLAX` 0.25 · `DIM` 0.18 · 230ms · `cubic-bezier(.32,.72,0,1)` —
+  웹 `tabs.ts`와도 같다). **한쪽만 고치지 말 것.**
+- **찍는 순간 웹뷰에 옛 화면이 덮여 있어야 한다.** `push`·`pop`은 주소가
+  바뀌는 그 자리(`pushState`·`popstate`)에서 부르는데 다리가 비동기라 그
+  사이에 리액트가 새 화면을 그려 버린다. 그래서 웹이 부르기 **전에** 지금
+  화면의 사본을 맨 위에 덮고(`holdScreen` → `.nav-hold` · z 1150) 앱이 찍고
+  답하면 걷는다. **`popstate`에서는 주소가 이미 목적지라** 떠나는 화면의
+  경로를 `seenRoute`로 따로 들고 있다.
+- **탭으로 가는 길은 안 밀되 자리는 더한다**(`push({ms:0})`). 앱의 판
+  더미는 히스토리 한 칸에 하나라 `popstate`가 하나씩 꺼내는데, 한 자리라도
+  비우면 그 뒤가 전부 어긋난다.
+- **웹은 손짓을 안 받고 알려 주기만 한다** — 손을 댈 때마다
+  `touch({free})`로 `taken()`의 답을 보낸다(글칸·가로로 굴러가는 줄·덮는 창).
+  앱은 DOM을 모르고 물어보고 기다릴 수도 없어서(비동기) **미리** 보낸다.
+  앱 손짓은 가로로 12px을 그어야 서므로 그 사이에 답이 닿는다. 왼쪽
+  가장자리(24px)에서 시작한 것은 웹이 뭐라 하든 앱 것이다.
+- **끌어서 넘어가면 웹이 `뒤로`를 하고 다 그린 뒤 `rendered()`를 부른다.**
+  그동안 앱은 목적지 판을 웹뷰 **위에** 깔아 둔다(웹뷰는 아직 떠난 화면을
+  그리고 있다). `nativeDragging`이 그때 `popstate`에서 `pop`을 또 부르는
+  것을 막는다 — 앱이 이미 판을 꺼냈다.
+- **대화방은 손대지 않는다.** 아이폰은 화면 틀(`UINavigationController`)에
+  밀어 올려 iOS가 키보드까지 함께 옮기는 길이 이미 있고(`AppDelegate.
+  wrapInNavigation`), 안드로이드는 `ChatScreen`이 스스로 밀려 들어오고
+  나간다(`NativeChatPlugin.kt`). 웹이 `native: true`로 부르면 앱은 판만
+  쌓고·버린다. **안드로이드 대화 화면은 이 층에 얹힌다**(`NavLayer.host()`) —
+  그래야 그 위에서 끌어서 뒤로가 되고, 글칸 줄 위에서는 안 시작한다
+  (`NavPage.freeAt`).
+- **안드로이드 뒤로 단추·예측형 손짓도 같은 움직임이다.** `NavLayer`의
+  `OnBackPressedCallback`이 `@capacitor/app`의 것보다 **나중에 걸려** 이기고
+  (`MainActivity`가 `super.onCreate` 뒤에 `install`한다), 탭 화면에서는 꺼
+  두어 예전처럼 웹뷰 히스토리로 간다. 매니페스트의
+  `enableOnBackInvokedCallback`이 진행률(`handleOnBackProgressed`)의 한 쌍이다.
+- **찍는 것은 아이폰이 `snapshotView(afterScreenUpdates: false)`, 안드로이드가
+  `PixelCopy`다**(그 아래 판은 `draw`). 안드로이드는 비동기라 그림이 오기
+  전 한두 프레임의 손짓을 `dxNow`에 쌓아 두었다가 그 자리부터 그린다.
+- **`내 정보`의 `앱이 화면을 밀고 끌기` 스위치가 되돌리는 문이다**
+  (`teetime:nav` = `off`). 어긋나는 판이 나오면 사용자가 그 자리에서 웹
+  길로 돌아갈 수 있다 — 바꾸면 앱을 다시 열어야 먹는다.
+- **여기서 확인할 수 있는 것은 웹이 앱에 무엇을 언제 부르는가뿐이다** —
+  `.dev/behave.mjs`의 `앱이 화면 전환을 맡는 판` 칸이 플러그인을 흉내 내어
+  차례를 잰다(부를 때 사본이 덮여 있는가 · 웹이 그림을 한 장도 안 까는가 ·
+  `commit` → 뒤로 → `rendered`). 찍고 미는 것은 실기기에서 볼 것:
+  들어갈 때 앞 화면이 뒤에서 1/4만큼 따라 나가는가 · 아무 데서나 오른쪽으로
+  끌면 손을 따라오는가 · 놓은 뒤 옛 화면이 한 프레임도 안 비치는가 ·
+  대화방 위에서도 끌리는가(안드로이드).
+
 ### 앱 (Capacitor) — 이제 화면을 앱 안에 담는다 (출시용)
 
 `capacitor.config.ts` · `ios/` · `.github/workflows/ios.yml` 셋이다.

@@ -194,6 +194,24 @@ html.back-drag .app > :first-child {
     background-size: 100% 100%;
     background-repeat: no-repeat;
 }
+/* **앱이 화면 전환을 맡는 판에서 웹뷰를 찍는 동안 맨 위에 덮는 지금
+   화면의 사본**(`lib/tabs.ts`의 `holdScreen`). 주소가 바뀌는 자리에서
+   앱에 부탁하고 답이 오기까지 몇 ms인데, 그 사이에 리액트가 새 화면을
+   그려 버리면 **새 화면이 앞 화면으로 찍힌다.** 이 사본이 덮고 있으면
+   어느 프레임을 찍어도 옛 화면이다. 답이 오면 걷는다.
+   **덮는 창(1000~1100)보다 위, 토스트(1200)보다 아래**다 — 화면을 옮기는
+   순간에는 창이 없어야 하지만, 혹 남아 있어도 사본이 이긴다. */
+.nav-hold {
+    position: fixed;
+    inset: 0;
+    z-index: 1150;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    pointer-events: none;
+}
+
 /* 손을 뗀 뒤 남은 거리를 마저 간다. **끄는 동안에는 걸지 않는다** —
    손가락을 그대로 따라와야 하므로 그때 전환이 걸리면 늦게 따라온다. */
 html.back-ease .app > :first-child,

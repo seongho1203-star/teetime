@@ -39,7 +39,16 @@ import java.util.UUID
  * 웹뷰 위에 통째로 얹힌다(`NativeChatPlugin`). 웹에 남는 것은 자리를
  * 지키는 스피너 한 장이라 여기가 대화의 전부다.
  */
-class ChatScreen(private val activity: AppCompatActivity, val service: ChatService) : FrameLayout(activity) {
+class ChatScreen(private val activity: AppCompatActivity, val service: ChatService)
+    : FrameLayout(activity), com.kkakkung.app.nav.NavLayer.NavPage {
+    /** 끌어서 뒤로 가기가 시작해도 되는 자리인가 — 글칸 줄 위는 아니다
+     *  (글자를 고르는 손짓이 거기 있다). `NavLayer`가 손을 댈 때 묻는다. */
+    override fun freeAt(x: Float, y: Float): Boolean {
+        val r = android.graphics.Rect()
+        if (!composer.getGlobalVisibleRect(r)) return true
+        val loc = IntArray(2); getLocationOnScreen(loc)
+        return !r.contains((x + loc[0]).toInt(), (y + loc[1]).toInt())
+    }
     /** 웹으로 보내는 소식(`navigate`·`read`·`auth`·`back`). */
     var event: ((String, JSONObject) -> Unit)? = null
 
