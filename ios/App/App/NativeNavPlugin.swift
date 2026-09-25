@@ -140,14 +140,10 @@ fileprivate final class WebRoutePageController: UIViewController {
         cover = nil
     }
 
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        if isMovingFromParent { owner?.systemPagePopped(self) }
-    }
 }
 
 /// 위 주석의 그 층. root는 웹뷰를 화면으로 쓰는 Capacitor 화면이다.
-final class NavLayer: NSObject, UIGestureRecognizerDelegate {
+final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControllerDelegate {
     static let TAKE: CGFloat = 0.34
     static let FLICK: CGFloat = 0.8
     static let FLICK_MIN: CGFloat = 40
@@ -167,6 +163,10 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     private weak var systemWeb: WKWebView?
     private var systemRootHolder: UIView?
     private weak var systemContentPop: UIGestureRecognizer?
+    /** full-content swipe를 시작한 웹 page. UINavigationController.didShow에서
+        성공/취소를 판별하는 표다. viewDidDisappear/isMovingFromParent는
+        interactive pop 완료 신호가 아니어서 더 이상 쓰지 않는다. */
+    private weak var systemInteractiveFrom: UIViewController?
     private var systemProgrammaticPop = false
     private var systemInstalled = false
 
@@ -225,6 +225,9 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         systemWeb = web
         systemRootHolder = holder
         systemInstalled = true
+        /* didShow는 UIKit 문서상 push/pop 뒤 실제로 표시가 끝난 시점이다.
+           interactive pop의 성공/취소를 화면 lifecycle 대신 여기서 확정한다. */
+        nav.delegate = self
 
         let g = nav.interactiveContentPopGestureRecognizer
         /* iOS 26의 full-content pan은 nav.view 전체에 걸린다. 기본값 그대로면
@@ -313,6 +316,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     @available(iOS 26.0, *)
     private func systemPush(ms: Double, supplied: UIView?, done: @escaping () -> Void) {
+        systemInteractiveFrom = nil
         guard let root = root, let nav = root.navigationController, let web = systemWeb else {
             done(); return
         }
@@ -332,6 +336,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     @available(iOS 26.0, *)
     private func systemResetToRoot(done: @escaping () -> Void) {
+        systemInteractiveFrom = nil
         guard let root = root, let nav = root.navigationController else { done(); return }
         systemBackGesture(false)
         systemAttachWeb(to: root, keepCover: false)
@@ -342,6 +347,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     @available(iOS 26.0, *)
     private func systemPop(ms: Double, done: @escaping () -> Void) {
+        systemInteractiveFrom = nil
         guard let nav = root?.navigationController,
               nav.topViewController is WebRoutePageController else { done(); return }
         systemProgrammaticPop = true
@@ -379,55 +385,47 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    /** full-content swipe가 **실제로 끝난 뒤** native/web history를 한 번만 맞춘다. */
     @available(iOS 26.0, *)
-    fileprivate func systemPagePopped(_ page: WebRoutePageController) {
-        guard !systemProgrammaticPop, let nav = root?.navigationController else { return }
-
-        /* **viewDidDisappear는 interactive pop의 '화면이 안 보이기 시작한 때'이지
-           UINavigationController가 전환을 완전히 끝낸 때가 아니다.**
-           
-           204/205는 여기서 곧바로 WKWebView를 다른 부모로 옮기고 React에
-           nav(-1)을 시켜 다음 화면 생명주기까지 시작했다. 그러면 UIKit이 아직
-           transition container의 interaction을 잠근 상태에서 계층을 갈아 끼우게
-           되고, 눈에는 채팅이 돌아왔지만 그 위 전환 층이 터치를 계속 먹는
-           '유령 화면'이 남았다. 카드뿐 아니라 채팅 헤더 ←도 안 눌린다는
-           실기기 증상이 상태변수 문제가 아니라 이 타이밍임을 가른 단서다.
-           
-           **UIKit transition이 완료됐다는 completion 뒤에서만** 웹뷰 이동,
-           채팅 resume, JS history 변경을 한다. 취소된 interactive pop이면
-           아무것도 하지 않는다. */
-        let finish: () -> Void = { [weak self, weak nav] in
-            guard let self = self, let nav = nav, !self.systemProgrammaticPop,
-                  let dest = nav.topViewController else { return }
-
-            /* 전환이 끝난 뒤 남은 UIKit transition view를 건드리지 않고,
-               우리가 만든 recognizer/화면만 원래 상태로 되돌린다. */
-            if let chat = dest as? NativeChatViewController {
-                self.systemBackGesture(false)
-                if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
-                chat.view.isHidden = false
-                chat.view.alpha = 1
-                chat.view.transform = .identity
-                chat.view.isUserInteractionEnabled = true
-                chat.resume()
-            } else {
-                self.systemAttachWeb(to: dest, keepCover: true)
-                self.systemBackGesture(dest is WebRoutePageController)
-            }
-
-            /* 이제 UIKit은 idle이다. 이 뒤에야 React가 nav(-1)하고 새 route를
-               mount한다 — native/web 두 navigation state가 같은 순서로 간다. */
-            self.onBack?("commit")
-        }
-
-        if let c = nav.transitionCoordinator {
-            c.animate(alongsideTransition: nil) { context in
-                guard !context.isCancelled else { return }
-                DispatchQueue.main.async { finish() }
-            }
+    private func systemInteractiveCompleted(to dest: UIViewController) {
+        if let chat = dest as? NativeChatViewController {
+            systemBackGesture(false)
+            if let root = root { systemAttachWeb(to: root, keepCover: false) }
+            chat.view.isHidden = false
+            chat.view.alpha = 1
+            chat.view.transform = .identity
+            chat.view.isUserInteractionEnabled = true
+            chat.resume()
         } else {
-            DispatchQueue.main.async { finish() }
+            systemAttachWeb(to: dest, keepCover: true)
+            systemBackGesture(dest is WebRoutePageController)
         }
+        /* 이 신호가 React nav(-1)을 만든다. 이게 빠지면 화면은 채팅인데
+           URL/route는 라운드·투표에 남아 NativeChatHost listener가 없고,
+           카드·←가 모두 '무반응'이 된다. 사용자가 한 번 더 끌면 웹 history만
+           홈으로 가던 206 증상이 정확히 그 상태였다. */
+        onBack?("commit")
+    }
+
+    /** UINavigationController가 **실제로 표시를 끝낸 뒤** 호출한다.
+        Apple의 didShow가 interactive pop 성공/취소를 가르는 단일 기준이다. */
+    func navigationController(_ navigationController: UINavigationController,
+                              didShow viewController: UIViewController,
+                              animated: Bool) {
+        guard #available(iOS 26.0, *),
+              let from = systemInteractiveFrom else { return }
+        systemInteractiveFrom = nil
+
+        if viewController === from {
+            /* 손을 놓고 원래 웹 page로 되돌아온 것 = 취소. history는 건드리지 않는다. */
+            systemBackGesture(true)
+            return
+        }
+
+        /* from이 stack에서 빠지고 다른 VC가 top이 됐다 = pop 성공.
+           didShow 시점에는 transition container가 이미 정리되어 있으므로
+           여기서 웹뷰를 옮기고 React history를 바꿔도 유령 hit-test 층이 없다. */
+        systemInteractiveCompleted(to: viewController)
     }
 
     deinit {
@@ -671,11 +669,15 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         if #available(iOS 26.0, *), g === systemContentPop {
             guard armed, !moving, !systemProgrammaticPop,
                   let nav = root?.navigationController,
-                  nav.topViewController is WebRoutePageController else { return false }
-            /* 댓글 입력칸·슬라이더 등은 웹이 free=false로 표시한다.
-               그 위에서는 시스템 pan을 아예 시작하지 않아 WebKit focus를
-               건드리지 않는다. 빈 영역에서 시작한 뒤로끌기만 시스템에 준다. */
-            return free
+                  let page = nav.topViewController as? WebRoutePageController,
+                  free else {
+                systemInteractiveFrom = nil
+                return false
+            }
+            /* 이 page를 기억해 두고 **didShow에서** 같은 page면 취소,
+               다른 VC면 성공으로 확정한다. */
+            systemInteractiveFrom = page
+            return true
         }
         guard let p = g as? UIPanGestureRecognizer, let host = host, canDrag() else { return false }
         let t = p.translation(in: host)
