@@ -381,26 +381,53 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     @available(iOS 26.0, *)
     fileprivate func systemPagePopped(_ page: WebRoutePageController) {
-        guard !systemProgrammaticPop, let nav = root?.navigationController,
-              let dest = nav.topViewController else { return }
-        if let chat = dest as? NativeChatViewController {
-            /* 이 콜백은 바로 그 full-content recognizer의 완료 길이다.
-               다음 run-loop까지 recognizer가 .ended 상태일 수 있으므로 즉시
-               disable해 reset하고 채팅 터치를 원래 UIKit 계층에 돌려준다. */
-            systemBackGesture(false)
-            if let root = root { systemAttachWeb(to: root, keepCover: false) }
-            chat.view.isUserInteractionEnabled = true
-            /* interactiveContentPopGestureRecognizer로 돌아온 길도 같다.
-               화면이 손가락 아래에서 채팅으로 바뀐 **그 프레임에** 잠금을 풀어
-               링크를 바로 다시 누를 수 있게 한다. React의 openNativeChat이
-               뒤이어 resume()을 한 번 더 불러도 beginSession/realtime은
-               기존 구현대로 idempotent하게 다시 맞춰진다. */
-            chat.resume()
-        } else {
-            systemAttachWeb(to: dest, keepCover: true)
-            systemBackGesture(dest is WebRoutePageController)
+        guard !systemProgrammaticPop, let nav = root?.navigationController else { return }
+
+        /* **viewDidDisappear는 interactive pop의 '화면이 안 보이기 시작한 때'이지
+           UINavigationController가 전환을 완전히 끝낸 때가 아니다.**
+           
+           204/205는 여기서 곧바로 WKWebView를 다른 부모로 옮기고 React에
+           nav(-1)을 시켜 다음 화면 생명주기까지 시작했다. 그러면 UIKit이 아직
+           transition container의 interaction을 잠근 상태에서 계층을 갈아 끼우게
+           되고, 눈에는 채팅이 돌아왔지만 그 위 전환 층이 터치를 계속 먹는
+           '유령 화면'이 남았다. 카드뿐 아니라 채팅 헤더 ←도 안 눌린다는
+           실기기 증상이 상태변수 문제가 아니라 이 타이밍임을 가른 단서다.
+           
+           **UIKit transition이 완료됐다는 completion 뒤에서만** 웹뷰 이동,
+           채팅 resume, JS history 변경을 한다. 취소된 interactive pop이면
+           아무것도 하지 않는다. */
+        let finish: () -> Void = { [weak self, weak nav] in
+            guard let self = self, let nav = nav, !self.systemProgrammaticPop,
+                  let dest = nav.topViewController else { return }
+
+            /* 전환이 끝난 뒤 남은 UIKit transition view를 건드리지 않고,
+               우리가 만든 recognizer/화면만 원래 상태로 되돌린다. */
+            if let chat = dest as? NativeChatViewController {
+                self.systemBackGesture(false)
+                if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+                chat.view.isHidden = false
+                chat.view.alpha = 1
+                chat.view.transform = .identity
+                chat.view.isUserInteractionEnabled = true
+                chat.resume()
+            } else {
+                self.systemAttachWeb(to: dest, keepCover: true)
+                self.systemBackGesture(dest is WebRoutePageController)
+            }
+
+            /* 이제 UIKit은 idle이다. 이 뒤에야 React가 nav(-1)하고 새 route를
+               mount한다 — native/web 두 navigation state가 같은 순서로 간다. */
+            self.onBack?("commit")
         }
-        onBack?("commit")
+
+        if let c = nav.transitionCoordinator {
+            c.animate(alongsideTransition: nil) { context in
+                guard !context.isCancelled else { return }
+                DispatchQueue.main.async { finish() }
+            }
+        } else {
+            DispatchQueue.main.async { finish() }
+        }
     }
 
     deinit {
