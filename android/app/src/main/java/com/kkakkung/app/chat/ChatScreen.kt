@@ -128,12 +128,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         composer.addView(sendBtn, LinearLayout.LayoutParams(dp(40f), dp(40f)).apply { bottomMargin = dp(4f) })
         column.addView(composer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
-        /* 상태 막대·홈 인디케이터·키보드 자리를 비운다. 키보드는 안드로이드 11부터
-           inset으로 오고, 그 아래는 창을 줄여 준다(`adjustResize` — `attach`). */
+        /* 상태 막대와 홈/제스처 영역만 피한다.
+         *
+         * **IME 높이를 여기서 또 padding 하면 안 된다.** Activity는 manifest에서
+         * `adjustResize`라 키보드가 올라올 때 이 ChatScreen이 이미 키보드 윗선까지
+         * 줄어든다. 그런데 예전 코드는 그 줄어든 화면 안에서 `ime.bottom`만큼을
+         * **한 번 더** 비워 입력창과 키보드 사이에 키보드 높이만 한 틈을 만들었다.
+         * (사용자 제보 — "입력창과 키보드가 붙어있지 않는 것 같아")
+         *
+         * 키보드가 보일 때는 화면 바닥 자체가 곧 IME 윗선이므로 bottom=0.
+         * 키보드가 없을 때만 navigation/system bar만큼 안전 여백을 둔다.
+         * Android 공식 권장도 adjustResize + WindowInsets로 IME 상태를 관찰하되,
+         * 부모 ViewGroup에서 IME inset을 중복 소비하지 않는 방식이다. */
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, ins ->
             val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
-            val ime = ins.getInsets(WindowInsetsCompat.Type.ime())
-            v.setPadding(0, bars.top, 0, maxOf(bars.bottom, ime.bottom))
+            val imeVisible = ins.isVisible(WindowInsetsCompat.Type.ime())
+            v.setPadding(0, bars.top, 0, if (imeVisible) 0 else bars.bottom)
             ins
         }
 
