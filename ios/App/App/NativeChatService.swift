@@ -1,4 +1,37 @@
 import Foundation
+
+/** Native V2 공통 런타임 설정. 웹의 import.meta.env를 더 이상 데이터 통신의
+    출발점으로 쓰지 않는다. 값은 CI가 Info.plist에 공개 설정으로 넣는다. */
+enum NativeEnvironment {
+    static var supabaseURL: String {
+        (Bundle.main.object(forInfoDictionaryKey: "KKSupabaseURL") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    static var anonKey: String {
+        (Bundle.main.object(forInfoDictionaryKey: "KKSupabaseAnonKey") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    static var ready: Bool { !supabaseURL.isEmpty && !anonKey.isEmpty }
+}
+
+/** 모바일 앱의 화면 주소. Native V2에서는 React Router 경로를 화면 stack과
+    동기화하지 않고 이 값만 UINavigationController가 소유한다. */
+enum NativeRoute: Equatable {
+    case home
+    case rounds
+    case round(String)
+    case polls
+    case poll(String)
+    case board
+    case post(String)
+    case chat
+    case alerts
+    case me
+    case members
+    case settle
+    case help
+}
+
 import UIKit
 
 typealias ChatJSON = [String: Any]
