@@ -199,13 +199,149 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         ) { [weak self] _ in
             guard let self = self else { return }
             self.keyboardVisible = false
-            /* resize:native가 원래 높이로 돌아온 다음, 키보드를 내리게 한
-               바로 그 손짓의 현재 거리에서 화면 끌기를 이어 간다. */
             DispatchQueue.main.async {
                 self.web?.layoutIfNeeded()
                 self.resumeAfterKeyboard()
             }
         })
+        installSystemWebNavigation()
+    }
+
+    private func installSystemWebNavigation() {
+        guard #available(iOS 26.0, *),
+              let root = root,
+              let nav = root.navigationController,
+              let web = root.view as? WKWebView else { return }
+
+        let holder = UIView(frame: web.frame)
+        holder.backgroundColor = web.backgroundColor ?? .systemBackground
+        holder.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        root.view = holder
+        web.removeFromSuperview()
+        web.frame = holder.bounds
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        holder.addSubview(web)
+
+        systemWeb = web
+        systemRootHolder = holder
+        systemInstalled = true
+
+        let g = nav.interactiveContentPopGestureRecognizer
+        g?.delegate = self
+        systemContentPop = g
+    }
+
+    private var usesSystemWebNavigation: Bool {
+        if #available(iOS 26.0, *) { return systemInstalled }
+        return false
+    }
+
+    @available(iOS 26.0, *)
+    private func systemFreezeCurrent(_ shot: UIView?) {
+        guard let nav = root?.navigationController else { return }
+        if let page = nav.topViewController as? WebRoutePageController {
+            page.freeze(shot)
+        } else if nav.topViewController === root, let holder = systemRootHolder {
+            holder.subviews.forEach { $0.removeFromSuperview() }
+            if let shot = shot {
+                shot.frame = holder.bounds
+                shot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                shot.isUserInteractionEnabled = false
+                holder.addSubview(shot)
+            }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func systemAttachWeb(to vc: UIViewController, keepCover: Bool) {
+        guard let web = systemWeb else { return }
+        if let page = vc as? WebRoutePageController {
+            page.attach(web, keepCover: keepCover)
+            return
+        }
+        guard vc === root, let holder = systemRootHolder else { return }
+        web.removeFromSuperview()
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        web.frame.origin = .zero
+        web.frame.size.width = holder.bounds.width
+        holder.insertSubview(web, at: 0)
+        if !keepCover {
+            holder.subviews.filter { $0 !== web }.forEach { $0.removeFromSuperview() }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func systemClearCover() {
+        guard let top = root?.navigationController?.topViewController else { return }
+        if let page = top as? WebRoutePageController {
+            page.clearCover()
+        } else if top === root, let holder = systemRootHolder, let web = systemWeb {
+            holder.subviews.filter { $0 !== web }.forEach { $0.removeFromSuperview() }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func systemPush(ms: Double, supplied: UIView?, done: @escaping () -> Void) {
+        guard let root = root, let nav = root.navigationController, let web = systemWeb else {
+            done(); return
+        }
+        let fromChat = nav.topViewController is NativeChatViewController
+        if !fromChat {
+            let shot = supplied ?? web.snapshotView(afterScreenUpdates: false)
+            systemFreezeCurrent(shot)
+        }
+        let page = WebRoutePageController(owner: self)
+        page.loadViewIfNeeded()
+        page.attach(web, keepCover: false)
+        nav.pushViewController(page, animated: ms > 40)
+        done()
+    }
+
+    @available(iOS 26.0, *)
+    private func systemResetToRoot(done: @escaping () -> Void) {
+        guard let root = root, let nav = root.navigationController else { done(); return }
+        systemAttachWeb(to: root, keepCover: false)
+        systemWeb?.endEditing(true)
+        nav.setViewControllers([root], animated: false)
+        done()
+    }
+
+    @available(iOS 26.0, *)
+    private func systemPop(ms: Double, done: @escaping () -> Void) {
+        guard let nav = root?.navigationController,
+              nav.topViewController is WebRoutePageController else { done(); return }
+        systemProgrammaticPop = true
+        nav.popViewController(animated: ms > 40)
+        let finish = { [weak self, weak nav] in
+            guard let self = self, let dest = nav?.topViewController else { done(); return }
+            if dest is NativeChatViewController {
+                if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+            } else {
+                self.systemAttachWeb(to: dest, keepCover: true)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.systemClearCover()
+                self.systemProgrammaticPop = false
+                done()
+            }
+        }
+        if let c = nav.transitionCoordinator {
+            c.animate(alongsideTransition: nil) { _ in finish() }
+        } else {
+            DispatchQueue.main.async { finish() }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    fileprivate func systemPagePopped(_ page: WebRoutePageController) {
+        guard !systemProgrammaticPop, let nav = root?.navigationController,
+              let dest = nav.topViewController else { return }
+        if dest is NativeChatViewController {
+            if let root = root { systemAttachWeb(to: root, keepCover: false) }
+        } else {
+            systemAttachWeb(to: dest, keepCover: true)
+        }
+        onBack?("commit")
     }
 
     deinit {
