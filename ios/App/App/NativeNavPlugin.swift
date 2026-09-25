@@ -166,7 +166,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
     /** full-content swipe를 시작한 웹 page. UINavigationController.didShow에서
         성공/취소를 판별하는 표다. viewDidDisappear/isMovingFromParent는
         interactive pop 완료 신호가 아니어서 더 이상 쓰지 않는다. */
-    private weak var systemInteractiveFrom: WebRoutePageController?
+    private weak var systemInteractiveFrom: UIViewController?
     private var systemProgrammaticPop = false
     private var systemInstalled = false
 
