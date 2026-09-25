@@ -2,31 +2,6 @@ package com.kkakkung.app.chat
 
 import com.kkakkung.app.BuildConfig
 
-/** Native V2 공통 런타임 설정. React/Vite 환경값에 의존하지 않는다. */
-object NativeEnvironment {
-    val supabaseUrl: String get() = BuildConfig.SUPABASE_URL.trim()
-    val anonKey: String get() = BuildConfig.SUPABASE_ANON_KEY.trim()
-    val ready: Boolean get() = supabaseUrl.isNotEmpty() && anonKey.isNotEmpty()
-}
-
-/** Android native back stack이 단독으로 소유하는 화면 주소. */
-sealed class NativeRoute {
-    data object Home : NativeRoute()
-    data object Rounds : NativeRoute()
-    data class Round(val id: String) : NativeRoute()
-    data object Polls : NativeRoute()
-    data class Poll(val id: String) : NativeRoute()
-    data object Board : NativeRoute()
-    data class Post(val id: String) : NativeRoute()
-    data object Chat : NativeRoute()
-    data object Alerts : NativeRoute()
-    data object Me : NativeRoute()
-    data object Members : NativeRoute()
-    data object Settle : NativeRoute()
-    data object Help : NativeRoute()
-}
-
-
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +25,30 @@ import org.json.JSONTokener
 import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+/** Native V2 공통 런타임 설정. React/Vite 환경값에 의존하지 않는다. */
+object NativeEnvironment {
+    val supabaseUrl: String get() = BuildConfig.SUPABASE_URL.trim()
+    val anonKey: String get() = BuildConfig.SUPABASE_ANON_KEY.trim()
+    val ready: Boolean get() = supabaseUrl.isNotEmpty() && anonKey.isNotEmpty()
+}
+
+/** Android native back stack이 단독으로 소유하는 화면 주소. */
+sealed class NativeRoute {
+    data object Home : NativeRoute()
+    data object Rounds : NativeRoute()
+    data class Round(val id: String) : NativeRoute()
+    data object Polls : NativeRoute()
+    data class Poll(val id: String) : NativeRoute()
+    data object Board : NativeRoute()
+    data class Post(val id: String) : NativeRoute()
+    data object Chat : NativeRoute()
+    data object Alerts : NativeRoute()
+    data object Me : NativeRoute()
+    data object Members : NativeRoute()
+    data object Settle : NativeRoute()
+    data object Help : NativeRoute()
+}
 
 /**
  * 웹이 열 때 넘겨 주는 설정 — 아이폰의 `NativeChatConfig`와 같은 칸이다
