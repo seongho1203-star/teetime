@@ -138,6 +138,7 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
     }
 
     func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+        AppLog.add("탭 누름 \(viewController.tabBarItem.title ?? "")")
         if viewController === chatTab { onWeb?("/chat"); return false }
         return true
     }

@@ -36,6 +36,8 @@ export const NativeApp = registerPlugin<{
     shellOff(): Promise<void>;
     /** 껍데기더러 그 주소로 가라고 — 탭이면 켜고, 앱 화면이면 밀어 올리고, 웹 화면이면 웹에 되돌려 연다. */
     go(config: { path: string }): Promise<void>;
+    /** 웹 쪽 한 줄을 앱 기록에 남긴다(`내 정보` 맨 아래) — 다리 양쪽을 한 줄로 읽으려는 것. */
+    log(config: { line: string }): Promise<void>;
     addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeApp');
 

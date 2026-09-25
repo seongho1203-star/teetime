@@ -5312,6 +5312,19 @@ ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
     `navigate`는 `shell.go`로, `back`은 무시(스스로 내린다), 돌아오면
     `viewWillAppear`에서 되살아나 다시 받는다.
   - 앱 껍데기는 **iOS 26 시스템 웹 전환**에 기대므로 그 아래에서는 켜지 말 것.
+  - **껍데기 뒤에서는 웹뷰가 화면 밖이라 `requestAnimationFrame`이 아예 안
+    돈다**(사용자 제보 — `다 잘되는데 대화버튼이 안눌려`). 탭바의 `대화`는
+    `onWeb("/chat")` → 웹 `navigate` → `NativeChatHost`로 가는데, 그 호스트가
+    **그림이 한 번 그려지길 rAF 두 번으로 기다리다 영영 멈췄다** — 앱 화면
+    (공지·알림함)은 껍데기가 제 손으로 세우니 그 길을 안 타서 멀쩡했다.
+    이제 `afterPaint()`(`lib/tabs.ts`)가 **150ms 뒤엔 그냥 간다** —
+    `NativeChatHost`·`NativeScreenHost` 둘 다. **웹뷰 위에 앱 화면이 서 있는
+    동안 도는 코드에 rAF만으로 기다리는 줄을 두지 말 것**(위 `걷는 일을
+    rAF에만 매달지 말 것`과 같은 자리다).
+    앱 쪽 그물도 하나 — `onWeb`을 보내고 **1초 안에 껍데기가 그대로면
+    해시를 직접 민다**(`location.hash`). 다리 양쪽이 `AppLog`(`내 정보`의
+    스위치 아래 줄)에 `탭 누름 · onWeb · 열라는 주소 받음`을 남기니, 또
+    안 눌리면 그 줄부터 볼 것(`NativeApp.log`가 웹 쪽 한 줄을 같은 기록에 얹는다).
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).

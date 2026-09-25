@@ -35,7 +35,8 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "debug", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shell", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shellOff", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "go", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "go", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
     static let version = 3
@@ -169,8 +170,21 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(["ok": true]); return
             }
             let sh = ShellController(service: NativeChatService(config))
-            sh.onWeb = { [weak self] path in
-                self?.notifyListeners("event", data: ["screen": "shell", "type": "navigate", "data": ["path": path]])
+            sh.onWeb = { [weak self, weak sh] path in
+                guard let self = self else { return }
+                AppLog.add("onWeb \(path)")
+                self.notifyListeners("event", data: ["screen": "shell", "type": "navigate", "data": ["path": path]])
+                /* **웹이 1초 안에 안 열면 해시로 민다.** 듣는 쪽이 아직 안 붙었거나
+                   어긋난 판의 그물이다 — 해시가 바뀌면 웹 라우터가 그 화면을
+                   그리고(대화면 대화 플러그인이, 웹 화면이면 `NativeNav`가) 위에
+                   선다. 기록에 남으니 어느 길로 갔는지 `내 정보`에서 보인다. */
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak sh] in
+                    guard let self = self, let sh = sh, let nav = sh.navigationController,
+                          nav.topViewController === sh else { return }
+                    AppLog.add("웹이 안 열어 해시로 \(path)")
+                    let js = "location.hash = '#\(path.replacingOccurrences(of: "'", with: ""))'"
+                    self.bridge?.webView?.evaluateJavaScript(js, completionHandler: nil)
+                }
             }
             sh.service.authNeeded = { [weak self] in
                 self?.notifyListeners("event", data: ["screen": "shell", "type": "auth", "data": [:]])
@@ -195,6 +209,12 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             self.screen = nil; self.id = ""
             call.resolve()
         }
+    }
+
+    /// 웹 쪽 한 줄을 같은 기록에 남긴다(`내 정보` 맨 아래) — 다리 양쪽을 한 줄로 읽으려는 것.
+    @objc func log(_ call: CAPPluginCall) {
+        AppLog.add("웹: " + (call.getString("line") ?? ""))
+        call.resolve()
     }
 
     /// 웹이 어디로 가라고 — 알림을 눌러 온 길·탭 주소 동기(`NativeShellSync`).

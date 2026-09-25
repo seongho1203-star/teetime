@@ -817,6 +817,22 @@ export function nativeBackEnd(go: boolean, nav: () => void): void {
 }
 
 /**
+ * **한 번 그려진 뒤에** 이어서 할 일을 기다린다 — 그런데 `requestAnimationFrame`에만
+ * 매달지 않는다. 앱 껍데기(`ShellController`)나 대화 화면이 웹뷰 **위에** 서 있는
+ * 동안 웹뷰는 화면 밖이라 rAF가 아예 안 돈다 — `NativeChatHost`가 여기서 영영
+ * 기다려 **탭바의 `대화`가 아무 일도 안 했다**(사용자 제보 — `대화버튼이 안눌려`).
+ * 그때는 그릴 것도 없으므로 `max`(ms)가 지나면 그냥 간다.
+ */
+export function afterPaint(max = 150): Promise<void> {
+    return new Promise(go => {
+        let done = false;
+        const fin = () => { if (done) return; done = true; go(); };
+        requestAnimationFrame(() => requestAnimationFrame(fin));
+        window.setTimeout(fin, max);
+    });
+}
+
+/**
  * 감춰 둔 화면을 도로 내보인다.
  *
  * **잡아 둔 것과 지금 것을 둘 다 본다** — 리액트가 같은 자리의 DOM을 다시

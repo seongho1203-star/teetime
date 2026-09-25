@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useNavigationType, useParams } from 'react-ro
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeApp, nativeScreen } from '../lib/native-app';
-import { TAB_PATHS, chatDragged, hasBackShot, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, slideLeft } from '../lib/tabs';
+import { afterPaint, TAB_PATHS, chatDragged, hasBackShot, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, slideLeft } from '../lib/tabs';
 import { hasNativeChat } from '../lib/native-chat';
 import { Members } from './Members';
 import { PostDetail } from './PostDetail';
@@ -77,8 +77,8 @@ function NativeScreenHost({ path }: { path: string }) {
             if (dead) { await remove(); return; }
             const token = current.current?.access_token;
             if (!token) throw new Error('로그인을 확인해 주세요.');
-            await new Promise<void>(go =>
-                requestAnimationFrame(() => requestAnimationFrame(() => go())));
+            /* rAF에만 매달지 않는다(`afterPaint`) — 앱 껍데기 뒤에서는 rAF가 안 돈다. */
+            await afterPaint();
             if (dead) return;
             const ms = slideLeft();
             const result = await NativeApp.open({
@@ -160,6 +160,7 @@ export function NativeShellSync() {
         void NativeApp.addListener('event', e => {
             if (dead || e.screen !== 'shell') return;
             if (e.type === 'navigate' && e.data.path && NAV_OK.test(e.data.path)) {
+                void NativeApp.log({ line: `열라는 주소 받음 ${e.data.path} (지금 ${window.location.hash})` }).catch(() => {});
                 fromNative.current = e.data.path;
                 navRef.current(e.data.path);
             }
@@ -168,7 +169,10 @@ export function NativeShellSync() {
                     if (data.session && !dead) void NativeApp.session({ user, token: data.session.access_token });
                 });
             }
-        }).then(h => { handle = h; if (dead) void h.remove(); });
+        }).then(h => {
+            handle = h; if (dead) void h.remove();
+            void NativeApp.log({ line: '껍데기 듣기 붙음' }).catch(() => {});
+        });
         return () => { dead = true; void handle?.remove(); };
     }, [user]);
 

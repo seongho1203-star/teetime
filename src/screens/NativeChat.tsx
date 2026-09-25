@@ -6,7 +6,7 @@ import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../l
 import { purgeOldPhotos } from '../lib/photos';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
 import { suggestTable, SUGGEST_MAX, SUGGEST_ANIM } from '../lib/suggest';
-import { chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, setChatShot, slideLeft } from '../lib/tabs';
+import { afterPaint, chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, setChatShot, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
 import { lastSeen, markSeen } from '../lib/unread';
 import { Chat } from './Chat';
@@ -92,8 +92,8 @@ function NativeChatHost() {
             /* **깔아 둔 떠나는 화면이 한 번 그려진 뒤에 연다.** 앱은 열면서
                웹뷰를 그 자리에서 찍는데, 그리기 전에 찍으면 **떠나는 화면
                대신 빈 스피너가 찍혀** 나가는 그림이 통째로 흰 화면이 된다. */
-            await new Promise<void>(go =>
-                requestAnimationFrame(() => requestAnimationFrame(() => go())));
+            /* rAF에만 매달지 않는다(`afterPaint`) — 앱 껍데기 뒤에서는 rAF가 안 돈다. */
+            await afterPaint();
             if (dead) return;
             // Parent layout effects establish the route transition after this
             // child's layout effect. Read its timing only once they have run.
