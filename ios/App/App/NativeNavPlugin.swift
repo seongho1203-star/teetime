@@ -386,8 +386,8 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     /** 판을 까는 자리 — 화면 틀의 뷰. 틀이 없는 옛 껍데기에서는 웹뷰의 부모다. */
     private var host: UIView? { root?.navigationController?.view ?? root?.view.superview }
-    private var web: UIView? { root?.view }
-    private var chatUp: Bool { (root?.navigationController?.viewControllers.count ?? 1) > 1 }
+    private var web: UIView? { systemWeb ?? root?.view }
+    private var chatUp: Bool { root?.navigationController?.topViewController is NativeChatViewController }
 
     private func snap() -> UIView? { web?.snapshotView(afterScreenUpdates: false) }
     private func fill(_ v: UIView, in host: UIView) {
@@ -414,6 +414,18 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 밀어 올린다. `ms`가 0이면(탭으로 가는 길) 자리만 하나 더한다.
      */
     func push(ms: Double, native: Bool, supplied: UIView? = nil, done: @escaping () -> Void) {
+        if #available(iOS 26.0, *), usesSystemWebNavigation {
+            if ms <= 0 && !native {
+                systemResetToRoot(done: done)
+                return
+            }
+            if !native {
+                systemPush(ms: ms, supplied: supplied, done: done)
+                return
+            }
+            done()
+            return
+        }
         /* 채팅 화면이 직접 떠 준 픽셀이 있으면 그것이 가장 확실한 앞 화면이다.
            bridge를 건너는 동안 UINavigationController가 먼저 pop되어도 안전하다. */
         if let supplied = supplied {
@@ -476,6 +488,11 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 버린다. `native`면(대화방에서 나오는 길) 판만 버린다.
      */
     func pop(ms: Double, native: Bool, done: @escaping () -> Void) {
+        if #available(iOS 26.0, *), usesSystemWebNavigation,
+           root?.navigationController?.topViewController is WebRoutePageController {
+            systemPop(ms: ms > 40 ? ms : 230, done: done)
+            return
+        }
         let prev = popPlate()
         prev?.removeFromSuperview()
         guard !native, ms > 40, let host = host, let web = web, let exit = snap() else { done(); return }
@@ -537,6 +554,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     /** 손짓은 처음 `back({on: true})`가 올 때 건다 — 그때는 화면 틀이 서 있다. */
     private func armPan() {
+        if usesSystemWebNavigation { return }
         guard pan == nil, armed, let host = host else { return }
         let p = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         p.maximumNumberOfTouches = 1
@@ -564,6 +582,12 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 움직이는 동안 잰다.
      */
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if #available(iOS 26.0, *), g === systemContentPop {
+            guard armed, !moving, !systemProgrammaticPop,
+                  let nav = root?.navigationController,
+                  nav.topViewController is WebRoutePageController else { return false }
+            return free
+        }
         guard let p = g as? UIPanGestureRecognizer, let host = host, canDrag() else { return false }
         let t = p.translation(in: host)
         let at = p.location(in: host)
@@ -714,6 +738,10 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
 
     /** 웹이 목적지를 다 그렸다 — 깔아 둔 판을 걷는다. */
     func rendered() {
+        if #available(iOS 26.0, *), usesSystemWebNavigation {
+            systemClearCover()
+            return
+        }
         guard let d = settling else { return }
         settling = nil
         d.under.removeFromSuperview(); d.dim.removeFromSuperview()
