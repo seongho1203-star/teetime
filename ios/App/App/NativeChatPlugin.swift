@@ -60,7 +60,11 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                `wrapInNavigation` 주석을 볼 것). 틀이 없는 판(옛 껍데기)에서는
                예전처럼 웹뷰 화면의 자식으로 붙는다. */
             let nav = root.navigationController
-            let under = fresh && nav != nil ? root.view.snapshotView(afterScreenUpdates: false) : nil
+            /* 201부터 웹 상세도 native page가 될 수 있다. root.view는 그때 뒤에
+               숨은 holder이므로, 실제로 보이는 top 화면을 찍어 채팅 뒤에 깐다. */
+            let under = fresh && nav != nil
+                ? nav?.topViewController?.view.snapshotView(afterScreenUpdates: false)
+                : nil
             if fresh {
                 root.view.endEditing(true)
                 if let nav = nav {
