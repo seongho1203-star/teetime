@@ -118,7 +118,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// 화면과 웹 사이의 줄을 잇는다 — 새로 세울 때와 되살릴 때 같이 쓴다.
-    private func bind(_ vc: NativeScreenController, id: String) {
+    @MainActor private func bind(_ vc: NativeScreenController, id: String) {
         screen = vc; self.id = id
         vc.event = { [weak self] type, data in
             guard let self = self else { return }
