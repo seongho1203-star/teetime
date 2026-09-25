@@ -6,7 +6,7 @@ import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../l
 import { purgeOldPhotos } from '../lib/photos';
 import { STICKER_GROUPS, stickerSrc } from '../lib/stickers';
 import { suggestTable, SUGGEST_MAX, SUGGEST_ANIM } from '../lib/suggest';
-import { chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, setChatShot, slideLeft } from '../lib/tabs';
+import { chatDragged, hasBackShot, nativeBackStart, nativeBackEnd, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, setChatShot, slideLeft } from '../lib/tabs';
 import { REACTIONS } from '../lib/types';
 import { lastSeen, markSeen } from '../lib/unread';
 import { Chat } from './Chat';
@@ -49,7 +49,10 @@ function NativeChatHost() {
         /* **손가락으로 끌어서 온 길이면 그림이 이미 제자리에 있다**
            (`useBackSwipe`가 붙들어 둔 대화방 그림이다). 여기서 갈아 끼우면
            앱이 화면을 세우기까지 몇 프레임 동안 그 뒤가 비친다. */
-        const dragged = chatDragged();
+        /* **앱이 화면을 끄는 판**(`lib/native-nav.ts`)에서 끌어 넘어온 것도
+           같다 — 앱이 깔아 둔 대화방 그림이 화면을 덮고 있으므로 움직임 없이
+           세우고, 다 서면 `nativeNavRendered()`로 그 그림을 걷게 한다. */
+        const dragged = chatDragged() || navDragged();
         if (!back && !dragged) nativeChatEnter();
         /* **뒤로 갈 데가 없으면 홈으로 간다** — 알림을 눌러 `#/chat`으로
            곧바로 들어오는 길이 있어 그때는 히스토리에 앞 화면이 없다
@@ -125,6 +128,9 @@ function NativeChatHost() {
                이제부터는 끌어서 뒤로 갈 때 뒤에 깔릴 그림이 필요하다.
                앱이 찍어 둔 그림이 그 사이를 덮고 있어 눈에는 안 보인다. */
             if ((back || dragged) && !dead) nativeChatEnter();
+            /* 앱이 끌어서 온 길이면 이제 깔아 둔 그림을 걷어도 된다 — 대화
+               화면이 그 밑에 서 있다(`lib/tabs.ts`의 `renderedWait`). */
+            nativeNavRendered();
             /* **오래된 사진·동영상 청소는 여기서도 돈다**(`PHOTO_DAYS` 일주일).
                대화를 앱이 통째로 그리게 되면서 이 줄이 빠져 있었는데,
                그러면 **앱을 쓰는 사람에게는 청소가 아예 없는 것**이 된다 —
@@ -136,6 +142,7 @@ function NativeChatHost() {
             /* **못 열었으면 깔아 둔 그림을 걷는다** — 안 걷으면 그 그림이
                아래 오류 안내를 통째로 덮어 아무 말도 안 보인다. */
             nativeChatLeave();
+            nativeNavRendered();   // 못 세웠어도 앱이 깔아 둔 그림은 걷어야 오류가 보인다
             setError(e instanceof Error ? e.message : '채팅을 열지 못했습니다.');
         });
         return () => {

@@ -506,6 +506,16 @@ function releaseHold(): void {
 
 /** 앱이 끌어서 넘어가는 참이다 — `popstate`에서 앱에 `pop`을 또 부르지 않는다. */
 let nativeDragging = false;
+/** 앱이 끌어서 넘어가는 참인가 — `NativeChat.tsx`가 들어오는 모양을 고를 때 본다. */
+export function navDragged(): boolean { return nativeDragging; }
+/**
+ * **끌어서 넘어간 목적지가 앱 대화방이면 `rendered()`를 미뤄 둔다.** 웹이
+ * 두 프레임 만에 알리면 앱이 깔아 둔 대화방 그림을 걷는데, 그때 그 밑에는
+ * 아직 스피너와 앞 화면 그림뿐이다 — 앱 대화 화면은 다리를 건너 뒤늦게
+ * 선다. `NativeChat.tsx`가 그 화면을 세운 뒤 `nativeNavRendered()`로 푼다.
+ */
+let renderedWait: (() => void) | null = null;
+export function nativeNavRendered(): void { const f = renderedWait; renderedWait = null; f?.(); }
 
 /** `pushState` 자리 — 앱이 맡는 판. */
 function nativePush(toPath: string): void {
@@ -513,16 +523,28 @@ function nativePush(toPath: string): void {
        그때도 부른다 — `popstate`가 하나씩 꺼내므로 한 자리도 비울 수 없다. */
     const tab = TAB_PATHS.includes(toPath);
     const chat = hasNativeChat() && toPath === '/chat';
-    if (!tab) holdScreen(seenRoute);
+    /* **대화방에서 카드로 나가는 길은 사본을 안 덮는다** — 웹에는 스피너뿐이고
+       앱이 화면 틀(대화 화면)을 통째로 찍는다(`NavLayer.push`의 `chatUp`). */
+    const fromChat = hasNativeChat() && seenRoute === '/chat';
+    if (!tab && !fromChat) holdScreen(seenRoute);
     void NativeNav.push({ ms: tab ? 0 : chat ? CHAT_MS : SCREEN_MS, native: chat })
         .catch(() => {}).finally(releaseHold);
 }
-/** `popstate` 자리 — 앱이 맡는 판. */
-function nativePop(): void {
+/**
+ * `popstate` 자리 — 앱이 맡는 판.
+ *
+ * **목적지가 앱 대화방이면(`toChat`) 앱에는 판만 버리게 하고 움직임은
+ * 대화 플러그인에 맡긴다** — 웹이 떠나는 화면을 `.exit-ghost`로 깔아 두면
+ * (`snapExit` → `nativeChatPop`) `NativeChatPlugin.open`의 `pop`이 그것을
+ * 찍어 오른쪽으로 내보내며 대화 화면을 왼쪽에서 들여온다. 여기서도 밀면
+ * 웹뷰(스피너)가 한 번 밀려 들어온 뒤 대화 화면이 또 들어와 두 번 움직인다.
+ */
+function nativePop(toChat: boolean): void {
     if (nativeDragging) return;     // 앱이 이미 내보냈다(`commit`)
     const fromChat = hasNativeChat() && seenRoute === '/chat';
-    if (!fromChat) holdScreen(seenRoute);
-    void NativeNav.pop({ ms: SCREEN_MS, native: fromChat })
+    const native = fromChat || toChat;
+    if (!native) holdScreen(seenRoute);
+    void NativeNav.pop({ ms: native ? 0 : SCREEN_MS, native })
         .catch(() => {}).finally(releaseHold);
 }
 
@@ -550,8 +572,13 @@ function watchHistory() {
            붙고 라우터 것은 화면을 그리며 붙으므로 **우리가 먼저 돈다.**
            그래서 여기서는 아직 떠나는 화면이 그대로 있다.
            손가락으로 끌어 가는 참이면 이미 손을 따라 내보냈으므로 안 찍는다. */
-        if (hasNativeNav()) nativePop();
-        else if (!skipSlide) snapExit();
+        if (hasNativeNav()) {
+            /* 목적지가 앱 대화방이면 떠나는 화면을 웹이 찍어 둔다 — 그 전환은
+               대화 플러그인이 맡는다(위 `nativePop`). 끌어서 온 참이면 안 찍는다. */
+            const toChat = hasNativeChat() && routeOf(location.href) === '/chat';
+            if (toChat && !nativeDragging) snapExit();
+            nativePop(toChat);
+        } else if (!skipSlide) snapExit();
         /* 뒤로 갔으면 그 그림은 다 쓴 것이다. */
         shots.pop();
         seenRoute = routeOf(location.href);
@@ -924,10 +951,20 @@ function useNativeBack(nav: NavigateFunction, pathname: string, onTab: boolean):
                 if (told) return;
                 told = true;
                 nativeDragging = false;
+                renderedWait = null;
                 void NativeNav.rendered().catch(() => {});
             };
-            requestAnimationFrame(() => requestAnimationFrame(done));
-            window.setTimeout(done, 600);
+            const tick = () => {
+                if (told || renderedWait === done) return;
+                /* 목적지가 앱 대화방이면 그 화면이 선 뒤에 알린다(위
+                   `nativeNavRendered`). 못 세우는 판을 위한 그물이 1.5초다. */
+                if (hasNativeChat() && routeOf(location.href) === '/chat') {
+                    renderedWait = done;
+                    window.setTimeout(done, 1500);
+                } else done();
+            };
+            requestAnimationFrame(() => requestAnimationFrame(tick));
+            window.setTimeout(tick, 600);
         }).then(h => { handle = h; if (dead) void h.remove(); });
         return () => { dead = true; void handle?.remove(); };
     }, [nav]);
@@ -1218,8 +1255,12 @@ export function useScreenSlide(ref: RefObject<HTMLElement | null>): void {
         if (skipSlide) { skipSlide = false; return; }
         /* **앱이 화면을 미는 판에서는 웹이 아무것도 안 민다**(`lib/native-nav.ts`).
            주소가 바뀌는 자리에서 이미 앱에 부탁했다(`nativePush`·`nativePop`).
-           앱 대화 화면이 남은 시간을 셈하는 표(`slideMark`)만 그대로 적는다. */
-        if (hasNativeNav()) {
+           앱 대화 화면이 남은 시간을 셈하는 표(`slideMark`)만 그대로 적는다.
+           **대화방에서 카드를 눌러 나가는 길만 예외다** — 앱은 그때 판만
+           쌓고 안 민다(`NavLayer.push`의 `chatUp`: 웹뷰가 화면 밖이라 밀
+           것이 없다). 아래 `fromChat` 갈래(예전 40px짜리)가 그대로 맡는다. */
+        const leavingChat = hasNativeChat() && from === '/chat' && how !== 'POP';
+        if (hasNativeNav() && !leavingChat) {
             if (!(wasTab && isTab)) {
                 slideMark.at = Date.now();
                 slideMark.ms = hasNativeChat() && pathname === '/chat' ? CHAT_MS : SCREEN_MS;

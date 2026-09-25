@@ -146,6 +146,18 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      */
     func push(ms: Double, native: Bool, done: @escaping () -> Void) {
         guard ms > 0 || native else { pushPlate(nil); done(); return }
+        /* **대화방에서 카드를 눌러 나가는 길** — 대화 화면이 아직 떠 있어
+           웹뷰는 화면 밖이고, 찍어 봐야 빈손이다(사용자 제보 — `채팅에서
+           링크를 눌러서 들어간곳은 뒤로끌기가 안돼`: 판이 비어 `canDrag`가
+           늘 거짓이었다). **화면 틀을 통째로 찍으면 그것이 곧 대화 화면**이고,
+           끌어서 뒤로 올 때 뒤에 깔린다. 움직임은 여기서 안 만든다 — 대화
+           화면은 플러그인이 곧 움직임 없이 내리고(`NativeChatPlugin.remove`),
+           웹이 예전 40px짜리로 물러난다(`useScreenSlide`의 `fromChat`). */
+        if chatUp {
+            pushPlate(host?.snapshotView(afterScreenUpdates: false))
+            done()
+            return
+        }
         let shot = snap()
         pushPlate(shot)
         guard !native, ms > 40, let host = host, let web = web, let plate = shot else { done(); return }
