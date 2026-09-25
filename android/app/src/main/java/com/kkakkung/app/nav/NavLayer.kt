@@ -164,38 +164,6 @@ class NavLayer(context: Context) : FrameLayout(context) {
             ?.hideSoftInputFromWindow(web.windowToken, 0)
     }
 
-    /** IME가 사라지면 같은 손짓의 현재 dx에서 화면 끌기를 이어 간다. */
-    private fun waitImeAndResume() {
-        waitingIme = true
-        val mine = ++imeWaitSeq
-        val started = android.os.SystemClock.uptimeMillis()
-        fun tick() {
-            if (!waitingIme || mine != imeWaitSeq) return
-            if (!keyboardVisible()) {
-                waitingIme = false
-                val dx = dxNow
-                val released = upWhileWaking
-                if (canDrag()) {
-                    beginDrag()
-                    dxNow = dx
-                    upWhileWaking = released
-                    drag?.let {
-                        paint(it, dx)
-                        if (released != null) { upWhileWaking = null; endDrag(released) }
-                    }
-                }
-                return
-            }
-            if (android.os.SystemClock.uptimeMillis() - started > 800) {
-                waitingIme = false; upWhileWaking = null
-                return
-            }
-            main.postDelayed({ tick() }, 16)
-        }
-        dismissKeyboard()
-        main.post { tick() }
-    }
-
     private fun plateView(bmp: Bitmap?): ImageView = ImageView(context).apply {
         scaleType = ImageView.ScaleType.FIT_XY
         setImageBitmap(bmp)
@@ -307,9 +275,16 @@ class NavLayer(context: Context) : FrameLayout(context) {
 
     /** 끄는 동안의 자리(맨 위 떠남 · 그 밑 목적지 판 · 막). */
     private var drag: Drag? = null
-    private class Drag(val w: Float, val exit: View, val under: View?, val dim: View, val page: View?, val plate: Bitmap?) {
-        var dx = 0f
-    }
+    private class Drag(
+        val w: Float,
+        val exit: View,
+        val under: View?,
+        val dim: View,
+        val page: View?,
+        val plate: Bitmap?,
+        /** false면 exit는 살아 있는 Capacitor WebView라 절대 removeView 하면 안 된다. */
+        val removeExit: Boolean
+    ) { var dx = 0f }
     /** 끌어서 넘어간 뒤 웹이 목적지를 다 그리기를 기다리는 동안 남겨 둔 것. */
     private var settling: Drag? = null
     /** 앱(`NativeNavPlugin`)으로 보내는 신호 — `commit`·`cancel`. */
@@ -318,9 +293,6 @@ class NavLayer(context: Context) : FrameLayout(context) {
     /** 찍는 중이다(`beginDrag`가 답을 기다린다) — 그동안 온 손짓은 `dxNow`에 쌓아 둔다. */
     private var waking = false
     private var dxNow = 0f
-    /** IME를 내리는 동안에도 지금 MotionEvent 흐름을 계속 우리가 들고 있는가. */
-    private var waitingIme = false
-    private var imeWaitSeq = 0
     /** 찍는 동안 손을 뗐으면 그 답(넘어가는가)을 적어 두었다가 그림이 오면 마무리한다. */
     private var upWhileWaking: Boolean? = null
 
@@ -338,30 +310,32 @@ class NavLayer(context: Context) : FrameLayout(context) {
         val page = topNative()
         val plate = stack.lastOrNull()
         if (page == null && plate == null) return
-        waking = true; dxNow = 0f; upWhileWaking = null
-        /* **`(Bitmap?) -> Unit`로 못박는다** — 마지막 `if`가 값을 내는 식이라 그냥
-           두면 코틀린이 '단위 변환'이라며 컴파일을 세운다(CI에서 실제로 섰다). */
-        val start: (Bitmap?) -> Unit = { bmp ->
-            waking = false
-            if (page == null && bmp == null) {
-                upWhileWaking = null
-            } else {
-                val w = width.toFloat()
-                val under = plateView(plate)
-                val dim = dimView()
-                val exit: View = page ?: plateView(bmp)
-                val below = if (page != null) indexOfChild(page) else childCount
-                addView(under, below, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-                addView(dim, below + 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-                if (page == null) addView(exit, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-                val d = Drag(w, exit, under, dim, page, plate)
-                drag = d
-                paint(d, dxNow)
-                val go = upWhileWaking
-                if (go != null) { upWhileWaking = null; endDrag(go) }
-            }
+
+        val w = width.toFloat()
+        val under = plateView(plate)
+        val dim = dimView()
+
+        if (page != null) {
+            /* 네이티브 채팅은 살아 있는 View 자체를 민다 — iOS와 같은 원칙. */
+            val below = indexOfChild(page)
+            addView(under, below, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(dim, below + 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            drag = Drag(w, page, under, dim, page, plate, true)
+            paint(drag!!, dxNow)
+            return
         }
-        if (page != null) start(null) else snap(start)
+
+        /* 웹도 더 이상 현재 화면을 PixelCopy로 떠서 늘리지 않는다.
+           **살아 있는 WebView 자체를 민다.** 키보드가 떠 있으면 WebView가
+           adjustResize 된 상태여도 그림 비율이 깨지지 않고, IME는 동시에
+           시스템 애니메이션으로 내려간다. */
+        val wi = indexOfChild(web)
+        if (wi < 0) return
+        addView(under, wi, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(dim, wi + 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        drag = Drag(w, web, under, dim, null, plate, false)
+        if (keyboardVisible()) dismissKeyboard()
+        paint(drag!!, dxNow)
     }
 
     private fun paint(d: Drag, dx: Float) {
@@ -387,13 +361,14 @@ class NavLayer(context: Context) : FrameLayout(context) {
                    둔다(`rendered`). 앱 화면이면 이 층에서 뗀다 — 그러면
                    `NativeChatPlugin.close`가 곧바로 정리한다. */
                 popPlate()
-                if (d.page != null) removeView(d.page) else removeView(d.exit)
+                if (d.removeExit) removeView(d.exit)
                 settling = d
                 onBack?.invoke("commit")
                 main.postDelayed({ if (settling === d) rendered() }, 1500)
             } else {
                 d.under?.let { removeView(it) }; removeView(d.dim)
-                if (d.page == null) removeView(d.exit)
+                if (d.removeExit && d.page == null) removeView(d.exit)
+                if (!d.removeExit) web.translationX = 0f
                 onBack?.invoke("cancel")
             }
         }
@@ -405,6 +380,7 @@ class NavLayer(context: Context) : FrameLayout(context) {
         val d = settling ?: return
         settling = null
         d.under?.let { removeView(it) }; removeView(d.dim)
+        if (!d.removeExit) web.translationX = 0f
         d.plate?.recycle()
     }
 
@@ -444,12 +420,8 @@ class NavLayer(context: Context) : FrameLayout(context) {
                 if (!canDrag()) return false
                 dxNow = max(0f, gx)
                 lastX = e.x; lastT = e.eventTime; vx = 0f
-                /* IME가 떠 있어도 이 가로 손짓을 여기서 가로챈다. 키보드를
-                   내린 뒤 같은 MotionEvent의 현재 dx에서 화면을 이어 끈다. */
-                if (keyboardVisible() && topNative() == null) {
-                    waitImeAndResume()
-                    return true
-                }
+                /* 키보드가 떠 있어도 **기다리지 않는다**. beginDrag가 살아 있는
+                   WebView를 즉시 손가락에 붙이고 IME를 동시에 내린다. */
                 beginDrag()
                 return waking || drag != null
             }
@@ -459,7 +431,7 @@ class NavLayer(context: Context) : FrameLayout(context) {
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (drag == null && !waking && !waitingIme) return false
+        if (drag == null && !waking) return false
         when (e.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 val dt = e.eventTime - lastT
@@ -477,7 +449,6 @@ class NavLayer(context: Context) : FrameLayout(context) {
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                waitingIme = false; imeWaitSeq++
                 if (drag != null) endDrag(false) else upWhileWaking = false
                 return true
             }
@@ -495,6 +466,7 @@ class NavLayer(context: Context) : FrameLayout(context) {
             /* 예측형 손짓(안드로이드 14부터) — 손가락 대신 진행률이 온다. */
             override fun handleOnBackStarted(e: BackEventCompat) {
                 if (!canDrag()) return
+                dxNow = 0f
                 beginDrag()
             }
             override fun handleOnBackProgressed(e: BackEventCompat) {
