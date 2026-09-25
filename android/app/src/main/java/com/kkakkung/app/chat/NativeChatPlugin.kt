@@ -2,7 +2,6 @@ package com.kkakkung.app.chat
 
 import android.os.Build
 import android.view.ViewGroup
-import androidx.activity.OnBackPressedCallback
 import coil.Coil
 import coil.ImageLoader
 import coil.decode.GifDecoder
@@ -29,7 +28,6 @@ import org.json.JSONObject
 class NativeChatPlugin : Plugin() {
     private var chat: ChatScreen? = null
     private var screen = ""
-    private var backGuard: OnBackPressedCallback? = null
 
     override fun load() {
         /* 움직이는 이모티콘(webp)을 풀려면 Coil에 gif 디코더를 붙여야 한다 —
@@ -67,8 +65,10 @@ class NativeChatPlugin : Plugin() {
                 ?: activity.findViewById(android.R.id.content)
             val fresh = c.parent == null
             c.attach(root)
+            /* 뒤로 단추·예측형 손짓도 NavLayer 한 곳에서만 받는다.
+               예전 별도 backGuard는 나중에 등록되어 NavLayer의 progress 콜백을
+               가로막아 채팅만 손가락 진행률이 끊기는 원인이었다. */
             com.kkakkung.app.nav.NavLayer.instance?.refreshBack()
-            installBack()
             val ms = call.getDouble("slide") ?: 0.0
             if (fresh && ms > 40) {
                 /* 오른쪽에서 통째로 밀려 들어온다(웹의 `screen-in`과 같은 움직임 —
@@ -109,18 +109,7 @@ class NativeChatPlugin : Plugin() {
         activity.runOnUiThread { remove(clear = true); call.resolve() }
     }
 
-    /** 안드로이드 뒤로 단추·손짓 — 화면이 떠 있는 동안만 우리가 받는다. */
-    private fun installBack() {
-        if (backGuard != null) return
-        val guard = object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { chat?.goBack() }
-        }
-        activity.onBackPressedDispatcher.addCallback(guard)
-        backGuard = guard
-    }
-
     private fun remove(clear: Boolean) {
-        backGuard?.remove(); backGuard = null
         chat?.detach()
         com.kkakkung.app.nav.NavLayer.instance?.refreshBack()
         screen = ""
