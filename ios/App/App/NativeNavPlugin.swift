@@ -239,12 +239,32 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         g?.delaysTouchesEnded = false
         g?.cancelsTouchesInView = false
         g?.delegate = self
+        /* 이 recognizer는 nav.view **전체**에 설치된다. 웹 상세가 아닐 때까지
+           켜 두면 채팅으로 pop한 직후에도 UIKit의 full-content recognizer가
+           모든 터치를 먼저 본다. 204에서 채팅 상태만 resume해도 헤더 ←까지
+           안 눌린 실기기 제보가 이 자리다. 웹 page가 top일 때만 켠다. */
+        g?.isEnabled = false
         systemContentPop = g
     }
 
     private var usesSystemWebNavigation: Bool {
         if #available(iOS 26.0, *) { return systemInstalled }
         return false
+    }
+
+    /** iOS 26 full-content pop은 **웹 상세 화면 전용**이다.
+        채팅·홈에서는 완전히 꺼서 그 화면의 버튼/카드가 UIKit recognizer와
+        경쟁하지 않게 한다. false→true로 다시 켜는 것은 recognizer state도
+        .possible로 초기화해 직전 interactive pop의 찌꺼기를 남기지 않는다. */
+    @available(iOS 26.0, *)
+    private func systemBackGesture(_ on: Bool) {
+        guard let g = systemContentPop else { return }
+        if on {
+            g.isEnabled = false
+            g.isEnabled = true
+        } else {
+            g.isEnabled = false
+        }
     }
 
     @available(iOS 26.0, *)
@@ -305,12 +325,15 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         page.loadViewIfNeeded()
         page.attach(web, keepCover: false)
         nav.pushViewController(page, animated: ms > 40)
+        /* page가 top이 된 뒤에만 화면 전체 뒤로끌기를 연다. */
+        systemBackGesture(true)
         done()
     }
 
     @available(iOS 26.0, *)
     private func systemResetToRoot(done: @escaping () -> Void) {
         guard let root = root, let nav = root.navigationController else { done(); return }
+        systemBackGesture(false)
         systemAttachWeb(to: root, keepCover: false)
         systemWeb?.endEditing(true)
         nav.setViewControllers([root], animated: false)
@@ -326,7 +349,11 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         let finish = { [weak self, weak nav] in
             guard let self = self, let dest = nav?.topViewController else { done(); return }
             if let chat = dest as? NativeChatViewController {
+                /* full-content recognizer는 nav.view 전체를 덮으므로 **먼저 끈다**.
+                   이게 남아 있으면 채팅 카드뿐 아니라 헤더 뒤로 버튼도 못 누른다. */
+                self.systemBackGesture(false)
                 if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+                chat.view.isUserInteractionEnabled = true
                 /* 채팅 카드로 웹 상세에 갈 때 chat.navigate()가 navigating=true로
                    잠그고 React cleanup이 pause()한다. 201 구조에서는 그 채팅 VC를
                    navigation stack에 **그대로 남겨 둔 채** 웹 page만 위에 얹는다.
@@ -337,6 +364,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
                 chat.resume()
             } else {
                 self.systemAttachWeb(to: dest, keepCover: true)
+                self.systemBackGesture(dest is WebRoutePageController)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 self.systemClearCover()
@@ -356,7 +384,12 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         guard !systemProgrammaticPop, let nav = root?.navigationController,
               let dest = nav.topViewController else { return }
         if let chat = dest as? NativeChatViewController {
+            /* 이 콜백은 바로 그 full-content recognizer의 완료 길이다.
+               다음 run-loop까지 recognizer가 .ended 상태일 수 있으므로 즉시
+               disable해 reset하고 채팅 터치를 원래 UIKit 계층에 돌려준다. */
+            systemBackGesture(false)
             if let root = root { systemAttachWeb(to: root, keepCover: false) }
+            chat.view.isUserInteractionEnabled = true
             /* interactiveContentPopGestureRecognizer로 돌아온 길도 같다.
                화면이 손가락 아래에서 채팅으로 바뀐 **그 프레임에** 잠금을 풀어
                링크를 바로 다시 누를 수 있게 한다. React의 openNativeChat이
@@ -365,6 +398,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             chat.resume()
         } else {
             systemAttachWeb(to: dest, keepCover: true)
+            systemBackGesture(dest is WebRoutePageController)
         }
         onBack?("commit")
     }
