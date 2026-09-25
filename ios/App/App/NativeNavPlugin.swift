@@ -114,6 +114,10 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         된다. 그래서 그 상태에서는 끌기를 시작하지 않고 첫 손짓으로 키보드만
         내린다. 다음 손짓은 원래 크기로 돌아온 웹뷰를 정상적으로 끈다. */
     private var keyboardVisible = false
+    /** 키보드를 내리는 동안에도 지금 UIPan을 살려 두고 손가락 거리를 기억한다. */
+    private var keyboardWaiting = false
+    private var keyboardDX: CGFloat = 0
+    private var keyboardRelease: (dx: CGFloat, vx: CGFloat)?
     private var keyboardObservers: [NSObjectProtocol] = []
     /** 뒤에 깔린 앞 화면들 — 히스토리 한 칸에 하나. 탭으로 간 자리는 nil이다. */
     private var stack: [UIView?] = []
@@ -131,12 +135,41 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         ) { [weak self] _ in self?.keyboardVisible = true })
         keyboardObservers.append(nc.addObserver(
             forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.keyboardVisible = false })
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.keyboardVisible = false
+            /* resize:native가 원래 높이로 돌아온 다음, 키보드를 내리게 한
+               바로 그 손짓의 현재 거리에서 화면 끌기를 이어 간다. */
+            DispatchQueue.main.async {
+                self.web?.layoutIfNeeded()
+                self.resumeAfterKeyboard()
+            }
+        })
     }
 
     deinit {
         let nc = NotificationCenter.default
         keyboardObservers.forEach { nc.removeObserver($0) }
+    }
+
+    /** 키보드가 다 내려간 뒤 **같은 UIPan**을 현재 dx에서 이어 간다. */
+    private func resumeAfterKeyboard() {
+        guard keyboardWaiting else { return }
+        keyboardWaiting = false
+        let dx = keyboardDX
+        let released = keyboardRelease
+        keyboardDX = 0
+        keyboardRelease = nil
+        guard dx >= Self.WAKE, canDrag(), beginDrag(), let d = drag else { return }
+        paint(d, dx)
+        if let r = released {
+            let flick = r.vx > Self.FLICK && r.dx > Self.FLICK_MIN
+            endDrag(go: r.dx > d.w * Self.TAKE || flick)
+        } else {
+            lastX = x0 + dx
+            lastT = CACurrentMediaTime()
+            vx = 0
+        }
     }
 
     /** 앱 대화 화면이 떠 준 JPEG를 뒤로끌기용 판으로 만든다.
@@ -346,16 +379,17 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             right = v.x > 0 && v.x >= abs(v.y) * Self.SLOPE
         }
         guard right else { return false }
-        /* 키보드가 떠 있으면 웹뷰 자체가 작아져 있다(resize:native).
-           이 상태에서 snapshot을 전체 host에 맞춰 끌면 화면이 확대되고
-           시스템 키보드는 제자리에 남아 둘이 갈라진다. 첫 오른쪽 손짓은
-           키보드만 내리고, 원래 크기로 복원된 뒤 다음 손짓부터 끈다. */
-        if keyboardVisible {
-            web?.endEditing(true)
-            return false
-        }
         /* 웹이 `taken`이라 했으면 넘긴다 — 가장자리에서 시작한 것은 예외다. */
-        return free || edge
+        guard free || edge else { return false }
+        /* false를 돌려주면 iOS가 이 손짓을 실패시켜 한 번 더 끌어야 한다.
+           손짓은 승인하고 키보드만 먼저 내린 뒤 didHide에서 그대로 잇는다. */
+        if keyboardVisible {
+            keyboardWaiting = true
+            keyboardDX = 0
+            keyboardRelease = nil
+            web?.endEditing(true)
+        }
+        return true
     }
 
     /** 손짓을 이번 손에서 통째로 접는다 — 껐다 켜면 그 자리에서 `.cancelled`가 온다. */
@@ -412,11 +446,22 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             guard let d = drag else {
                 let dx = x - x0, dy = abs(at.y - y0)
                 if dx >= Self.WAKE, dx >= dy * Self.SLOPE {
+                    if keyboardVisible || keyboardWaiting {
+                        /* 키보드가 내려가는 동안에도 손가락 진행률을 계속 받는다. */
+                        keyboardWaiting = true
+                        keyboardDX = max(0, dx)
+                        let dt = now - lastT
+                        if dt > 0 { vx = (x - lastX) / CGFloat(dt * 1000) }
+                        lastX = x; lastT = now
+                        web?.endEditing(true)
+                        return
+                    }
                     guard canDrag(), beginDrag(), let nd = drag else { dropPan(p); return }
                     lastX = x; lastT = now; vx = 0
                     paint(nd, dx)
                 } else if dy >= Self.WAKE, dy > dx {
-                    dropPan(p)   /* 세로로 갔다 — 굴리기 몫이다 */
+                    keyboardWaiting = false; keyboardDX = 0; keyboardRelease = nil
+                    dropPan(p)
                 }
                 return
             }
@@ -425,11 +470,18 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             lastX = x; lastT = now
             paint(d, max(0, x - x0))
         case .ended:
-            guard let d = drag else { return }
-            let still = now - lastT > Self.STALE
-            let flick = !still && vx > Self.FLICK && d.dx > Self.FLICK_MIN
-            endDrag(go: d.dx > d.w * Self.TAKE || flick)
+            if let d = drag {
+                let still = now - lastT > Self.STALE
+                let flick = !still && vx > Self.FLICK && d.dx > Self.FLICK_MIN
+                endDrag(go: d.dx > d.w * Self.TAKE || flick)
+            } else if keyboardVisible || keyboardWaiting {
+                /* 키보드보다 손이 먼저 떨어져도 이 한 번의 스와이프로 끝낸다. */
+                let dx = max(keyboardDX, x - x0)
+                keyboardDX = dx
+                keyboardRelease = (dx, max(vx, p.velocity(in: host).x / 1000))
+            }
         case .cancelled, .failed:
+            keyboardWaiting = false; keyboardDX = 0; keyboardRelease = nil
             if drag != nil { endDrag(go: false) }
         default: break
         }
