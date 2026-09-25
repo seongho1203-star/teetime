@@ -164,6 +164,38 @@ class NavLayer(context: Context) : FrameLayout(context) {
             ?.hideSoftInputFromWindow(web.windowToken, 0)
     }
 
+    /** IME가 사라지면 같은 손짓의 현재 dx에서 화면 끌기를 이어 간다. */
+    private fun waitImeAndResume() {
+        waitingIme = true
+        val mine = ++imeWaitSeq
+        val started = android.os.SystemClock.uptimeMillis()
+        fun tick() {
+            if (!waitingIme || mine != imeWaitSeq) return
+            if (!keyboardVisible()) {
+                waitingIme = false
+                val dx = dxNow
+                val released = upWhileWaking
+                if (canDrag()) {
+                    beginDrag()
+                    dxNow = dx
+                    upWhileWaking = released
+                    drag?.let {
+                        paint(it, dx)
+                        if (released != null) { upWhileWaking = null; endDrag(released) }
+                    }
+                }
+                return
+            }
+            if (android.os.SystemClock.uptimeMillis() - started > 800) {
+                waitingIme = false; upWhileWaking = null
+                return
+            }
+            main.postDelayed({ tick() }, 16)
+        }
+        dismissKeyboard()
+        main.post { tick() }
+    }
+
     private fun plateView(bmp: Bitmap?): ImageView = ImageView(context).apply {
         scaleType = ImageView.ScaleType.FIT_XY
         setImageBitmap(bmp)
@@ -286,6 +318,9 @@ class NavLayer(context: Context) : FrameLayout(context) {
     /** 찍는 중이다(`beginDrag`가 답을 기다린다) — 그동안 온 손짓은 `dxNow`에 쌓아 둔다. */
     private var waking = false
     private var dxNow = 0f
+    /** IME를 내리는 동안에도 지금 MotionEvent 흐름을 계속 우리가 들고 있는가. */
+    private var waitingIme = false
+    private var imeWaitSeq = 0
     /** 찍는 동안 손을 뗐으면 그 답(넘어가는가)을 적어 두었다가 그림이 오면 마무리한다. */
     private var upWhileWaking: Boolean? = null
 
@@ -403,20 +438,18 @@ class NavLayer(context: Context) : FrameLayout(context) {
                 val gx = e.x - x0; val gy = e.y - y0
                 if (abs(gy) > abs(gx) && abs(gy) > WAKE * density()) { cand = false; return false }
                 if (gx < WAKE * density() || gx < abs(gy) * SLOPE) return false
-                /* 키보드가 떠 있는 웹뷰는 IME inset만큼 줄어 있다. 그 상태의
-                   픽셀을 전체 NavLayer로 늘리면 화면이 확대되고 키보드와 따로
-                   움직인다. 첫 오른쪽 손짓은 키보드만 내린다. */
-                if (keyboardVisible() && topNative() == null) {
-                    dismissKeyboard()
-                    cand = false
-                    return false
-                }
                 /* 웹이 `taken`이라 했으면 넘긴다 — 가장자리에서 시작한 것은 예외다. */
                 if (!free && !edge && topNative() == null) { cand = false; return false }
                 cand = false
                 if (!canDrag()) return false
-                /* **여기서부터 우리 손짓이다** — 웹뷰는 `ACTION_CANCEL`을 받는다.
-                   그림은 한두 프레임 뒤에 오므로 그때까지의 자리는 `dxNow`에 쌓인다. */
+                dxNow = max(0f, gx)
+                lastX = e.x; lastT = e.eventTime; vx = 0f
+                /* IME가 떠 있어도 이 가로 손짓을 여기서 가로챈다. 키보드를
+                   내린 뒤 같은 MotionEvent의 현재 dx에서 화면을 이어 끈다. */
+                if (keyboardVisible() && topNative() == null) {
+                    waitImeAndResume()
+                    return true
+                }
                 beginDrag()
                 return waking || drag != null
             }
@@ -426,7 +459,7 @@ class NavLayer(context: Context) : FrameLayout(context) {
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (drag == null && !waking) return false
+        if (drag == null && !waking && !waitingIme) return false
         when (e.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 val dt = e.eventTime - lastT
@@ -444,6 +477,7 @@ class NavLayer(context: Context) : FrameLayout(context) {
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                waitingIme = false; imeWaitSeq++
                 if (drag != null) endDrag(false) else upWhileWaking = false
                 return true
             }
