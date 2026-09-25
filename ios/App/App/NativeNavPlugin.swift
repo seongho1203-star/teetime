@@ -325,8 +325,16 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         nav.popViewController(animated: ms > 40)
         let finish = { [weak self, weak nav] in
             guard let self = self, let dest = nav?.topViewController else { done(); return }
-            if dest is NativeChatViewController {
+            if let chat = dest as? NativeChatViewController {
                 if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+                /* 채팅 카드로 웹 상세에 갈 때 chat.navigate()가 navigating=true로
+                   잠그고 React cleanup이 pause()한다. 201 구조에서는 그 채팅 VC를
+                   navigation stack에 **그대로 남겨 둔 채** 웹 page만 위에 얹는다.
+                   따라서 pop으로 채팅이 다시 보이는 순간 UIKit 쪽에서 먼저
+                   resume해야 한다. JS route가 다시 mount되기만 기다리면 그 사이
+                   navigating=true라 카드 탭이 전부 무시되고, 경우에 따라 재-open
+                   신호가 오기 전까지 홈에 나갔다 와야 풀렸다. */
+                chat.resume()
             } else {
                 self.systemAttachWeb(to: dest, keepCover: true)
             }
@@ -347,8 +355,14 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     fileprivate func systemPagePopped(_ page: WebRoutePageController) {
         guard !systemProgrammaticPop, let nav = root?.navigationController,
               let dest = nav.topViewController else { return }
-        if dest is NativeChatViewController {
+        if let chat = dest as? NativeChatViewController {
             if let root = root { systemAttachWeb(to: root, keepCover: false) }
+            /* interactiveContentPopGestureRecognizer로 돌아온 길도 같다.
+               화면이 손가락 아래에서 채팅으로 바뀐 **그 프레임에** 잠금을 풀어
+               링크를 바로 다시 누를 수 있게 한다. React의 openNativeChat이
+               뒤이어 resume()을 한 번 더 불러도 beginSession/realtime은
+               기존 구현대로 idempotent하게 다시 맞춰진다. */
+            chat.resume()
         } else {
             systemAttachWeb(to: dest, keepCover: true)
         }
