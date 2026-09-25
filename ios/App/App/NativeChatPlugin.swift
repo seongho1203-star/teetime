@@ -53,7 +53,10 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                화면이 보인다**(사용자 제보 — `되돌아올 때 뒷배경이 엉뚱한
                화면이 보이고`). 웹이 `.exit-ghost`로 깔아 둔 라운드·투표
                화면이 아직 혼자 있는 이 자리가 찍을 수 있는 유일한 때다. */
-            let leaving = fresh && pop > 40 ? root.view.snapshotView(afterScreenUpdates: false) : nil
+            let leaving = fresh && pop > 40
+                ? (root.navigationController?.topViewController?.view ?? root.view)
+                    .snapshotView(afterScreenUpdates: false)
+                : nil
             /* **화면 틀(`UINavigationController`)이 있으면 거기에 밀어 올린다.**
                까닭은 하나다 — **키보드가 올라온 채로 뒤로 갈 때 키보드까지
                함께 옮기는 일을 iOS에게 맡기려는 것**이다(`AppDelegate`의
