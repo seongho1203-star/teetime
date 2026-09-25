@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /** Native V2 공통 런타임 설정. 웹의 import.meta.env를 더 이상 데이터 통신의
     출발점으로 쓰지 않는다. 값은 CI가 Info.plist에 공개 설정으로 넣는다. */
@@ -31,8 +32,6 @@ enum NativeRoute: Equatable {
     case settle
     case help
 }
-
-import UIKit
 
 typealias ChatJSON = [String: Any]
 
