@@ -93,7 +93,60 @@ public class NativeNavPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
-/// 위 주석의 그 층. `root`는 웹뷰를 화면으로 쓰는 Capacitor 화면이다.
+/** iOS 26+ 웹 상세 화면 한 칸.
+ * React 화면은 그대로 두고, 살아 있는 Capacitor WKWebView 하나만 현재 칸이 품는다.
+ * 뒤 칸은 들어갈 때 떠 둔 픽셀만 가진다. UINavigationController가 실제 화면
+ * 계층을 pop하므로 키보드도 시스템 interactive transition에 함께 붙는다.
+ */
+@available(iOS 26.0, *)
+private final class WebRoutePageController: UIViewController {
+    weak var owner: NavLayer?
+    private(set) var cover: UIView?
+
+    init(owner: NavLayer) { self.owner = owner; super.init(nibName: nil, bundle: nil) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let v = UIView()
+        v.backgroundColor = .systemBackground
+        view = v
+    }
+
+    func freeze(_ shot: UIView?) {
+        view.subviews.forEach { $0.removeFromSuperview() }
+        guard let shot = shot else { return }
+        shot.frame = view.bounds
+        shot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        shot.isUserInteractionEnabled = false
+        view.addSubview(shot)
+        cover = shot
+    }
+
+    func attach(_ web: WKWebView, keepCover: Bool) {
+        web.removeFromSuperview()
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        if web.frame.width < 1 || abs(web.frame.width - view.bounds.width) > 1 {
+            web.frame = view.bounds
+        } else {
+            web.frame.origin = .zero
+            web.frame.size.width = view.bounds.width
+        }
+        view.insertSubview(web, at: 0)
+        if !keepCover { clearCover() }
+    }
+
+    func clearCover() {
+        cover?.removeFromSuperview()
+        cover = nil
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isMovingFromParent { owner?.systemPagePopped(self) }
+    }
+}
+
+/// 위 주석의 그 층. root는 웹뷰를 화면으로 쓰는 Capacitor 화면이다.
 final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     static let TAKE: CGFloat = 0.34
     static let FLICK: CGFloat = 0.8
@@ -109,6 +162,14 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     static let EASE = (CGPoint(x: 0.32, y: 0.72), CGPoint(x: 0, y: 1))
 
     private weak var root: UIViewController?
+
+    /* iOS 26+에서는 웹 상세 화면도 실제 UINavigationController 칸으로 쌓는다. */
+    private weak var systemWeb: WKWebView?
+    private var systemRootHolder: UIView?
+    private weak var systemContentPop: UIGestureRecognizer?
+    private var systemProgrammaticPop = false
+    private var systemInstalled = false
+
     /** 키보드가 떠 있는 동안 웹뷰는 resize:native로 작아진다. 그 크기의
         snapshot을 화면 틀 크기로 늘리면 '확대된 화면 + 제자리에 남은 키보드'가
         된다. 그래서 그 상태에서는 끌기를 시작하지 않고 첫 손짓으로 키보드만
