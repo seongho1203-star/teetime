@@ -321,6 +321,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
             done(); return
         }
         let fromChat = nav.topViewController is NativeChatViewController
+            || nav.topViewController is NativeScreenController
         if !fromChat {
             let shot = supplied ?? web.snapshotView(afterScreenUpdates: false)
             systemFreezeCurrent(shot)
@@ -368,6 +369,11 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
                    navigating=true라 카드 탭이 전부 무시되고, 경우에 따라 재-open
                    신호가 오기 전까지 홈에 나갔다 와야 풀렸다. */
                 chat.resume()
+            } else if dest is NativeScreenController {
+                /* 앱이 그리는 다른 화면(`docs/아이폰-네이티브.md`)으로 돌아왔다 —
+                   대화방과 같이 웹뷰는 뿌리로 되돌리고 화면 전체 뒤로끌기는 끈다. */
+                self.systemBackGesture(false)
+                if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
             } else {
                 self.systemAttachWeb(to: dest, keepCover: true)
                 self.systemBackGesture(dest is WebRoutePageController)
@@ -396,6 +402,9 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
             chat.view.transform = .identity
             chat.view.isUserInteractionEnabled = true
             chat.resume()
+        } else if dest is NativeScreenController {
+            systemBackGesture(false)
+            if let root = root { systemAttachWeb(to: root, keepCover: false) }
         } else {
             systemAttachWeb(to: dest, keepCover: true)
             systemBackGesture(dest is WebRoutePageController)
@@ -471,7 +480,14 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
     /** 판을 까는 자리 — 화면 틀의 뷰. 틀이 없는 옛 껍데기에서는 웹뷰의 부모다. */
     private var host: UIView? { root?.navigationController?.view ?? root?.view.superview }
     private var web: UIView? { systemWeb ?? root?.view }
-    private var chatUp: Bool { root?.navigationController?.topViewController is NativeChatViewController }
+    /** 앱이 통째로 그리는 화면이 위에 떠 있는가 — 대화방, 그리고 하나씩 옮겨
+        가는 앱 화면(`NativeScreenController` · `docs/아이폰-네이티브.md`).
+        그때 웹뷰는 화면 밖이라 이 층의 손짓도 찍기도 헛돈다. 이름은 대화만
+        있던 때의 것이다. */
+    private var chatUp: Bool {
+        let top = root?.navigationController?.topViewController
+        return top is NativeChatViewController || top is NativeScreenController
+    }
 
     private func snap() -> UIView? { web?.snapshotView(afterScreenUpdates: false) }
     private func fill(_ v: UIView, in host: UIView) {
