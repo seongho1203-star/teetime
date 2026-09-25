@@ -339,10 +339,21 @@ public class NativeComposerPlugin: CAPInstancePlugin, CAPBridgedPlugin, Composer
 
     @objc func attach(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            guard let root = self.bridge?.viewController?.view else {
+            guard let bridgeVC = self.bridge?.viewController else {
                 call.reject("no view")
                 return
             }
+            /* 201부터 라운드·투표 같은 웹 상세는 bridgeVC.view 자체가 아니라
+               UINavigationController의 **현재 WebRoutePageController** 안에서
+               보인다. 예전처럼 bridgeVC.view에 댓글 바를 붙이면 바는 현재
+               화면 **뒤에 숨어 있고**, 숨어 있는 UITextView가 first responder가
+               되지 못해 키보드도 안 뜬다(202 실기기 사진으로 확인).
+               
+               네이티브 채팅은 자기 입력창을 쓰므로 NativeComposer가 붙는 순간의
+               top은 웹 화면이다. 따라서 현재 top VC의 view를 host로 쓰고,
+               없을 때만 옛 bridge view로 되돌아간다. */
+            let top = bridgeVC.navigationController?.topViewController
+            let root = (top != nil && top !== bridgeVC) ? top!.view! : bridgeVC.view!
             let bar = self.bar ?? ComposerBar(frame: CGRect(x: 0, y: 0, width: root.bounds.width, height: 58))
             bar.barDelegate = self
             self.bar = bar
