@@ -66,46 +66,75 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                   let id = call.getString("screen"), let path = call.getString("path"),
                   let root = self.bridge?.viewController, let nav = root.navigationController
             else { call.reject("화면을 열 수 없습니다."); return }
-            guard let vc = Self.make(path, service: NativeChatService(config)) else {
-                call.reject("앱이 아직 모르는 화면입니다: \(path)"); return
-            }
-            self.remove()
-            self.screen = vc; self.id = id
-            vc.event = { [weak self] type, data in
-                guard let self = self else { return }
-                self.notifyListeners("event", data: ["screen": self.id, "type": type, "data": data])
-            }
-            vc.service.authNeeded = { [weak self] in
-                guard let self = self else { return }
-                self.notifyListeners("event", data: ["screen": self.id, "type": "auth", "data": [:]])
-            }
-            root.view.endEditing(true)
-            /* **오른쪽에서 밀려 들어온다** — 웹이 남은 시간(`slideLeft()`)을
-               실어 보낸다. 40ms 아래면 그냥 툭 선다(대화와 같은 잣대). */
             let ms = call.getDouble("slide") ?? 0
-            vc.loadViewIfNeeded()
-            /* **틀에 남아 있는 죽은 앱 화면을 걷어내고 그 자리에 세운다.**
+            /* **틀에 남아 있는 같은 화면은 되살린다** — 대화 화면과 같은 방식이다.
                앱 화면에서 웹 화면(`수정` · 알림의 라운드)으로 나가면 웹 page가
                그 위에 얹히고 이 화면은 `close`로 닫히지만 **틀에는 그대로
                남는다**(위에 다른 것이 있어 못 내린다 — 뒤로 올 때 뒤에 보일
-               그림이 그것이라 대화 화면도 같은 방식이다). 그 뒤 웹이 다시
-               이 주소로 돌아와 새 화면을 열면 **죽은 화면 위에 또 하나가
-               서고**, 거기서 `←`를 누르면 죽은 화면이 드러나 아무것도 안
-               눌렸다. 죽은 것은 걷고 새 것을 그 자리에 놓는다 — 그 죽은
-               화면이 지금 맨 위면 같은 화면이라 갈아 끼우는 것이 안 보인다. */
-            let deadOnTop = nav.topViewController is NativeScreenController
-            var stack = nav.viewControllers.filter { !($0 is NativeScreenController) }
-            stack.append(vc)
-            nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
+               그림이 그것이다). 웹이 뒤로 와서 이 주소를 다시 열면 그 화면이
+               **막 맨 위로 돌아오는 중**인데, 그 위에 새 화면을 또 세우면
+               (전환이 도는 동안 틀을 고치면) 두 겹이 남아 **터치가 안 먹고
+               한 번 더 뒤로 가야 풀렸다**(실기기 제보 — `화면이 2중인거같아`).
+               그 화면을 그대로 쓰고 자료만 다시 받는다. */
+            if let old = self.screen, old.path == path, old.service.config.user == config.user,
+               nav.viewControllers.contains(where: { $0 === old }) {
+                old.service.config = config
+                self.bind(old, id: id)
+                old.revive()
+                if nav.topViewController !== old, nav.transitionCoordinator == nil {
+                    nav.popToViewController(old, animated: false)
+                }
+                old.loadScreen()
+                call.resolve(["ok": true]); return
+            }
+            guard let vc = Self.make(path, service: NativeChatService(config)) else {
+                call.reject("앱이 아직 모르는 화면입니다: \(path)"); return
+            }
+            vc.path = path
+            self.remove()
+            self.bind(vc, id: id)
+            root.view.endEditing(true)
+            vc.loadViewIfNeeded()
+            /* **오른쪽에서 밀려 들어온다** — 웹이 남은 시간(`slideLeft()`)을
+               실어 보낸다. 40ms 아래면 그냥 툭 선다(대화와 같은 잣대).
+               **죽은 앱 화면(다른 주소)이 틀에 남아 있으면 걷어내고** 그 자리에
+               세운다 — 안 걷으면 죽은 화면 위에 하나 더 서고 `←`가 죽은 화면을
+               드러낸다. **전환이 도는 중이면 끝난 뒤에 한다** — 도중에 틀을
+               고치면 UIKit이 두 화면을 겹쳐 둔 채로 멈춘다. */
+            let go = { [weak nav] in
+                guard let nav = nav else { call.resolve(["ok": true]); return }
+                let deadOnTop = nav.topViewController is NativeScreenController
+                var stack = nav.viewControllers.filter { !($0 is NativeScreenController) }
+                stack.append(vc)
+                nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
+                if let co = nav.transitionCoordinator,
+                   co.animate(alongsideTransition: nil, completion: { _ in call.resolve(["ok": true]) }) { return }
+                call.resolve(["ok": true])
+            }
             if let co = nav.transitionCoordinator,
-               co.animate(alongsideTransition: nil, completion: { _ in call.resolve(["ok": true]) }) { return }
-            call.resolve(["ok": true])
+               co.animate(alongsideTransition: nil, completion: { _ in go() }) { return }
+            go()
+        }
+    }
+
+    /// 화면과 웹 사이의 줄을 잇는다 — 새로 세울 때와 되살릴 때 같이 쓴다.
+    private func bind(_ vc: NativeScreenController, id: String) {
+        screen = vc; self.id = id
+        vc.event = { [weak self] type, data in
+            guard let self = self else { return }
+            self.notifyListeners("event", data: ["screen": self.id, "type": type, "data": data])
+        }
+        vc.service.authNeeded = { [weak self] in
+            guard let self = self else { return }
+            self.notifyListeners("event", data: ["screen": self.id, "type": "auth", "data": [:]])
         }
     }
 
     @objc func close(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            if call.getString("screen") == self.id { self.remove() }
+            /* 웹이 떠났다. 맨 위면 내리고, 위에 웹 page가 있으면 그대로 두어
+               뒤로 올 때 되살린다(위 `open`). 화면은 `screen`에 그대로 든다. */
+            if call.getString("screen") == self.id { self.remove(); }
             call.resolve()
         }
     }
@@ -125,10 +154,11 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     @MainActor private func remove() {
         guard let vc = screen else { return }
         vc.leaveQuietly()
-        if let nav = vc.navigationController, nav.topViewController === vc {
+        if let nav = vc.navigationController, nav.topViewController === vc, nav.transitionCoordinator == nil {
             nav.popViewController(animated: false)
         }
-        screen = nil; id = ""
+        /* `screen`은 비우지 않는다 — 틀에 남아 있으면 `open`이 되살린다. */
+        id = ""
     }
 }
 
@@ -178,6 +208,8 @@ class NativeScreenController: UIViewController {
     var event: ((String, ChatJSON) -> Void)?
     private(set) var navigating = false
     private var closing = false
+    /// 이 화면이 그리는 주소 — 플러그인이 같은 화면을 되살릴 때 견준다.
+    var path = ""
     let header = UIView()
     let titleLabel = UILabel()
     let backButton = UIButton(type: .system)
@@ -261,6 +293,8 @@ class NativeScreenController: UIViewController {
 
     /// 웹이 먼저 떠났다(플러그인이 내린다) — 그때는 웹에 알리지 않는다.
     func leaveQuietly() { closing = true; navigating = true }
+    /// 틀에 남아 있던 화면을 웹이 다시 열었다 — 다시 살아 움직인다.
+    func revive() { closing = false; navigating = false }
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)

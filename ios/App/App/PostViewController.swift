@@ -166,6 +166,13 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
         hint.isUserInteractionEnabled = false
         style(sendBtn, title: "등록", color: AppSkin.brand, filled: true)
         sendBtn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
+        /* **단추는 제 글자만큼만, 글칸이 나머지를 다 쓴다.** 둘 다 제 크기가
+           있어 그냥 두면 어느 쪽을 늘릴지가 애매해 **단추가 화면을 다 먹고
+           글칸이 30pt로 접혔다**(실기기 사진). */
+        sendBtn.setContentHuggingPriority(.required, for: .horizontal)
+        sendBtn.setContentCompressionResistancePriority(.required, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         composer.addSubview(rule); composer.addSubview(field); composer.addSubview(hint); composer.addSubview(sendBtn)
 
         spinner.translatesAutoresizingMaskIntoConstraints = false
