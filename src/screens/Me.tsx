@@ -21,7 +21,7 @@ import { IS_NATIVE } from '../lib/native';
 import { Capacitor } from '@capacitor/core';
 import { androidChatOn, setAndroidChat } from '../lib/native-chat';
 import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
-import { nativeAppOn, setNativeAppOn } from '../lib/native-app';
+import { NativeApp, nativeAppOn, setNativeAppOn } from '../lib/native-app';
 import { shrinkImage } from '../lib/image';
 import { lunarToSolar } from '../lib/lunar';
 import { kstDate } from '../lib/format';
@@ -570,6 +570,10 @@ export function Me() {
                         <Switch label="앱 화면" on={nativeApp}
                                 onChange={next => { setNativeAppOn(next); setNativeAppState(next); }} />
                     </div>
+                    {/* **앱 화면 쪽 기록** — 폰에서만 갈리는 자리(화면 틀에 무엇이
+                        쌓였나 · 되살렸나 · 누가 내렸나)를 사람이 읽어 주는 줄이다.
+                        까닭이 가려지면 걷어낸다(`ncStatus`·`kb-probe`와 같은 자리). */}
+                    {nativeApp && <AppLogLines />}
                 </div>
             )}
 
@@ -634,4 +638,19 @@ export function Me() {
             </p>
         </div>
     );
+}
+
+
+/** `NativeApp.debug()`가 준 기록을 그대로 적는다 — 없는 판이면 아무것도 안 적는다. */
+function AppLogLines() {
+    const [lines, setLines] = useState<string[]>([]);
+    useEffect(() => {
+        let dead = false;
+        const pull = () => { void NativeApp.debug().then(r => { if (!dead) setLines(r.lines ?? []); }).catch(() => {}); };
+        pull();
+        const t = window.setInterval(pull, 2000);
+        return () => { dead = true; window.clearInterval(t); };
+    }, []);
+    if (!lines.length) return null;
+    return <pre className="xs faint" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 8, fontSize: 10, lineHeight: 1.4 }}>{lines.join('\n')}</pre>;
 }

@@ -31,7 +31,8 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "ready", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "close", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "session", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "session", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "debug", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
     static let version = 2
@@ -44,6 +45,17 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func ready(_ call: CAPPluginCall) {
         call.resolve(["v": Self.version, "screens": Self.screens])
+    }
+
+    /// 무슨 일이 어떤 차례로 있었는지 — `내 정보` 맨 아래에 적힌다(`AppLog`).
+    @objc func debug(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            var lines = AppLog.lines
+            if let nav = self.bridge?.viewController?.navigationController {
+                lines.append("틀: " + nav.viewControllers.map { String(describing: type(of: $0)) }.joined(separator: " > "))
+            }
+            call.resolve(["lines": lines])
+        }
     }
 
     /// 주소 → 화면. 새 화면을 만들면 여기와 `screens`에 함께 더한다.
@@ -76,8 +88,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                (전환이 도는 동안 틀을 고치면) 두 겹이 남아 **터치가 안 먹고
                한 번 더 뒤로 가야 풀렸다**(실기기 제보 — `화면이 2중인거같아`).
                그 화면을 그대로 쓰고 자료만 다시 받는다. */
+            AppLog.add("open \(path) slide=\(Int(ms)) top=\(String(describing: type(of: nav.topViewController!))) 전환=\(nav.transitionCoordinator != nil)")
             if let old = self.screen, old.path == path, old.service.config.user == config.user,
                nav.viewControllers.contains(where: { $0 === old }) {
+                AppLog.add("되살림 \(path)")
                 old.service.config = config
                 self.bind(old, id: id)
                 old.revive()
@@ -106,6 +120,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                 let deadOnTop = nav.topViewController is NativeScreenController
                 var stack = nav.viewControllers.filter { !($0 is NativeScreenController) }
                 stack.append(vc)
+                AppLog.add("세움 \(path) deadOnTop=\(deadOnTop) 개수=\(stack.count)")
                 nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
                 if let co = nav.transitionCoordinator,
                    co.animate(alongsideTransition: nil, completion: { _ in call.resolve(["ok": true]) }) { return }
@@ -134,6 +149,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async {
             /* 웹이 떠났다. 맨 위면 내리고, 위에 웹 page가 있으면 그대로 두어
                뒤로 올 때 되살린다(위 `open`). 화면은 `screen`에 그대로 든다. */
+            AppLog.add("close 맞음=\(call.getString("screen") == self.id)")
             if call.getString("screen") == self.id { self.remove(); }
             call.resolve()
         }
@@ -155,7 +171,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let vc = screen else { return }
         vc.leaveQuietly()
         if let nav = vc.navigationController, nav.topViewController === vc, nav.transitionCoordinator == nil {
+            AppLog.add("remove 내림 \(vc.path)")
             nav.popViewController(animated: false)
+        } else {
+            AppLog.add("remove 둠 \(vc.path) top=\(vc.navigationController.map { String(describing: type(of: $0.topViewController!)) } ?? "없음")")
         }
         /* `screen`은 비우지 않는다 — 틀에 남아 있으면 `open`이 되살린다. */
         id = ""
@@ -282,6 +301,7 @@ class NativeScreenController: UIViewController {
 
     /// `←` — 틀에서 내리고 웹에 알린다.
     func goBack() {
+        AppLog.add("← \(path) navigating=\(navigating)")
         guard !navigating else { return }
         navigating = true
         view.endEditing(true)
@@ -294,11 +314,14 @@ class NativeScreenController: UIViewController {
     /// 웹이 먼저 떠났다(플러그인이 내린다) — 그때는 웹에 알리지 않는다.
     func leaveQuietly() { closing = true; navigating = true }
     /// 틀에 남아 있던 화면을 웹이 다시 열었다 — 다시 살아 움직인다.
-    func revive() { closing = false; navigating = false }
+    func revive() { closing = false; navigating = false; view.isUserInteractionEnabled = true }
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
         /* iOS가 내렸다(가장자리 끌기) — 웹의 주소만 되돌린다. */
+        if parent == nil {
+            AppLog.add("iOS가 내림 \(path) navigating=\(navigating) closing=\(closing)")
+        }
         if parent == nil && !navigating && !closing {
             navigating = true
             event?("back", ["phase": "plain"])
@@ -362,5 +385,21 @@ class NativeScreenController: UIViewController {
         a.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in then(false) })
         a.addAction(UIAlertAction(title: ok, style: danger ? .destructive : .default) { _ in then(true) })
         present(a, animated: true)
+    }
+}
+
+/**
+ * **앱 화면 쪽에서 무슨 일이 어떤 차례로 있었나** — `내 정보` 맨 아래에 적힌다
+ * (`NativeApp.debug`). 폰에서만 갈리는 자리는 값을 화면에 남겨 두고 사람이
+ * 읽어 주는 편이 결국 빠르다(`ncStatus`·`kb-probe`와 같은 방식). 마흔 줄만 든다.
+ */
+enum AppLog {
+    private(set) static var lines: [String] = []
+    private static let fmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss.SSS"; return f
+    }()
+    static func add(_ s: String) {
+        lines.append(fmt.string(from: Date()) + " " + s)
+        if lines.count > 40 { lines.removeFirst(lines.count - 40) }
     }
 }

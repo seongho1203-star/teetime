@@ -27,6 +27,8 @@ export const NativeApp = registerPlugin<{
     open(config: Record<string, unknown>): Promise<{ ok: boolean }>;
     close(config: { screen: string }): Promise<void>;
     session(config: { user: string; token: string }): Promise<void>;
+    /** 앱 화면 쪽 기록 — `내 정보` 맨 아래에 적는다(폰에서만 갈리는 자리를 읽으려는 것). */
+    debug(): Promise<{ lines: string[] }>;
     addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeApp');
 

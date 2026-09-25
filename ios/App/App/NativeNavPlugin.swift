@@ -322,6 +322,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
         }
         let fromChat = nav.topViewController is NativeChatViewController
             || nav.topViewController is NativeScreenController
+        AppLog.add("systemPush fromChat=\(fromChat) top=\(String(describing: type(of: nav.topViewController!)))")
         if !fromChat {
             let shot = supplied ?? web.snapshotView(afterScreenUpdates: false)
             systemFreezeCurrent(shot)
@@ -369,11 +370,16 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
                    navigating=true라 카드 탭이 전부 무시되고, 경우에 따라 재-open
                    신호가 오기 전까지 홈에 나갔다 와야 풀렸다. */
                 chat.resume()
-            } else if dest is NativeScreenController {
+            } else if let screen = dest as? NativeScreenController {
                 /* 앱이 그리는 다른 화면(`docs/아이폰-네이티브.md`)으로 돌아왔다 —
-                   대화방과 같이 웹뷰는 뿌리로 되돌리고 화면 전체 뒤로끌기는 끈다. */
+                   대화방과 같이 웹뷰는 뿌리로 되돌리고 화면 전체 뒤로끌기는 끈다.
+                   **여기서 먼저 되살린다**(대화의 `chat.resume()`과 같은 자리) —
+                   웹이 다시 열어 주기를 기다리면 그 사이 `navigating=true`라
+                   `←`도 줄도 죽어 있다. */
                 self.systemBackGesture(false)
                 if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+                screen.revive()
+                AppLog.add("systemPop → \(screen.path)")
             } else {
                 self.systemAttachWeb(to: dest, keepCover: true)
                 self.systemBackGesture(dest is WebRoutePageController)
@@ -402,9 +408,11 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
             chat.view.transform = .identity
             chat.view.isUserInteractionEnabled = true
             chat.resume()
-        } else if dest is NativeScreenController {
+        } else if let screen = dest as? NativeScreenController {
             systemBackGesture(false)
             if let root = root { systemAttachWeb(to: root, keepCover: false) }
+            screen.revive()
+            AppLog.add("끌어 돌아옴 → \(screen.path)")
         } else {
             systemAttachWeb(to: dest, keepCover: true)
             systemBackGesture(dest is WebRoutePageController)
@@ -433,6 +441,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
                   let page = web.superview?.next as? WebRoutePageController,
                   !navigationController.viewControllers.contains(where: { $0 === page })
             else { return }
+            AppLog.add("didShow 갇힌 웹뷰 → \(String(describing: type(of: viewController)))")
             systemInteractiveCompleted(to: viewController)
             return
         }
