@@ -518,7 +518,7 @@ let renderedWait: (() => void) | null = null;
 export function nativeNavRendered(): void { const f = renderedWait; renderedWait = null; f?.(); }
 
 /** `pushState` 자리 — 앱이 맡는 판. */
-function nativePush(toPath: string): void {
+function nativePush(toPath: string, nativeShot = ''): void {
     /* 탭으로 가는 길은 안 민다(웹과 같다). **앱 쪽 더미와 짝을 맞추려고**
        그때도 부른다 — `popstate`가 하나씩 꺼내므로 한 자리도 비울 수 없다. */
     const tab = TAB_PATHS.includes(toPath);
@@ -527,8 +527,14 @@ function nativePush(toPath: string): void {
        앱이 화면 틀(대화 화면)을 통째로 찍는다(`NavLayer.push`의 `chatUp`). */
     const fromChat = hasNativeChat() && seenRoute === '/chat';
     if (!tab && !fromChat) holdScreen(seenRoute);
-    void NativeNav.push({ ms: tab ? 0 : chat ? CHAT_MS : SCREEN_MS, native: chat })
-        .catch(() => {}).finally(releaseHold);
+    /* 대화방에서 웹 화면으로 나갈 때는 앱이 떠 준 픽셀도 함께 넘긴다.
+       pushState와 네이티브 플러그인 호출 사이에 대화 VC가 먼저 내려가도
+       NativeNav의 뒤 판이 비지 않게 하는 값이다. */
+    void NativeNav.push({
+        ms: tab ? 0 : chat ? CHAT_MS : SCREEN_MS,
+        native: chat,
+        shot: fromChat && !tab ? nativeShot : '',
+    }).catch(() => {}).finally(releaseHold);
 }
 /**
  * `popstate` 자리 — 앱이 맡는 판.
@@ -557,8 +563,12 @@ function watchHistory() {
         try {
             if (url != null) {
                 const to = routeOf(String(url));
+                /* snap()이 chatShot을 한 번 쓰고 비우므로 앱에 넘길 값은
+                   그 전에 잡아 둔다. 이 값이 채팅 → 라운드/투표 → 뒤로끌기의
+                   네이티브 뒤 판이 된다. */
+                const nativeShot = chatShot;
                 snap(to);
-                if (hasNativeNav()) nativePush(to);
+                if (hasNativeNav()) nativePush(to, nativeShot);
                 seenRoute = to;
             }
         } catch { /* 주소가 이상해도 넘어가는 것이 낫다 */ }

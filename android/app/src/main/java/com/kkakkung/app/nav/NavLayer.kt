@@ -14,6 +14,9 @@ import android.view.PixelCopy
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -136,6 +139,31 @@ class NavLayer(context: Context) : FrameLayout(context) {
         try { draw(Canvas(bmp)); done(bmp) } catch (e: Exception) { done(null) }
     }
 
+    /** 앱 화면은 PixelCopy를 기다리지 않고 그 자리에서 뜬다. 채팅 route가
+        바뀌며 NavPage가 먼저 걷혀도 뒤로끌기 판이 남도록 하기 위함이다. */
+    private fun snapView(v: View): Bitmap? {
+        val w = width; val h = height
+        if (w <= 0 || h <= 0) return null
+        return try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { bmp ->
+                val canvas = Canvas(bmp)
+                canvas.save()
+                canvas.translate(v.left.toFloat(), v.top.toFloat())
+                v.draw(canvas)
+                canvas.restore()
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun keyboardVisible(): Boolean =
+        ViewCompat.getRootWindowInsets(this)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+
+    private fun dismissKeyboard() {
+        web.clearFocus()
+        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(web.windowToken, 0)
+    }
+
     private fun plateView(bmp: Bitmap?): ImageView = ImageView(context).apply {
         scaleType = ImageView.ScaleType.FIT_XY
         setImageBitmap(bmp)
@@ -156,6 +184,13 @@ class NavLayer(context: Context) : FrameLayout(context) {
      * `ms`가 0이면(탭으로 가는 길) 자리만 하나 더한다.
      */
     fun push(ms: Long, native: Boolean, done: () -> Unit) {
+        /* 채팅 같은 네이티브 화면에서 웹으로 나갈 때는 비동기 PixelCopy보다
+           route unmount가 먼저 올 수 있다. 화면이 살아 있는 지금 동기로 떠 둔다. */
+        topNative()?.let { page ->
+            pushPlate(snapView(page))
+            done()
+            return
+        }
         if (ms <= 0 && !native) { pushPlate(null); done(); return }
         snap { bmp ->
             pushPlate(bmp)
@@ -368,6 +403,14 @@ class NavLayer(context: Context) : FrameLayout(context) {
                 val gx = e.x - x0; val gy = e.y - y0
                 if (abs(gy) > abs(gx) && abs(gy) > WAKE * density()) { cand = false; return false }
                 if (gx < WAKE * density() || gx < abs(gy) * SLOPE) return false
+                /* 키보드가 떠 있는 웹뷰는 IME inset만큼 줄어 있다. 그 상태의
+                   픽셀을 전체 NavLayer로 늘리면 화면이 확대되고 키보드와 따로
+                   움직인다. 첫 오른쪽 손짓은 키보드만 내린다. */
+                if (keyboardVisible() && topNative() == null) {
+                    dismissKeyboard()
+                    cand = false
+                    return false
+                }
                 /* 웹이 `taken`이라 했으면 넘긴다 — 가장자리에서 시작한 것은 예외다. */
                 if (!free && !edge && topNative() == null) { cand = false; return false }
                 cand = false

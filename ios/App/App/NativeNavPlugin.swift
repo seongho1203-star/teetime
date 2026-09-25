@@ -64,7 +64,10 @@ public class NativeNavPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func push(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard let l = self.nav() else { call.resolve(); return }
-            l.push(ms: call.getDouble("ms") ?? 0, native: call.getBool("native") ?? false) { call.resolve() }
+            let supplied = call.getString("shot").flatMap { NavLayer.plate(dataURL: $0) }
+            l.push(ms: call.getDouble("ms") ?? 0,
+                   native: call.getBool("native") ?? false,
+                   supplied: supplied) { call.resolve() }
         }
     }
     @objc func pop(_ call: CAPPluginCall) {
@@ -106,6 +109,12 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     static let EASE = (CGPoint(x: 0.32, y: 0.72), CGPoint(x: 0, y: 1))
 
     private weak var root: UIViewController?
+    /** 키보드가 떠 있는 동안 웹뷰는 resize:native로 작아진다. 그 크기의
+        snapshot을 화면 틀 크기로 늘리면 '확대된 화면 + 제자리에 남은 키보드'가
+        된다. 그래서 그 상태에서는 끌기를 시작하지 않고 첫 손짓으로 키보드만
+        내린다. 다음 손짓은 원래 크기로 돌아온 웹뷰를 정상적으로 끈다. */
+    private var keyboardVisible = false
+    private var keyboardObservers: [NSObjectProtocol] = []
     /** 뒤에 깔린 앞 화면들 — 히스토리 한 칸에 하나. 탭으로 간 자리는 nil이다. */
     private var stack: [UIView?] = []
     private let maxStack = 5
@@ -113,7 +122,37 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     var free = true
     var onBack: ((String) -> Void)?
 
-    init(root: UIViewController) { self.root = root; super.init() }
+    init(root: UIViewController) {
+        self.root = root
+        super.init()
+        let nc = NotificationCenter.default
+        keyboardObservers.append(nc.addObserver(
+            forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.keyboardVisible = true })
+        keyboardObservers.append(nc.addObserver(
+            forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.keyboardVisible = false })
+    }
+
+    deinit {
+        let nc = NotificationCenter.default
+        keyboardObservers.forEach { nc.removeObserver($0) }
+    }
+
+    /** 앱 대화 화면이 떠 준 JPEG를 뒤로끌기용 판으로 만든다.
+        비동기 bridge보다 React unmount가 먼저 와 대화 VC가 사라져도 이 판은
+        이미 JS 이벤트에 실려 있으므로 채팅 → 링크의 뒤로끌기가 끊기지 않는다. */
+    static func plate(dataURL: String) -> UIView? {
+        guard !dataURL.isEmpty,
+              let comma = dataURL.firstIndex(of: ","),
+              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])),
+              let image = UIImage(data: data) else { return nil }
+        let v = UIImageView(image: image)
+        v.contentMode = .scaleToFill
+        v.clipsToBounds = true
+        v.isUserInteractionEnabled = false
+        return v
+    }
 
     /** 판을 까는 자리 — 화면 틀의 뷰. 틀이 없는 옛 껍데기에서는 웹뷰의 부모다. */
     private var host: UIView? { root?.navigationController?.view ?? root?.view.superview }
@@ -144,7 +183,14 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 민다. `native`면(목적지가 대화방) 찍어 두기만 한다 — 그 화면은 화면 틀이
      * 밀어 올린다. `ms`가 0이면(탭으로 가는 길) 자리만 하나 더한다.
      */
-    func push(ms: Double, native: Bool, done: @escaping () -> Void) {
+    func push(ms: Double, native: Bool, supplied: UIView? = nil, done: @escaping () -> Void) {
+        /* 채팅 화면이 직접 떠 준 픽셀이 있으면 그것이 가장 확실한 앞 화면이다.
+           bridge를 건너는 동안 UINavigationController가 먼저 pop되어도 안전하다. */
+        if let supplied = supplied {
+            pushPlate(supplied)
+            done()
+            return
+        }
         guard ms > 0 || native else { pushPlate(nil); done(); return }
         /* **대화방에서 카드를 눌러 나가는 길** — 대화 화면이 아직 떠 있어
            웹뷰는 화면 밖이고, 찍어 봐야 빈손이다(사용자 제보 — `채팅에서
@@ -300,6 +346,14 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             right = v.x > 0 && v.x >= abs(v.y) * Self.SLOPE
         }
         guard right else { return false }
+        /* 키보드가 떠 있으면 웹뷰 자체가 작아져 있다(resize:native).
+           이 상태에서 snapshot을 전체 host에 맞춰 끌면 화면이 확대되고
+           시스템 키보드는 제자리에 남아 둘이 갈라진다. 첫 오른쪽 손짓은
+           키보드만 내리고, 원래 크기로 복원된 뒤 다음 손짓부터 끈다. */
+        if keyboardVisible {
+            web?.endEditing(true)
+            return false
+        }
         /* 웹이 `taken`이라 했으면 넘긴다 — 가장자리에서 시작한 것은 예외다. */
         return free || edge
     }
@@ -313,6 +367,8 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
      * 있어야 목적지가 보인다.
      */
     private func beginDrag() -> Bool {
+        /* shouldBegin 뒤와 실제 시작 사이에 키보드가 올라온 경우까지 막는다. */
+        if keyboardVisible { web?.endEditing(true); return false }
         guard let host = host, let under = stack.last ?? nil, let exit = snap() else { return false }
         /* 여기서부터 우리 손짓이다 — 웹뷰의 굴리기를 끊는다. */
         if let sv = (root?.view as? WKWebView)?.scrollView {
