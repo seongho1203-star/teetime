@@ -1,0 +1,54 @@
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+
+/**
+ * **앱이 통째로 그리는 화면들의 다리** — 대화(`native-chat.ts`) 다음 걸음이다
+ * (사용자 요청 — `까꿍앱을 완전한 네이티브앱으로 바꿔줘. 일단 아이폰만`).
+ * 단계와 켜는 법은 `docs/아이폰-네이티브.md`에 있다.
+ *
+ * 오가는 말은 대화 플러그인과 같은 꼴이다(`ios/App/App/NativeAppPlugin.swift`):
+ *  - `open({screen, path, user, token, url, key, slide})` — 그 주소의 화면을
+ *    화면 틀에 밀어 올린다. 앱이 모르는 주소면 거절한다.
+ *  - `close({screen})` · `session({user, token})`.
+ *  - `event` — `back`(`plain` — 웹이 뒤로 간다) · `navigate`(`path`) ·
+ *    `auth`(토큰 만료 — 웹이 갱신해 `session`으로 준다).
+ *
+ * **아직 스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켜진 아이폰
+ * 앱에서만 `NATIVE_SCREENS`의 주소가 앱 화면으로 가고, 꺼져 있으면 지금의
+ * 웹 화면이다. 화면이 하나씩 다 옮겨지면 스위치를 걷어내고 기본으로 한다.
+ */
+export type NativeAppEvent = {
+    screen: string;
+    type: 'navigate' | 'auth' | 'back';
+    data: { path?: string; phase?: string };
+};
+export const NativeApp = registerPlugin<{
+    ready(): Promise<{ v: number; screens: string[] }>;
+    open(config: Record<string, unknown>): Promise<{ ok: boolean }>;
+    close(config: { screen: string }): Promise<void>;
+    session(config: { user: string; token: string }): Promise<void>;
+    addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
+}>('NativeApp');
+
+/**
+ * **앱이 그릴 줄 아는 주소.** Swift의 `NativeAppPlugin.screens`와 같아야 한다 —
+ * 한쪽만 고치면 웹이 보냈는데 앱이 `모르는 화면`으로 거절한다.
+ */
+export const NATIVE_SCREENS = ['/members'];
+
+export const NATIVE_APP_KEY = 'teetime:native-app';
+export function nativeAppOn(): boolean {
+    try { return localStorage.getItem(NATIVE_APP_KEY) === 'on'; } catch { return false; }
+}
+export function setNativeAppOn(on: boolean): void {
+    try { if (on) localStorage.setItem(NATIVE_APP_KEY, 'on'); else localStorage.removeItem(NATIVE_APP_KEY); } catch { /* 못 적으면 그대로 웹이다 */ }
+}
+
+/** 이 아이폰 앱이 화면을 그릴 수 있고 스위치가 켜져 있는가. */
+export function hasNativeApp(): boolean {
+    return Capacitor.getPlatform() === 'ios' && Capacitor.isPluginAvailable('NativeApp') && nativeAppOn();
+}
+
+/** 이 주소를 앱이 그리는가(스위치·플러그인·목록 셋 다 맞을 때). */
+export function nativeScreen(path: string): boolean {
+    return hasNativeApp() && NATIVE_SCREENS.includes(path);
+}

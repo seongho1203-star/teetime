@@ -28,6 +28,9 @@
 		CB3000000000000000000003 /* NativeChatPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000003 /* NativeChatPlugin.swift */; };
 		CB3000000000000000000005 /* ChatCheer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000005 /* ChatCheer.swift */; };
 		CB3000000000000000000006 /* NativeNavPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000006 /* NativeNavPlugin.swift */; };
+		CB3000000000000000000007 /* NativeAppPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000007 /* NativeAppPlugin.swift */; };
+		CB3000000000000000000008 /* NativeAppData.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000008 /* NativeAppData.swift */; };
+		CB3000000000000000000009 /* MembersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000009 /* MembersViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +59,9 @@
 		CB2000000000000000000003 /* NativeChatPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatPlugin.swift; sourceTree = "<group>"; };
 		CB2000000000000000000005 /* ChatCheer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCheer.swift; sourceTree = "<group>"; };
 		CB2000000000000000000006 /* NativeNavPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNavPlugin.swift; sourceTree = "<group>"; };
+		CB2000000000000000000007 /* NativeAppPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppPlugin.swift; sourceTree = "<group>"; };
+		CB2000000000000000000008 /* NativeAppData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppData.swift; sourceTree = "<group>"; };
+		CB2000000000000000000009 /* MembersViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,6 +119,9 @@
 				CB2000000000000000000000 /* NativeChatService.swift */,
 				CB2000000000000000000005 /* ChatCheer.swift */,
 				CB2000000000000000000006 /* NativeNavPlugin.swift */,
+				CB2000000000000000000007 /* NativeAppPlugin.swift */,
+				CB2000000000000000000008 /* NativeAppData.swift */,
+				CB2000000000000000000009 /* MembersViewController.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -262,6 +271,9 @@
 				CB3000000000000000000000 /* NativeChatService.swift in Sources */,
 				CB3000000000000000000005 /* ChatCheer.swift in Sources */,
 				CB3000000000000000000006 /* NativeNavPlugin.swift in Sources */,
+				CB3000000000000000000007 /* NativeAppPlugin.swift in Sources */,
+				CB3000000000000000000008 /* NativeAppData.swift in Sources */,
+				CB3000000000000000000009 /* MembersViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

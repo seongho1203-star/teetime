@@ -27,7 +27,7 @@ import { PostEdit } from './screens/PostEdit';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
-import { Members } from './screens/Members';
+import { MembersRoute } from './screens/NativeScreen';
 import { Settle } from './screens/Settle';
 import { Alerts } from './screens/Alerts';
 import { Help } from './screens/Help';
@@ -103,7 +103,8 @@ function Gate() {
                 <Route path="/board/:id/edit" element={<PostEdit />} />
                 <Route path="/chat" element={<ChatRoute />} />
                 <Route path="/me" element={<Me />} />
-                <Route path="/members" element={<Members />} />
+                {/* 아이폰 앱에서 스위치가 켜져 있으면 앱이 그린다(`docs/아이폰-네이티브.md`). */}
+                <Route path="/members" element={<MembersRoute />} />
                 <Route path="/settle" element={<Settle />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/help" element={<Help />} />

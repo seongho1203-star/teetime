@@ -5227,6 +5227,46 @@ GitHub Pages가 그대로 내주므로 주소가 곧
   끌면 손을 따라오는가 · 놓은 뒤 옛 화면이 한 프레임도 안 비치는가 ·
   대화방 위에서도 끌리는가(안드로이드).
 
+### 화면을 하나씩 앱이 그린다 — 완전한 아이폰 앱으로 (진행 중)
+
+사용자 요청 — `까꿍앱을 완전한 네이티브앱으로 바꿔줘. 일단 아이폰만해줘.
+이거 완성하고 이후에 안드로이드도 만들거야`. 단계·확인·켜는 법은
+**`docs/아이폰-네이티브.md`**에 있다 — 다음 화면을 옮길 때 그 파일부터 볼 것.
+
+```
+src/lib/native-app.ts        ← 다리(`NativeApp`) · 스위치 · NATIVE_SCREENS
+src/screens/NativeScreen.tsx ← 주소마다 앱/웹을 가르는 자리 (MembersRoute …)
+ios/App/App/NativeAppPlugin.swift        ← 문 · AppSkin · NativeScreenController
+ios/App/App/NativeAppData.swift          ← NativeChatService에 얹은 조회
+ios/App/App/MembersViewController.swift  ← 1단계: 회원 명단
+```
+
+- **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
+  `NATIVE_SCREENS`의 주소가 Swift 화면으로 가고, 꺼져 있으면 지금의 웹
+  화면이다. **웹 화면 코드는 지우지 않는다** — 웹·안드로이드 몫이고, 스위치를
+  끄면 돌아갈 자리다.
+- **앱이 그리는 주소는 대화방과 같은 길이다** — `lib/tabs.ts`의 `/chat`
+  특례를 `nativeRoute()`로 넓혔다(앞 화면 그림을 웹뷰에 깔고 · `NativeNav`에는
+  판만 쌓고 · 웹은 안 민다 · 끌어 넘어가면 `rendered()`를 미룬다).
+  **`/chat`을 글자로 견주는 줄을 새로 만들지 말 것** — 그 함수를 쓴다.
+- **화면은 화면 틀(`UINavigationController`)에 밀어 올린다** — 대화와 같은
+  자리라 왼쪽 가장자리 끌기(`EdgeBack`)와 `←`가 곧 뒤로 가기다. 둘 다 웹에
+  `back`(`plain`)을 보내고 **어디로 갈지는 웹이 안다.** 웹이 먼저 떠나
+  플러그인이 내리는 판(`leaveQuietly`)과 갈라 두었다 — 안 가르면 웹이 한 번
+  더 뒤로 간다.
+- **통신은 `NativeChatService` 하나다.** 이름에 `Chat`이 붙었지만 REST 한 번
+  부르기 + 401 갱신이 전부라 그대로 쓴다. 화면마다의 조회는
+  `NativeAppData.swift`에 extension으로 얹는다. **`service_role` 키는 앱에도
+  절대 안 들어간다.**
+- **규칙은 웹과 같아야 한다** — 이름표 · 차례 · `FIND_AT` · 운영진만 보는
+  값 · 한 계단 임명. Swift에 옮겨 적은 자리마다 웹의 함수 이름을 주석에
+  적어 두었다. **한쪽만 고치지 말 것.**
+- **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
+  `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
+  `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).
+- **여기서는 Swift를 컴파일할 수 없다** — `ios.yml`이 알려 준다. 그래서
+  화면마다 웹 예비 길(스위치)이 먼저다.
+
 ### 앱 (Capacitor) — 이제 화면을 앱 안에 담는다 (출시용)
 
 `capacitor.config.ts` · `ios/` · `.github/workflows/ios.yml` 셋이다.

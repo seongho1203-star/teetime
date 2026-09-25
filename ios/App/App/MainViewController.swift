@@ -33,6 +33,9 @@ class MainViewController: CAPBridgeViewController {
            자리(화면 틀의 뷰)는 부를 때마다 찾는다 — 여기서는 아직
            `wrapInNavigation`이 안 끝났다. */
         bridge?.registerPluginInstance(NativeNavPlugin())
+        /* 앱이 통째로 그리는 화면들의 문(`NativeAppPlugin.swift` ·
+           `docs/아이폰-네이티브.md`). 대화 다음으로 회원 명단부터 옮긴다. */
+        bridge?.registerPluginInstance(NativeAppPlugin())
         hushChatBanner()
     }
 

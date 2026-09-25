@@ -21,6 +21,7 @@ import { IS_NATIVE } from '../lib/native';
 import { Capacitor } from '@capacitor/core';
 import { androidChatOn, setAndroidChat } from '../lib/native-chat';
 import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
+import { nativeAppOn, setNativeAppOn } from '../lib/native-app';
 import { shrinkImage } from '../lib/image';
 import { lunarToSolar } from '../lib/lunar';
 import { kstDate } from '../lib/format';
@@ -181,6 +182,8 @@ export function Me() {
     const [androidChat, setAndroidChatState] = useState(() => androidChatOn());
     /* 앱이 화면 전환·뒤로 끌기를 맡는 층 스위치(아래 참고). */
     const [navOn, setNavOnState] = useState(() => !nativeNavOff());
+    /* 아이폰 앱이 화면을 통째로 그리는 스위치(시험 중 — 아래 참고). */
+    const [nativeApp, setNativeAppState] = useState(() => nativeAppOn());
     const [pushBusy, setPushBusy] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
 
@@ -546,6 +549,26 @@ export function Me() {
                         </div>
                         <Switch label="앱 대화 화면" on={androidChat}
                                 onChange={next => { setAndroidChat(next); setAndroidChatState(next); }} />
+                    </div>
+                </div>
+            )}
+
+            {/* **아이폰 앱이 화면을 통째로 그린다 — 시험 중**(`docs/아이폰-네이티브.md`).
+                대화 다음으로 회원 명단부터 옮겼다. 켠 폰에서만 그 화면들이
+                Swift 화면으로 가고, 끄면 지금까지의 웹 화면이다. 화면이 다
+                옮겨지면 이 줄과 `nativeAppOn()`을 걷어내고 기본으로 한다.
+                플러그인이 실린 앱에서만 뜬다. */}
+            {Capacitor.getPlatform() === 'ios' && Capacitor.isPluginAvailable('NativeApp') && (
+                <div className="card">
+                    <div className="switch-row">
+                        <div className="grow">
+                            <div className="switch-label">🧪 시험 중: 앱 화면 (회원 명단)</div>
+                            <div className="switch-desc">
+                                {nativeApp ? '회원 명단을 앱 화면으로 엽니다 (만드는 중)' : '꺼짐 — 지금까지의 화면'}
+                            </div>
+                        </div>
+                        <Switch label="앱 화면" on={nativeApp}
+                                onChange={next => { setNativeAppOn(next); setNativeAppState(next); }} />
                     </div>
                 </div>
             )}
