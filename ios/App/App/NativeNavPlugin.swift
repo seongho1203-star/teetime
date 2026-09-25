@@ -227,6 +227,17 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         systemInstalled = true
 
         let g = nav.interactiveContentPopGestureRecognizer
+        /* iOS 26의 full-content pan은 nav.view 전체에 걸린다. 기본값 그대로면
+           WKWebView의 <textarea>/<input>에 간 **짧은 탭도 pan이 실패할 때까지
+           붙들어 둘 수 있고**, WebKit의 focus/user-gesture 판정이 끝난 뒤라
+           키보드가 안 뜨는 경우가 생겼다(201 실기기 제보).
+           
+           뒤로끌기는 pan이 실제로 시작한 뒤에만 필요하므로, 평범한 탭은
+           WebKit에 즉시 흘려 보낸다. pan이 시작해도 웹의 터치를 취소하지
+           않고 UINavigationController transition과 나란히 처리한다. */
+        g?.delaysTouchesBegan = false
+        g?.delaysTouchesEnded = false
+        g?.cancelsTouchesInView = false
         g?.delegate = self
         systemContentPop = g
     }
@@ -586,6 +597,9 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
             guard armed, !moving, !systemProgrammaticPop,
                   let nav = root?.navigationController,
                   nav.topViewController is WebRoutePageController else { return false }
+            /* 댓글 입력칸·슬라이더 등은 웹이 free=false로 표시한다.
+               그 위에서는 시스템 pan을 아예 시작하지 않아 WebKit focus를
+               건드리지 않는다. 빈 영역에서 시작한 뒤로끌기만 시스템에 준다. */
             return free
         }
         guard let p = g as? UIPanGestureRecognizer, let host = host, canDrag() else { return false }
