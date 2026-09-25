@@ -269,7 +269,9 @@ class NavLayer(context: Context) : FrameLayout(context) {
         val plate = stack.lastOrNull()
         if (page == null && plate == null) return
         waking = true; dxNow = 0f; upWhileWaking = null
-        val start = { bmp: Bitmap? ->
+        /* **`(Bitmap?) -> Unit`로 못박는다** — 마지막 `if`가 값을 내는 식이라 그냥
+           두면 코틀린이 '단위 변환'이라며 컴파일을 세운다(CI에서 실제로 섰다). */
+        val start: (Bitmap?) -> Unit = { bmp ->
             waking = false
             if (page == null && bmp == null) {
                 upWhileWaking = null
@@ -285,7 +287,8 @@ class NavLayer(context: Context) : FrameLayout(context) {
                 val d = Drag(w, exit, under, dim, page, plate)
                 drag = d
                 paint(d, dxNow)
-                upWhileWaking?.let { go -> upWhileWaking = null; endDrag(go) }
+                val go = upWhileWaking
+                if (go != null) { upWhileWaking = null; endDrag(go) }
             }
         }
         if (page != null) start(null) else snap(start)
