@@ -421,8 +421,21 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
     func navigationController(_ navigationController: UINavigationController,
                               didShow viewController: UIViewController,
                               animated: Bool) {
-        guard #available(iOS 26.0, *),
-              let from = systemInteractiveFrom else { return }
+        guard #available(iOS 26.0, *) else { return }
+        guard let from = systemInteractiveFrom else {
+            /* **우리가 안 내린 pop** — 가장자리 끌기(`EdgeBack`)가 웹 page를
+               내리면 아무도 웹뷰를 옮기지 않아 **웹뷰가 빠진 page 안에 갇힌
+               채로 남는다.** 그러면 뿌리의 홀더는 비어 있어 **흰 화면**만 뜨고
+               (실기기 제보 — `뒤로가기했을때 가끔 아무화면이 안떠`) 웹 주소도
+               그대로다. 갇힌 것이 보이면 손가락으로 끌어 넘어간 것과 똑같이
+               마무리한다 — 웹뷰를 보이는 화면으로 옮기고 웹에 `commit`을 보낸다. */
+            guard !systemProgrammaticPop, let web = systemWeb,
+                  let page = web.superview?.next as? WebRoutePageController,
+                  !navigationController.viewControllers.contains(where: { $0 === page })
+            else { return }
+            systemInteractiveCompleted(to: viewController)
+            return
+        }
         systemInteractiveFrom = nil
 
         if viewController === from {

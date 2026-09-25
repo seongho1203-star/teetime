@@ -5273,6 +5273,18 @@ ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
   키보드와 한 몸으로 오르내리고 천지인 깜빡임도 없다. 웹처럼 카드 안에 넣지 말 것.
 - **알림함은 여는 순간 다 읽음으로 찍고 `fresh`로 가른다** — 웹 `Alerts.tsx`와 같은
   규칙(`read_at`으로 그리지 말 것 · id마다 한 번만 판단).
+- **제약을 직접 거는 뷰는 `translatesAutoresizingMaskIntoConstraints = false`를
+  빠뜨리지 말 것.** `등록` 단추에서 빠뜨려 글칸과 단추가 0폭으로 접혔다
+  (실기기 제보 — `댓글을 달수가없고`). 스택에 넣는 것만 스택이 대신 꺼 준다.
+- **닫힌 앱 화면은 틀에 남는다** — 위에 웹 page가 얹힌 채 `close`되면 못 내린다
+  (뒤로 올 때 뒤에 보일 그림이라 대화 화면과 같다). 그래서 `open`은 **죽은
+  `NativeScreenController`를 다 걷어내고 그 자리에 새 것을 세운다**
+  (`setViewControllers`). 안 걷으면 죽은 화면 위에 하나 더 서고 `←`가 죽은
+  화면을 드러낸다.
+- **NavLayer의 `didShow`는 웹뷰가 빠진 page에 갇혔는지 본다.** 가장자리 끌기
+  (`EdgeBack`)가 웹 page를 내리면 아무도 웹뷰를 옮기지 않아 뿌리 홀더가 비고
+  **흰 화면**만 떴다(실기기 제보 — `뒤로가기했을때 가끔 아무화면이 안떠`).
+  그때는 손가락으로 끌어 넘어간 것과 같이 마무리한다(`systemInteractiveCompleted`).
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).

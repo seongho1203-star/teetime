@@ -211,6 +211,11 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
 
     /// 단추 모양 — 웹 `.btn ghost sm` / `.btn primary` / `.btn danger sm`.
     private func style(_ b: UIButton, title: String, color: UIColor, filled: Bool) {
+        /* **이 줄이 빠지면 단추가 사라진다.** 스택에 넣는 단추는 스택이 대신
+           꺼 주지만 `등록`은 직접 제약을 거는 자리라, 자동 크기 제약이 함께
+           살아 있으면 충돌해 글칸과 단추가 0폭으로 접혔다(실기기 제보 —
+           `댓글을 달수가없고`). */
+        b.translatesAutoresizingMaskIntoConstraints = false
         b.setTitle(title, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         b.setTitleColor(filled ? .white : color, for: .normal)

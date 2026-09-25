@@ -84,7 +84,19 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                실어 보낸다. 40ms 아래면 그냥 툭 선다(대화와 같은 잣대). */
             let ms = call.getDouble("slide") ?? 0
             vc.loadViewIfNeeded()
-            nav.pushViewController(vc, animated: ms > 40)
+            /* **틀에 남아 있는 죽은 앱 화면을 걷어내고 그 자리에 세운다.**
+               앱 화면에서 웹 화면(`수정` · 알림의 라운드)으로 나가면 웹 page가
+               그 위에 얹히고 이 화면은 `close`로 닫히지만 **틀에는 그대로
+               남는다**(위에 다른 것이 있어 못 내린다 — 뒤로 올 때 뒤에 보일
+               그림이 그것이라 대화 화면도 같은 방식이다). 그 뒤 웹이 다시
+               이 주소로 돌아와 새 화면을 열면 **죽은 화면 위에 또 하나가
+               서고**, 거기서 `←`를 누르면 죽은 화면이 드러나 아무것도 안
+               눌렸다. 죽은 것은 걷고 새 것을 그 자리에 놓는다 — 그 죽은
+               화면이 지금 맨 위면 같은 화면이라 갈아 끼우는 것이 안 보인다. */
+            let deadOnTop = nav.topViewController is NativeScreenController
+            var stack = nav.viewControllers.filter { !($0 is NativeScreenController) }
+            stack.append(vc)
+            nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
             if let co = nav.transitionCoordinator,
                co.animate(alongsideTransition: nil, completion: { _ in call.resolve(["ok": true]) }) { return }
             call.resolve(["ok": true])
