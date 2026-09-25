@@ -99,7 +99,7 @@ public class NativeNavPlugin: CAPPlugin, CAPBridgedPlugin {
  * 계층을 pop하므로 키보드도 시스템 interactive transition에 함께 붙는다.
  */
 @available(iOS 26.0, *)
-private final class WebRoutePageController: UIViewController {
+fileprivate final class WebRoutePageController: UIViewController {
     weak var owner: NavLayer?
     private(set) var cover: UIView?
 
