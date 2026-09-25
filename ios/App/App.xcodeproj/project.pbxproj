@@ -33,6 +33,9 @@
 		CB3000000000000000000009 /* MembersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000009 /* MembersViewController.swift */; };
 		CB3000000000000000000000A /* PostViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000A /* PostViewController.swift */; };
 		CB3000000000000000000000B /* AlertsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000B /* AlertsViewController.swift */; };
+		CB3000000000000000000000C /* ShellController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000C /* ShellController.swift */; };
+		CB3000000000000000000000D /* ShellTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000D /* ShellTabs.swift */; };
+		CB3000000000000000000000E /* HomeTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000E /* HomeTab.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,6 +69,9 @@
 		CB2000000000000000000009 /* MembersViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000000A /* PostViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000000B /* AlertsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000000C /* ShellController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000000D /* ShellTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellTabs.swift; sourceTree = "<group>"; };
+		CB2000000000000000000000E /* HomeTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTab.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,6 +134,9 @@
 				CB2000000000000000000009 /* MembersViewController.swift */,
 				CB2000000000000000000000A /* PostViewController.swift */,
 				CB2000000000000000000000B /* AlertsViewController.swift */,
+				CB2000000000000000000000C /* ShellController.swift */,
+				CB2000000000000000000000D /* ShellTabs.swift */,
+				CB2000000000000000000000E /* HomeTab.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -282,6 +291,9 @@
 				CB3000000000000000000009 /* MembersViewController.swift in Sources */,
 				CB3000000000000000000000A /* PostViewController.swift in Sources */,
 				CB3000000000000000000000B /* AlertsViewController.swift in Sources */,
+				CB3000000000000000000000C /* ShellController.swift in Sources */,
+				CB3000000000000000000000D /* ShellTabs.swift in Sources */,
+				CB3000000000000000000000E /* HomeTab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

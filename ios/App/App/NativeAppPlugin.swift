@@ -32,16 +32,21 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "open", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "close", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "session", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "debug", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "debug", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shell", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shellOff", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "go", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 2
+    static let version = 3
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`(쓰는 화면)는 아직 웹이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id"]
 
     private var screen: NativeScreenController?
     private var id = ""
+    /// 앱 껍데기(홈·탭바) — 로그인이 끝나면 웹이 세우고, 로그아웃하면 내린다.
+    private var shell: ShellController?
 
     @objc func ready(_ call: CAPPluginCall) {
         call.resolve(["v": Self.version, "screens": Self.screens])
@@ -118,7 +123,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             let go = { [weak nav] in
                 guard let nav = nav else { call.resolve(["ok": true]); return }
                 let deadOnTop = nav.topViewController is NativeScreenController
-                var stack = nav.viewControllers.filter { !($0 is NativeScreenController) }
+                var stack = nav.viewControllers.filter { !(($0 as? NativeScreenController)?.isDead ?? false) }
                 stack.append(vc)
                 AppLog.add("세움 \(path) deadOnTop=\(deadOnTop) 개수=\(stack.count)")
                 nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
@@ -145,6 +150,61 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /**
+     * **앱 껍데기를 세운다**(`ShellController` — 홈·탭바). 로그인이 끝난 웹이
+     * 부른다. 틀은 `[뿌리(웹뷰), 껍데기]`가 되고, 그 뒤로 사람이 보는 것은
+     * 전부 앱 화면이다. 같은 사람이면 새로 안 세우고 토큰·탭만 맞춘다.
+     */
+    @objc func shell(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let config = NativeChatConfig(call.options as? ChatJSON ?? [:]),
+                  let root = self.bridge?.viewController, let nav = root.navigationController
+            else { call.reject("껍데기를 세울 수 없습니다."); return }
+            let path = call.getString("path") ?? "/"
+            if let sh = self.shell, sh.service.config.user == config.user,
+               nav.viewControllers.contains(where: { $0 === sh }) {
+                sh.service.config = config
+                sh.select(path)
+                AppLog.add("shell 그대로 \(path)")
+                call.resolve(["ok": true]); return
+            }
+            let sh = ShellController(service: NativeChatService(config))
+            sh.onWeb = { [weak self] path in
+                self?.notifyListeners("event", data: ["screen": "shell", "type": "navigate", "data": ["path": path]])
+            }
+            sh.service.authNeeded = { [weak self] in
+                self?.notifyListeners("event", data: ["screen": "shell", "type": "auth", "data": [:]])
+            }
+            self.shell = sh
+            root.view.endEditing(true)
+            nav.setViewControllers([root, sh], animated: false)
+            sh.select(path)
+            AppLog.add("shell 세움 \(path)")
+            call.resolve(["ok": true])
+        }
+    }
+
+    /// 껍데기를 내린다(로그아웃) — 틀에 뿌리만 남아 웹 로그인 화면이 보인다.
+    @objc func shellOff(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if let root = self.bridge?.viewController, let nav = root.navigationController, self.shell != nil {
+                nav.setViewControllers([root], animated: false)
+                AppLog.add("shell 내림")
+            }
+            self.shell = nil
+            self.screen = nil; self.id = ""
+            call.resolve()
+        }
+    }
+
+    /// 웹이 어디로 가라고 — 알림을 눌러 온 길·탭 주소 동기(`NativeShellSync`).
+    @objc func go(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if let path = call.getString("path") { self.shell?.go(path) }
+            call.resolve()
+        }
+    }
+
     @objc func close(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             /* 웹이 떠났다. 맨 위면 내리고, 위에 웹 page가 있으면 그대로 두어
@@ -160,6 +220,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             if let vc = self.screen, call.getString("user") == vc.service.config.user,
                let token = call.getString("token") {
                 vc.service.config.token = token
+            }
+            if let sh = self.shell, call.getString("user") == sh.service.config.user,
+               let token = call.getString("token") {
+                sh.service.config.token = token
             }
             call.resolve()
         }
@@ -229,6 +293,11 @@ class NativeScreenController: UIViewController {
     private var closing = false
     /// 이 화면이 그리는 주소 — 플러그인이 같은 화면을 되살릴 때 견준다.
     var path = ""
+    /// 앱 껍데기(`ShellController`)가 밀어 올린 화면인가 — 그러면 웹은 이 화면을 모른다.
+    /// 다른 화면에 갔다 돌아오면 스스로 되살아나 다시 받는다.
+    var shellOwned = false
+    /// 웹이 떠나 닫힌 화면인가 — 틀에 남아 있어도 걷어도 되는 것.
+    var isDead: Bool { closing }
     let header = UIView()
     let titleLabel = UILabel()
     let backButton = UIButton(type: .system)
@@ -291,7 +360,10 @@ class NativeScreenController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if !loadedOnce { loadedOnce = true; loadScreen() }
+        if !loadedOnce { loadedOnce = true; loadScreen(); return }
+        /* 껍데기가 세운 화면은 다른 화면(웹 page·다른 앱 화면)에 갔다 돌아올 때
+           스스로 되살아나 다시 받는다 — 웹이 다시 열어 줄 일이 없는 화면이다. */
+        if shellOwned { revive(); loadScreen() }
     }
 
     /// 화면이 처음 보일 때 한 번 — 화면마다 여기서 받아 온다.
@@ -369,7 +441,7 @@ class NativeScreenController: UIViewController {
     }
 
     /// 글자 둘레에 여백이 있는 알약 — `UILabel`은 안여백이 없어 글자가 모서리에 닿는다.
-    final class PillLabel: UILabel {
+    class PillLabel: UILabel {
         /// 안여백 — 토스트는 넉넉하게, 작은 표(`고정`)는 `pad`를 줄여 쓴다.
         var pad = UIEdgeInsets(top: 10, left: 16, bottom: 10, right: 16) { didSet { invalidateIntrinsicContentSize() } }
         override func drawText(in rect: CGRect) { super.drawText(in: rect.inset(by: pad)) }

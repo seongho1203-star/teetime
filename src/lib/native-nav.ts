@@ -55,8 +55,9 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 export type NativeNavEvent = { type: 'back'; phase: 'commit' | 'cancel' | 'plain' };
 export const NativeNav = registerPlugin<{
     ready(): Promise<{ v: number }>;
-    push(o: { ms: number; native: boolean; shot?: string }): Promise<void>;
-    pop(o: { ms: number; native: boolean }): Promise<void>;
+    /** `to`는 가는 주소 — 탭이면 앱 껍데기(`ShellController`)가 그 탭을 켠다. */
+    push(o: { ms: number; native: boolean; shot?: string; to?: string }): Promise<void>;
+    pop(o: { ms: number; native: boolean; to?: string }): Promise<void>;
     back(o: { on: boolean }): Promise<void>;
     touch(o: { free: boolean }): Promise<void>;
     rendered(): Promise<void>;

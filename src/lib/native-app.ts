@@ -19,6 +19,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 export type NativeAppEvent = {
     screen: string;
     type: 'navigate' | 'auth' | 'back';
+    /** `'shell'`이면 껍데기(홈·탭바)가 보낸 것이다. */
     /** `replace`면 이 화면의 자리를 그 화면이 대신한다(지운 글에서 목록으로). */
     data: { path?: string; phase?: string; replace?: boolean };
 };
@@ -29,6 +30,12 @@ export const NativeApp = registerPlugin<{
     session(config: { user: string; token: string }): Promise<void>;
     /** 앱 화면 쪽 기록 — `내 정보` 맨 아래에 적는다(폰에서만 갈리는 자리를 읽으려는 것). */
     debug(): Promise<{ lines: string[] }>;
+    /** 앱 껍데기(홈·탭바)를 세운다 — 로그인이 끝나면(`NativeShellSync`). 같은 사람이면 토큰·탭만 맞춘다. */
+    shell(config: Record<string, unknown>): Promise<{ ok: boolean }>;
+    /** 껍데기를 내린다(로그아웃). */
+    shellOff(): Promise<void>;
+    /** 껍데기더러 그 주소로 가라고 — 탭이면 켜고, 앱 화면이면 밀어 올리고, 웹 화면이면 웹에 되돌려 연다. */
+    go(config: { path: string }): Promise<void>;
     addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeApp');
 

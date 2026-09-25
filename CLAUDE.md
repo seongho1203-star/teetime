@@ -5299,6 +5299,19 @@ ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
   (`EdgeBack`)가 웹 page를 내리면 아무도 웹뷰를 옮기지 않아 뿌리 홀더가 비고
   **흰 화면**만 떴다(실기기 제보 — `뒤로가기했을때 가끔 아무화면이 안떠`).
   그때는 손가락으로 끌어 넘어간 것과 같이 마무리한다(`systemInteractiveCompleted`).
+- **앱 껍데기(홈·탭바)가 있다**(`ShellController` · 사용자 요청 — `그냥 지금
+  바로 홈·탭바까지 앱으로 만들어줘`). 로그인이 끝나면 웹(`NativeShellSync`)이
+  `NativeApp.shell()`로 세우고 틀은 `[뿌리(웹뷰), 껍데기]`가 된다. 탭 넷은
+  앱이 그리고(홈·공지·라운드·투표), `대화`와 아직 웹인 화면은 껍데기가 웹에
+  주소를 열라고 한다(`onWeb` → `navigate` 이벤트 → `pushState` → `NativeNav.push`
+  → 웹뷰를 든 page가 껍데기 위에 선다). **`NavLayer`는 껍데기를 대화방처럼
+  본다**(`chatUp` · `systemPop`의 목적지 · 탭 주소로 갈 때 `[뿌리, 껍데기]`로
+  돌아와 그 탭을 켠다 — `NativeNav.push`의 `to`). `EdgeBack`은 껍데기를
+  안 내린다. 껍데기가 켜져 있으면 웹 탭바는 안 그린다.
+  - **껍데기가 세운 앱 화면은 `shellOwned`다** — 웹은 그 화면을 모른다.
+    `navigate`는 `shell.go`로, `back`은 무시(스스로 내린다), 돌아오면
+    `viewWillAppear`에서 되살아나 다시 받는다.
+  - 앱 껍데기는 **iOS 26 시스템 웹 전환**에 기대므로 그 아래에서는 켜지 말 것.
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).

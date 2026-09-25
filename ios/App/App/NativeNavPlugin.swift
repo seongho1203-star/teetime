@@ -67,7 +67,7 @@ public class NativeNavPlugin: CAPPlugin, CAPBridgedPlugin {
             let supplied = call.getString("shot").flatMap { NavLayer.plate(dataURL: $0) }
             l.push(ms: call.getDouble("ms") ?? 0,
                    native: call.getBool("native") ?? false,
-                   supplied: supplied) { call.resolve() }
+                   supplied: supplied, to: call.getString("to")) { call.resolve() }
         }
     }
     @objc func pop(_ call: CAPPluginCall) {
@@ -322,6 +322,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
         }
         let fromChat = nav.topViewController is NativeChatViewController
             || nav.topViewController is NativeScreenController
+            || nav.topViewController is ShellController
         AppLog.add("systemPush fromChat=\(fromChat) top=\(String(describing: type(of: nav.topViewController!)))")
         if !fromChat {
             let shot = supplied ?? web.snapshotView(afterScreenUpdates: false)
@@ -337,12 +338,20 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
     }
 
     @available(iOS 26.0, *)
-    private func systemResetToRoot(done: @escaping () -> Void) {
+    private func systemResetToRoot(to: String?, done: @escaping () -> Void) {
         systemInteractiveFrom = nil
         guard let root = root, let nav = root.navigationController else { done(); return }
         systemBackGesture(false)
         systemAttachWeb(to: root, keepCover: false)
         systemWeb?.endEditing(true)
+        /* **껍데기가 있으면 껍데기까지만 걷는다** — 웹이 탭 주소로 가는 것은
+           `[뿌리, 껍데기]`로 돌아와 그 탭을 켜는 일이다(`ShellController`). */
+        if let sh = nav.viewControllers.first(where: { $0 is ShellController }) as? ShellController {
+            nav.setViewControllers([root, sh], animated: false)
+            if let to = to { sh.select(to) }
+            AppLog.add("탭으로 → 껍데기 \(to ?? "")")
+            done(); return
+        }
         nav.setViewControllers([root], animated: false)
         done()
     }
@@ -370,6 +379,11 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
                    navigating=true라 카드 탭이 전부 무시되고, 경우에 따라 재-open
                    신호가 오기 전까지 홈에 나갔다 와야 풀렸다. */
                 chat.resume()
+            } else if dest is ShellController {
+                /* 앱 껍데기(홈·탭바)로 돌아왔다 — 웹뷰는 뿌리로, 화면 전체 뒤로끌기는 끈다. */
+                self.systemBackGesture(false)
+                if let root = self.root { self.systemAttachWeb(to: root, keepCover: false) }
+                AppLog.add("systemPop → 껍데기")
             } else if let screen = dest as? NativeScreenController {
                 /* 앱이 그리는 다른 화면(`docs/아이폰-네이티브.md`)으로 돌아왔다 —
                    대화방과 같이 웹뷰는 뿌리로 되돌리고 화면 전체 뒤로끌기는 끈다.
@@ -408,6 +422,10 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
             chat.view.transform = .identity
             chat.view.isUserInteractionEnabled = true
             chat.resume()
+        } else if dest is ShellController {
+            systemBackGesture(false)
+            if let root = root { systemAttachWeb(to: root, keepCover: false) }
+            AppLog.add("끌어 돌아옴 → 껍데기")
         } else if let screen = dest as? NativeScreenController {
             systemBackGesture(false)
             if let root = root { systemAttachWeb(to: root, keepCover: false) }
@@ -508,7 +526,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
         있던 때의 것이다. */
     private var chatUp: Bool {
         let top = root?.navigationController?.topViewController
-        return top is NativeChatViewController || top is NativeScreenController
+        return top is NativeChatViewController || top is NativeScreenController || top is ShellController
     }
 
     private func snap() -> UIView? { web?.snapshotView(afterScreenUpdates: false) }
@@ -535,10 +553,10 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
      * 민다. `native`면(목적지가 대화방) 찍어 두기만 한다 — 그 화면은 화면 틀이
      * 밀어 올린다. `ms`가 0이면(탭으로 가는 길) 자리만 하나 더한다.
      */
-    func push(ms: Double, native: Bool, supplied: UIView? = nil, done: @escaping () -> Void) {
+    func push(ms: Double, native: Bool, supplied: UIView? = nil, to: String? = nil, done: @escaping () -> Void) {
         if #available(iOS 26.0, *), usesSystemWebNavigation {
             if ms <= 0 && !native {
-                systemResetToRoot(done: done)
+                systemResetToRoot(to: to, done: done)
                 return
             }
             if !native {

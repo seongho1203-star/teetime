@@ -546,6 +546,7 @@ function nativePush(toPath: string, nativeShot = ''): void {
         ms: tab ? 0 : chat ? CHAT_MS : SCREEN_MS,
         native: chat,
         shot: fromChat && !tab ? nativeShot : '',
+        to: toPath,
     }).catch(() => {}).finally(releaseHold);
 }
 /**
@@ -562,7 +563,7 @@ function nativePop(toChat: boolean): void {
     const fromChat = nativeRoute(seenRoute);
     const native = fromChat || toChat;
     if (!native) holdScreen(seenRoute);
-    void NativeNav.pop({ ms: native ? 0 : SCREEN_MS, native })
+    void NativeNav.pop({ ms: native ? 0 : SCREEN_MS, native, to: routeOf(location.href) })
         .catch(() => {}).finally(releaseHold);
 }
 

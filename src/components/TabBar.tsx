@@ -7,6 +7,7 @@ import { daysUntil, upcomingSince } from '../lib/format';
 import { SEEN_EVENT, lastSeen } from '../lib/unread';
 import type { Message, Poll, Round } from '../lib/types';
 import { playDing } from '../lib/sound';
+import { hasNativeApp } from '../lib/native-app';
 import './TabBar.css';
 
 /* 아이콘은 파일을 더 받지 않으려고 인라인 SVG로 둔다. 24×24 stroke. */
@@ -149,6 +150,10 @@ export function TabBar() {
        (`useLiveCounts`·`useDing`)이 계속 돌아야 대화에서도 `까꿍` 소리가
        나고, 나올 때 숫자가 이미 맞춰져 있다. */
     if (onChat) return null;
+    /* **앱 껍데기(홈·탭바)가 켜져 있으면 웹 탭바는 안 그린다** — 탭바는 앱 것이고
+       웹은 아직 안 옮긴 화면을 그 위에 띄울 뿐이다. 갈고리 둘은 그대로 돈다
+       (`까꿍` 소리가 이 자리에서 난다). */
+    if (hasNativeApp()) return null;
 
     return (
         <nav className="tabbar">

@@ -151,6 +151,8 @@ final class EdgeBack: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let nav = nav else { return false }
         /* 돌고 있는 전환 위에 또 시작하면 화면이 반쯤 겹친 채로 굳는다. */
+        /* 앱 껍데기(홈·탭바)는 뒤로 갈 데가 없다 — 끌어서 내리면 그 밑의 웹뷰(로그인 몫)가 드러난다. */
+        if nav.topViewController is ShellController { return false }
         return nav.viewControllers.count > 1 && nav.transitionCoordinator == nil
     }
 }

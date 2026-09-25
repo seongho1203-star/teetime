@@ -135,6 +135,124 @@ struct AppAlert {
     ]
 }
 
+/// `signups` 한 줄 — 라운드에 딸려 온다(웹 `SignupHome`).
+struct AppSignup {
+    let raw: ChatJSON
+    var roundId: String { raw["round_id"] as? String ?? "" }
+    var userId: String { raw["user_id"] as? String ?? "" }
+    var state: String { raw["state"] as? String ?? "" }
+    var seq: Int { raw["seq"] as? Int ?? 0 }
+    var grp: Int? { raw["grp"] as? Int }
+}
+
+/// `rounds` 한 줄(웹 `Round`·`RoundLite`) + 딸려 온 신청.
+struct AppRound {
+    let raw: ChatJSON
+    let signups: [AppSignup]
+    init(raw: ChatJSON) {
+        self.raw = raw
+        signups = (raw["signups"] as? [ChatJSON] ?? []).map { AppSignup(raw: $0) }
+    }
+    var id: String { raw["id"] as? String ?? "" }
+    var course: String { raw["course"] as? String ?? "" }
+    var title: String { raw["title"] as? String ?? "" }
+    var teeAt: String { raw["tee_at"] as? String ?? "" }
+    var capacity: Int { raw["capacity"] as? Int ?? 0 }
+    var fee: Int { raw["fee"] as? Int ?? 0 }
+    var status: String { raw["status"] as? String ?? "open" }
+    /// `field`/`screen` — 칸이 없는 저장소에서는 필드다(웹 `roundKind`).
+    var kind: String { raw["kind"] as? String == "screen" ? "screen" : "field" }
+    var caddie: String? { raw["caddie"] as? String }
+    var cart: String? { raw["cart"] as? String }
+    var lat: Double? { raw["lat"] as? Double }
+    var lon: Double? { raw["lon"] as? Double }
+    var isScreen: Bool { kind == "screen" }
+    var kindIcon: String { isScreen ? "🎯" : "⛳" }
+    var kindLabel: String { isScreen ? "스크린" : "필드" }
+    var teeLabel: String { isScreen ? "시작" : "티오프" }
+    /// 장소 — 비어 있으면 제목, 그것도 없으면 `골프장 미정`/`매장 미정`.
+    var place: String {
+        if !course.isEmpty { return course }
+        if !title.isEmpty { return title }
+        return isScreen ? "매장 미정" : "골프장 미정"
+    }
+    var confirmed: [AppSignup] { signups.filter { $0.state == "confirmed" } }
+    var waiting: [AppSignup] { signups.filter { $0.state == "waitlist" } }
+    func mine(_ me: String) -> AppSignup? { signups.first { $0.userId == me } }
+    /// 대기 번호는 **대기 줄에서 몇 번째인가**다(`seq` 그대로가 아니다 — 웹과 같은 규칙).
+    func waitRank(_ me: String) -> Int {
+        let list = waiting.sorted { $0.seq < $1.seq }
+        guard let i = list.firstIndex(where: { $0.userId == me }) else { return 0 }
+        return i + 1
+    }
+    static let caddieLabel = ["caddie": "캐디", "none": "노캐디"]
+    static let cartLabel = ["included": "카트 포함", "excluded": "카트 미포함"]
+}
+
+struct AppPollOption {
+    let raw: ChatJSON
+    var id: String { raw["id"] as? String ?? "" }
+    var label: String { raw["label"] as? String ?? "" }
+    var sort: Int { raw["sort"] as? Int ?? 0 }
+}
+struct AppVote {
+    let raw: ChatJSON
+    var optionId: String { raw["option_id"] as? String ?? "" }
+    var userId: String { raw["user_id"] as? String ?? "" }
+}
+/// `polls` 한 줄(웹 `Poll`) + 딸려 온 항목·표.
+struct AppPoll {
+    let raw: ChatJSON
+    let options: [AppPollOption]
+    let votes: [AppVote]
+    init(raw: ChatJSON) {
+        self.raw = raw
+        options = (raw["poll_options"] as? [ChatJSON] ?? []).map { AppPollOption(raw: $0) }.sorted { $0.sort < $1.sort }
+        votes = (raw["poll_votes"] as? [ChatJSON] ?? []).map { AppVote(raw: $0) }
+    }
+    var id: String { raw["id"] as? String ?? "" }
+    var title: String { raw["title"] as? String ?? "" }
+    var body: String { raw["body"] as? String ?? "" }
+    var multi: Bool { raw["multi"] as? Bool ?? false }
+    var anonymous: Bool { raw["anonymous"] as? Bool ?? false }
+    var closedFlag: Bool { raw["closed"] as? Bool ?? false }
+    var closesAt: String? { raw["closes_at"] as? String }
+    var createdBy: String? { raw["created_by"] as? String }
+    var createdAt: String { raw["created_at"] as? String ?? "" }
+    /// 웹 `pollClosed()`와 같은 잣대 — 손으로 닫았거나 마감 시각이 지났거나.
+    var closed: Bool {
+        if closedFlag { return true }
+        guard let c = closesAt else { return false }
+        return NativeChatRows.date(c) < Date()
+    }
+    func count(_ optionId: String) -> Int { votes.filter { $0.optionId == optionId }.count }
+    /// 1위 항목들 — **동점이면 다 적는다**(웹 `topOptions`·`post_poll_result`와 같은 규칙).
+    func top() -> (names: [String], n: Int)? {
+        guard !options.isEmpty else { return nil }
+        let best = options.map { count($0.id) }.max() ?? 0
+        guard best > 0 else { return nil }
+        return (options.filter { count($0.id) == best }.map { $0.label }, best)
+    }
+}
+
+/// 라운드 날 날씨(웹 `lib/weather.ts`의 `Weather`).
+struct AppWeather {
+    let min: Int, max: Int, rain: Int, icon: String, label: String
+    /// WMO 코드 → 한 마디. 웹 `describe`와 같은 묶음이다.
+    static func describe(_ code: Int) -> (String, String) {
+        if code == 0 { return ("☀️", "맑음") }
+        if code <= 2 { return ("🌤️", "구름 조금") }
+        if code == 3 { return ("☁️", "흐림") }
+        if code <= 48 { return ("🌫️", "안개") }
+        if code <= 57 { return ("🌦️", "이슬비") }
+        if code <= 67 { return ("🌧️", "비") }
+        if code <= 77 { return ("🌨️", "눈") }
+        if code <= 82 { return ("🌧️", "소나기") }
+        if code <= 86 { return ("🌨️", "눈") }
+        return ("⛈️", "천둥번개")
+    }
+}
+
 enum AppDate {
     static let seoul = TimeZone(identifier: "Asia/Seoul") ?? .current
     private static func fmt(_ pattern: String) -> DateFormatter {
@@ -149,6 +267,39 @@ enum AppDate {
     /// `8월 21일 (금)`(웹 `formatDate`).
     static let dayFmt = fmt("M월 d일 (E)")
     static func stamp(_ iso: String) -> String { stampFmt.string(from: NativeChatRows.date(iso)) }
+    /// `오전 7:30`(웹 `formatTime`).
+    static let timeFmt = fmt("a h:mm")
+    /// `8월 21일 (금) 오전 7:30`(웹 `formatDateTime`).
+    static func dateTime(_ iso: String) -> String {
+        let d = NativeChatRows.date(iso)
+        return dayFmt.string(from: d) + " " + timeFmt.string(from: d)
+    }
+    static func time(_ iso: String) -> String { timeFmt.string(from: NativeChatRows.date(iso)) }
+    /// `YYYY-MM-DD`(한국 날짜).
+    static let ymdFmt: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = seoul; f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+    static func kstDay(_ d: Date) -> String { ymdFmt.string(from: d) }
+    /// 오늘(한국 날짜)부터 며칠 뒤인가 — **날짜끼리** 뺀다(웹 `daysUntil`: 밀리초로 나누면 시간대에 따라 하루가 어긋난다).
+    static func daysUntil(_ iso: String) -> Int {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = seoul
+        let a = cal.startOfDay(for: NativeChatRows.date(iso))
+        let b = cal.startOfDay(for: Date())
+        return cal.dateComponents([.day], from: b, to: a).day ?? 0
+    }
+    /// `D-3` · `D-DAY` · `종료`(웹 `ddayLabel`).
+    static func dday(_ iso: String) -> String {
+        let d = daysUntil(iso)
+        if d > 0 { return "D-\(d)" }
+        if d == 0 { return "D-DAY" }
+        return "종료"
+    }
+    /// 하루 여유를 둔 잘라 내기(웹 `upcomingSince`) — 오늘 라운드가 사라지지 않게.
+    static func upcomingSince() -> String { NativeChatRows.iso.string(from: Date(timeIntervalSinceNow: -86400)) }
+    static func nowIso() -> String { NativeChatRows.now() }
+    /// `120,000원`(웹 `formatWon`).
+    static let wonFmt: NumberFormatter = { let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "ko_KR"); return f }()
+    static func won(_ n: Int) -> String { (wonFmt.string(from: NSNumber(value: n)) ?? String(n)) + "원" }
     /// `방금` · `12분 전` · `3시간 전` · `2일 전` · 그보다 오래면 날짜(웹 `timeAgo`).
     static func ago(_ iso: String) -> String {
         let d = NativeChatRows.date(iso)
@@ -288,6 +439,126 @@ extension NativeChatService {
             }
         }
         throw NativeChatError(message: "대화방에 올리지 못했습니다.")
+    }
+
+    // ── 라운드 ───────────────────────────────────────────────────
+
+    static let roundCols = "*, signups(round_id, user_id, state, seq, grp)"
+    /// 예정된 라운드 전부(취소 포함 — 목록이 가른다) — 신청이 딸려 온다(웹 `Rounds`·`Home`).
+    func roundsUpcoming() async throws -> [AppRound] {
+        try await rows("rounds", [("select", Self.roundCols), ("tee_at", "gte.\(AppDate.upcomingSince())"),
+                                  ("order", "tee_at.asc"), ("limit", "200")]).map { AppRound(raw: $0) }
+    }
+    /// 지난 라운드는 최근 것만(웹 `PAST_ROUNDS`).
+    func roundsPast(limit: Int) async throws -> [AppRound] {
+        try await rows("rounds", [("select", Self.roundCols), ("tee_at", "lt.\(AppDate.upcomingSince())"),
+                                  ("order", "tee_at.desc"), ("limit", String(limit))]).map { AppRound(raw: $0) }
+    }
+    /// 조별 시각 — 표가 없는 저장소에서는 빈 것으로(웹 홈의 `home:groups`).
+    func groupTees(_ roundId: String) async -> [String: String] {
+        guard let row = try? await rows("round_groups", [("select", "round_id,tees"), ("round_id", "eq.\(roundId)"), ("limit", "1")]).first,
+              let tees = row["tees"] as? [String: Any] else { return [:] }
+        var out: [String: String] = [:]
+        for (k, v) in tees { if let t = v as? String { out[k] = t } }
+        return out
+    }
+    /// 신청 — 정원 셈은 DB(`join_round`)가 한다.
+    func joinRound(_ id: String) async throws {
+        _ = try await request("rest/v1/rpc/join_round", method: "POST", body: ["p_round": id, "p_note": ""])
+    }
+    func leaveRound(_ id: String) async throws {
+        _ = try await request("rest/v1/rpc/leave_round", method: "POST", body: ["p_round": id])
+    }
+
+    // ── 투표 ─────────────────────────────────────────────────────
+
+    static let pollCols = "*, poll_options(id, label, sort), poll_votes(option_id, user_id)"
+    /// 진행중 둘(시각이 남았거나 · 마감 시각이 없거나) — 웹 `Polls`와 같이 넷으로 나눠 부른다.
+    func pollsLive() async throws -> [AppPoll] {
+        let now = AppDate.nowIso()
+        let a = try await rows("polls", [("select", Self.pollCols), ("closed", "eq.false"), ("closes_at", "gte.\(now)"), ("order", "created_at.desc"), ("limit", "100")])
+        let b = try await rows("polls", [("select", Self.pollCols), ("closed", "eq.false"), ("closes_at", "is.null"), ("order", "created_at.desc"), ("limit", "100")])
+        return (a + b).map { AppPoll(raw: $0) }.sorted { $0.createdAt > $1.createdAt }
+    }
+    /// 끝난 둘(손으로 닫았거나 · 시각이 지났거나) — `limit`까지만.
+    func pollsDone(limit: Int) async throws -> (list: [AppPoll], got: Int) {
+        let now = AppDate.nowIso()
+        let a = try await rows("polls", [("select", Self.pollCols), ("closed", "eq.true"), ("order", "created_at.desc"), ("limit", String(limit))])
+        let b = try await rows("polls", [("select", Self.pollCols), ("closed", "eq.false"), ("closes_at", "lt.\(now)"), ("order", "created_at.desc"), ("limit", String(limit))])
+        let all = (a + b).map { AppPoll(raw: $0) }.sorted { $0.createdAt > $1.createdAt }
+        return (Array(all.prefix(limit)), all.count)
+    }
+    func castVote(_ optionId: String) async throws {
+        _ = try await request("rest/v1/rpc/cast_vote", method: "POST", body: ["p_option": optionId])
+    }
+    func retractVote(_ optionId: String) async throws {
+        _ = try await request("rest/v1/rpc/retract_vote", method: "POST", body: ["p_option": optionId])
+    }
+    func closePoll(_ id: String) async throws {
+        let r = try await request("rest/v1/polls", query: [("id", "eq.\(id)")], method: "PATCH", body: ["closed": true]) as? [ChatJSON]
+        guard r?.isEmpty == false else { throw NativeChatError(message: "권한이 없습니다.") }
+    }
+
+    // ── 공지 목록 ────────────────────────────────────────────────
+
+    func posts() async throws -> [AppPost] {
+        try await rows("posts", [("select", "*"), ("order", "pinned.desc,created_at.desc"), ("limit", "200")]).map { AppPost(raw: $0) }
+    }
+
+    // ── 숫자들(탭바·홈) ───────────────────────────────────────────
+
+    /// 승인 기다리는 사람 — 운영진만 부른다. 못 세면 0.
+    func pendingCount() async -> Int {
+        (try? await rows("profiles", [("select", "id"), ("role", "eq.pending"), ("limit", "200")]))?.count ?? 0
+    }
+    /// 안 읽은 알림(종의 숫자). 표가 없으면 0.
+    func unreadAlertCount() async -> Int {
+        (try? await rows("notifications", [("select", "id"), ("read_at", "is.null"), ("limit", "100")]))?.count ?? 0
+    }
+    /// 안 읽은 대화 — **서버의 `room_reads`를 잣대로 센다**(웹은 기기의 `teetime:seen:`을 보지만
+    /// 앱 껍데기는 그 값을 볼 수 없다. 뱃지가 서버 쪽을 쓰는 것과 같은 잣대다). 100까지만.
+    func unreadChatCount() async -> Int {
+        guard let room = try? await room(), let roomId = room["id"] as? String else { return 0 }
+        let reads = (try? await self.reads(roomId)) ?? [:]
+        let since = reads[config.user] ?? "1970-01-01T00:00:00Z"
+        let raw = try? await rows("messages", [("select", "id"), ("room_id", "eq.\(roomId)"),
+            ("created_at", "gt.\(since)"), ("user_id", "neq.\(config.user)"), ("limit", "100")])
+        return raw?.count ?? 0
+    }
+    /// 그 시각 뒤에 올라온 공지 수(탭의 빨간 숫자).
+    func newPostCount(since: String) async -> Int {
+        (try? await rows("posts", [("select", "id"), ("created_at", "gt.\(since)"), ("limit", "100")]))?.count ?? 0
+    }
+    /// 내가 표를 던진 투표 id들.
+    func myVotedPolls() async -> Set<String> {
+        let raw = (try? await rows("poll_votes", [("select", "poll_id"), ("user_id", "eq.\(config.user)"), ("limit", "1000")])) ?? []
+        return Set(raw.compactMap { $0["poll_id"] as? String })
+    }
+
+    // ── 날씨(Open-Meteo · 웹 `fetchWeather`) ─────────────────────
+
+    /// 좌표가 있는 라운드만 — 이름으로 찾는 예비 길(`courses.ts`)은 앱에 없다.
+    /// **200이 아닌 답은 없는 것으로 본다**(한도 429 때 `daily`가 없어 조용히 깨진다).
+    func weather(lat: Double, lon: Double, teeAt: String) async -> AppWeather? {
+        let day = AppDate.kstDay(NativeChatRows.date(teeAt))
+        var parts = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
+        parts.queryItems = [
+            URLQueryItem(name: "latitude", value: String(lat)), URLQueryItem(name: "longitude", value: String(lon)),
+            URLQueryItem(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"),
+            URLQueryItem(name: "timezone", value: "Asia/Seoul"),
+            URLQueryItem(name: "start_date", value: day), URLQueryItem(name: "end_date", value: day)
+        ]
+        guard let url = parts.url, let got = try? await session.data(from: url),
+              (got.1 as? HTTPURLResponse)?.statusCode == 200,
+              let json = (try? JSONSerialization.jsonObject(with: got.0)) as? ChatJSON,
+              let daily = json["daily"] as? ChatJSON,
+              let maxes = daily["temperature_2m_max"] as? [Any], let mx = maxes.first as? Double,
+              let mins = daily["temperature_2m_min"] as? [Any], let mn = mins.first as? Double
+        else { return nil }
+        let code = (daily["weather_code"] as? [Any])?.first as? Int ?? 0
+        let rain = (daily["precipitation_probability_max"] as? [Any])?.first as? Double ?? 0
+        let (icon, label) = AppWeather.describe(code)
+        return AppWeather(min: Int(mn.rounded()), max: Int(mx.rounded()), rain: Int(rain.rounded()), icon: icon, label: label)
     }
 
     // ── 알림함 ───────────────────────────────────────────────────

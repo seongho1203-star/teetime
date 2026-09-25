@@ -562,9 +562,9 @@ export function Me() {
                 <div className="card">
                     <div className="switch-row">
                         <div className="grow">
-                            <div className="switch-label">🧪 시험 중: 앱 화면 (회원 명단 · 공지 · 알림함)</div>
+                            <div className="switch-label">🧪 시험 중: 앱 화면 (홈·탭바)</div>
                             <div className="switch-desc">
-                                {nativeApp ? '회원 명단 · 공지 상세 · 알림함을 앱 화면으로 엽니다 (만드는 중)' : '꺼짐 — 지금까지의 화면'}
+                                {nativeApp ? '홈·탭바·공지·라운드·투표 목록·알림함·회원 명단이 앱 화면입니다 (만드는 중). 바꾸면 앱을 다시 여세요.' : '꺼짐 — 지금까지의 화면'}
                             </div>
                         </div>
                         <Switch label="앱 화면" on={nativeApp}

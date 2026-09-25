@@ -26,7 +26,8 @@ import { PostEdit } from './screens/PostEdit';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
-import { AlertsRoute, MembersRoute, PostRoute } from './screens/NativeScreen';
+import { AlertsRoute, MembersRoute, NativeShellSync, PostRoute } from './screens/NativeScreen';
+import { hasNativeApp } from './lib/native-app';
 import { Settle } from './screens/Settle';
 import { Help } from './screens/Help';
 
@@ -84,6 +85,9 @@ function Gate() {
 
     return (
         <div className="app" ref={appRef}>
+            {/* **앱 껍데기(홈·탭바)** — 켠 아이폰 앱에서만. 로그인이 끝난 여기서
+                세우고, 로그아웃으로 이 칸이 사라지면 내린다(`NativeShellSync`). */}
+            {hasNativeApp() && <NativeShellSync />}
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rounds" element={<Rounds />} />
