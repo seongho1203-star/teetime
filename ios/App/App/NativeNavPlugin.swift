@@ -27,7 +27,9 @@ import Capacitor
  * - **끄는 손짓은 `UIPanGestureRecognizer`다** — 화면 틀의 뷰에 걸어 아무
  *   데서나 오른쪽으로 그으면 선다. 손을 댄 자리가 다른 손짓의 임자인지는
  *   웹이 `touch({free})`로 알려 준다(앱은 DOM을 모른다). 서는 순간 웹뷰의
- *   굴리기를 끊는다.
+ *   굴리기를 끊는다. **`gestureRecognizerShouldBegin`에서는 방향만 보고
+ *   거리(`WAKE`)는 `onPan`에서 잰다** — 그 물음은 손짓당 한 번뿐이라 거기서
+ *   거리를 요구하면 손짓이 통째로 실패한다(1.195에서 실제로 그랬다).
  * - **값은 웹과 같다**: `TAKE` 0.34 · `FLICK` 0.8pt/ms · `FLICK_MIN` 40 ·
  *   `STALE` 120 · `WAKE` 12 · `SLOPE` 1.2 · `PARALLAX` 0.25 · `DIM` 0.18 ·
  *   되돌아가는 230ms · 곡선 `cubic-bezier(.32,.72,0,1)`.
@@ -238,7 +240,7 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
     /** 끌어서 넘어간 뒤 웹이 목적지를 다 그리기를 기다리는 동안 남겨 둔 것. */
     private var settling: Drag?
     private var pan: UIPanGestureRecognizer?
-    private var lastX: CGFloat = 0, lastT: TimeInterval = 0, vx: CGFloat = 0, x0: CGFloat = 0
+    private var lastX: CGFloat = 0, lastT: TimeInterval = 0, vx: CGFloat = 0, x0: CGFloat = 0, y0: CGFloat = 0
     private var edge = false
 
     /* `stack.last`는 이중 옵셔널이라 `?? nil`로 한 겹 벗겨야 **판이 정말 있는가**가 된다 —
@@ -251,22 +253,47 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         let p = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         p.maximumNumberOfTouches = 1
         p.delegate = self
+        /* 대화방의 `backPan`(ChatList.swift)과 같다 — 웹뷰의 손짓을 끊지 않고
+           나란히 선다. 굴리기는 서는 순간 `beginDrag`가 따로 끊는다. */
+        p.cancelsTouchesInView = false
+        p.delaysTouchesBegan = false
         host.addGestureRecognizer(p)
         pan = p
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
+    /**
+     * **여기서는 방향만 본다 — 거리(`WAKE`)를 보지 말 것.**
+     *
+     * 이 물음은 iOS가 **손짓당 한 번만** 던진다 — 손가락이 제 문턱(10pt쯤)을
+     * 넘는 그 순간이다. 거기서 `12pt 이상 옮겼는가`를 함께 물었더니 거의
+     * 늘 거짓이 되어 **손짓이 그 자리에서 실패하고 그 손이 떨어질 때까지
+     * 다시는 안 물어봤다** — 아이폰에서 뒤로 끌기가 통째로 안 되던 까닭이다
+     * (사용자 제보 — `아이폰에서 뒤로끌기가 아에 안돼는데???`).
+     * 대화방의 `BackGuard`(ChatList.swift)가 하는 그대로, **빠르기의
+     * 방향**(멈춰 있으면 옮긴 방향)만 본다. 깨어나는 거리는 `onPan`이
+     * 움직이는 동안 잰다.
+     */
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let p = g as? UIPanGestureRecognizer, let host = host, canDrag() else { return false }
         let t = p.translation(in: host)
         let at = p.location(in: host)
         edge = at.x - t.x < Self.EDGE
-        /* 오른쪽으로, 가로가 세로보다 커야 우리 것이다. 웹이 `taken`이라 했으면
-           넘긴다 — 가장자리에서 시작한 것은 예외다. */
-        guard t.x >= Self.WAKE, t.x >= abs(t.y) * Self.SLOPE else { return false }
+        let v = p.velocity(in: host)
+        let right: Bool
+        if abs(v.x) < 1, abs(v.y) < 1 {
+            right = t.x > 0 && t.x >= abs(t.y) * Self.SLOPE
+        } else {
+            right = v.x > 0 && v.x >= abs(v.y) * Self.SLOPE
+        }
+        guard right else { return false }
+        /* 웹이 `taken`이라 했으면 넘긴다 — 가장자리에서 시작한 것은 예외다. */
         return free || edge
     }
+
+    /** 손짓을 이번 손에서 통째로 접는다 — 껐다 켜면 그 자리에서 `.cancelled`가 온다. */
+    private func dropPan(_ p: UIPanGestureRecognizer) { p.isEnabled = false; p.isEnabled = true }
 
     /**
      * 끌기를 시작한다. 지금 웹뷰를 찍어 맨 위에 얹고, 뒤에 깔린 앞 화면 판을
@@ -297,17 +324,34 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate {
         d.dim.alpha = Self.DIM * (1 - p)
     }
 
+    /**
+     * **끌기는 `WAKE`(12pt)를 넘는 순간 시작한다 — `.began`이 아니라 `.changed`에서.**
+     * 손짓이 선 자리는 방향만 맞은 것이라(위 `gestureRecognizerShouldBegin`),
+     * 그 뒤 세로로 흘러 버리면 여기서 접는다(`dropPan`). 웹의 `useBackSwipe`가
+     * `gx >= WAKE`에서 깨어나는 것과 같은 자리다.
+     */
     @objc private func onPan(_ p: UIPanGestureRecognizer) {
         guard let host = host else { return }
-        let x = p.location(in: host).x
+        let at = p.location(in: host)
+        let x = at.x
         let now = CACurrentMediaTime()
         switch p.state {
         case .began:
-            x0 = x - p.translation(in: host).x
+            let t = p.translation(in: host)
+            x0 = x - t.x; y0 = at.y - t.y
             lastX = x; lastT = now; vx = 0
-            if !beginDrag() { p.isEnabled = false; p.isEnabled = true }
         case .changed:
-            guard let d = drag else { return }
+            guard let d = drag else {
+                let dx = x - x0, dy = abs(at.y - y0)
+                if dx >= Self.WAKE, dx >= dy * Self.SLOPE {
+                    guard canDrag(), beginDrag(), let nd = drag else { dropPan(p); return }
+                    lastX = x; lastT = now; vx = 0
+                    paint(nd, dx)
+                } else if dy >= Self.WAKE, dy > dx {
+                    dropPan(p)   /* 세로로 갔다 — 굴리기 몫이다 */
+                }
+                return
+            }
             let dt = now - lastT
             if dt > 0 { vx = (x - lastX) / CGFloat(dt * 1000) }
             lastX = x; lastT = now
