@@ -231,6 +231,59 @@ class NativeApi(private val session: NativeSession) {
         return id
     }
 
+    suspend fun updatePoll(
+        id: String, title: String, bodyText: String, multi: Boolean,
+        anonymous: Boolean, closesAt: String, labels: List<String>
+    ) {
+        val before = poll(id) ?: throw NativeApiError("투표를 찾지 못했습니다.")
+        val old = buildList {
+            val a = before.optJSONArray("poll_options") ?: JSONArray()
+            for (i in 0 until a.length()) a.optJSONObject(i)?.let(::add)
+        }.sortedBy { it.optInt("sort") }
+        val votes = buildList {
+            val a = before.optJSONArray("poll_votes") ?: JSONArray()
+            for (i in 0 until a.length()) a.optJSONObject(i)?.let(::add)
+        }
+        val locked = votes.isNotEmpty()
+        val patch = JSONObject().put("title", title).put("body", bodyText).put("closes_at", closesAt)
+        if (!locked) patch.put("multi", multi).put("anonymous", anonymous)
+        request("rest/v1/polls", listOf("id" to "eq.$id"), "PATCH", patch)
+
+        labels.forEachIndexed { i, label ->
+            if (i < old.size) {
+                request("rest/v1/poll_options", listOf("id" to "eq.${old[i].optString("id")}"), "PATCH",
+                    JSONObject().put("label", label).put("sort", i))
+            } else {
+                request("rest/v1/poll_options", method = "POST",
+                    body = JSONObject().put("poll_id", id).put("label", label).put("sort", i))
+            }
+        }
+        if (labels.size < old.size) {
+            old.drop(labels.size).forEach { option ->
+                val oid = option.optString("id")
+                if (votes.any { it.optString("option_id") == oid })
+                    throw NativeApiError("표가 들어온 항목은 먼저 유지해 주세요.")
+                request("rest/v1/poll_options", listOf("id" to "eq.$oid"), "DELETE")
+            }
+        }
+    }
+
+    suspend fun togglePollClosed(id: String, shut: Boolean, oldClose: String?) {
+        val patch = JSONObject().put("closed", !shut)
+        if (shut && !oldClose.isNullOrBlank()) {
+            try {
+                if (java.time.OffsetDateTime.parse(oldClose).toInstant().isBefore(java.time.Instant.now()))
+                    patch.put("closes_at", JSONObject.NULL)
+            } catch (_: Exception) {}
+        }
+        request("rest/v1/polls", listOf("id" to "eq.$id"), "PATCH", patch)
+    }
+
+    suspend fun deletePoll(id: String) {
+        val v = request("rest/v1/polls", listOf("id" to "eq.$id"), "DELETE")
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("투표를 지울 권한이 없습니다.")
+    }
+
     // ── 공지 ───────────────────────────────────────────────────
 
     suspend fun posts(): List<JSONObject> =
