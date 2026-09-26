@@ -7,6 +7,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.text.InputType
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -73,6 +74,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var metaJob: Job? = null
     private var syncJob: Job? = null
     private var softInputBefore: Int? = null
+    private val stage2 get() = ChatCatchup.stage2(activity)
+    private var pullY = 0f
 
     init {
         setBackgroundColor(ChatSkin.bg)
@@ -150,6 +153,20 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             ins
         }
         ViewCompat.requestApplyInsets(this)
+
+        /* 2-2: 목록을 아래로 끌면 키보드를 내린다. RecyclerView의
+           스크롤 자체는 가로채지 않고 ACTION_UP에서만 판단한다. */
+        list.setOnTouchListener { _, e ->
+            if (stage2) {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> pullY = e.rawY
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (e.rawY - pullY >= dp(28f)) hideKeyboard()
+                    }
+                }
+            }
+            false
+        }
 
         list.onCard = { path -> navigate(path) }
         list.onQuote = { id -> list.scrollTo(id) }
@@ -236,7 +253,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val latest = service.messages(room, limit = 100)
                 messages = ArrayList(latest.reversed()); hasMore = latest.size == 100
                 reads = try { service.reads(room) } catch (e: Exception) { emptyMap() }
-                reactions = try { service.reactions(messages.map { it.id }) } catch (e: Exception) { emptyList() }
+                reactions = try { service.reactions(realIDs()) } catch (e: Exception) { emptyList() }
                 val seen = Iso.ms(service.config.seen)
                 if (seen > Iso.ms("1970-01-02T00:00:00Z")) {
                     val first = messages.indexOfFirst { Iso.ms(it.at) > seen && it.user != me }
@@ -294,7 +311,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             delay(250)
             try {
                 reads = service.reads(room)
-                reactions = service.reactions(messages.map { it.id })
+                reactions = service.reactions(realIDs())
                 render(keepBottom = true)
             } catch (e: Exception) { /* 다시 이을 때의 sync가 또 받는다 */ }
         }
@@ -317,7 +334,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                     if (add.isEmpty()) break
                 }
                 reads = service.reads(room)
-                reactions = service.reactions(messages.map { it.id })
+                reactions = service.reactions(realIDs())
                 render(keepBottom = true); markRead()
             } catch (e: Exception) { /* 다음 이음에 다시 */ } finally { syncJob = null }
         }
@@ -325,7 +342,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun markRead() {
         if (!visible || !list.atBottom) return
-        val newest = messages.lastOrNull()?.at ?: return
+        val newest = messages.lastOrNull { !it.id.startsWith("tmp:") }?.at ?: return
         if (newest == lastRead) return
         readJob?.cancel()
         readJob = scope.launch {
@@ -359,18 +376,50 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         val text = input.text.toString().trim()
         if (busy || !loaded || text.isEmpty()) return
         if (text.length > 1000) { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
-        busy = true; sendBtn.alpha = 0.5f
-        val row = JSONObject().put("id", UUID.randomUUID().toString().lowercase())
+        busy = true
+        /* 단추는 Swift처럼 늘 그 자리에 둔다. 비활성일 때 alpha만 낮춘다. */
+        sendBtn.isEnabled = false; sendBtn.alpha = 0.5f
+
+        val stableId = UUID.randomUUID().toString().lowercase()
+        val row = JSONObject().put("id", stableId)
             .put("room_id", room).put("user_id", me).put("body", text)
+
+        var tempId: String? = null
+        if (stage2) {
+            /* 2-2 시험: 서버 답을 기다리지 않고 바로 말풍선을 세운다.
+               tmp: id는 realIDs() 문지기를 지나 reactions 조회에 절대 안 간다. */
+            tempId = "tmp:" + stableId
+            val raw = JSONObject(row.toString())
+                .put("id", tempId)
+                .put("created_at", java.time.Instant.now().toString())
+            merge(listOf(ChatMessage(raw)))
+            input.setText("")
+            render(keepBottom = false)
+            list.scrollToBottom(false)
+        }
+
         scope.launch {
             try {
                 val sent = service.send(row)
-                if (input.text.toString().trim() == text) input.setText("")
+                tempId?.let { id -> messages.removeAll { it.id == id } }
+                if (!stage2 && input.text.toString().trim() == text) input.setText("")
                 merge(listOf(sent)); render(keepBottom = false)
                 list.scrollToBottom(false); markRead()
             } catch (e: Exception) {
+                tempId?.let { id -> messages.removeAll { it.id == id } }
+                if (stage2 && input.text.isEmpty()) {
+                    /* 실패한 글을 입력칸에 돌려놓는다. 포커스/한글 IME는
+                       화면을 재생성하지 않고 EditText만 복원한다. */
+                    input.setText(text); input.setSelection(input.text.length)
+                }
+                render(keepBottom = true)
                 notice((e.message ?: "보내지 못했습니다.") + "\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")
-            } finally { busy = false; sendBtn.alpha = 1f }
+            } finally {
+                busy = false; sendBtn.isEnabled = true; sendBtn.alpha = 1f
+            }
         }
     }
+
+    /** 서버에 실제로 있는 글만. tmp:를 in.(...)에 섞으면 PostgREST가 400이다. */
+    private fun realIDs(): List<String> = messages.map { it.id }.filter { !it.startsWith("tmp:") }
 }
