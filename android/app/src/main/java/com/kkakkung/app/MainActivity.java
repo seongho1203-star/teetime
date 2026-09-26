@@ -47,8 +47,12 @@ public class MainActivity extends BridgeActivity {
         com.kkakkung.app.nativev2.NativeSession saved =
                 com.kkakkung.app.nativev2.NativeSessionStore.restore(this);
         if (saved != null) {
-            startActivity(new Intent(this, com.kkakkung.app.nativev2.NativeHomeActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            Intent nativeHome = new Intent(this, com.kkakkung.app.nativev2.NativeHomeActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            String target = getIntent() != null ? getIntent().getStringExtra("url") : null;
+            if (target == null && getIntent() != null) target = getIntent().getStringExtra("path");
+            if (target != null) nativeHome.putExtra("native_url", target);
+            startActivity(nativeHome);
         }
 
         /* **화면 전환·뒤로 끌기를 맡는 층에 웹뷰를 담는다**(`nav/NavLayer.kt`).
