@@ -1872,6 +1872,13 @@ class NativeHomeActivity : AppCompatActivity() {
                 }
                 menu.addView(menuLink("로그아웃", danger = true) { logoutNative() })
                 page.addView(menu)
+                page.addView(TextView(this@NativeHomeActivity).apply {
+                    text = "앱제작: 악마제리\n버전 " + com.kkakkung.app.BuildConfig.VERSION_NAME
+                    textSize = 12f; setTextColor(faint); gravity = Gravity.CENTER
+                    setPadding(0, dp(24), 0, dp(8))
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "프로필을 불러오지 못했습니다.")
             }
