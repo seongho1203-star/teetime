@@ -68,12 +68,24 @@ class NativeHomeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        session = NativeSessionStore.current ?: run { finish(); return }
+        NativeSessionStore.init(this)
+        session = NativeSessionStore.current ?: NativeSessionStore.restore(this) ?: run {
+            finish(); return
+        }
         api = NativeApi(session)
         window.statusBarColor = bg
         window.navigationBarColor = Color.WHITE
         buildShell()
-        showHome()
+        /* 만료 직전이면 첫 화면을 읽기 전에 갱신한다. 실패하면 저장 세션을
+           지우고 뒤의 웹 로그인 화면으로 돌아간다. */
+        if (session.needsRefresh) {
+            val page = page("까꿍")
+            val loading = ProgressBar(this); page.addView(loading); mount(page)
+            scope.launch {
+                try { NativeAuth.refresh(session); showHome() }
+                catch (e: Exception) { NativeSessionStore.clear(this@NativeHomeActivity); toast(e.message ?: "다시 로그인해 주세요."); finish() }
+            }
+        } else showHome()
     }
 
     override fun onDestroy() {
