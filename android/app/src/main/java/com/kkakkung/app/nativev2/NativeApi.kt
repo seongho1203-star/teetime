@@ -113,18 +113,30 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun updateMyProfile(
         name: String, gender: String, birthYear: Int, region: String,
-        phone: String, car: String
+        phone: String, car: String, birthMd: String? = null, birthCal: String? = null
     ) {
         val pub = request("rest/v1/profiles", listOf("id" to "eq.${session.userId}"), "PATCH",
             JSONObject().put("name", name).put("gender", gender)
                 .put("birth_year", birthYear).put("region", region))
         if ((pub as? JSONArray)?.length() == 0) throw NativeApiError("프로필을 저장하지 못했습니다.")
+
         val priv = JSONObject().put("id", session.userId).put("phone", phone).put("car", car)
-        try {
-            request("rest/v1/profile_private", listOf("id" to "eq.${session.userId}"), "PATCH", priv)
-        } catch (_: Exception) {
+        if (!birthMd.isNullOrBlank()) priv.put("birth_md", birthMd)
+        if (!birthCal.isNullOrBlank()) priv.put("birth_cal", birthCal)
+
+        /* PATCH는 행이 없어도 204/[]라 예외가 안 난다. 응답 길이로 upsert한다. */
+        val patched = request("rest/v1/profile_private",
+            listOf("id" to "eq.${session.userId}"), "PATCH", priv)
+        if ((patched as? JSONArray)?.length() == 0) {
             request("rest/v1/profile_private", method = "POST", body = priv)
         }
+    }
+
+    suspend fun ensurePendingProfile(name: String = ""): JSONObject {
+        profile()?.let { return it }
+        val made = request("rest/v1/profiles", method = "POST", body = JSONObject()
+            .put("id", session.userId).put("name", name).put("role", "pending"))
+        return firstObject(made) ?: throw NativeApiError("가입 신청 정보를 만들지 못했습니다.")
     }
 
     suspend fun people(): List<JSONObject> = try {
