@@ -233,10 +233,10 @@ jobs:
           # 앱이 꺼져 있을 때 오는 알림은 우리 코드가 아니라 파이어베이스
           # SDK가 띄우므로, 이 둘이 빠지면 **기본음 + 흰 네모**가 된다.
           echo "── 기본 채널·아이콘 ──"
-          echo "$MAN" | grep -a -q 'default_notification_channel_id' \
+          grep -a 'default_notification_channel_id' <<<"$MAN" >/dev/null \
             || { echo "::error::기본 알림 채널이 매니페스트에 없습니다 — \
           까꿍 소리 대신 폰 기본음이 납니다."; exit 1; }
-          echo "$MAN" | grep -a -q 'default_notification_icon' \
+          grep -a 'default_notification_icon' <<<"$MAN" >/dev/null \
             || { echo "::error::기본 알림 아이콘이 매니페스트에 없습니다 — \
           상태 막대에 흰 네모가 뜹니다."; exit 1; }
 
@@ -256,7 +256,7 @@ jobs:
       - name: 결과물 남기기 (Play에 올릴 AAB)
         uses: actions/upload-artifact@v4
         with:
-          name: kkakkung-aab
+          name: kkakkung-aab-1.${{ github.run_number }}
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
 
@@ -269,6 +269,6 @@ jobs:
       - name: 결과물 남기기 (폰에 넣어 볼 APK)
         uses: actions/upload-artifact@v4
         with:
-          name: kkakkung-apk
+          name: kkakkung-apk-1.${{ github.run_number }}
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
