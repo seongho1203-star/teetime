@@ -1793,6 +1793,9 @@ class NativeHomeActivity : AppCompatActivity() {
             try {
                 val p = api.profile()
                 val priv = api.privateProfile()
+                val pushToken = try { NativePush.token() } catch (_: Exception) { "" }
+                val pushOn = pushToken.isNotBlank() && NativePush.permissionGranted(this@NativeHomeActivity) &&
+                    api.pushEnabled(pushToken)
                 page.removeView(loading)
                 if (p == null) { error(page, "프로필을 불러오지 못했습니다."); return@launch }
 
@@ -1852,8 +1855,16 @@ class NativeHomeActivity : AppCompatActivity() {
                     }
                 }
                 menu.addView(menuLink("프로필 수정") { profileForm(p, priv) })
-                menu.addView(menuLink("이 기기로 알림 받기") {
-                    if (NativePush.requestIfNeeded(this@NativeHomeActivity, notificationPermission)) enableNativePush()
+                menu.addView(menuLink(if (pushOn) "이 기기 알림 끄기" else "이 기기로 알림 받기") {
+                    if (pushOn && pushToken.isNotBlank()) {
+                        mutate {
+                            api.disablePush(pushToken)
+                            toast("이 기기의 알림을 껐습니다.")
+                            showMe()
+                        }
+                    } else if (NativePush.requestIfNeeded(this@NativeHomeActivity, notificationPermission)) {
+                        enableNativePush()
+                    }
                 })
                 menu.addView(menuLink("정산 현황") { showSettlements() })
                 if (p.optString("role") in setOf("staff", "admin", "superadmin")) {
@@ -2583,6 +2594,7 @@ class NativeHomeActivity : AppCompatActivity() {
             val token = NativePush.token()
             api.enablePush(token)
             toast("이 기기로 알림을 받습니다.")
+            if (detail) showMe()
         }
     }
 
