@@ -14,6 +14,8 @@ class NativeAppPlugin : Plugin() {
         val session = NativeSession(
             call.getString("user").orEmpty(),
             call.getString("token").orEmpty(),
+            call.getString("refresh").orEmpty(),
+            call.getLong("expires") ?: 0L,
             call.getString("url").orEmpty(),
             call.getString("key").orEmpty(),
             call.getString("name").orEmpty()
@@ -22,7 +24,7 @@ class NativeAppPlugin : Plugin() {
             call.reject("네이티브 앱을 열 로그인 정보가 없습니다.")
             return
         }
-        NativeSessionStore.current = session
+        NativeSessionStore.set(activity, session)
         activity.runOnUiThread {
             activity.startActivity(
                 Intent(activity, NativeHomeActivity::class.java)
@@ -37,8 +39,13 @@ class NativeAppPlugin : Plugin() {
         val current = NativeSessionStore.current
         val user = call.getString("user")
         val token = call.getString("token")
+        val refresh = call.getString("refresh")
+        val expires = call.getLong("expires")
         if (current != null && current.userId == user && !token.isNullOrBlank()) {
             current.accessToken = token
+            if (!refresh.isNullOrBlank()) current.refreshToken = refresh
+            if (expires != null && expires > 0) current.expiresAt = expires
+            NativeSessionStore.persist()
         }
         call.resolve()
     }
