@@ -1450,7 +1450,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun page(title: String): LinearLayout {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(24))
+            setPadding(dp(16), dp(10), dp(16), dp(24))
         }
         title(col, title)
         return col
@@ -1459,7 +1459,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun detailPage(label: String): LinearLayout {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(18), dp(24))
+            setPadding(dp(16), dp(10), dp(16), dp(24))
         }
         val back = Button(this).apply {
             text = "‹  $label"
@@ -1487,14 +1487,14 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun title(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
-            text = value; textSize = 26f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            text = value; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
             setPadding(0, dp(6), 0, dp(16))
         })
     }
 
     private fun section(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
-            text = value; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            text = value; textSize = 14.7f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
             setPadding(0, dp(20), 0, dp(8))
         })
     }
@@ -1529,10 +1529,11 @@ class NativeHomeActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = GradientDrawable().apply {
-                cornerRadius = dp(16).toFloat()
+                cornerRadius = dp(18).toFloat()
                 setColor(card)
+                setStroke(dp(1), line)
             }
-            elevation = dp(1).toFloat()
+            elevation = 0f
             isClickable = true
             isFocusable = true
             setOnClickListener { click() }
@@ -1723,9 +1724,9 @@ class NativeHomeActivity : AppCompatActivity() {
         text = label; textSize = 15f; isAllCaps = false
         setTextColor(if (primary) Color.WHITE else if (danger) this@NativeHomeActivity.danger else ink)
         background = GradientDrawable().apply {
-            cornerRadius = dp(13).toFloat()
-            setColor(if (primary) brand else Color.WHITE)
-            if (!primary) setStroke(dp(1), if (danger) this@NativeHomeActivity.danger else Color.rgb(225, 225, 232))
+            cornerRadius = dp(11).toFloat()
+            setColor(if (primary) brand else card)
+            if (!primary) setStroke(dp(1), if (danger) this@NativeHomeActivity.danger else line)
         }
         setOnClickListener { click() }
         layoutParams = LinearLayout.LayoutParams(
@@ -1737,7 +1738,9 @@ class NativeHomeActivity : AppCompatActivity() {
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(14), dp(11), dp(14), dp(11))
-            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+            }
             addView(TextView(this@NativeHomeActivity).apply {
                 text = name; textSize = 15f; setTextColor(ink)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -1778,10 +1781,17 @@ class NativeHomeActivity : AppCompatActivity() {
                 row.setOnLongClickListener {
                     confirm("댓글을 지울까요?", "지운 댓글은 되돌릴 수 없습니다.") {
                         mutate {
-                            val table = if (c.has("round_id")) "round_comments" else "poll_comments"
+                            val table = when {
+                                c.has("round_id") -> "round_comments"
+                                c.has("post_id") -> "post_comments"
+                                else -> "poll_comments"
+                            }
                             api.deleteRow(table, c.optString("id"))
-                            if (table == "round_comments") showRound(c.optString("round_id"))
-                            else showPoll(c.optString("poll_id"))
+                            when (table) {
+                                "round_comments" -> showRound(c.optString("round_id"))
+                                "post_comments" -> showPost(c.optString("post_id"))
+                                else -> showPoll(c.optString("poll_id"))
+                            }
                         }
                     }
                     true
@@ -1797,8 +1807,8 @@ class NativeHomeActivity : AppCompatActivity() {
                 InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             setPadding(dp(14), dp(10), dp(14), dp(10))
             background = GradientDrawable().apply {
-                cornerRadius = dp(16).toFloat(); setColor(Color.WHITE)
-                setStroke(dp(1), Color.rgb(225, 225, 232))
+                cornerRadius = dp(11).toFloat(); setColor(surface2)
+                setStroke(dp(1), line)
             }
         }
         parent.addView(input, LinearLayout.LayoutParams(
