@@ -87,11 +87,11 @@ export function hasAndroidNativeV2(): boolean {
 }
 
 export async function openAndroidNativeV2(
-    user: string, token: string, name = '',
+    user: string, token: string, refresh: string, expires: number, name = '',
 ): Promise<void> {
     if (!hasAndroidNativeV2()) return;
     await NativeApp.open({
-        user, token, name,
+        user, token, refresh, expires, name,
         url: import.meta.env.VITE_SUPABASE_URL,
         key: import.meta.env.VITE_SUPABASE_ANON_KEY,
     });
