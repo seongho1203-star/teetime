@@ -41,7 +41,15 @@ import java.util.UUID
  * 지키는 스피너 한 장이라 여기가 대화의 전부다.
  */
 class ChatScreen(private val activity: AppCompatActivity, val service: ChatService)
-    : FrameLayout(activity) {
+    : FrameLayout(activity), com.kkakkung.app.nav.NavLayer.NavPage {
+    /** 뒤로 끌기는 글칸 위에서 시작하지 않는다. 키보드 글 선택 손짓을 지킨다. */
+    override fun freeAt(x: Float, y: Float): Boolean {
+        val r = android.graphics.Rect()
+        if (!composer.getGlobalVisibleRect(r)) return true
+        val loc = IntArray(2); getLocationOnScreen(loc)
+        return !r.contains((x + loc[0]).toInt(), (y + loc[1]).toInt())
+    }
+
     /** Native V2 shell로 보내는 소식(`navigate`·`read`·`auth`·`back`). */
     var event: ((String, JSONObject) -> Unit)? = null
 
