@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
@@ -84,6 +85,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onCard: ((String) -> Unit)? = null
     var onPhoto: ((String) -> Unit)? = null
     var onQuote: ((String) -> Unit)? = null
+    var onReply: ((String) -> Unit)? = null
     var onTop: (() -> Unit)? = null
     var onBottom: ((Boolean) -> Unit)? = null
 
@@ -100,6 +102,21 @@ class ChatListView(context: Context) : RecyclerView(context) {
         itemAnimator = null
         clipToPadding = false
         overScrollMode = View.OVER_SCROLL_NEVER
+        /* iPhone ChatList와 같은 '말풍선을 왼쪽으로 밀어 답장'.
+           놓으면 줄은 제자리로 돌아오고 답장 상태만 남는다. */
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+            override fun onMove(rv: RecyclerView, a: ViewHolder, b: ViewHolder) = false
+            override fun getSwipeThreshold(viewHolder: ViewHolder) = 0.28f
+            override fun onSwiped(viewHolder: ViewHolder, direction: Int) {
+                val pos = viewHolder.bindingAdapterPosition
+                val row = rows.getOrNull(pos)
+                if (row != null && row.kind !in setOf("system", "card") && !row.id.startsWith("tmp:")) {
+                    onReply?.invoke(row.id)
+                }
+                if (pos >= 0) rowAdapter.notifyItemChanged(pos)
+            }
+        }).attachToRecyclerView(this)
+
         addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
                 val bottom = !rv.canScrollVertically(1)
