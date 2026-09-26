@@ -474,9 +474,10 @@ class NativeHomeActivity : AppCompatActivity() {
                 val p = api.poll(id)
                 val comments = api.pollComments(id)
                 val people = api.people()
+                val myProfile = api.profile()
                 page.removeView(loading)
                 if (p == null) { error(page, "투표를 찾지 못했습니다."); return@launch }
-                renderPoll(page, p, comments, people)
+                renderPoll(page, p, comments, people, myProfile)
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
             }
@@ -484,7 +485,8 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun renderPoll(
-        page: LinearLayout, p: JSONObject, comments: List<JSONObject>, people: List<JSONObject>
+        page: LinearLayout, p: JSONObject, comments: List<JSONObject>,
+        people: List<JSONObject>, myProfile: JSONObject?
     ) {
         val id = p.optString("id")
         val names = people.associateBy { it.optString("id") }
@@ -496,6 +498,24 @@ class NativeHomeActivity : AppCompatActivity() {
         line(page, "상태", if (closed) "마감" else "진행중")
         line(page, "마감", date(p.optString("closes_at")))
         if (p.optBoolean("multi")) body(page, "복수 선택 가능")
+
+        val mayEdit = p.optString("created_by") == session.userId ||
+            myProfile?.optString("role") in setOf("staff", "admin", "superadmin")
+        if (mayEdit) {
+            page.addView(action("투표 수정") { pollEditForm(p) })
+            page.addView(action(if (closed) "다시 열기" else "투표 마감") {
+                mutate {
+                    api.togglePollClosed(id, closed, p.optString("closes_at"))
+                    toast(if (closed) "다시 열었습니다." else "마감했습니다.")
+                    showPoll(id)
+                }
+            })
+            page.addView(action("투표 삭제", danger = true) {
+                confirm("이 투표를 지울까요?", "${votes.size}표와 댓글 ${comments.size}개가 함께 사라집니다.") {
+                    mutate { api.deletePoll(id); toast("지웠습니다."); showTab("polls") }
+                }
+            })
+        }
 
         section(page, if (closed) "결과" else "선택")
         options.forEach { option ->
@@ -1095,6 +1115,55 @@ class NativeHomeActivity : AppCompatActivity() {
                     else { api.updateRound(existing.optString("id"), payload); existing.optString("id") }
                     toast(if (existing == null) "모집을 열었습니다." else "수정했습니다.")
                     showRound(id)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun pollEditForm(existing: JSONObject) {
+        val options = jsonObjects(existing.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
+        val votes = jsonObjects(existing.optJSONArray("poll_votes"))
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+        }
+        fun edit(h: String, value: String): EditText {
+            val e = EditText(this).apply { hint = h; setText(value); textSize = 15f }
+            box.addView(e); return e
+        }
+        val titleField = edit("투표 제목", existing.optString("title"))
+        val desc = edit("설명", existing.optString("body"))
+        val opts = edit("선택지 — 줄마다 하나", options.joinToString("\n") { it.optString("label") }).apply {
+            minLines = 3; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+        val multi = CheckBox(this).apply { text = "복수 선택"; isChecked = existing.optBoolean("multi") }
+        val anonymous = CheckBox(this).apply { text = "익명"; isChecked = existing.optBoolean("anonymous") }
+        if (votes.isNotEmpty()) { multi.isEnabled = false; anonymous.isEnabled = false }
+        box.addView(multi); box.addView(anonymous)
+        if (votes.isNotEmpty()) body(box, "표가 들어온 뒤에는 복수 선택/익명 설정은 바꿀 수 없습니다.")
+        var closes = existing.optString("closes_at")
+        val closeBtn = Button(this).apply {
+            text = if (closes.isBlank()) "마감 날짜·시간 고르기" else date(closes)
+            isAllCaps = false
+            setOnClickListener { pickDateTime { iso -> closes = iso; text = date(iso) } }
+        }
+        box.addView(closeBtn)
+        val dialog = AlertDialog.Builder(this).setTitle("투표 수정").setView(box)
+            .setNegativeButton("취소", null).setPositiveButton("저장", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleField.text.toString().trim()
+                val labels = opts.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                if (title.isBlank()) { toast("제목을 적어 주세요."); return@setOnClickListener }
+                if (labels.size < 2) { toast("선택지를 두 개 이상 남겨 주세요."); return@setOnClickListener }
+                if (closes.isBlank()) { toast("마감 시각을 골라 주세요."); return@setOnClickListener }
+                dialog.dismiss()
+                mutate {
+                    api.updatePoll(
+                        existing.optString("id"), title, desc.text.toString().trim(),
+                        multi.isChecked, anonymous.isChecked, closes, labels
+                    )
+                    toast("수정했습니다."); showPoll(existing.optString("id"))
                 }
             }
         }
