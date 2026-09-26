@@ -147,13 +147,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             val nativeV2 = activity.javaClass.name.endsWith(".nativev2.NativeHomeActivity")
 
             if (nativeV2) {
-                /* Android 15 / target 35는 edge-to-edge가 강제된다.
-                   NativeHomeActivity의 바깥 shell이 status/navigation bar를 이미
-                   피하므로 여기서는 **키보드가 차지한 추가 높이만** 올린다.
-                   adjustResize만 믿으면 API 35 기기에서 창 높이가 그대로인 경우
-                   입력창이 IME 뒤에 남는다(실기기 제보). */
-                val keyboardOnly = if (imeVisible) maxOf(0, ime.bottom - bars.bottom) else 0
-                v.setPadding(0, 0, 0, keyboardOnly)
+                /* NativeHomeActivity shell이 systemBars + IME를 전담한다.
+                   여기서 다시 더하면 입력창이 키보드에서 뜨거나 기기별로 두 번
+                   올라간다. ChatScreen은 받은 영역의 맨 아래에 composer만 둔다. */
+                v.setPadding(0, 0, 0, 0)
             } else {
                 /* 기존 하이브리드 Activity는 창 자체가 resize되는 경로를 유지한다. */
                 v.setPadding(0, bars.top, 0, if (imeVisible) 0 else bars.bottom)
