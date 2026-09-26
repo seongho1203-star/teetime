@@ -546,6 +546,125 @@ class NativeHomeActivity : AppCompatActivity() {
         }
     }
 
+    private fun roundForm(existing: JSONObject?) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+        }
+        fun field(hintText: String, value: String = "", numeric: Boolean = false): EditText {
+            val e = EditText(this).apply {
+                hint = hintText; setText(value); textSize = 15f
+                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
+            }
+            box.addView(e, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            return e
+        }
+        val course = field("골프장/매장", existing?.optString("course").orEmpty())
+        val cap = field("정원", existing?.optInt("capacity", 4)?.toString() ?: "4", true)
+        val fee = field("1인 비용", existing?.optInt("fee", 0)?.toString() ?: "0", true)
+        val note = field("전달 내용", existing?.optString("note").orEmpty())
+        val screen = CheckBox(this).apply {
+            text = "스크린"; isChecked = existing?.optString("kind") == "screen"
+        }
+        box.addView(screen)
+        var tee = existing?.optString("tee_at").orEmpty()
+        val whenBtn = Button(this).apply {
+            text = if (tee.isBlank()) "날짜·시간 고르기" else date(tee)
+            isAllCaps = false
+            setOnClickListener { pickDateTime { iso -> tee = iso; text = date(iso) } }
+        }
+        box.addView(whenBtn)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "모집 열기" else "라운드 수정")
+            .setView(box).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val place = course.text.toString().trim()
+                val capacity = cap.text.toString().toIntOrNull() ?: 0
+                if (place.isBlank()) { toast("장소를 적어 주세요."); return@setOnClickListener }
+                if (tee.isBlank()) { toast("날짜와 시간을 골라 주세요."); return@setOnClickListener }
+                if (capacity < 1) { toast("정원은 1명 이상이어야 합니다."); return@setOnClickListener }
+                val payload = JSONObject()
+                    .put("kind", if (screen.isChecked) "screen" else "field")
+                    .put("course", place).put("tee_at", tee).put("capacity", capacity)
+                    .put("fee", fee.text.toString().toIntOrNull() ?: 0)
+                    .put("note", note.text.toString().trim())
+                    .put("caddie", JSONObject.NULL).put("cart", JSONObject.NULL)
+                    .put("lat", JSONObject.NULL).put("lon", JSONObject.NULL)
+                dialog.dismiss()
+                mutate {
+                    val id = if (existing == null) api.createRound(payload)
+                    else { api.updateRound(existing.optString("id"), payload); existing.optString("id") }
+                    toast(if (existing == null) "모집을 열었습니다." else "수정했습니다.")
+                    showRound(id)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun pollForm() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+        }
+        fun edit(hintText: String): EditText {
+            val e = EditText(this).apply { hint = hintText; textSize = 15f }
+            box.addView(e, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            return e
+        }
+        val titleField = edit("투표 제목")
+        val desc = edit("설명 (선택)")
+        val opts = edit("선택지 — 줄마다 하나").apply {
+            minLines = 3
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+        val multi = CheckBox(this).apply { text = "복수 선택" }; box.addView(multi)
+        val anonymous = CheckBox(this).apply { text = "익명" }; box.addView(anonymous)
+        var closes = ""
+        val closeBtn = Button(this).apply {
+            text = "마감 날짜·시간 고르기"; isAllCaps = false
+            setOnClickListener { pickDateTime(7) { iso -> closes = iso; text = date(iso) } }
+        }
+        box.addView(closeBtn)
+
+        val dialog = AlertDialog.Builder(this).setTitle("투표 만들기").setView(box)
+            .setNegativeButton("취소", null).setPositiveButton("올리기", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleField.text.toString().trim()
+                val labels = opts.text.toString().lines().map { it.trim() }
+                    .filter { it.isNotEmpty() }.distinct()
+                if (title.isBlank()) { toast("제목을 적어 주세요."); return@setOnClickListener }
+                if (labels.size < 2) { toast("선택지를 두 개 이상 적어 주세요."); return@setOnClickListener }
+                if (closes.isBlank()) { toast("마감 시각을 골라 주세요."); return@setOnClickListener }
+                dialog.dismiss()
+                mutate {
+                    val id = api.createPoll(
+                        title, desc.text.toString().trim(), multi.isChecked,
+                        anonymous.isChecked, closes, labels
+                    )
+                    toast("투표를 올렸습니다."); showPoll(id)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun pickDateTime(days: Int = 1, done: (String) -> Unit) {
+        val zone = ZoneId.of("Asia/Seoul")
+        val base = ZonedDateTime.now(zone).plusDays(days.toLong()).withSecond(0).withNano(0)
+        DatePickerDialog(this, { _, y, m, d ->
+            TimePickerDialog(this, { _, h, min ->
+                val z = ZonedDateTime.of(y, m + 1, d, h, min, 0, 0, zone)
+                done(z.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+            }, base.hour, base.minute, true).show()
+        }, base.year, base.monthValue - 1, base.dayOfMonth).show()
+    }
+
     private fun action(
         label: String, primary: Boolean = false, danger: Boolean = false, click: () -> Unit
     ): Button = Button(this).apply {
