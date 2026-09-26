@@ -1920,33 +1920,58 @@ class NativeHomeActivity : AppCompatActivity() {
         }
         fun field(h: String, v: String, numeric: Boolean = false): EditText {
             val e = EditText(this).apply {
-                hint = h; setText(v)
+                hint = h; setText(v); textSize = 14f
                 if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(11).toFloat(); setColor(surface2); setStroke(dp(1), line)
+                }
+                setPadding(dp(12), dp(10), dp(12), dp(10))
             }
-            box.addView(e); return e
+            box.addView(e, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(7) })
+            return e
         }
         val name = field("닉네임", profile.optString("name"))
-        val birth = field("태어난 해", profile.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty(), true)
-        val region = field("거주지역", profile.optString("region"))
         val phone = field("전화번호", priv?.optString("phone").orEmpty())
         val car = field("차량번호", priv?.optString("car").orEmpty())
+        val birthYear = field("태어난 해", profile.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty(), true)
+        val md = priv?.optString("birth_md").orEmpty().split("-")
+        val month = field("생일 월", md.getOrNull(0).orEmpty(), true)
+        val day = field("생일 일", md.getOrNull(1).orEmpty(), true)
+        val region = field("거주지역", profile.optString("region"))
+
         val male = CheckBox(this).apply {
-            text = "남성 (체크 해제 = 여성)"; isChecked = profile.optString("gender") == "m"
+            text = "남성 (체크 해제 = 여성)"; isChecked = profile.optString("gender") != "f"
         }
-        box.addView(male)
+        val lunar = CheckBox(this).apply {
+            text = "음력 생일"; isChecked = priv?.optString("birth_cal") == "lunar"
+        }
+        box.addView(male); box.addView(lunar)
+
         val dialog = AlertDialog.Builder(this).setTitle("프로필 수정").setView(box)
             .setNegativeButton("취소", null).setPositiveButton("저장", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val y = birth.text.toString().toIntOrNull() ?: 0
-                if (name.text.toString().trim().isBlank()) { toast("닉네임을 적어 주세요."); return@setOnClickListener }
+                val n = name.text.toString().trim()
+                val ph = phone.text.toString().trim()
+                val ca = car.text.toString().trim()
+                val y = birthYear.text.toString().toIntOrNull() ?: 0
+                val m = month.text.toString().toIntOrNull() ?: 0
+                val d = day.text.toString().toIntOrNull() ?: 0
+                val reg = region.text.toString().trim()
+                if (n.isBlank()) { toast("닉네임을 적어 주세요."); return@setOnClickListener }
+                if (ph.isBlank()) { toast("전화번호를 적어 주세요."); return@setOnClickListener }
+                if (ca.isBlank()) { toast("차량번호를 적어 주세요."); return@setOnClickListener }
                 if (y !in 1900..2100) { toast("태어난 해를 확인해 주세요."); return@setOnClickListener }
-                if (region.text.toString().trim().isBlank()) { toast("거주지역을 적어 주세요."); return@setOnClickListener }
+                if (m !in 1..12 || d !in 1..31) { toast("생일의 월·일을 확인해 주세요."); return@setOnClickListener }
+                if (reg.isBlank()) { toast("거주지역을 적어 주세요."); return@setOnClickListener }
+                val birthMd = "%02d-%02d".format(m, d)
                 dialog.dismiss()
                 mutate {
                     api.updateMyProfile(
-                        name.text.toString().trim(), if (male.isChecked) "m" else "f", y,
-                        region.text.toString().trim(), phone.text.toString().trim(), car.text.toString().trim()
+                        n, if (male.isChecked) "m" else "f", y, reg, ph, ca,
+                        birthMd, if (lunar.isChecked) "lunar" else "solar"
                     )
                     toast("저장했습니다."); showMe()
                 }
@@ -2030,6 +2055,22 @@ class NativeHomeActivity : AppCompatActivity() {
                                 mutate { api.setMemberRole(p.optString("id"), "banned"); showMembers() }
                             }
                         })
+                        actions.visibility = View.GONE
+                        val manage = TextView(this@NativeHomeActivity).apply {
+                            text = "관리"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(dim); gravity = Gravity.CENTER
+                            setPadding(dp(10), dp(7), dp(10), dp(7))
+                            background = GradientDrawable().apply {
+                                cornerRadius = dp(11).toFloat(); setColor(surface2); setStroke(dp(1), line)
+                            }
+                            setOnClickListener {
+                                actions.visibility = if (actions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                                text = if (actions.visibility == View.VISIBLE) "닫기" else "관리"
+                            }
+                        }
+                        box.addView(manage, LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { gravity = Gravity.END; topMargin = dp(5) })
                         box.addView(actions)
                     }
                     page.addView(box)
