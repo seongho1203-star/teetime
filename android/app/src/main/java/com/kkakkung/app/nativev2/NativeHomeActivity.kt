@@ -21,6 +21,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.kkakkung.app.chat.ChatConfig
 import com.kkakkung.app.chat.ChatScreen
 import com.kkakkung.app.chat.ChatService
@@ -113,6 +115,16 @@ class NativeHomeActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
         }
+        /* targetSdk 35부터 Android 15는 edge-to-edge를 강제한다.
+           홈/탭/상세가 카메라·상태바·하단 제스처 영역에 깔리지 않게 shell 한 곳에서
+           system bar inset을 소비한다. IME는 소비하지 않는다 — 대화 입력창이
+           자기 IME inset을 받아 키보드와 정확히 붙는다. */
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
+            val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, bars.top, 0, bars.bottom)
+            ins
+        }
+        ViewCompat.requestApplyInsets(root)
         content = FrameLayout(this).apply { setBackgroundColor(bg) }
         bottom = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
