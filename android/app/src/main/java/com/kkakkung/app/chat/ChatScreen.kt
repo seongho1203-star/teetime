@@ -66,6 +66,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val list = ChatListView(activity)
     private val status = TextView(activity)
     private val mentionPanel = LinearLayout(activity)
+    private val replyPanel = LinearLayout(activity)
     private val composer = LinearLayout(activity)
     private val input = EditText(activity)
     private val sendBtn = ImageView(activity)
@@ -93,6 +94,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var pullY = 0f
     private var lastIme = false
     private var navColorBefore: Int? = null
+    private var quoted: ChatMessage? = null
     private var mentionStart = -1
     private var mentionEnd = -1
     private var paintingMentions = false
@@ -130,6 +132,19 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             cornerRadius = dp(16f).toFloat(); setColor(Color.WHITE)
         }
         column.addView(mentionPanel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = dp(10f); rightMargin = dp(10f); bottomMargin = dp(4f) })
+
+        /* 2-2 답장 카드 — Swift ReplyBox 값 그대로:
+           #b0a5e5, 좌우 10, radius 18, 닫기 24. */
+        replyPanel.orientation = LinearLayout.HORIZONTAL
+        replyPanel.gravity = Gravity.CENTER_VERTICAL
+        replyPanel.visibility = View.GONE
+        replyPanel.setPadding(dp(12f), dp(8f), dp(8f), dp(8f))
+        replyPanel.background = GradientDrawable().apply {
+            cornerRadius = dp(18f).toFloat(); setColor(0xFFB0A5E5.toInt())
+        }
+        column.addView(replyPanel, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { leftMargin = dp(10f); rightMargin = dp(10f); bottomMargin = dp(4f) })
 
@@ -218,6 +233,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
         list.onCard = { path -> navigate(path) }
         list.onQuote = { id -> list.scrollTo(id) }
+        list.onReply = { id -> if (stage2) setReply(id) }
         list.onPhoto = { url -> openOutside(url) }
         list.onTop = { loadMore() }
         list.onBottom = { bottom -> if (bottom) markRead() }
@@ -372,6 +388,45 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         mentionEnd = mentionStart
         showMentionCard(mentionNames().take(6))
         input.requestFocus()
+    }
+
+    private fun setReply(id: String) {
+        val m = messages.firstOrNull { it.id == id } ?: return
+        if (m.hidden || m.system) return
+        quoted = m
+        replyPanel.removeAllViews()
+
+        val text = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val who = people.firstOrNull { it.optString("id") == m.user }?.optString("name").orEmpty()
+        text.addView(TextView(activity).apply {
+            this.text = if (who.isBlank()) "댓글" else "${who}에게 댓글"
+            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ChatSkin.text)
+        })
+        text.addView(TextView(activity).apply {
+            this.text = m.preview; textSize = 13f; setTextColor(0xFF5B6455.toInt()); maxLines = 1
+        })
+        text.setOnClickListener { list.scrollTo(m.id) }
+        replyPanel.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        replyPanel.addView(TextView(activity).apply {
+            this.text = "↳"; textSize = 16f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+            setOnClickListener { list.scrollTo(m.id) }
+        }, LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { rightMargin = dp(6f) })
+        replyPanel.addView(TextView(activity).apply {
+            this.text = "✕"; textSize = 14f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
+            setOnClickListener { clearReply() }
+        }, LinearLayout.LayoutParams(dp(24f), dp(24f)))
+        replyPanel.visibility = View.VISIBLE
+        input.requestFocus()
+        (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun clearReply() {
+        quoted = null
+        replyPanel.visibility = View.GONE
+        replyPanel.removeAllViews()
     }
 
     private fun hideMentionCard() {
@@ -552,8 +607,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         sendBtn.isEnabled = false; sendBtn.alpha = 0.5f
 
         val stableId = UUID.randomUUID().toString().lowercase()
+        val reply = quoted
         val row = JSONObject().put("id", stableId)
             .put("room_id", room).put("user_id", me).put("body", text)
+        if (reply != null) row.put("reply_to", reply.id)
 
         var tempId: String? = null
         if (stage2) {
@@ -565,6 +622,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 .put("created_at", java.time.Instant.now().toString())
             merge(listOf(ChatMessage(raw)))
             input.setText("")
+            clearReply()
             render(keepBottom = false)
             list.scrollToBottom(false)
         }
@@ -574,14 +632,15 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val sent = service.send(row)
                 tempId?.let { id -> messages.removeAll { it.id == id } }
                 if (!stage2 && input.text.toString().trim() == text) input.setText("")
+                if (!stage2) clearReply()
                 merge(listOf(sent)); render(keepBottom = false)
                 list.scrollToBottom(false); markRead()
             } catch (e: Exception) {
                 tempId?.let { id -> messages.removeAll { it.id == id } }
                 if (stage2 && input.text.isEmpty()) {
-                    /* 실패한 글을 입력칸에 돌려놓는다. 포커스/한글 IME는
-                       화면을 재생성하지 않고 EditText만 복원한다. */
+                    /* 실패한 글·답장을 함께 돌려놓는다. */
                     input.setText(text); input.setSelection(input.text.length)
+                    reply?.let { setReply(it.id) }
                 }
                 render(keepBottom = true)
                 notice((e.message ?: "보내지 못했습니다.") + "\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")
