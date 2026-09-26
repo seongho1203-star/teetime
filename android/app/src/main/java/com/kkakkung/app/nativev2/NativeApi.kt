@@ -150,7 +150,7 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun upcomingRounds(limit: Int = 30): List<JSONObject> =
         rows("rounds", listOf(
-            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart",
+            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart,signups(user_id,state,seq,grp)",
             "status" to "neq.cancelled",
             /* 홈의 '다가오는 라운드'에 이미 지난 라운드(실기기에서 9/23)가
                다시 보이던 오류. 현재 시각 이후만 받는다. */
@@ -447,6 +447,16 @@ class NativeApi(private val session: NativeSession) {
     suspend fun disablePush(token: String) {
         request("rest/v1/push_subscriptions", listOf("endpoint" to "eq.fcm:$token"), "DELETE")
     }
+
+    suspend fun unreadAlertCount(): Int = try {
+        rows("notifications", listOf(
+            "select" to "id", "read_at" to "is.null", "limit" to "100"
+        )).size
+    } catch (_: Exception) { 0 }
+
+    suspend fun pendingCount(): Int = try {
+        rows("profiles", listOf("select" to "id", "role" to "eq.pending", "limit" to "100")).size
+    } catch (_: Exception) { 0 }
 
     suspend fun notifications(limit: Int = 50): List<JSONObject> = try {
         rows("notifications", listOf("select" to "*", "order" to "created_at.desc", "limit" to limit.toString()))
