@@ -89,6 +89,28 @@ class NativeApi(private val session: NativeSession) {
         rows("profile_private", listOf("select" to "*", "id" to "eq.${session.userId}", "limit" to "1")).firstOrNull()
     } catch (_: Exception) { null }
 
+    suspend fun uploadAvatar(jpeg: ByteArray): String = withContext(Dispatchers.IO) {
+        if (session.needsRefresh) NativeAuth.refresh(session)
+        val path = "${session.userId}/${System.currentTimeMillis()}.jpg"
+        val url = session.supabaseUrl.trimEnd('/') + "/storage/v1/object/avatars/" + enc(path)
+        val req = Request.Builder().url(url)
+            .header("apikey", session.anonKey)
+            .header("Authorization", "Bearer ${session.accessToken}")
+            .header("Content-Type", "image/jpeg")
+            .header("x-upsert", "false")
+            .post(jpeg.toRequestBody("image/jpeg".toMediaType()))
+            .build()
+        http.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) throw NativeApiError("프로필 사진을 올리지 못했습니다.")
+        }
+        val publicUrl = session.supabaseUrl.trimEnd('/') +
+            "/storage/v1/object/public/avatars/" + path.split('/').joinToString("/") { enc(it) }
+        val changed = request("rest/v1/profiles", listOf("id" to "eq.${session.userId}"), "PATCH",
+            JSONObject().put("avatar_url", publicUrl))
+        if ((changed as? JSONArray)?.length() == 0) throw NativeApiError("프로필 사진을 저장하지 못했습니다.")
+        publicUrl
+    }
+
     suspend fun updateMyProfile(
         name: String, gender: String, birthYear: Int, region: String,
         phone: String, car: String
