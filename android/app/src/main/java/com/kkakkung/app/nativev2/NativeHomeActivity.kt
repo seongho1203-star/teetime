@@ -265,6 +265,10 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun logoutNative() {
         NativeSessionStore.clear(this)
+        val back = android.content.Intent(this, com.kkakkung.app.MainActivity::class.java)
+            .putExtra("native_logout", true)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        startActivity(back)
         finish()
     }
 
