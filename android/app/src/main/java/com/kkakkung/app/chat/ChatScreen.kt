@@ -5,7 +5,11 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
+import android.view.inputmethod.BaseInputConnection
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -61,6 +65,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val backBtn = ImageView(activity)
     private val list = ChatListView(activity)
     private val status = TextView(activity)
+    private val mentionPanel = LinearLayout(activity)
     private val composer = LinearLayout(activity)
     private val input = EditText(activity)
     private val sendBtn = ImageView(activity)
@@ -88,6 +93,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var pullY = 0f
     private var lastIme = false
     private var navColorBefore: Int? = null
+    private var mentionStart = -1
+    private var mentionEnd = -1
+    private var paintingMentions = false
 
     init {
         setBackgroundColor(ChatSkin.bg)
@@ -114,6 +122,17 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         body.addView(status, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER })
         column.addView(body, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
+        /* 2-2 @언급 카드 — 흰 카드만 떠 있고 그 뒤는 대화 보라다. */
+        mentionPanel.orientation = LinearLayout.VERTICAL
+        mentionPanel.visibility = View.GONE
+        mentionPanel.setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
+        mentionPanel.background = GradientDrawable().apply {
+            cornerRadius = dp(16f).toFloat(); setColor(Color.WHITE)
+        }
+        column.addView(mentionPanel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = dp(10f); rightMargin = dp(10f); bottomMargin = dp(4f) })
+
         /* 글칸 줄 — 카톡처럼 뒤에 판을 안 깔고(보라 그대로) 흰 알약 하나가 뜬다.
            한 줄 48 · 둥글기 24 (CLAUDE.md `글칸 한 줄은 48px`). */
         composer.orientation = LinearLayout.HORIZONTAL
@@ -136,6 +155,18 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         sendBtn.setOnClickListener { send() }
         composer.addView(sendBtn, LinearLayout.LayoutParams(dp(34f), dp(34f)).apply { bottomMargin = dp(7f) })
         column.addView(composer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(x: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(x: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(e: Editable?) {
+                if (!stage2 || e == null || paintingMentions) return
+                /* 한글 조합 중에는 범위/색/글을 손대지 않는다. */
+                if (BaseInputConnection.getComposingSpanStart(e) >= 0) return
+                paintMentionText(e)
+                updateMentionCard()
+            }
+        })
 
         /* 상태 막대와 홈/제스처 영역만 피한다.
          *
@@ -214,6 +245,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     fun detach() {
         visible = false
+        hideMentionCard()
         hideKeyboard()
         navColorBefore?.let { activity.window.navigationBarColor = it; navColorBefore = null }
         realtime?.stop()
@@ -228,6 +260,116 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     fun updateToken(token: String) {
         service.config.token = token
         realtime?.updateToken()
+    }
+
+    private class MentionPaint(color: Int) : ForegroundColorSpan(color)
+
+    private fun mentionNames(): List<Pair<String, String>> =
+        people.mapNotNull { p ->
+            val name = p.optString("name")
+            if (name.isBlank()) null else name to ChatRows.label(p).ifBlank { name }
+        }.distinctBy { it.first }.sortedByDescending { it.first.length }
+
+    private fun paintMentionText(e: Editable) {
+        e.getSpans(0, e.length, MentionPaint::class.java).forEach { e.removeSpan(it) }
+        val mineName = people.firstOrNull { it.optString("id") == me }?.optString("name").orEmpty()
+        val text = e.toString()
+        for ((name, _) in mentionNames()) {
+            var from = 0
+            val token = "@$name"
+            while (from < text.length) {
+                val at = text.indexOf(token, from)
+                if (at < 0) break
+                e.setSpan(
+                    MentionPaint(if (name == mineName) 0xFFD92B8E.toInt() else 0xFF2C7BD4.toInt()),
+                    at, at + token.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                from = at + token.length
+            }
+        }
+    }
+
+    private fun updateMentionCard() {
+        if (!stage2 || !input.hasFocus()) { hideMentionCard(); return }
+        val text = input.text.toString()
+        val caret = input.selectionStart.coerceIn(0, text.length)
+        val before = text.substring(0, caret)
+        val at = before.lastIndexOf('@')
+        if (at < 0 || (at > 0 && !before[at - 1].isWhitespace())) { hideMentionCard(); return }
+        val query = before.substring(at + 1)
+        if (query.contains(' ') || query.contains('\n') || query.length > 12) { hideMentionCard(); return }
+        mentionStart = at; mentionEnd = caret
+        val hits = mentionNames().filter { (name, label) ->
+            name.contains(query, ignoreCase = true) || label.contains(query, ignoreCase = true)
+        }.take(6)
+        showMentionCard(hits)
+    }
+
+    private fun showMentionCard(items: List<Pair<String, String>>) {
+        mentionPanel.removeAllViews()
+        if (items.isEmpty()) { mentionPanel.visibility = View.GONE; return }
+        val text = input.text.toString()
+        for ((name, label) in items) {
+            val selected = text.contains("@$name")
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10f), dp(7f), dp(8f), dp(7f))
+                isClickable = true
+                setOnClickListener { toggleMention(name) }
+            }
+            row.addView(TextView(activity).apply {
+                this.text = label; textSize = 14f; setTextColor(ChatSkin.text)
+                typeface = Typeface.DEFAULT_BOLD
+            }, LinearLayout.LayoutParams(0, dp(30f), 1f))
+            if (selected) row.addView(ImageView(activity).apply {
+                setImageResource(R.drawable.ic_chat_check)
+                contentDescription = "선택됨"
+            }, LinearLayout.LayoutParams(dp(24f), dp(24f)))
+            mentionPanel.addView(row)
+        }
+        mentionPanel.visibility = View.VISIBLE
+    }
+
+    private fun toggleMention(name: String) {
+        if (mentionStart < 0 || mentionEnd < mentionStart) return
+        val original = input.text.toString()
+        val token = "@$name"
+        var out = original
+        var caret: Int
+
+        val existing = out.indexOf(token)
+        if (existing >= 0 && existing !in mentionStart until maxOf(mentionEnd, mentionStart + 1)) {
+            var end = existing + token.length
+            if (end < out.length && out[end] == ' ') end++
+            out = out.removeRange(existing, end)
+            var s = mentionStart
+            var e = mentionEnd
+            val cut = end - existing
+            if (existing < s) { s -= cut; e -= cut }
+            if (e > s && e <= out.length) out = out.removeRange(s, e)
+            caret = s.coerceIn(0, out.length)
+        } else {
+            val replacement = "$token "
+            out = out.replaceRange(mentionStart, mentionEnd, replacement)
+            caret = mentionStart + replacement.length
+        }
+
+        paintingMentions = true
+        input.setText(out)
+        input.setSelection(caret.coerceIn(0, input.text.length))
+        paintMentionText(input.text)
+        paintingMentions = false
+
+        /* 고른 뒤에도 목록을 남겨 이어 고른다. */
+        mentionStart = input.selectionStart
+        mentionEnd = mentionStart
+        showMentionCard(mentionNames().take(6))
+        input.requestFocus()
+    }
+
+    private fun hideMentionCard() {
+        mentionStart = -1; mentionEnd = -1
+        mentionPanel.visibility = View.GONE
     }
 
     private fun hideKeyboard() {
