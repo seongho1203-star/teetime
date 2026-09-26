@@ -65,8 +65,11 @@ function Gate() {
        Native Auth가 완성되면 이 effect 자체를 제거한다. */
     const androidOpened = useRef(false);
     useEffect(() => {
-        if (loading || !session || !isMember || !hasAndroidNativeV2()) return;
-        if (needsProfile(profile) || needsBirthday(contact) || androidOpened.current) return;
+        if (loading || !session || !hasAndroidNativeV2()) return;
+        /* 로그인만 성립하면 Android Native V2가 이후 가입대기/필수프로필/회원
+           gate까지 맡는다. 디자인은 기존 Pending/FillProfile 흐름을 그대로
+           재현하고 WebView는 최초 OAuth를 마칠 때까지만 남긴다. */
+        if (androidOpened.current) return;
         androidOpened.current = true;
         void openAndroidNativeV2(
             session.user.id,
