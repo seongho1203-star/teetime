@@ -68,7 +68,13 @@ function Gate() {
         if (loading || !session || !isMember || !hasAndroidNativeV2()) return;
         if (needsProfile(profile) || needsBirthday(contact) || androidOpened.current) return;
         androidOpened.current = true;
-        void openAndroidNativeV2(session.user.id, session.access_token, profile?.name ?? '')
+        void openAndroidNativeV2(
+            session.user.id,
+            session.access_token,
+            session.refresh_token,
+            session.expires_at ? session.expires_at * 1000 : Date.now() + 55 * 60 * 1000,
+            profile?.name ?? '',
+        )
             .catch(() => { androidOpened.current = false; });
     }, [loading, session, isMember, profile, contact]);
 
