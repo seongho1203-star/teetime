@@ -117,7 +117,11 @@ class NativeApi(private val session: NativeSession) {
     suspend fun upcomingRounds(limit: Int = 30): List<JSONObject> =
         rows("rounds", listOf(
             "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart",
-            "status" to "neq.cancelled", "order" to "tee_at.asc", "limit" to limit.toString()
+            "status" to "neq.cancelled",
+            /* 홈의 '다가오는 라운드'에 이미 지난 라운드(실기기에서 9/23)가
+               다시 보이던 오류. 현재 시각 이후만 받는다. */
+            "tee_at" to "gte.${java.time.Instant.now()}",
+            "order" to "tee_at.asc", "limit" to limit.toString()
         ))
 
     suspend fun rounds(limit: Int = 60): List<JSONObject> =
