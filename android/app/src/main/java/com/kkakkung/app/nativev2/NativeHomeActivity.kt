@@ -122,10 +122,7 @@ class NativeHomeActivity : AppCompatActivity() {
                 catch (e: Exception) { NativeSessionStore.clear(this@NativeHomeActivity); toast(e.message ?: "다시 로그인해 주세요."); finish() }
             }
         } else {
-            showHome()
-            intent.getStringExtra("native_url")?.takeIf { it.isNotBlank() }?.let { target ->
-                content.post { openNativeUrl(target) }
-            }
+            routeAfterLogin()
         }
     }
 
@@ -153,6 +150,122 @@ class NativeHomeActivity : AppCompatActivity() {
             return
         }
         super.onBackPressed()
+    }
+
+    private fun routeAfterLogin() {
+        val loading = page("까꿍")
+        val spin = ProgressBar(this); loading.addView(spin); mount(loading)
+        scope.launch {
+            try {
+                val profile = api.ensurePendingProfile(session.displayName)
+                val contact = api.privateProfile()
+                when (profile.optString("role")) {
+                    "banned" -> showAccountGate(profile, contact, banned = true)
+                    "pending", "" -> showAccountGate(profile, contact, banned = false)
+                    else -> {
+                        if (nativeNeedsProfile(profile, contact)) showRequiredProfile(profile, contact)
+                        else {
+                            showHome()
+                            intent.getStringExtra("native_url")?.takeIf { it.isNotBlank() }?.let { target ->
+                                content.post { openNativeUrl(target) }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                loading.removeView(spin); error(loading, e.message ?: "회원 정보를 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun nativeNeedsProfile(p: JSONObject, c: JSONObject?): Boolean {
+        /* 웹 needsProfile/needsBirthday와 같은 기준. DB에 칸 자체가 없으면 막지 않는다. */
+        val publicMissing = p.has("gender") && p.has("birth_year") && p.has("region") &&
+            (p.optString("gender").isBlank() || p.optInt("birth_year", 0) <= 0 || p.optString("region").isBlank())
+        val birthdayMissing = c != null && c.has("birth_md") && c.optString("birth_md").isBlank()
+        return publicMissing || birthdayMissing
+    }
+
+    private fun showAccountGate(profile: JSONObject, contact: JSONObject?, banned: Boolean) {
+        detail = true
+        bottom.visibility = View.GONE
+        val page = page(if (banned) "이용 제한" else "가입 승인 대기중")
+        if (banned) {
+            body(page, "이 계정은 이용이 제한되었습니다.\n궁금한 점은 운영진에게 물어봐 주세요.")
+            page.addView(action("로그아웃", danger = true) { logoutNative() })
+            mount(page); return
+        }
+        body(page, "아직 가입 승인 대기중입니다.\n운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.")
+        body(page, "운영진이 알아볼 수 있게 아래 정보를 적어 주세요.")
+        profileGateForm(page, profile, contact, pending = true)
+        page.addView(action("승인 여부 다시 확인") { routeAfterLogin() })
+        page.addView(action("로그아웃", danger = true) { logoutNative() })
+        mount(page)
+    }
+
+    private fun showRequiredProfile(profile: JSONObject, contact: JSONObject?) {
+        detail = true
+        bottom.visibility = View.GONE
+        val page = page("몇 가지만 더 알려 주세요")
+        body(page, "생년월일 · 성별 · 거주지역이 빠져 있습니다.\n조 편성과 생일 축하에 사용합니다.")
+        profileGateForm(page, profile, contact, pending = false)
+        page.addView(action("로그아웃", danger = true) { logoutNative() })
+        mount(page)
+    }
+
+    private fun profileGateForm(
+        page: LinearLayout, profile: JSONObject, contact: JSONObject?, pending: Boolean
+    ) {
+        fun field(hintText: String, value: String = "", numeric: Boolean = false): EditText {
+            val e = EditText(this).apply {
+                hint = hintText; setText(value); textSize = 15f
+                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
+            }
+            page.addView(e); return e
+        }
+        val name = field("닉네임", profile.optString("name"))
+        val phone = field("전화번호", contact?.optString("phone").orEmpty())
+        val year = field("태어난 해 (예: 1984)", profile.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty(), true)
+        val month = field("생일 월", contact?.optString("birth_md")?.substringBefore('-')?.takeIf { it.isNotBlank() }.orEmpty(), true)
+        val day = field("생일 일", contact?.optString("birth_md")?.substringAfter('-', "")?.takeIf { it.isNotBlank() }.orEmpty(), true)
+        val male = CheckBox(this).apply {
+            text = "남성 (체크 해제 = 여성)"; isChecked = profile.optString("gender") != "f"
+        }
+        page.addView(male)
+        val car = field("차량번호", contact?.optString("car").orEmpty())
+        val region = field("거주지역", profile.optString("region"))
+        val lunar = CheckBox(this).apply {
+            text = "음력 생일"; isChecked = contact?.optString("birth_cal") == "lunar"
+        }
+        page.addView(lunar)
+        page.addView(action(if (pending) "저장" else "저장하고 시작하기", primary = true) {
+            val y = year.text.toString().toIntOrNull() ?: 0
+            val m = month.text.toString().toIntOrNull() ?: 0
+            val d = day.text.toString().toIntOrNull() ?: 0
+            val n = name.text.toString().trim()
+            val r = region.text.toString().trim()
+            if (n.isBlank()) { toast("닉네임을 적어 주세요."); return@action }
+            if (pending && phone.text.toString().trim().isBlank()) { toast("전화번호를 적어 주세요."); return@action }
+            if (pending && car.text.toString().trim().isBlank()) { toast("차량번호를 적어 주세요."); return@action }
+            if (y !in 1900..2100) { toast("태어난 해를 확인해 주세요."); return@action }
+            if (m !in 1..12 || d !in 1..31) { toast("생일의 월·일을 확인해 주세요."); return@action }
+            if (r.isBlank()) { toast("거주지역을 적어 주세요."); return@action }
+            val md = "%02d-%02d".format(m, d)
+            mutate {
+                api.updateMyProfile(
+                    n, if (male.isChecked) "m" else "f", y, r,
+                    phone.text.toString().trim(), car.text.toString().trim(),
+                    md, if (lunar.isChecked) "lunar" else "solar"
+                )
+                toast(if (pending) "저장했습니다. 운영진이 승인하면 들어갈 수 있습니다." else "저장했습니다.")
+                routeAfterLogin()
+            }
+        })
+    }
+
+    private fun logoutNative() {
+        NativeSessionStore.clear(this)
+        finish()
     }
 
     private fun buildShell() {
