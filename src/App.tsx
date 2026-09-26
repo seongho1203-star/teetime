@@ -25,7 +25,7 @@ import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
 import { AlertsRoute, MembersRoute, NativeShellSync, PollRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
-import { hasNativeApp } from './lib/native-app';
+import { hasNativeApp, hasAndroidNativeV2, openAndroidNativeV2 } from './lib/native-app';
 import { Settle } from './screens/Settle';
 import { Help } from './screens/Help';
 
@@ -58,6 +58,19 @@ function Gate() {
     /* 키보드가 올라오면 탭바를 감추고, 글칸 밖을 누르면 내린다.
        **대화 화면은 제 셈을 따로 들고 있어 누르기로는 안 내린다.** */
     useKeyboardChrome();
+
+    /* Android Native V2의 임시 부트스트랩.
+       로그인/가입승인/필수 프로필 확인까지만 기존 웹 인증을 빌리고, 그 다음부터
+       보이는 홈·라운드·투표·채팅은 Kotlin NativeHomeActivity가 맡는다.
+       Native Auth가 완성되면 이 effect 자체를 제거한다. */
+    const androidOpened = useRef(false);
+    useEffect(() => {
+        if (loading || !session || !isMember || !hasAndroidNativeV2()) return;
+        if (needsProfile(profile) || needsBirthday(contact) || androidOpened.current) return;
+        androidOpened.current = true;
+        void openAndroidNativeV2(session.user.id, session.access_token, profile?.name ?? '')
+            .catch(() => { androidOpened.current = false; });
+    }, [loading, session, isMember, profile, contact]);
 
     if (!isConfigured) return <Setup />;
 
