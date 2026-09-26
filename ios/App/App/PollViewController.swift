@@ -41,7 +41,7 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
     private var people: [String: AppProfile] = [:]
     private var busy = false
     /// 현황 탭 — 0 항목별 · 1 멤버별 · 2 미참여.
-    private var tab = 0
+    private var statusTab = 0
     private var optionIds: [String] = []
 
     private var me: AppProfile? { people[service.config.user] }
@@ -231,10 +231,10 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
         if !p.anonymous {
             let card = CardView()
             let seg = UISegmentedControl(items: ["항목별", "멤버별", yet.isEmpty ? "미참여" : "미참여 \(yet.count)"])
-            seg.selectedSegmentIndex = tab
+            seg.selectedSegmentIndex = statusTab
             seg.addTarget(self, action: #selector(tabChanged(_:)), for: .valueChanged)
             card.content.addArrangedSubview(seg)
-            switch tab {
+            switch statusTab {
             case 1:
                 if done.isEmpty { card.content.addArrangedSubview(mkLabel("아직 아무도 안 했습니다.", size: 12, color: AppSkin.faint)) }
                 for who in done {
@@ -321,7 +321,7 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
     // ── 누르는 것들 ─────────────────────────────────────────────
 
     @objc private func editTapped() { navigate("/polls/\(pollId)/edit") }
-    @objc private func tabChanged(_ s: UISegmentedControl) { tab = s.selectedSegmentIndex; render() }
+    @objc private func tabChanged(_ s: UISegmentedControl) { statusTab = s.selectedSegmentIndex; render() }
 
     /// 표 던지기 — 고른 것을 다시 누르면 뺀다(웹 `PollOptions.pick`).
     @objc private func optionTapped(_ sender: UIControl) {
