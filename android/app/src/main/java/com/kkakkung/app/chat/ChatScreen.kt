@@ -142,10 +142,25 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
          * 부모 ViewGroup에서 IME inset을 중복 소비하지 않는 방식이다. */
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, ins ->
             val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = ins.getInsets(WindowInsetsCompat.Type.ime())
             val imeVisible = ins.isVisible(WindowInsetsCompat.Type.ime())
-            v.setPadding(0, bars.top, 0, if (imeVisible) 0 else bars.bottom)
+            val nativeV2 = activity.javaClass.name.endsWith(".nativev2.NativeHomeActivity")
+
+            if (nativeV2) {
+                /* Android 15 / target 35는 edge-to-edge가 강제된다.
+                   NativeHomeActivity의 바깥 shell이 status/navigation bar를 이미
+                   피하므로 여기서는 **키보드가 차지한 추가 높이만** 올린다.
+                   adjustResize만 믿으면 API 35 기기에서 창 높이가 그대로인 경우
+                   입력창이 IME 뒤에 남는다(실기기 제보). */
+                val keyboardOnly = if (imeVisible) maxOf(0, ime.bottom - bars.bottom) else 0
+                v.setPadding(0, 0, 0, keyboardOnly)
+            } else {
+                /* 기존 하이브리드 Activity는 창 자체가 resize되는 경로를 유지한다. */
+                v.setPadding(0, bars.top, 0, if (imeVisible) 0 else bars.bottom)
+            }
             ins
         }
+        ViewCompat.requestApplyInsets(this)
 
         list.onCard = { path -> navigate(path) }
         list.onQuote = { id -> list.scrollTo(id) }
