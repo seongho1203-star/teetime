@@ -48,7 +48,10 @@ class ChatConfig(d: JSONObject) {
         val five = d.optJSONArray("reactions")
         val list = ArrayList<String>()
         if (five != null) for (i in 0 until five.length()) list.add(five.optString(i))
-        reactions = if (list.isEmpty()) listOf("👍", "❤️", "😂", "😮", "😢") else list
+        /* 규칙은 웹이 open/shell에 실어 준 것만 쓴다.
+           비어 있는 옛/독립 설정에서는 반응 선택 UI가 안 뜰 뿐이며,
+           코틀린에 웹 REACTIONS를 복제하지 않는다. */
+        reactions = list
     }
 
     val valid: Boolean
