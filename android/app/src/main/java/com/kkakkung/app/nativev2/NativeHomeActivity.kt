@@ -115,16 +115,6 @@ class NativeHomeActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
         }
-        /* targetSdk 35부터 Android 15는 edge-to-edge를 강제한다.
-           홈/탭/상세가 카메라·상태바·하단 제스처 영역에 깔리지 않게 shell 한 곳에서
-           system bar inset을 소비한다. IME는 소비하지 않는다 — 대화 입력창이
-           자기 IME inset을 받아 키보드와 정확히 붙는다. */
-        ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
-            val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(0, bars.top, 0, bars.bottom)
-            ins
-        }
-        ViewCompat.requestApplyInsets(root)
         content = FrameLayout(this).apply { setBackgroundColor(bg) }
         bottom = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -138,7 +128,22 @@ class NativeHomeActivity : AppCompatActivity() {
         root.addView(bottom, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(64)
         ))
+
+        /* Android 15(target 35)의 edge-to-edge 보정.
+           - 평소: 기존 까꿍 디자인/64dp 탭바는 그대로 두고 system bar만 피한다.
+           - 키보드: 기존 웹의 useKeyboardChrome과 똑같이 하단 탭바만 숨긴다.
+             ChatScreen은 별도로 IME inset을 받아 입력창을 키보드 바로 위에 붙인다.
+           디자인 수치·색상·카드에는 손대지 않는다. */
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
+            val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+            val imeVisible = ins.isVisible(WindowInsetsCompat.Type.ime())
+            v.setPadding(0, bars.top, 0, bars.bottom)
+            bottom.visibility = if (imeVisible) View.GONE else View.VISIBLE
+            ins
+        }
+
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
 
         listOf(
             "home" to "홈",
