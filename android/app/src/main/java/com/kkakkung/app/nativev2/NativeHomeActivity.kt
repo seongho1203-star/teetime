@@ -657,6 +657,51 @@ class NativeHomeActivity : AppCompatActivity() {
         }
         box.addView(peopleBtn)
 
+        val custom = linkedMapOf<String, Int>()
+        val amountBtn = Button(this).apply {
+            text = "사람별 금액 조정"; isAllCaps = false
+            setOnClickListener {
+                val total = totalField.text.toString().replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
+                val ids = picked.toList()
+                if (total <= 0 || ids.isEmpty()) {
+                    toast("총금액과 정산할 사람을 먼저 정해 주세요.")
+                    return@setOnClickListener
+                }
+                val each = (total / ids.size / 10) * 10
+                val left = total - each * ids.size
+                val editBox = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+                }
+                val fields = linkedMapOf<String, EditText>()
+                ids.forEachIndexed { i, uid ->
+                    val who = candidates.firstOrNull { it.optString("id") == uid }
+                    val value = custom[uid] ?: each + if (i == 0) left else 0
+                    val e = EditText(this@NativeHomeActivity).apply {
+                        hint = personLabel(who).ifBlank { who?.optString("name").orEmpty() }
+                        setText(value.toString()); inputType = InputType.TYPE_CLASS_NUMBER
+                    }
+                    fields[uid] = e; editBox.addView(e)
+                }
+                val amountDialog = AlertDialog.Builder(this@NativeHomeActivity)
+                    .setTitle("사람별 금액").setView(editBox)
+                    .setNegativeButton("취소", null).setPositiveButton("적용", null).create()
+                amountDialog.setOnShowListener {
+                    amountDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val next = fields.mapValues { it.value.text.toString().toIntOrNull() ?: 0 }
+                        if (next.values.any { it < 0 } || next.values.sum() != total) {
+                            toast("사람별 금액 합계가 총금액 ${money(total)}과 같아야 합니다.")
+                            return@setOnClickListener
+                        }
+                        custom.clear(); custom.putAll(next)
+                        amountBtn.text = "사람별 금액 조정 ✓"
+                        amountDialog.dismiss()
+                    }
+                }
+                amountDialog.show()
+            }
+        }
+        box.addView(amountBtn)
+
         val dialog = AlertDialog.Builder(this).setTitle("정산 만들기").setView(box)
             .setNegativeButton("취소", null).setPositiveButton("보내기", null).create()
         dialog.setOnShowListener {
@@ -667,13 +712,14 @@ class NativeHomeActivity : AppCompatActivity() {
                 if (picked.isEmpty()) { toast("정산할 사람을 골라 주세요."); return@setOnClickListener }
                 if (total <= 0) { toast("총금액을 적어 주세요."); return@setOnClickListener }
                 val ids = picked.toList()
-                val each = (total / ids.size / 10) * 10
-                var left = total - each * ids.size
-                val amounts = linkedMapOf<String, Int>()
-                ids.forEachIndexed { i, uid ->
-                    val extra = if (i == 0) left else 0
-                    amounts[uid] = each + extra
-                    if (i == 0) left = 0
+                val amounts = if (custom.keys.containsAll(ids) && custom.size == ids.size) {
+                    LinkedHashMap(custom)
+                } else {
+                    val each = (total / ids.size / 10) * 10
+                    val left = total - each * ids.size
+                    linkedMapOf<String, Int>().apply {
+                        ids.forEachIndexed { i, uid -> put(uid, each + if (i == 0) left else 0) }
+                    }
                 }
                 dialog.dismiss()
                 mutate {
@@ -750,6 +796,11 @@ class NativeHomeActivity : AppCompatActivity() {
                             }
                         })
                     }
+                    box.addView(action("정산 삭제", danger = true) {
+                        confirm("이 정산을 지울까요?", "${shares.size}명의 몫이 함께 사라집니다.") {
+                            mutate { api.deleteSettlement(settlement.optString("id")); toast("지웠습니다."); showSettlements() }
+                        }
+                    })
                     box.setOnClickListener {
                         val rid = settlement.optString("round_id")
                         if (rid.isNotBlank()) showRound(rid)
