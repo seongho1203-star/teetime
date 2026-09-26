@@ -1,6 +1,8 @@
 package com.kkakkung.app.nativev2
 
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.graphics.Typeface
@@ -15,14 +17,17 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import coil.load
 import com.kkakkung.app.chat.ChatConfig
 import com.kkakkung.app.chat.ChatScreen
 import com.kkakkung.app.chat.ChatService
@@ -34,6 +39,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.time.OffsetDateTime
@@ -67,6 +73,28 @@ class NativeHomeActivity : AppCompatActivity() {
     private val ink = Color.rgb(35, 35, 42)
     private val dim = Color.rgb(110, 110, 120)
     private val danger = Color.rgb(190, 45, 55)
+
+    private val avatarPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        scope.launch {
+            try {
+                val raw = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                    ?: throw NativeApiError("사진을 읽지 못했습니다.")
+                val ratio = minOf(1f, 400f / maxOf(raw.width, raw.height).toFloat())
+                val scaled = if (ratio < 1f) Bitmap.createScaledBitmap(
+                    raw, (raw.width * ratio).toInt(), (raw.height * ratio).toInt(), true
+                ) else raw
+                val bytes = ByteArrayOutputStream().use {
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 88, it); it.toByteArray()
+                }
+                api.uploadAvatar(bytes)
+                toast("프로필 사진을 바꿨습니다.")
+                showMe()
+            } catch (e: Exception) {
+                toast(e.message ?: "사진을 바꾸지 못했습니다.")
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -843,6 +871,20 @@ class NativeHomeActivity : AppCompatActivity() {
                 val priv = api.privateProfile()
                 page.removeView(loading)
                 if (p == null) { error(page, "프로필을 불러오지 못했습니다."); return@launch }
+                val avatar = p.optString("avatar_url")
+                if (avatar.isNotBlank()) {
+                    page.addView(ImageView(this@NativeHomeActivity).apply {
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        load(avatar)
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL; setColor(Color.rgb(235, 235, 240))
+                        }
+                        clipToOutline = true
+                    }, LinearLayout.LayoutParams(dp(88), dp(88)).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(8)
+                    })
+                }
+                page.addView(action("프로필 사진 바꾸기") { avatarPicker.launch("image/*") })
                 title(page, p.optString("name").ifBlank { session.displayName.ifBlank { "회원" } })
                 line(page, "등급", p.optString("role"))
                 line(page, "성별", when (p.optString("gender")) { "m" -> "남성"; "f" -> "여성"; else -> "" })
