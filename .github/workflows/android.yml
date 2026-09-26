@@ -51,7 +51,7 @@ permissions:
 
 # 두 판이 겹치면 Play에 같은 번호가 두 번 올라가 뒤엣것이 거절된다.
 concurrency:
-  group: android
+  group: android-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
