@@ -23,6 +23,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -141,6 +142,31 @@ class NativeHomeActivity : AppCompatActivity() {
         } else {
             routeAfterLogin()
         }
+
+        /* Android 13+ 뒤로 제스처/버튼을 같은 native stack으로 보낸다.
+           IME가 떠 있으면 첫 뒤로가기는 키보드만 내리고 화면은 유지한다. */
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val imeVisible = ViewCompat.getRootWindowInsets(content)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                if (imeVisible) {
+                    val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                        as? android.view.inputmethod.InputMethodManager
+                    imm?.hideSoftInputFromWindow(content.windowToken, 0)
+                    content.clearFocus()
+                    return
+                }
+                when {
+                    detail -> { detail = false; showTab(currentTab) }
+                    currentTab != "home" -> showHome()
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            }
+        })
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -343,8 +369,13 @@ class NativeHomeActivity : AppCompatActivity() {
            디자인 수치·색상·카드에는 손대지 않는다. */
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
             val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = ins.getInsets(WindowInsetsCompat.Type.ime())
             val imeVisible = ins.isVisible(WindowInsetsCompat.Type.ime())
-            v.setPadding(0, bars.top, 0, bars.bottom)
+            /* Native V2에서는 shell 한 곳만 IME를 처리한다.
+               키보드가 뜨면 content의 실제 바닥을 IME 윗선으로 올리고 탭바를
+               숨긴다. ChatScreen/댓글칸이 따로 IME 높이를 더하지 않으므로
+               '키보드는 떴는데 입력창은 아래에 남음'과 이중 여백을 함께 막는다. */
+            v.setPadding(0, bars.top, 0, if (imeVisible) ime.bottom else bars.bottom)
             bottom.visibility = if (imeVisible) View.GONE else View.VISIBLE
             ins
         }
