@@ -94,9 +94,19 @@ final class NativeChatText: UIViewController {
  * 하나다. **칠은 흰색 30%다**: 16%로 두었더니 검은 바탕에서 단추로
  * 안 읽혔다(사용자 제보 — `시인성이 좀 떨어져`). 44px로 둔다.
  *
- * **단추를 눌러도 창이 안 닫힌다** — 닫는 것은 `✕`와 사진 바깥이다.
+ * **단추를 눌러도 창이 안 닫힌다** — 닫는 것은 `✕`와 사진 바깥,
+ * 그리고 **아래로 끌어 내리기**다(사용자 요청 — `손을 아래로 끌어서 내리면
+ * 사진 전체보기가 꺼지게해줘`). 카톡과 같은 손짓이다:
+ *  - **사진이 손가락을 따라 내려가고 검은 바탕이 옅어져** 뒤의 대화가
+ *    비친다 — 그래서 `.overFullScreen`이다(`.fullScreen`은 뒤를 안 그린다).
+ *  - 120pt를 넘기거나 아래로 튕기면(최소 40pt) 닫히고, 아니면 제자리로
+ *    돌아온다 — 전체화면 프로필(`ChatProfile`)과 같은 값이다.
+ *  - **키워 둔 동안에는 안 먹는다**(`zoomScale > 1`) — 그때 아래로 끄는 것은
+ *    사진 안을 둘러보는 손짓이다. 위로는 1/3만 따라간다.
+ *  - 애니메이션에 `.allowUserInteraction`을 준다 — 없으면 뜨는 동안·
+ *    돌아가는 동안 손짓이 통째로 죽는다(프로필에서 겪은 자리다).
  */
-final class NativeChatPhoto: UIViewController, UIScrollViewDelegate {
+final class NativeChatPhoto: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     private let url: String
     private let scroll = UIScrollView()
     private let photo = UIImageView()
@@ -111,7 +121,8 @@ final class NativeChatPhoto: UIViewController, UIScrollViewDelegate {
         self.url = url
         super.init(nibName: nil, bundle: nil)
         title = "사진"
-        modalPresentationStyle = .fullScreen
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -134,6 +145,64 @@ final class NativeChatPhoto: UIViewController, UIScrollViewDelegate {
         /* 사진 바깥을 누르면 닫힌다 — 사진 자체는 벌려서 키우는 자리다. */
         let tap = UITapGestureRecognizer(target: self, action: #selector(close))
         scroll.addGestureRecognizer(tap)
+        /* 아래로 끌어 닫기 — 창 전체가 받는다(사진 위든 바깥이든). */
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+        pan.delegate = self
+        pan.maximumNumberOfTouches = 1   // 두 손가락은 벌려 키우는 손짓이다
+        view.addGestureRecognizer(pan)
+    }
+
+    // MARK: 아래로 끌어 닫기
+
+    private static let closeAt: CGFloat = 120
+    private static let flickMin: CGFloat = 40
+
+    /// 키워 두지 않았고 **세로로, 아래쪽으로** 그은 것만 받는다 — 옆으로
+    /// 긋거나 위로 긋는 것은 사진 쪽 손짓이다.
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let pan = g as? UIPanGestureRecognizer else { return true }
+        guard scroll.zoomScale <= scroll.minimumZoomScale + 0.01 else { return false }
+        let v = pan.velocity(in: view)
+        return v.y > 0 && abs(v.y) > abs(v.x)
+    }
+    func gestureRecognizer(_ g: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        /* 1배일 때 사진 칸의 스크롤 손짓은 굴릴 것이 없어 안 움직인다 —
+           그것과 나란히 서야 우리 끌기가 가로채이지 않는다. */
+        other === scroll.panGestureRecognizer
+    }
+
+    /// 끄는 만큼 사진이 내려가고, 바탕·단추가 옅어진다.
+    private func paint(_ dy: CGFloat) {
+        let y = dy > 0 ? dy : dy / 3
+        scroll.transform = CGAffineTransform(translationX: 0, y: y)
+        let fade = max(0, min(1, 1 - abs(y) / 400))
+        view.backgroundColor = UIColor(white: 0, alpha: fade)
+        for v in [closeBtn, saveBtn, shareBtn] as [UIView] { v.alpha = fade }
+    }
+
+    @objc private func dragged(_ g: UIPanGestureRecognizer) {
+        let dy = g.translation(in: view).y
+        switch g.state {
+        case .changed:
+            paint(dy)
+        case .ended, .cancelled, .failed:
+            let v = g.velocity(in: view).y
+            let out = g.state == .ended && (dy > Self.closeAt || (v > 800 && dy > Self.flickMin))
+            if out {
+                let h = view.bounds.height
+                UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut, .allowUserInteraction], animations: {
+                    self.scroll.transform = CGAffineTransform(translationX: 0, y: h)
+                    self.view.backgroundColor = .clear
+                    for b in [self.closeBtn, self.saveBtn, self.shareBtn] as [UIView] { b.alpha = 0 }
+                }, completion: { _ in self.dismiss(animated: false) })
+            } else {
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction], animations: {
+                    self.paint(0)
+                })
+            }
+        default: break
+        }
     }
 
     private func pill(_ b: UIButton, _ text: String, _ action: Selector) {
