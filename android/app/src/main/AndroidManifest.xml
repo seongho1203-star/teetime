@@ -10,6 +10,14 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/AppTheme">
 
+        <!-- Native OAuth 엔진. 기존 로그인 디자인을 네이티브로 정확히 옮긴 뒤
+             LAUNCHER/kkakkung://auth 필터를 MainActivity에서 이쪽으로 넘긴다. -->
+        <activity
+            android:name=".nativev2.NativeLoginActivity"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
         <activity
             android:name=".nativev2.NativeHomeActivity"
             android:theme="@style/AppTheme.NoActionBar"
