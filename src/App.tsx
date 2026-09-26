@@ -18,14 +18,13 @@ import { Rounds } from './screens/Rounds';
 import { RoundEdit } from './screens/RoundEdit';
 import { RoundGroups } from './screens/RoundGroups';
 import { Polls } from './screens/Polls';
-import { PollDetail } from './screens/PollDetail';
 import { PollEdit } from './screens/PollEdit';
 import { Board } from './screens/Board';
 import { PostEdit } from './screens/PostEdit';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
-import { AlertsRoute, MembersRoute, NativeShellSync, PostRoute, RoundRoute } from './screens/NativeScreen';
+import { AlertsRoute, MembersRoute, NativeShellSync, PollRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
 import { hasNativeApp } from './lib/native-app';
 import { Settle } from './screens/Settle';
 import { Help } from './screens/Help';
@@ -96,7 +95,7 @@ function Gate() {
                 <Route path="/rounds/:id/groups" element={<RoundGroups />} />
                 <Route path="/polls" element={<Polls />} />
                 <Route path="/polls/new" element={<PollEdit />} />
-                <Route path="/polls/:id" element={<PollDetail />} />
+                <Route path="/polls/:id" element={<PollRoute />} />
                 <Route path="/polls/:id/edit" element={<PollEdit />} />
                 <Route path="/board" element={<Board />} />
                 <Route path="/board/new" element={<PostEdit />} />

@@ -283,6 +283,11 @@ struct AppPoll {
     var closesAt: String? { raw["closes_at"] as? String }
     var createdBy: String? { raw["created_by"] as? String }
     var createdAt: String { raw["created_at"] as? String ?? "" }
+    /// 결과 카드를 대화방에 남겼는가 — **칸이 아예 없으면(옛 스키마) `nil`**, 빈 값이면 아직이다.
+    var resultPending: Bool? {
+        guard raw.keys.contains("result_at") else { return nil }
+        return raw["result_at"] == nil || raw["result_at"] is NSNull
+    }
     /// 웹 `pollClosed()`와 같은 잣대 — 손으로 닫았거나 마감 시각이 지났거나.
     var closed: Bool {
         if closedFlag { return true }
@@ -604,6 +609,40 @@ extension NativeChatService {
     func closePoll(_ id: String) async throws {
         let r = try await request("rest/v1/polls", query: [("id", "eq.\(id)")], method: "PATCH", body: ["closed": true]) as? [ChatJSON]
         guard r?.isEmpty == false else { throw NativeChatError(message: "권한이 없습니다.") }
+    }
+    /**
+     * 마감 ↔ 다시 열기(웹 `PollDetail.toggleClosed`). **다시 열 때 지나간 마감
+     * 시각은 함께 지운다** — 안 지우면 `closed`만 내려가고 시각은 그대로라
+     * 열자마자 다시 닫힌 것으로 보인다. 남은 시각은 그대로 둔다.
+     */
+    func setPollClosed(_ p: AppPoll, closed: Bool) async throws {
+        var patch: ChatJSON = ["closed": closed]
+        if !closed, let c = p.closesAt, NativeChatRows.date(c) < Date() { patch["closes_at"] = NSNull() }
+        let r = try await request("rest/v1/polls", query: [("id", "eq.\(p.id)")], method: "PATCH", body: patch) as? [ChatJSON]
+        guard r?.isEmpty == false else { throw NativeChatError(message: "권한이 없습니다.") }
+    }
+    /// 투표 하나 + 항목·표(웹 `PollDetail`).
+    func poll(_ id: String) async throws -> AppPoll? {
+        try await rows("polls", [("select", Self.pollCols), ("id", "eq.\(id)"), ("limit", "1")]).first.map { AppPoll(raw: $0) }
+    }
+    func pollComments(_ id: String) async throws -> [AppComment] {
+        try await rows("poll_comments", [("select", "*"), ("poll_id", "eq.\(id)"),
+                                         ("order", "created_at.asc"), ("limit", "500")]).map { AppComment(raw: $0) }
+    }
+    /// 이미 헛걸음을 보낸 투표 — 다시 그릴 때마다 또 안 부르려는 것(웹 `tried`).
+    private static var announced = Set<String>()
+    /**
+     * 끝났는데 아직 결과 카드를 안 남긴 투표가 보이면 `post_poll_result`를
+     * 부른다(웹 `announceClosedPolls`). 마감 시각이 지나 끝나는 것은 DB 사건이
+     * 아니라 **화면이 보고 불러 줘야 한다.** 한 줄만 남는 것은 DB가 지킨다.
+     * `result_at` 칸이 없는 저장소(그 함수도 없다)에서는 아무것도 안 한다.
+     */
+    func announceClosedPolls(_ polls: [AppPoll]) async {
+        for p in polls {
+            guard p.resultPending == true, p.closed, !Self.announced.contains(p.id) else { continue }
+            Self.announced.insert(p.id)
+            _ = try? await request("rest/v1/rpc/post_poll_result", method: "POST", body: ["p_poll": p.id])
+        }
     }
 
     // ── 공지 목록 ────────────────────────────────────────────────

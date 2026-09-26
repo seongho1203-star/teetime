@@ -5252,6 +5252,7 @@ ios/App/App/MembersViewController.swift  ← 1단계: 회원 명단
 ios/App/App/PostViewController.swift     ← 2단계: 공지 상세 + 댓글
 ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
 ios/App/App/RoundViewController.swift    ← 2단계: 라운드 상세(신청·취소·정산 보기·댓글)
+ios/App/App/PollViewController.swift     ← 2단계: 투표 상세(표 던지기·현황 탭·댓글)
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5286,6 +5287,10 @@ ios/App/App/RoundViewController.swift    ← 2단계: 라운드 상세(신청·�
   같이 정원을 화면에서 안 센다. 신청 단추는 화면 아래 붙박이 바이고, 댓글 바는
   **적는 동안만** 키보드 위에 뜬다(`댓글 남기기`를 누르면). 정산은 **보는 쪽만**
   있다(입금완료·복사·토스) — 만들기는 3단계(쓰는 화면)에서 온다.
+- **투표 상세도 웹과 같은 잣대다** — 끝났는가는 `AppPoll.closed`(마감 시각까지),
+  익명이면 현황 카드가 통째로 없고, 참여 수는 회원 가운데 던진 사람이다.
+  **끝났는데 결과 카드를 안 남긴 투표는 앱도 `post_poll_result`를 부른다**
+  (`announceClosedPolls` — 홈·투표 탭·상세. 웹만 부르면 앱으로만 쓰는 날 결과가 안 남는다).
 - **알림함은 여는 순간 다 읽음으로 찍고 `fresh`로 가른다** — 웹 `Alerts.tsx`와 같은
   규칙(`read_at`으로 그리지 말 것 · id마다 한 번만 판단).
 - **제약을 직접 거는 뷰는 `translatesAutoresizingMaskIntoConstraints = false`를

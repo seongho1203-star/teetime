@@ -42,7 +42,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     static let version = 4
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`·`/rounds/<id>/groups`(쓰는 화면)는 아직 웹이다.
-    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id"]
+    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -77,6 +77,9 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             /* `/rounds/<uuid>` — `/rounds/new`·`/rounds/<id>/edit`·`/groups`는 uuid가 아니라 걸러진다. */
             if path.hasPrefix("/rounds/"), let id = UUID(uuidString: String(path.dropFirst("/rounds/".count))) {
                 return RoundViewController(service: service, id: id.uuidString.lowercased())
+            }
+            if path.hasPrefix("/polls/"), let id = UUID(uuidString: String(path.dropFirst("/polls/".count))) {
+                return PollViewController(service: service, id: id.uuidString.lowercased())
             }
             return nil
         }

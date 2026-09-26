@@ -278,10 +278,13 @@ final class PollsTabController: ShellTabController {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             do {
-                self.live = try await self.service.pollsLive().filter { !$0.closed }
+                let raw = try await self.service.pollsLive()
+                self.live = raw.filter { !$0.closed }
                 let d = try await self.service.pollsDone(limit: self.doneMax)
                 self.done = d.list
                 self.doneGot = d.got
+                /* 시각이 지나 끝난 투표는 아무 사건도 안 일으킨다 — 여기서 결과 카드를 남겨 준다(웹과 같다). */
+                await self.service.announceClosedPolls(raw + d.list)
                 self.rebuild()
                 self.shell?.refreshBadges(polls: self.live.count)
             } catch {

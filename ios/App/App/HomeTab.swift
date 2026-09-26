@@ -96,7 +96,10 @@ final class HomeTabController: ShellTabController {
             self.nameLabel.text = "\(me?.name ?? "회원")님"
             do {
                 let rounds = try await self.service.roundsUpcoming().filter { $0.status != "cancelled" }
-                let live = try await self.service.pollsLive().filter { !$0.closed }
+                let rawPolls = try await self.service.pollsLive()
+                let live = rawPolls.filter { !$0.closed }
+                /* 홈이 함께 부르는 것이 핵심이다 — 투표 탭을 아무도 안 여는 날 결과가 하루 종일 안 남는다(웹과 같다). */
+                await self.service.announceClosedPolls(rawPolls)
                 let voted = await self.service.myVotedPolls()
                 let pending = (self.shell?.isAdmin ?? false) ? await self.service.pendingCount() : 0
                 let chat = await self.service.unreadChatCount()
