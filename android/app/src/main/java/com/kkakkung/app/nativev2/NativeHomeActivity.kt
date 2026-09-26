@@ -807,17 +807,115 @@ class NativeHomeActivity : AppCompatActivity() {
         val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
             try {
+                val me = api.profile()
                 val people = api.people()
+                val contacts = api.contacts().associateBy { it.optString("id") }
                 page.removeView(loading)
-                section(page, "회원 ${people.size}명")
-                people.sortedBy { it.optString("name") }.forEach { p ->
-                    page.addView(personRow(personLabel(p).ifBlank { p.optString("name") }, p.optString("role")))
+                val myRole = me?.optString("role").orEmpty()
+                val canManage = myRole in setOf("staff", "admin", "superadmin")
+                val pending = people.filter { it.optString("role") == "pending" }
+                val members = people.filter { it.optString("role") !in setOf("pending", "banned") }
+                    .sortedBy { it.optString("name") }
+                val banned = people.filter { it.optString("role") == "banned" }
+
+                if (canManage && pending.isNotEmpty()) {
+                    section(page, "가입 신청 ${pending.size}")
+                    pending.forEach { p ->
+                        val box = memberManageRow(p, contacts[p.optString("id")])
+                        val actions = LinearLayout(this@NativeHomeActivity).apply { orientation = LinearLayout.HORIZONTAL }
+                        actions.addView(action("거절", danger = true) {
+                            confirm("${p.optString("name")}님의 가입을 거절할까요?", "명단에서 사라지고 다시 로그인하면 가입 신청부터 하게 됩니다.") {
+                                mutate { api.rejectMember(p.optString("id")); toast("거절했습니다."); showMembers() }
+                            }
+                        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                        actions.addView(action("승인", primary = true) {
+                            mutate { api.setMemberRole(p.optString("id"), "member"); toast("승인했습니다."); showMembers() }
+                        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                        box.addView(actions); page.addView(box)
+                    }
+                }
+
+                section(page, "회원 ${members.size}명")
+                if (members.isEmpty()) empty(page, "아직 회원이 없습니다.")
+                members.forEach { p ->
+                    val box = memberManageRow(p, contacts[p.optString("id")])
+                    val role = p.optString("role")
+                    val above = role == "superadmin" || (role == "admin" && myRole != "superadmin")
+                    val manageable = canManage && p.optString("id") != session.userId && !above
+                    if (manageable) {
+                        val actions = LinearLayout(this@NativeHomeActivity).apply { orientation = LinearLayout.VERTICAL }
+                        if (myRole == "superadmin") {
+                            actions.addView(action(if (role == "admin") "운영자 해제" else "운영자로 임명") {
+                                mutate {
+                                    api.setMemberRole(p.optString("id"), if (role == "admin") "member" else "admin")
+                                    showMembers()
+                                }
+                            })
+                        }
+                        if (myRole in setOf("admin", "superadmin") && role != "admin") {
+                            actions.addView(action(if (role == "staff") "부운영자 해제" else "부운영자로 임명") {
+                                mutate {
+                                    api.setMemberRole(p.optString("id"), if (role == "staff") "member" else "staff")
+                                    showMembers()
+                                }
+                            })
+                            actions.addView(action(if (role == "treasurer") "총무 해제" else "총무로 임명") {
+                                mutate {
+                                    api.setMemberRole(p.optString("id"), if (role == "treasurer") "member" else "treasurer")
+                                    showMembers()
+                                }
+                            })
+                        }
+                        actions.addView(action("승인 대기로 내보내기", danger = true) {
+                            confirm("${p.optString("name")}님을 내보낼까요?", "승인 대기 상태가 되어 앱을 볼 수 없게 됩니다.") {
+                                mutate { api.setMemberRole(p.optString("id"), "pending"); showMembers() }
+                            }
+                        })
+                        actions.addView(action("추방", danger = true) {
+                            confirm("${p.optString("name")}님을 추방할까요?", "다시 로그인해도 가입 신청이 되지 않습니다.") {
+                                mutate { api.setMemberRole(p.optString("id"), "banned"); showMembers() }
+                            }
+                        })
+                        box.addView(actions)
+                    }
+                    page.addView(box)
+                }
+
+                if (canManage && banned.isNotEmpty()) {
+                    section(page, "추방 ${banned.size}명")
+                    banned.forEach { p ->
+                        val box = memberManageRow(p, contacts[p.optString("id")])
+                        box.addView(action("추방 해제 · 승인 대기로") {
+                            mutate { api.setMemberRole(p.optString("id"), "pending"); showMembers() }
+                        })
+                        page.addView(box)
+                    }
                 }
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "회원 명단을 불러오지 못했습니다.")
             }
         }
     }
+
+    private fun memberManageRow(p: JSONObject, contact: JSONObject?): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.WHITE) }
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = personLabel(p).ifBlank { p.optString("name") }
+                textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            })
+            val meta = listOfNotNull(
+                p.optString("role").takeIf { it.isNotBlank() },
+                contact?.optString("car")?.takeIf { it.isNotBlank() },
+                contact?.optString("phone")?.takeIf { it.isNotBlank() }
+            ).joinToString(" · ")
+            if (meta.isNotBlank()) body(this, meta)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
 
     private fun roundCard(r: JSONObject): View = cardView(
         (if (r.optString("kind") == "screen") "🎯 " else "⛳ ") +
