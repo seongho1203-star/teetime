@@ -34,6 +34,8 @@ class NativeApi(private val session: NativeSession) {
         method: String = "GET",
         body: Any? = null
     ): Any? = withContext(Dispatchers.IO) {
+        /* 앱을 오래 켜 둬도 WebView에게 토큰 갱신을 부탁하지 않는다. */
+        if (session.needsRefresh) NativeAuth.refresh(session)
         val qs = query.joinToString("&") { enc(it.first) + "=" + enc(it.second) }
         val base = session.supabaseUrl.trimEnd('/')
         val url = "$base/$path" + if (qs.isEmpty()) "" else "?$qs"
