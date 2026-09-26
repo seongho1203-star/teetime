@@ -229,7 +229,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> pullY = e.rawY
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (e.rawY - pullY >= dp(28f)) hideKeyboard()
+                        if (e.rawY - pullY >= dp(40f)) hideKeyboard()
                     }
                 }
             }
