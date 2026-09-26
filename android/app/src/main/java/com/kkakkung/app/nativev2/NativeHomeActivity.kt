@@ -74,6 +74,12 @@ class NativeHomeActivity : AppCompatActivity() {
     private val dim = Color.rgb(110, 110, 120)
     private val danger = Color.rgb(190, 45, 55)
 
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) enableNativePush() else toast("알림 권한이 꺼져 있습니다.")
+    }
+
     private val avatarPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@registerForActivityResult
         scope.launch {
@@ -893,6 +899,9 @@ class NativeHomeActivity : AppCompatActivity() {
                 line(page, "전화번호", priv?.optString("phone").orEmpty())
                 line(page, "차량번호", priv?.optString("car").orEmpty())
                 page.addView(action("프로필 수정", primary = true) { profileForm(p, priv) })
+                page.addView(action("이 기기로 알림 받기") {
+                    if (NativePush.requestIfNeeded(this@NativeHomeActivity, notificationPermission)) enableNativePush()
+                })
                 page.addView(action("정산 현황") { showSettlements() })
                 if (p.optString("role") in setOf("staff", "admin", "superadmin")) {
                     page.addView(action("회원 명단") { showMembers() })
@@ -1472,6 +1481,14 @@ class NativeHomeActivity : AppCompatActivity() {
         scope.launch {
             try { work() }
             catch (e: Exception) { toast(e.message ?: "처리하지 못했습니다.") }
+        }
+    }
+
+    private fun enableNativePush() {
+        mutate {
+            val token = NativePush.token()
+            api.enablePush(token)
+            toast("이 기기로 알림을 받습니다.")
         }
     }
 
