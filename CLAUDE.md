@@ -5270,6 +5270,8 @@ ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
 ios/App/App/RoundViewController.swift    ← 2단계: 라운드 상세(신청·취소·정산 보기·댓글)
 ios/App/App/PollViewController.swift     ← 2단계: 투표 상세(표 던지기·현황 탭·댓글)
 ios/App/App/HelpViewController.swift     ← 2단계: 사용자 가이드(글은 `src/lib/guide.ts`)
+ios/App/App/FormScreen.swift             ← 3단계: 쓰는 화면 뼈대(저장 바 · 칸)
+ios/App/App/PostEditViewController.swift ← 3단계: 공지 쓰기·고치기
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5311,6 +5313,11 @@ ios/App/App/HelpViewController.swift     ← 2단계: 사용자 가이드(글은
 - **가이드의 글은 `src/lib/guide.ts` 한 곳이다.** 웹 `Help.tsx`와 앱 `HelpViewController`가
   같은 글을 쓴다(앱은 `open({guide})`로 받는다). 표시는 `**굵게**`·`((곁말))` 둘뿐 —
   웹 `Rich`와 Swift `GuideText`를 한쪽만 고치지 말 것. **Swift에 글을 적지 말 것.**
+- **쓰는 화면은 `FormScreenController`(FormScreen.swift)를 물려받는다** — 저장
+  단추는 `keyboardLayoutGuide`에 묶인 아래 붙박이 바이고, 글칸 밖을 누르면
+  키보드를 내린다. **한 번 그린 폼은 다시 받지 않는다**(`built`) — 틀에 남았다
+  되살아날 때(`loadScreen`) 적던 글이 날아가면 안 된다. 글자 수 한도는 조합이
+  끝난 뒤에 자른다(`markedTextRange`).
 - **알림함은 여는 순간 다 읽음으로 찍고 `fresh`로 가른다** — 웹 `Alerts.tsx`와 같은
   규칙(`read_at`으로 그리지 말 것 · id마다 한 번만 판단).
 - **제약을 직접 거는 뷰는 `translatesAutoresizingMaskIntoConstraints = false`를

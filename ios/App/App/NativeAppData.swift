@@ -480,6 +480,24 @@ extension NativeChatService {
         let result = try await request("rest/v1/\(table)", query: [("id", "eq.\(id)")], method: "DELETE") as? [ChatJSON]
         guard result?.isEmpty == false else { throw NativeChatError(message: "권한이 없거나 이미 지워졌습니다.") }
     }
+    /// 공지 한 편 올리기 — 새 글의 id를 돌려준다(웹 `PostEdit`의 insert).
+    func insertPost(title: String, body: String, pinned: Bool) async throws -> String {
+        let result = try await request("rest/v1/posts", query: [("select", "id")], method: "POST",
+                                       body: ["title": title, "body": body, "pinned": pinned, "author_id": config.user]) as? [ChatJSON]
+        guard let id = result?.first?["id"] as? String else { throw NativeChatError(message: "올리지 못했습니다. 다시 시도해 주세요.") }
+        return id
+    }
+    /// 공지 고치기 — 정책에 막히면 빈 답이 온다.
+    func updatePost(_ id: String, title: String, body: String, pinned: Bool) async throws {
+        let result = try await request("rest/v1/posts", query: [("id", "eq.\(id)"), ("select", "id")], method: "PATCH",
+                                       body: ["title": title, "body": body, "pinned": pinned, "updated_at": AppDate.nowIso()]) as? [ChatJSON]
+        guard result?.isEmpty == false else { throw NativeChatError(message: "내가 쓴 글만 고칠 수 있습니다.") }
+    }
+    /// 내 등급 한 칸 — 쓰는 화면이 '누가 쓸 수 있나'를 가린다. 못 받으면 일반회원으로 본다.
+    func myRole() async -> String {
+        let r = try? await rows("profiles", [("select", "role"), ("id", "eq.\(config.user)"), ("limit", "1")])
+        return r?.first?["role"] as? String ?? "member"
+    }
     func setPinned(_ id: String, _ pinned: Bool) async throws {
         let result = try await request("rest/v1/posts", query: [("id", "eq.\(id)")],
                                        method: "PATCH", body: ["pinned": pinned]) as? [ChatJSON]

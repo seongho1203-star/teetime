@@ -11,6 +11,7 @@ import { Alerts } from './Alerts';
 import { RoundDetail } from './RoundDetail';
 import { PollDetail } from './PollDetail';
 import { Help } from './Help';
+import { PostEdit } from './PostEdit';
 import { guideTable } from '../lib/guide';
 
 /**
@@ -44,6 +45,13 @@ export function PollRoute() {
     const { id } = useParams<{ id: string }>();
     const path = `/polls/${id ?? ''}`;
     return nativeScreen(path) ? <NativeScreenHost path={path} /> : <PollDetail />;
+}
+
+/** 공지 쓰기(`/board/new`)·고치기(`/board/<id>/edit`) — 3단계. */
+export function PostEditRoute() {
+    const { id } = useParams<{ id: string }>();
+    const path = id ? `/board/${id}/edit` : '/board/new';
+    return nativeScreen(path) ? <NativeScreenHost path={path} /> : <PostEdit />;
 }
 
 /** 가이드의 글은 웹이 들고 있다(`lib/guide.ts`) — 열 때 통째로 실어 보낸다. */

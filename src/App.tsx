@@ -20,11 +20,10 @@ import { RoundGroups } from './screens/RoundGroups';
 import { Polls } from './screens/Polls';
 import { PollEdit } from './screens/PollEdit';
 import { Board } from './screens/Board';
-import { PostEdit } from './screens/PostEdit';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
-import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
+import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollRoute, PostEditRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
 import { hasNativeApp } from './lib/native-app';
 import { Settle } from './screens/Settle';
 
@@ -97,9 +96,9 @@ function Gate() {
                 <Route path="/polls/:id" element={<PollRoute />} />
                 <Route path="/polls/:id/edit" element={<PollEdit />} />
                 <Route path="/board" element={<Board />} />
-                <Route path="/board/new" element={<PostEdit />} />
+                <Route path="/board/new" element={<PostEditRoute />} />
                 <Route path="/board/:id" element={<PostRoute />} />
-                <Route path="/board/:id/edit" element={<PostEdit />} />
+                <Route path="/board/:id/edit" element={<PostEditRoute />} />
                 <Route path="/chat" element={<ChatRoute />} />
                 <Route path="/me" element={<Me />} />
                 {/* 아이폰 앱에서 스위치가 켜져 있으면 앱이 그린다(`docs/아이폰-네이티브.md`). */}
