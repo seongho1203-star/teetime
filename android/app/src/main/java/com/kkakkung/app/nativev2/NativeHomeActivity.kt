@@ -1626,11 +1626,30 @@ class NativeHomeActivity : AppCompatActivity() {
                     jsonObjects(s.optJSONArray("settlement_shares")).filter { !it.optBoolean("paid") }
                         .sumOf { it.optInt("amount") }
                 }
-                if (open.isEmpty()) body(page, "다 걷혔습니다 👏")
-                else {
-                    title(page, money(owed))
-                    body(page, "아직 안 걷힌 정산 ${open.size}건")
+                val summary = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                    setPadding(dp(13), dp(16), dp(13), dp(16))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+                    }
                 }
+                if (open.isEmpty()) {
+                    summary.addView(TextView(this@NativeHomeActivity).apply {
+                        text = "다 걷혔습니다 👏"; textSize = 16.3f; typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(grassDeep)
+                    })
+                } else {
+                    summary.addView(TextView(this@NativeHomeActivity).apply {
+                        text = money(owed); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                    })
+                    summary.addView(TextView(this@NativeHomeActivity).apply {
+                        text = "아직 안 걷힌 정산 ${open.size}건"; textSize = 13f; setTextColor(dim)
+                        setPadding(0, dp(4), 0, 0)
+                    })
+                }
+                page.addView(summary, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(10) })
                 if (mine.isEmpty()) {
                     empty(page, "내가 올린 정산이 없습니다. 라운드 상세에서 정산을 만들 수 있습니다.")
                 }
@@ -1640,15 +1659,33 @@ class NativeHomeActivity : AppCompatActivity() {
                     val box = LinearLayout(this@NativeHomeActivity).apply {
                         orientation = LinearLayout.VERTICAL
                         setPadding(dp(14), dp(12), dp(14), dp(12))
-                        background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.WHITE) }
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+                        }
                     }
-                    box.addView(TextView(this@NativeHomeActivity).apply {
-                        text = settlement.optString("title"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                    val titleRow = LinearLayout(this@NativeHomeActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    }
+                    titleRow.addView(TextView(this@NativeHomeActivity).apply {
+                        text = settlement.optString("title"); textSize = 16.3f
+                        typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    titleRow.addView(TextView(this@NativeHomeActivity).apply {
+                        text = "›"; textSize = 20f; setTextColor(faint)
                     })
-                    body(box, rounds[settlement.optString("round_id")].orEmpty())
-                    if (unpaid.isEmpty()) body(box, "입금 완료")
-                    else {
-                        body(box, "미입금 ${unpaid.size}명 · ${money(unpaid.sumOf { it.optInt("amount") })}")
+                    box.addView(titleRow)
+                    val course = rounds[settlement.optString("round_id")].orEmpty()
+                    if (course.isNotBlank()) box.addView(TextView(this@NativeHomeActivity).apply {
+                        text = course; textSize = 11.5f; setTextColor(faint); setPadding(0, dp(3), 0, dp(5))
+                    })
+                    if (unpaid.isEmpty()) {
+                        box.addView(badge("입금 완료", grassDeep))
+                    } else {
+                        box.addView(TextView(this@NativeHomeActivity).apply {
+                            text = "미입금 ${unpaid.size}명 · ${money(unpaid.sumOf { it.optInt("amount") })}"
+                            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(dim)
+                            setPadding(0, dp(8), 0, dp(3))
+                        })
                         unpaid.forEach { share ->
                             val uid = share.optString("user_id")
                             val row = personRow(
