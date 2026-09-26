@@ -14,12 +14,14 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.kkakkung.app.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,12 +58,12 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val column = LinearLayout(activity)
     private val header = LinearLayout(activity)
-    private val backBtn = TextView(activity)
+    private val backBtn = ImageView(activity)
     private val list = ChatListView(activity)
     private val status = TextView(activity)
     private val composer = LinearLayout(activity)
     private val input = EditText(activity)
-    private val sendBtn = TextView(activity)
+    private val sendBtn = ImageView(activity)
 
     private var room = ""
     private var people: List<JSONObject> = emptyList()
@@ -84,6 +86,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var softInputBefore: Int? = null
     private val stage2 get() = ChatCatchup.stage2(activity)
     private var pullY = 0f
+    private var lastIme = false
+    private var navColorBefore: Int? = null
 
     init {
         setBackgroundColor(ChatSkin.bg)
@@ -95,8 +99,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         header.orientation = LinearLayout.HORIZONTAL
         header.gravity = Gravity.CENTER_VERTICAL
         header.setBackgroundColor(ChatSkin.head)
-        backBtn.text = "‹"; backBtn.textSize = 30f; backBtn.setTextColor(ChatSkin.headText)
-        backBtn.gravity = Gravity.CENTER
+        backBtn.setImageResource(R.drawable.ic_chat_back)
+        backBtn.scaleType = ImageView.ScaleType.CENTER
         backBtn.contentDescription = "뒤로"
         backBtn.setOnClickListener { goBack() }
         header.addView(backBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { leftMargin = dp(8f) })
@@ -115,20 +119,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         composer.orientation = LinearLayout.HORIZONTAL
         composer.gravity = Gravity.BOTTOM
         composer.setBackgroundColor(ChatSkin.bg)
-        composer.setPadding(dp(6f), dp(6f), dp(6f), dp(10f))
+        /* 문서 2-2: 뒤에 흰 판/위 선 없이 보라가 그대로 보인다.
+           한 줄 글칸은 정확히 48dp, radius 24. */
+        composer.setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
         input.background = GradientDrawable().apply { cornerRadius = dp(24f).toFloat(); setColor(ChatSkin.bubble) }
         input.setTextColor(ChatSkin.text); input.textSize = 16f
         input.setHintTextColor(0xFF9AA090.toInt()); input.hint = "메시지"
-        input.minHeight = dp(48f); input.maxLines = 5
+        input.minHeight = dp(48f); input.maxHeight = dp(120f); input.maxLines = 5
         input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        input.setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
-        composer.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6f) })
-        sendBtn.text = "↑"; sendBtn.textSize = 20f; sendBtn.setTextColor(Color.WHITE); sendBtn.typeface = Typeface.DEFAULT_BOLD
-        sendBtn.gravity = Gravity.CENTER
+        input.setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
+        composer.addView(input, LinearLayout.LayoutParams(0, dp(48f), 1f).apply { rightMargin = dp(6f) })
+        sendBtn.setImageResource(R.drawable.ic_chat_send_up)
+        sendBtn.scaleType = ImageView.ScaleType.CENTER
         sendBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ChatSkin.brand) }
         sendBtn.contentDescription = "보내기"
         sendBtn.setOnClickListener { send() }
-        composer.addView(sendBtn, LinearLayout.LayoutParams(dp(40f), dp(40f)).apply { bottomMargin = dp(4f) })
+        composer.addView(sendBtn, LinearLayout.LayoutParams(dp(34f), dp(34f)).apply { bottomMargin = dp(7f) })
         column.addView(composer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         /* 상태 막대와 홈/제스처 영역만 피한다.
@@ -150,13 +156,16 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             val nativeV2 = activity.javaClass.name.endsWith(".nativev2.NativeHomeActivity")
 
             if (nativeV2) {
-                /* NativeHomeActivity shell이 systemBars + IME를 전담한다.
-                   여기서 다시 더하면 입력창이 키보드에서 뜨거나 기기별로 두 번
-                   올라간다. ChatScreen은 받은 영역의 맨 아래에 composer만 둔다. */
                 v.setPadding(0, 0, 0, 0)
             } else {
-                /* 기존 하이브리드 Activity는 창 자체가 resize되는 경로를 유지한다. */
+                /* 하이브리드 Activity는 adjustResize가 IME 윗선까지 창을 줄인다.
+                   키보드가 없을 때만 system bar를 피한다. */
                 v.setPadding(0, bars.top, 0, if (imeVisible) 0 else bars.bottom)
+            }
+            if (stage2 && imeVisible != lastIme) {
+                val wasBottom = list.atBottom
+                lastIme = imeVisible
+                if (wasBottom) list.post { list.scrollToBottom(false) }
             }
             ins
         }
@@ -195,6 +204,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
         visible = true; navigating = false
+        if (stage2 && navColorBefore == null) {
+            navColorBefore = activity.window.navigationBarColor
+            activity.window.navigationBarColor = ChatSkin.bg
+        }
         if (!loaded) startLoad() else { realtime?.start(); sync(); markRead() }
         ViewCompat.requestApplyInsets(this)
     }
@@ -202,6 +215,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     fun detach() {
         visible = false
         hideKeyboard()
+        navColorBefore?.let { activity.window.navigationBarColor = it; navColorBefore = null }
         realtime?.stop()
         softInputBefore?.let { activity.window.setSoftInputMode(it); softInputBefore = null }
         (parent as? ViewGroup)?.removeView(this)
