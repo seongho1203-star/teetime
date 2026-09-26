@@ -2,7 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { NativeApp, nativeScreen } from '../lib/native-app';
+import { NativeApp, nativeAppOn, nativeScreen, setNativeAppOn } from '../lib/native-app';
+import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
+import { chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep } from '../lib/push';
+import { leaveAccount } from '../lib/account';
+import { signOut } from '../lib/supabase';
+import { readableError } from '../lib/errors';
+import { lunarToSolar } from '../lib/lunar';
+import { kstDate } from '../lib/format';
+import { Me } from './Me';
 import { afterPaint, TAB_PATHS, chatDragged, hasBackShot, nativeChatEnter, nativeChatLeave, nativeChatPop, nativeNavRendered, navDragged, slideLeft } from '../lib/tabs';
 import { hasNativeChat } from '../lib/native-chat';
 import { Members } from './Members';
@@ -15,8 +23,9 @@ import { PostEdit } from './PostEdit';
 import { PollEdit } from './PollEdit';
 import { RoundEdit } from './RoundEdit';
 import { RoundGroups } from './RoundGroups';
+import { Settle } from './Settle';
 import { COURSES } from '../lib/courses';
-import { BANKS } from '../lib/types';
+import { APP_VERSION, BANKS } from '../lib/types';
 import { guideTable } from '../lib/guide';
 
 /**
@@ -87,6 +96,65 @@ export function RoundGroupsRoute() {
     return nativeScreen(path) ? <NativeScreenHost path={path} /> : <RoundGroups />;
 }
 
+/** 정산 현황(`/settle`) — 3단계. 문은 `내 정보`에 있다. */
+export function SettleRoute() {
+    return nativeScreen('/settle') ? <NativeScreenHost path="/settle" /> : <Settle />;
+}
+
+/**
+ * 내 정보(`/me`) — 3단계. **보이는 것과 프로필 수정·사진은 앱이 하고, 웹이 쥐고
+ * 있는 일은 부탁받아 한다**(`action`): 알림 켜기·대화 알림(푸시 플러그인·구독 줄) ·
+ * 로그아웃·탈퇴(로그인 세션) · 시험 스위치(`localStorage`) · 내 값 다시 받기.
+ * 그래서 알림 상태를 **먼저 물어 두고** 연다 — 앱은 그 값이 없으면 안 뜬다.
+ */
+export function MeRoute() {
+    const on = nativeScreen('/me');
+    const { session, contact, refresh } = useAuth();
+    const [info, setInfo] = useState<Record<string, unknown> | null>(null);
+    useEffect(() => {
+        if (!on) return;
+        let dead = false;
+        void (async () => {
+            const push = await pushState();
+            const chat = push === 'on' ? await chatPush().catch(() => true) : true;
+            if (!dead) setInfo({ push, chat });
+        })();
+        return () => { dead = true; };
+    }, [on]);
+    if (!on) return <Me />;
+    if (!info) return <div className="page center-fill"><span className="spinner" /></div>;
+
+    /* 음력 생일이면 올해 양력 며칠인가 — 음력 셈은 웹에만 있다(`lib/lunar.ts`). */
+    let thisYear = '';
+    if (contact?.birth_cal === 'lunar' && contact.birth_md) {
+        const [m, d] = contact.birth_md.split('-').map(Number);
+        const got = lunarToSolar(Number(kstDate().slice(0, 4)), m, d);
+        if (got) thisYear = `${got.m}월 ${got.d}일`;
+    }
+    const act: ActionFn = async (name, value, say) => {
+        const uid = session?.user.id ?? '';
+        switch (name) {
+            case 'push': {
+                const stop = watchPushStep(step => say({ name: 'step', step }));
+                try {
+                    const next = value === true ? await enablePush(uid) : await disablePush();
+                    return { push: next, chat: next === 'on' ? await chatPush().catch(() => true) : true };
+                } finally { stop(); }
+            }
+            case 'chat': await setChatPush(value === true); return;
+            case 'logout': await signOut(); return;
+            case 'leave': await leaveAccount(uid); return;
+            case 'refresh': await refresh(); return;
+            case 'nativeApp': setNativeAppOn(value === true); return;
+            case 'nav': setNativeNavOff(value !== true); return;
+        }
+    };
+    return <NativeScreenHost path="/me" onAction={act} extra={{
+        ...info, birthdayThisYear: thisYear, version: APP_VERSION,
+        nativeApp: nativeAppOn(), navOn: !nativeNavOff(),
+    }} />;
+}
+
 /** 가이드의 글은 웹이 들고 있다(`lib/guide.ts`) — 열 때 통째로 실어 보낸다. */
 export function HelpRoute() {
     return nativeScreen('/help') ? <NativeScreenHost path="/help" extra={{ guide: guideTable() }} /> : <Help />;
@@ -101,7 +169,16 @@ const NAV_OK = /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$|members
  * (`nativeChatEnter`), 열고, `back`이 오면 뒤로 간다. 대화만의 것(읽음·
  * 이모티콘·추천 표)이 없을 뿐이다.
  */
-function NativeScreenHost({ path, extra }: { path: string; extra?: Record<string, unknown> }) {
+/**
+ * 앱 화면이 부탁한 일(`action`)을 웹이 한다 — 답(`reply`)에 실을 값을 돌려주고,
+ * 실패하면 던진다(그 말이 사람 말로 앱에 간다). `say`는 도는 동안의 걸음을 알린다.
+ */
+type ActionFn = (name: string, value: unknown, say: (data: Record<string, unknown>) => void)
+    => Promise<Record<string, unknown> | void>;
+
+function NativeScreenHost({ path, extra, onAction }: {
+    path: string; extra?: Record<string, unknown>; onAction?: ActionFn;
+}) {
     const { session } = useAuth();
     const user = session?.user.id ?? '';
     const current = useRef(session);
@@ -112,6 +189,8 @@ function NativeScreenHost({ path, extra }: { path: string; extra?: Record<string
     const [attempt, setAttempt] = useState(0);
     const extraRef = useRef(extra);
     useEffect(() => { extraRef.current = extra; }, [extra]);
+    const actionRef = useRef(onAction);
+    useEffect(() => { actionRef.current = onAction; }, [onAction]);
     useLayoutEffect(() => {
         if (!user) return;
         const screen = crypto.randomUUID();
@@ -131,6 +210,13 @@ function NativeScreenHost({ path, extra }: { path: string; extra?: Record<string
                     navigate(e.data.path, { replace: e.data.replace === true });
                 }
                 if (e.type === 'back') goBack();
+                if (e.type === 'action' && e.data.name && actionRef.current) {
+                    const name = e.data.name;
+                    const say = (d: Record<string, unknown>) => { void NativeApp.reply({ screen, ...d }).catch(() => {}); };
+                    void actionRef.current(name, e.data.value, say)
+                        .then(r => say({ name, ok: true, ...(r ?? {}) }))
+                        .catch(err => say({ name, ok: false, why: readableError(err) }));
+                }
                 if (e.type === 'auth') {
                     void supabase.auth.refreshSession().then(({ data }) => {
                         if (data.session && !dead) void NativeApp.session({ user, token: data.session.access_token });

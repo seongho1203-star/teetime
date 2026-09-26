@@ -10,7 +10,9 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
  *    화면 틀에 밀어 올린다. 앱이 모르는 주소면 거절한다.
  *  - `close({screen})` · `session({user, token})`.
  *  - `event` — `back`(`plain` — 웹이 뒤로 간다) · `navigate`(`path`) ·
- *    `auth`(토큰 만료 — 웹이 갱신해 `session`으로 준다).
+ *    `auth`(토큰 만료 — 웹이 갱신해 `session`으로 준다) ·
+ *    `action`(`name`·`value` — **웹이 쥐고 있는 일을 부탁한다**: 알림 켜기·
+ *    로그아웃·탈퇴·시험 스위치. `내 정보`가 쓴다). 웹은 마치면 `reply`로 답한다.
  *
  * **아직 스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켜진 아이폰
  * 앱에서만 `NATIVE_SCREENS`의 주소가 앱 화면으로 가고, 꺼져 있으면 지금의
@@ -18,10 +20,10 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
  */
 export type NativeAppEvent = {
     screen: string;
-    type: 'navigate' | 'auth' | 'back';
+    type: 'navigate' | 'auth' | 'back' | 'action';
     /** `'shell'`이면 껍데기(홈·탭바)가 보낸 것이다. */
     /** `replace`면 이 화면의 자리를 그 화면이 대신한다(지운 글에서 목록으로). */
-    data: { path?: string; phase?: string; replace?: boolean };
+    data: { path?: string; phase?: string; replace?: boolean; name?: string; value?: unknown };
 };
 export const NativeApp = registerPlugin<{
     ready(): Promise<{ v: number; screens: string[] }>;
@@ -38,6 +40,8 @@ export const NativeApp = registerPlugin<{
     go(config: { path: string }): Promise<void>;
     /** 웹 쪽 한 줄을 앱 기록에 남긴다(`내 정보` 맨 아래) — 다리 양쪽을 한 줄로 읽으려는 것. */
     log(config: { line: string }): Promise<void>;
+    /** 앱 화면이 부탁한 일(`action`)의 답 — `{screen, name, ok, why?, …}`. 앱 판 11부터. */
+    reply(config: Record<string, unknown>): Promise<void>;
     addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeApp');
 
@@ -47,7 +51,7 @@ export const NativeApp = registerPlugin<{
  */
 export const NATIVE_SCREENS = ['/members', '/alerts', '/board/:id', '/rounds/:id', '/polls/:id', '/help',
     '/board/new', '/board/:id/edit', '/polls/new', '/polls/:id/edit',
-    '/rounds/new', '/rounds/:id/edit', '/rounds/:id/groups'];
+    '/rounds/new', '/rounds/:id/edit', '/rounds/:id/groups', '/settle', '/me'];
 
 /**
  * 주소가 그 꼴인가 — `:id`는 **uuid 한 조각**이다. 그래서 `/board/new`와

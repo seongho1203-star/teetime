@@ -150,20 +150,7 @@ class FormScreenController: NativeScreenController, UIGestureRecognizerDelegate 
 
     /// 켜고 끄는 줄(웹 `.switch-row` — 켜지면 분홍).
     func switchRow(_ title: String, desc: String?, on: Bool) -> (UIView, UISwitch) {
-        let sw = UISwitch()
-        sw.isOn = on
-        sw.onTintColor = AppSkin.brand
-        sw.accessibilityLabel = title
-        let texts = UIStackView(arrangedSubviews: [mkLabel(title, size: 15, weight: .bold)])
-        texts.axis = .vertical
-        texts.spacing = 2
-        if let desc = desc { texts.addArrangedSubview(mkLabel(desc, size: 12, color: AppSkin.faint, lines: 0)) }
-        let row = UIStackView(arrangedSubviews: [texts, sw])
-        row.axis = .horizontal
-        row.alignment = .center
-        row.spacing = 12
-        sw.setContentHuggingPriority(.required, for: .horizontal)
-        return (row, sw)
+        appSwitchRow(title, desc: desc, on: on)
     }
 
     /// 카드 한 장에 칸들을 담는다.
@@ -353,4 +340,22 @@ final class WhenPicker: UIStackView {
         let week = ["일", "월", "화", "수", "목", "금", "토"][cal.component(.weekday, from: d) - 1]
         return "\(cal.component(.month, from: d))월 \(cal.component(.day, from: d))일 (\(week))"
     }
+}
+
+/// 켜고 끄는 줄(웹 `.switch-row`) — 쓰는 화면과 `내 정보`가 같이 쓴다.
+func appSwitchRow(_ title: String, desc: String?, on: Bool) -> (UIView, UISwitch) {
+    let sw = UISwitch()
+    sw.isOn = on
+    sw.onTintColor = AppSkin.brand
+    sw.accessibilityLabel = title
+    let texts = UIStackView(arrangedSubviews: [mkLabel(title, size: 15, weight: .bold)])
+    texts.axis = .vertical
+    texts.spacing = 2
+    if let desc = desc { texts.addArrangedSubview(mkLabel(desc, size: 12, color: AppSkin.faint, lines: 0)) }
+    let row = UIStackView(arrangedSubviews: [texts, sw])
+    row.axis = .horizontal
+    row.alignment = .center
+    row.spacing = 12
+    sw.setContentHuggingPriority(.required, for: .horizontal)
+    return (row, sw)
 }

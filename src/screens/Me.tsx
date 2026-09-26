@@ -16,6 +16,7 @@ import {
 import { GenderAge } from '../components/GenderAge';
 import { Hinted } from '../components/Hinted';
 import { saveMyProfile } from '../lib/db';
+import { leaveAccount } from '../lib/account';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
 import { Capacitor } from '@capacitor/core';
@@ -276,15 +277,8 @@ export function Me() {
      * 지울 수 있어야 한다**(애플 심사 규정 5.1.1(v)). 없으면 그것만으로
      * 반려된다(`docs/출시-전-할일.md` 0-7번).
      *
-     * **지우는 일은 DB가 한다**(`delete_me`) — 화면이 표를 하나씩 지우면
-     * 중간에 끊겼을 때 반쯤 지워진 사람이 남고, 대기자를 올리는 규칙도
-     * 두 벌이 된다. 여기서 하는 것은 **DB가 못 하는 둘**뿐이다:
-     * 이 기기의 알림 등록을 끊는 것과 저장소의 사진 파일을 지우는 것.
-     *
-     * **순서가 있다.** 알림 → 사진 → 계정이다. 계정을 먼저 지우면 그다음
-     * 두 줄이 권한을 잃어 **사진이 저장소에 영영 남는다.**
-     * 앞의 둘은 실패해도 그냥 넘어간다 — 알림 한 줄 때문에 나갈 길이
-     * 막히면 안 된다(행 자체는 계정과 함께 딸려 지워진다).
+     * **지우는 일은 DB가 한다**(`delete_me`). 순서(알림 → 사진 → 계정)와
+     * 까닭은 `lib/account.ts`의 `leaveAccount`에 있다 — 앱 화면도 같이 쓴다.
      */
     const leaveClub = async () => {
         const ok = await confirm({
@@ -309,30 +303,8 @@ export function Me() {
 
         setLeaving(true);
         try {
-            const uid = session!.user.id;
-
-            /* 이 기기의 알림 등록을 먼저 끊는다. 행만 사라지면 폰은 계속
-               등록돼 있어, 발송기가 미처 못 지운 옛 토큰으로 한 번 더
-               울릴 수 있다(`disablePush`가 있는 까닭이다). */
-            await disablePush().catch(() => { /* 안 돼도 나가는 것을 막지 않는다 */ });
-
-            /* 저장소 파일은 행을 지운다고 같이 사라지지 않는다 — 손으로
-               치운다. 자기 폴더만 지울 수 있게 정책이 막고 있어 남의 것은
-               건드릴 수 없다(`avatars_del`). */
-            try {
-                const { data: files } = await supabase.storage.from('avatars').list(uid);
-                if (files?.length) {
-                    await supabase.storage.from('avatars')
-                        .remove(files.map(f => `${uid}/${f.name}`));
-                }
-            } catch { /* 사진이 남는 것뿐이다 */ }
-
-            const { error } = await supabase.rpc('delete_me');
-            if (error) throw error;
-
-            /* 계정이 이미 없어 로그아웃이 거절될 수 있다 — 그래도 화면은
-               로그인으로 돌아가야 하므로 실패를 삼킨다. */
-            await signOut().catch(() => { /* 세션은 어차피 죽었다 */ });
+            /* 알림 → 사진 → 계정 순서는 `lib/account.ts`에 있다 — 앱 화면(`MeRoute`)도 같이 쓴다. */
+            await leaveAccount(session!.user.id);
             toast('탈퇴했습니다. 그동안 함께해 주셔서 고맙습니다.', 'ok');
         } catch (err) {
             toast(readableError(err), 'error');

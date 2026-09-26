@@ -19,10 +19,8 @@ import { Polls } from './screens/Polls';
 import { Board } from './screens/Board';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
-import { Me } from './screens/Me';
-import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollEditRoute, PollRoute, PostEditRoute, PostRoute, RoundEditRoute, RoundGroupsRoute, RoundRoute } from './screens/NativeScreen';
+import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollEditRoute, PollRoute, PostEditRoute, PostRoute, RoundEditRoute, RoundGroupsRoute, RoundRoute, SettleRoute, MeRoute } from './screens/NativeScreen';
 import { hasNativeApp } from './lib/native-app';
-import { Settle } from './screens/Settle';
 
 /**
  * 라우팅은 **해시 방식**(`/#/rounds`)을 쓴다.
@@ -97,10 +95,10 @@ function Gate() {
                 <Route path="/board/:id" element={<PostRoute />} />
                 <Route path="/board/:id/edit" element={<PostEditRoute />} />
                 <Route path="/chat" element={<ChatRoute />} />
-                <Route path="/me" element={<Me />} />
+                <Route path="/me" element={<MeRoute />} />
                 {/* 아이폰 앱에서 스위치가 켜져 있으면 앱이 그린다(`docs/아이폰-네이티브.md`). */}
                 <Route path="/members" element={<MembersRoute />} />
-                <Route path="/settle" element={<Settle />} />
+                <Route path="/settle" element={<SettleRoute />} />
                 <Route path="/alerts" element={<AlertsRoute />} />
                 <Route path="/help" element={<HelpRoute />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

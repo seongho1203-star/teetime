@@ -36,15 +36,16 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "shell", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shellOff", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "go", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reply", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 9
+    static let version = 11
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
                                     "/board/new", "/board/:id/edit", "/polls/new", "/polls/:id/edit",
-                                    "/rounds/new", "/rounds/:id/edit", "/rounds/:id/groups"]
+                                    "/rounds/new", "/rounds/:id/edit", "/rounds/:id/groups", "/settle", "/me"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -78,6 +79,11 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         switch path {
         case "/members": return MembersViewController(service: service)
         case "/alerts": return AlertsViewController(service: service)
+        case "/settle": return SettleViewController(service: service)
+        case "/me":
+            /* 알림 상태·시험 스위치는 웹이 쥐고 있어 **웹이 열 때만** 뜬다 — 껍데기가 직접 부르면 웹에 맡긴다. */
+            guard given["push"] is String else { return nil }
+            return MeViewController(service: service, info: given)
         case "/help":
             /* 글은 웹이 실어 보낸다(`lib/guide.ts`) — 없으면(껍데기가 직접 부른 판) 웹에 맡긴다. */
             guard let g = options["guide"] as? ChatJSON else { return nil }
@@ -265,6 +271,16 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    /// 앱 화면이 웹에 부탁한 일(`action`)의 답 — 그 화면에 넘긴다(`내 정보`의 알림 켜기·탈퇴 따위).
+    @objc func reply(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if call.getString("screen") == self.id, let vc = self.screen {
+                vc.onReply(call.options as? ChatJSON ?? [:])
+            }
+            call.resolve()
+        }
+    }
+
     /// 웹이 어디로 가라고 — 알림을 눌러 온 길·탭 주소 동기(`NativeShellSync`).
     @objc func go(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -436,6 +452,8 @@ class NativeScreenController: UIViewController {
 
     /// 화면이 처음 보일 때 한 번 — 화면마다 여기서 받아 온다.
     func loadScreen() {}
+    /// 웹에 부탁한 일(`action` 이벤트)의 답 — `NativeApp.reply`. 부탁하는 화면(`내 정보`)만 덮는다.
+    func onReply(_ data: ChatJSON) {}
 
     @objc private func backTapped() { goBack() }
 

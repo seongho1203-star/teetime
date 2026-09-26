@@ -5278,6 +5278,9 @@ ios/App/App/PollEditViewController.swift ← 3단계: 투표 만들기·고치�
 ios/App/App/RoundEditViewController.swift ← 3단계: 모집 열기·고치기(골프장 목록은 웹이 실어 보낸다)
 ios/App/App/SettlementEditViewController.swift ← 3단계: 정산 만들기(라운드 위 시트 · 주소 없음)
 ios/App/App/RoundGroupsViewController.swift ← 3단계: 조 편성(나누는 규칙 `GroupRules`는 `src/lib/groups.ts`와 한 벌)
+ios/App/App/SettleViewController.swift       ← 3단계: 정산 현황(`/settle`)
+ios/App/App/MeViewController.swift           ← 3단계: 내 정보(알림·로그아웃·탈퇴·스위치는 `action`으로 웹에 부탁 → `reply`)
+src/lib/account.ts                           ← 탈퇴 순서(`leaveAccount`) — 웹 `Me`와 앱 `MeRoute`가 같이 쓴다
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5374,6 +5377,10 @@ ios/App/App/RoundGroupsViewController.swift ← 3단계: 조 편성(나누는 �
 - **골프장·은행·가이드 글은 웹이 한 번 실어 보낸다**(`shell()` → `NativeAppPlugin.shared`,
   `make`가 바탕에 깐다). 원본은 웹(`lib/courses.ts`·`BANKS`·`lib/guide.ts`) 한 곳이다 —
   **Swift에 목록을 또 적지 말 것.** 그 값이 없으면(옛 웹) `make`가 `nil`로 웹에 맡긴다.
+- **웹이 쥔 일은 `action`으로 부탁한다**(`내 정보`) — 앱 화면이 `event("action",
+  {name, value})`를 보내면 `NativeScreenHost`의 `onAction`이 하고 `NativeApp.reply`로
+  답한다(→ `onReply`). 푸시 플러그인·로그인 세션·`localStorage`는 웹 것이라 Swift에
+  두 벌을 만들지 말 것. `reply`는 앱 판 11부터다.
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).
