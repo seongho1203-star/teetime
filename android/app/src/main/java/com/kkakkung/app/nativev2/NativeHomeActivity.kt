@@ -152,6 +152,13 @@ class NativeHomeActivity : AppCompatActivity() {
         }
     }
 
+    private fun selectTabCompat(id: String) {
+        tabs.forEach { (key, b) ->
+            b.setTextColor(if (key == id) brand else dim)
+            b.typeface = if (key == id) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+    }
+
     private fun showHome() {
         currentTab = "home"
         tabs.forEach { (key, b) ->
@@ -212,6 +219,113 @@ class NativeHomeActivity : AppCompatActivity() {
                 error(page, e.message ?: "불러오지 못했습니다.")
             }
         }
+    }
+
+    // ── 공지 ───────────────────────────────────────────────────
+
+    private fun showBoard() {
+        detail = false
+        currentTab = "board"; selectTabCompat("board")
+        chat?.let { if (it.parent != null) it.detach() }
+        val page = page("공지")
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val profile = api.profile()
+                val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
+                val people = api.people().associateBy { it.optString("id") }
+                val posts = api.posts()
+                page.removeView(loading)
+                if (admin) page.addView(action("＋ 공지 쓰기", primary = true) { postForm(null) })
+                if (posts.isEmpty()) empty(page, "아직 공지가 없습니다.")
+                posts.forEach { p ->
+                    page.addView(cardView(
+                        (if (p.optBoolean("pinned")) "📌 " else "") + p.optString("title"),
+                        personLabel(people[p.optString("author_id")]) + " · " + date(p.optString("created_at"))
+                    ) { showPost(p.optString("id")) })
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "공지를 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun showPost(id: String) {
+        detail = true
+        val page = detailPage("공지")
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val post = api.post(id)
+                val comments = api.postComments(id)
+                val peopleList = api.people()
+                val profile = api.profile()
+                page.removeView(loading)
+                if (post == null) { error(page, "없는 공지입니다."); return@launch }
+                val people = peopleList.associateBy { it.optString("id") }
+                val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
+                val canEdit = admin || post.optString("author_id") == session.userId
+                if (post.optBoolean("pinned")) body(page, "📌 고정 공지")
+                title(page, post.optString("title"))
+                line(page, "작성", personLabel(people[post.optString("author_id")]))
+                line(page, "시각", date(post.optString("created_at")))
+                body(page, post.optString("body"))
+                if (canEdit) page.addView(action("수정") { postForm(post) })
+                if (admin) {
+                    page.addView(action(if (post.optBoolean("pinned")) "고정 해제" else "맨 위에 고정") {
+                        mutate { api.togglePostPin(id, !post.optBoolean("pinned")); showPost(id) }
+                    })
+                    page.addView(action("공지 삭제", danger = true) {
+                        confirm("이 공지를 지울까요?", "댓글도 함께 사라지며 되돌릴 수 없습니다.") {
+                            mutate { api.deletePost(id); toast("지웠습니다."); showBoard() }
+                        }
+                    })
+                }
+                commentsBlock(page, comments, people) { text ->
+                    mutate { api.addComment("post_comments", "post_id", id, text); showPost(id) }
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "공지를 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun postForm(existing: JSONObject?) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+        }
+        val t = EditText(this).apply {
+            hint = "제목"; setText(existing?.optString("title").orEmpty()); maxLines = 2
+        }
+        val b = EditText(this).apply {
+            hint = "내용"; setText(existing?.optString("body").orEmpty()); minLines = 7
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        val pin = CheckBox(this).apply {
+            text = "맨 위에 고정"; isChecked = existing?.optBoolean("pinned") == true
+        }
+        box.addView(t); box.addView(b); box.addView(pin)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "공지 쓰기" else "공지 수정")
+            .setView(box).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = t.text.toString().trim()
+                if (title.isBlank()) { toast("제목을 적어 주세요."); return@setOnClickListener }
+                dialog.dismiss()
+                mutate {
+                    val id = if (existing == null)
+                        api.createPost(title, b.text.toString().trim(), pin.isChecked)
+                    else {
+                        api.updatePost(existing.optString("id"), title, b.text.toString().trim(), pin.isChecked)
+                        existing.optString("id")
+                    }
+                    toast(if (existing == null) "공지를 올렸습니다." else "수정했습니다.")
+                    showPost(id)
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun showRound(id: String) {
