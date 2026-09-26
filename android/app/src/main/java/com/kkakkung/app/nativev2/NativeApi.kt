@@ -209,6 +209,69 @@ class NativeApi(private val session: NativeSession) {
         return id
     }
 
+    // ── 공지 ───────────────────────────────────────────────────
+
+    suspend fun posts(): List<JSONObject> =
+        rows("posts", listOf("select" to "*", "order" to "pinned.desc,created_at.desc", "limit" to "200"))
+
+    suspend fun post(id: String): JSONObject? =
+        rows("posts", listOf("select" to "*", "id" to "eq.$id", "limit" to "1")).firstOrNull()
+
+    suspend fun postComments(id: String): List<JSONObject> =
+        rows("post_comments", listOf(
+            "select" to "*", "post_id" to "eq.$id", "order" to "created_at.asc", "limit" to "500"
+        ))
+
+    suspend fun createPost(title: String, bodyText: String, pinned: Boolean): String {
+        val v = request("rest/v1/posts", method = "POST", body = JSONObject()
+            .put("title", title).put("body", bodyText).put("pinned", pinned).put("author_id", session.userId))
+        return firstObject(v)?.optString("id").orEmpty().ifBlank { throw NativeApiError("공지를 올리지 못했습니다.") }
+    }
+
+    suspend fun updatePost(id: String, title: String, bodyText: String, pinned: Boolean) {
+        val v = request("rest/v1/posts", listOf("id" to "eq.$id"), "PATCH", JSONObject()
+            .put("title", title).put("body", bodyText).put("pinned", pinned)
+            .put("updated_at", java.time.Instant.now().toString()))
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("공지를 수정할 권한이 없습니다.")
+    }
+
+    suspend fun togglePostPin(id: String, pinned: Boolean) {
+        request("rest/v1/posts", listOf("id" to "eq.$id"), "PATCH", JSONObject().put("pinned", pinned))
+    }
+
+    suspend fun deletePost(id: String) {
+        val v = request("rest/v1/posts", listOf("id" to "eq.$id"), "DELETE")
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("공지를 지울 권한이 없습니다.")
+    }
+
+    // ── 정산 현황 ───────────────────────────────────────────────
+
+    suspend fun settlements(limit: Int = 30): List<JSONObject> = try {
+        rows("settlements", listOf(
+            "select" to "id,round_id,title,total,created_by,created_at,settlement_shares(id,settlement_id,user_id,amount,paid)",
+            "order" to "created_at.desc", "limit" to limit.toString()
+        ))
+    } catch (_: Exception) { emptyList() }
+
+    suspend fun markSharePaid(id: String, paid: Boolean = true) {
+        val v = request("rest/v1/settlement_shares", listOf("id" to "eq.$id"), "PATCH",
+            JSONObject().put("paid", paid))
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("입금 상태를 바꿀 권한이 없습니다.")
+    }
+
+    suspend fun remindSettlement(id: String) {
+        request("rest/v1/settle_reminders", method = "POST", body = JSONObject().put("settlement_id", id))
+    }
+
+    suspend fun roundNames(ids: List<String>): Map<String, String> {
+        if (ids.isEmpty()) return emptyMap()
+        val rows = rows("rounds", listOf(
+            "select" to "id,course,title",
+            "id" to "in.(${ids.joinToString(",")})"
+        ))
+        return rows.associate { it.optString("id") to it.optString("course").ifBlank { it.optString("title") } }
+    }
+
     suspend fun castVote(optionId: String) {
         request("rest/v1/rpc/cast_vote", method = "POST", body = JSONObject().put("p_option", optionId))
     }
