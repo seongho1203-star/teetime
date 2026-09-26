@@ -526,6 +526,7 @@ class NativeHomeActivity : AppCompatActivity() {
                         when {
                             path.startsWith("/rounds/") -> showRound(path.substringAfter("/rounds/").substringBefore('/'))
                             path.startsWith("/polls/") -> showPoll(path.substringAfter("/polls/").substringBefore('/'))
+                            path.startsWith("/board/") -> showPost(path.substringAfter("/board/").substringBefore('/'))
                         }
                     }
                     "back" -> showHome()
@@ -533,6 +534,81 @@ class NativeHomeActivity : AppCompatActivity() {
             }
         }
         c.attach(content)
+    }
+
+    // ── 정산 현황 ───────────────────────────────────────────────
+
+    private fun showSettlements() {
+        detail = true
+        val page = detailPage("정산 현황")
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val list = api.settlements()
+                val people = api.people().associateBy { it.optString("id") }
+                val roundIds = list.map { it.optString("round_id") }.filter { it.isNotBlank() }.distinct()
+                val rounds = api.roundNames(roundIds)
+                page.removeView(loading)
+                val mine = list.filter { it.optString("created_by") == session.userId }
+                val open = mine.filter { s -> jsonObjects(s.optJSONArray("settlement_shares")).any { !it.optBoolean("paid") } }
+                val owed = open.sumOf { s ->
+                    jsonObjects(s.optJSONArray("settlement_shares")).filter { !it.optBoolean("paid") }
+                        .sumOf { it.optInt("amount") }
+                }
+                if (open.isEmpty()) body(page, "다 걷혔습니다 👏")
+                else {
+                    title(page, money(owed))
+                    body(page, "아직 안 걷힌 정산 ${open.size}건")
+                }
+                if (mine.isEmpty()) {
+                    empty(page, "내가 올린 정산이 없습니다. 라운드 상세에서 정산을 만들 수 있습니다.")
+                }
+                mine.forEach { settlement ->
+                    val shares = jsonObjects(settlement.optJSONArray("settlement_shares"))
+                    val unpaid = shares.filter { !it.optBoolean("paid") }
+                    val box = LinearLayout(this@NativeHomeActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(14), dp(12), dp(14), dp(12))
+                        background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.WHITE) }
+                    }
+                    box.addView(TextView(this@NativeHomeActivity).apply {
+                        text = settlement.optString("title"); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                    })
+                    body(box, rounds[settlement.optString("round_id")].orEmpty())
+                    if (unpaid.isEmpty()) body(box, "입금 완료")
+                    else {
+                        body(box, "미입금 ${unpaid.size}명 · ${money(unpaid.sumOf { it.optInt("amount") })}")
+                        unpaid.forEach { share ->
+                            val uid = share.optString("user_id")
+                            val row = personRow(
+                                personLabel(people[uid]).ifBlank { "알 수 없음" },
+                                money(share.optInt("amount"))
+                            )
+                            row.setOnClickListener {
+                                confirm("입금완료로 바꿀까요?", personLabel(people[uid])) {
+                                    mutate { api.markSharePaid(share.optString("id")); showSettlements() }
+                                }
+                            }
+                            box.addView(row)
+                        }
+                        box.addView(action("미입금자에게 알림 보내기", primary = true) {
+                            confirm("입금 알림을 보낼까요?", "아직 안 내신 ${unpaid.size}명에게만 갑니다.") {
+                                mutate { api.remindSettlement(settlement.optString("id")); toast("알림을 보냈습니다.") }
+                            }
+                        })
+                    }
+                    box.setOnClickListener {
+                        val rid = settlement.optString("round_id")
+                        if (rid.isNotBlank()) showRound(rid)
+                    }
+                    page.addView(box, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(10) })
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "정산을 불러오지 못했습니다.")
+            }
+        }
     }
 
     private fun showMe() {
