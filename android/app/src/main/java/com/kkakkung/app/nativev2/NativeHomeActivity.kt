@@ -1299,11 +1299,22 @@ class NativeHomeActivity : AppCompatActivity() {
         val options = jsonObjects(p.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
         val votes = jsonObjects(p.optJSONArray("poll_votes"))
         val closed = p.optBoolean("closed") || pollExpired(p.optString("closes_at"))
-        title(page, "🗳 ${p.optString("title")}")
-        body(page, p.optString("body"))
-        line(page, "상태", if (closed) "마감" else "진행중")
-        line(page, "마감", date(p.optString("closes_at")))
-        if (p.optBoolean("multi")) body(page, "복수 선택 가능")
+        val pollHead = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        pollHead.addView(badge(if (closed) "마감" else "진행중", if (closed) faint else grassDeep))
+        if (p.optBoolean("multi")) pollHead.addView(badge("복수 선택", dim))
+        if (p.optBoolean("anonymous")) pollHead.addView(badge("익명", dim))
+        page.addView(pollHead)
+        title(page, p.optString("title"))
+        if (p.optString("body").isNotBlank()) body(page, p.optString("body"))
+        if (p.optString("closes_at").isNotBlank()) {
+            page.addView(TextView(this).apply {
+                text = "마감  ${date(p.optString("closes_at"))}"
+                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(danger)
+                setPadding(0, 0, 0, dp(6))
+            })
+        }
 
         val mayEdit = p.optString("created_by") == session.userId ||
             myProfile?.optString("role") in setOf("staff", "admin", "superadmin")
@@ -1324,25 +1335,64 @@ class NativeHomeActivity : AppCompatActivity() {
         }
 
         section(page, if (closed) "결과" else "선택")
+        val maxVotes = maxOf(1, options.maxOfOrNull { o ->
+            votes.count { it.optString("option_id") == o.optString("id") }
+        } ?: 1)
         options.forEach { option ->
             val oid = option.optString("id")
             val selected = votes.any {
                 it.optString("option_id") == oid && it.optString("user_id") == session.userId
             }
             val count = votes.count { it.optString("option_id") == oid }
-            val button = action(
-                (if (selected) "✓ " else "") + option.optString("label") + "  ·  ${count}표",
-                primary = selected
-            ) {
-                if (!closed) mutate {
-                    if (selected) api.retractVote(oid) else api.castVote(oid)
-                    showPoll(id)
+            val optBox = FrameLayout(this).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(11).toFloat(); setColor(surface2)
+                    if (selected) setStroke(dp(1), brandDeep)
+                }
+                isClickable = !closed
+                if (!closed) setOnClickListener {
+                    mutate {
+                        if (selected) api.retractVote(oid) else api.castVote(oid)
+                        showPoll(id)
+                    }
                 }
             }
-            button.isEnabled = !closed
-            page.addView(button)
+            val bar = View(this).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(11).toFloat(); setColor(Color.rgb(252,230,243))
+                }
+            }
+            optBox.addView(bar, FrameLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply {
+                width = dp((280f * count / maxVotes).toInt())
+            })
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(13), dp(11), dp(13), dp(11))
+            }
+            row.addView(TextView(this).apply {
+                text = if (selected) "✓" else ""
+                textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(brand)
+            }, LinearLayout.LayoutParams(dp(20), ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.addView(TextView(this).apply {
+                text = option.optString("label"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(TextView(this).apply {
+                text = "${count}표"; textSize = 13f; setTextColor(dim)
+            })
+            optBox.addView(row)
+            page.addView(optBox, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6) })
         }
         if (options.isEmpty()) empty(page, "선택지가 없습니다.")
+
+        val participants = votes.map { it.optString("user_id") }.distinct()
+        if (participants.isNotEmpty()) {
+            section(page, "투표 현황")
+            body(page, "참여 ${participants.size}명")
+        }
 
         commentsBlock(page, comments, names) { text ->
             mutate { api.addComment("poll_comments", "poll_id", id, text); showPoll(id) }
