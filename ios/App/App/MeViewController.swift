@@ -6,8 +6,7 @@ import PhotosUI
  * (`docs/아이폰-네이티브.md` 3단계). 주소는 `/me`.
  *
  * **이 화면만 반은 웹에 부탁한다.** 알림 켜기(`enablePush` — 푸시 플러그인·
- * 토큰·구독 줄) · 로그아웃·탈퇴(웹이 든 로그인 세션) · 시험 스위치(웹의
- * `localStorage`)는 **웹이 쥐고 있는 것**이라, 앱이 두 벌을 만들면 반드시
+ * 토큰·구독 줄) · 로그아웃·탈퇴(웹이 든 로그인 세션)는 **웹이 쥐고 있는 것**이라, 앱이 두 벌을 만들면 반드시
  * 어긋난다. 그래서 그 일은 `action` 이벤트로 웹에 넘기고 답(`reply`)을 받는다
  * (`NativeScreen.tsx`의 `MeRoute`). 앱이 직접 하는 것은 **보이는 것 전부 ·
  * 프로필 사진 · 프로필 수정**이다.
@@ -22,8 +21,8 @@ import PhotosUI
  *  - 생일은 내 것만 보인다 · 음력이면 올해 양력 며칠인지 함께(웹이 셈해 준다).
  *  - 대화 알림 줄은 이 기기가 받고 있을 때만 · 꺼도 `@언급`과 답장은 온다.
  *  - 회원 탈퇴는 로그아웃 바로 아래 · 앱관리자에게는 안 보인다.
- *  - **`🧪 시험 중: 앱 화면` 스위치를 빼지 말 것** — 앱 화면이 어긋날 때
- *    웹으로 돌아가는 유일한 문이다.
+ *  - 시험 스위치(`🧪 시험 중: 앱 화면` · `앱이 화면을 밀고 끌기`)와 기록 줄은
+ *    걷어냈다 — 아이폰 앱이 다 됐다(사용자 요청 — `프로필에 필요없는거 이제 지워줘`).
  */
 final class MeViewController: NativeScreenController, PHPickerViewControllerDelegate {
     private let info: ChatJSON
@@ -35,8 +34,6 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
     private var contact: AppContact?
     private var push: String
     private var chat: Bool
-    private var nativeApp: Bool
-    private var navOn: Bool
     private var pushBusy = false
     private var chatBusy = false
     private var photoBusy = false
@@ -48,8 +45,6 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         self.info = info
         push = info["push"] as? String ?? "off"
         chat = info["chat"] as? Bool ?? true
-        nativeApp = info["nativeApp"] as? Bool ?? true
-        navOn = info["navOn"] as? Bool ?? true
         super.init(service: service, title: "내 정보")
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -138,7 +133,6 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         stack.addArrangedSubview(headView())
         stack.addArrangedSubview(menuCard())
         stack.addArrangedSubview(pushCard())
-        stack.addArrangedSubview(labCard())
 
         let logout = UIButton(type: .system)
         appButton(logout, title: "로그아웃", color: AppSkin.text, filled: false)
@@ -283,29 +277,6 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         return c
     }
 
-    /* **시험 스위치와 앱 쪽 기록** — 웹의 같은 자리를 옮겼다. 끄면 앱을 다시 열어야 먹는다. */
-    private func labCard() -> UIView {
-        let c = CardView()
-        c.content.spacing = 12
-        let (r1, s1) = appSwitchRow("🧪 시험 중: 앱 화면 (홈·탭바)",
-                                 desc: nativeApp ? "앱 화면을 씁니다 (만드는 중). 바꾸면 앱을 다시 여세요." : "꺼짐 — 지금까지의 화면 (앱을 다시 열면 적용)",
-                                 on: nativeApp)
-        s1.accessibilityLabel = "앱 화면"
-        s1.addTarget(self, action: #selector(appToggled(_:)), for: .valueChanged)
-        c.content.addArrangedSubview(r1)
-        let (r2, s2) = appSwitchRow("앱이 화면을 밀고 끌기",
-                                 desc: navOn ? "화면 전환과 뒤로 끌기를 앱이 맡습니다" : "꺼짐 — 웹이 밉니다 (앱을 다시 열면 적용)",
-                                 on: navOn)
-        s2.addTarget(self, action: #selector(navToggled(_:)), for: .valueChanged)
-        c.content.addArrangedSubview(r2)
-        let log = AppLog.lines.suffix(20).joined(separator: "\n")
-        if nativeApp && !log.isEmpty {
-            let l = mkLabel(log, size: 10, color: AppSkin.faint, lines: 0)
-            c.content.addArrangedSubview(l)
-        }
-        return c
-    }
-
     // ── 웹에 부탁하는 일 ────────────────────────────────────────
 
     private func action(_ name: String, _ value: Any? = nil) {
@@ -325,8 +296,6 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         action("chat", chat)
         render()
     }
-    @objc private func appToggled(_ s: UISwitch) { nativeApp = s.isOn; action("nativeApp", s.isOn); render() }
-    @objc private func navToggled(_ s: UISwitch) { navOn = s.isOn; action("nav", s.isOn); render() }
 
     @objc private func logoutTapped() {
         confirm(title: "로그아웃할까요?", detail: "이 기기에서 로그아웃합니다.", ok: "로그아웃", danger: false) { [weak self] ok in

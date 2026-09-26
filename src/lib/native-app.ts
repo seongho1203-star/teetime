@@ -68,13 +68,13 @@ function matches(pattern: string, path: string): boolean {
     return re.test(path);
 }
 
-export const NATIVE_APP_KEY = 'teetime:native-app';
-export function nativeAppOn(): boolean {
-    try { return localStorage.getItem(NATIVE_APP_KEY) === 'on'; } catch { return false; }
-}
-export function setNativeAppOn(on: boolean): void {
-    try { if (on) localStorage.setItem(NATIVE_APP_KEY, 'on'); else localStorage.removeItem(NATIVE_APP_KEY); } catch { /* 못 적으면 그대로 웹이다 */ }
-}
+/**
+ * **앱 화면은 이제 기본이다**(사용자 — `이것만하면 아이폰앱은 완성된거같아`).
+ * 한동안 `내 정보 → 🧪 시험 중: 앱 화면` 스위치(`teetime:native-app`) 뒤에
+ * 있었는데 걷어냈다 — 플러그인이 실린 아이폰 앱이면 늘 앱 화면이다.
+ * 옛 판 앱(플러그인 없음)은 `hasNativeApp()`의 나머지 조건에서 저절로 웹이다.
+ */
+export function nativeAppOn(): boolean { return true; }
 
 /** 이 아이폰 앱이 화면을 그릴 수 있고 스위치가 켜져 있는가. */
 export function hasNativeApp(): boolean {

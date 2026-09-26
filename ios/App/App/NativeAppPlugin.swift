@@ -178,10 +178,17 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             let go = { [weak nav] in
                 guard let nav = nav else { call.resolve(["ok": true]); return }
                 let deadOnTop = nav.topViewController is NativeScreenController
+                /* **껍데기(홈·탭) 위에 세우는 것은 늘 밀어 넣는다**(사용자 요청 — `프로필
+                   눌렀을때 우측에서 밀려들어오록해주고`). 홈의 얼굴 → `내 정보`는 껍데기가
+                   웹에 맡겨(알림 상태를 웹이 쥐고 있다) 웹이 그것을 물어보고 여는 동안
+                   `slide`의 남은 시간이 다 지나가, 40ms 잣대에 걸려 **툭 섰다.** 껍데기 위에
+                   서는 것은 늘 앞으로 가는 길이라(뒤로 오면 껍데기로 내려오지 이 위에
+                   무엇을 세우지 않는다) 시간과 상관없이 민다. */
+                let overShell = nav.topViewController is ShellController
                 var stack = nav.viewControllers.filter { !(($0 as? NativeScreenController)?.isDead ?? false) }
                 stack.append(vc)
-                AppLog.add("세움 \(path) deadOnTop=\(deadOnTop) 개수=\(stack.count)")
-                nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
+                AppLog.add("세움 \(path) deadOnTop=\(deadOnTop) overShell=\(overShell) 개수=\(stack.count)")
+                nav.setViewControllers(stack, animated: (ms > 40 || overShell) && !deadOnTop)
                 if let co = nav.transitionCoordinator,
                    co.animate(alongsideTransition: nil, completion: { _ in call.resolve(["ok": true]) }) { return }
                 call.resolve(["ok": true])

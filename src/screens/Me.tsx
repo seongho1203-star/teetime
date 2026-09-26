@@ -21,8 +21,6 @@ import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
 import { Capacitor } from '@capacitor/core';
 import { androidChatOn, setAndroidChat } from '../lib/native-chat';
-import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
-import { NativeApp, nativeAppOn, setNativeAppOn } from '../lib/native-app';
 import { shrinkImage } from '../lib/image';
 import { lunarToSolar } from '../lib/lunar';
 import { kstDate } from '../lib/format';
@@ -181,10 +179,6 @@ export function Me() {
     const [chat, setChat] = useState(true);
     /* 안드로이드 코틀린 대화 화면 스위치(시험 중 — 아래 참고). */
     const [androidChat, setAndroidChatState] = useState(() => androidChatOn());
-    /* 앱이 화면 전환·뒤로 끌기를 맡는 층 스위치(아래 참고). */
-    const [navOn, setNavOnState] = useState(() => !nativeNavOff());
-    /* 아이폰 앱이 화면을 통째로 그리는 스위치(시험 중 — 아래 참고). */
-    const [nativeApp, setNativeAppState] = useState(() => nativeAppOn());
     const [pushBusy, setPushBusy] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
 
@@ -525,50 +519,9 @@ export function Me() {
                 </div>
             )}
 
-            {/* **아이폰 앱이 화면을 통째로 그린다 — 시험 중**(`docs/아이폰-네이티브.md`).
-                대화 다음으로 회원 명단부터 옮겼다. 켠 폰에서만 그 화면들이
-                Swift 화면으로 가고, 끄면 지금까지의 웹 화면이다. 화면이 다
-                옮겨지면 이 줄과 `nativeAppOn()`을 걷어내고 기본으로 한다.
-                플러그인이 실린 앱에서만 뜬다. */}
-            {Capacitor.getPlatform() === 'ios' && Capacitor.isPluginAvailable('NativeApp') && (
-                <div className="card">
-                    <div className="switch-row">
-                        <div className="grow">
-                            <div className="switch-label">🧪 시험 중: 앱 화면 (홈·탭바)</div>
-                            <div className="switch-desc">
-                                {nativeApp ? '홈·탭바·공지·라운드·투표 목록·알림함·회원 명단이 앱 화면입니다 (만드는 중). 바꾸면 앱을 다시 여세요.' : '꺼짐 — 지금까지의 화면'}
-                            </div>
-                        </div>
-                        <Switch label="앱 화면" on={nativeApp}
-                                onChange={next => { setNativeAppOn(next); setNativeAppState(next); }} />
-                    </div>
-                    {/* **앱 화면 쪽 기록** — 폰에서만 갈리는 자리(화면 틀에 무엇이
-                        쌓였나 · 되살렸나 · 누가 내렸나)를 사람이 읽어 주는 줄이다.
-                        까닭이 가려지면 걷어낸다(`ncStatus`·`kb-probe`와 같은 자리). */}
-                    {nativeApp && <AppLogLines />}
-                </div>
-            )}
-
-            {/* **앱이 화면 전환과 뒤로 끌기를 맡는 층**(`lib/native-nav.ts` —
-                사용자 요청 `Native Navigation Layer`). 켜져 있는 것이 기본이고,
-                끄면 예전처럼 웹이 민다 — 폰에서 두 길을 견줄 때와, 어긋나는
-                판이 나왔을 때 되돌리는 문이다. **바꾸면 새로고침해야 먹는다**
-                (`hasNativeNav()`가 한 번 정하면 그대로다). 플러그인이 실린
-                앱에서만 뜬다. */}
-            {Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('NativeNav') && (
-                <div className="card">
-                    <div className="switch-row">
-                        <div className="grow">
-                            <div className="switch-label">앱이 화면을 밀고 끌기</div>
-                            <div className="switch-desc">
-                                {navOn ? '화면 전환과 뒤로 끌기를 앱이 맡습니다' : '꺼짐 — 웹이 밉니다 (앱을 다시 열면 적용)'}
-                            </div>
-                        </div>
-                        <Switch label="앱이 화면을 밀고 끌기" on={navOn}
-                                onChange={next => { setNativeNavOff(!next); setNavOnState(next); }} />
-                    </div>
-                </div>
-            )}
+            {/* 아이폰의 `🧪 시험 중: 앱 화면` · `앱이 화면을 밀고 끌기` 스위치와
+                앱 쪽 기록 줄은 걷어냈다 — 아이폰 앱이 다 됐다(사용자 요청 —
+                `프로필에 필요없는거 이제 지워줘`). 앱 화면·앱 전환이 늘 기본이다. */}
 
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
@@ -610,19 +563,4 @@ export function Me() {
             </p>
         </div>
     );
-}
-
-
-/** `NativeApp.debug()`가 준 기록을 그대로 적는다 — 없는 판이면 아무것도 안 적는다. */
-function AppLogLines() {
-    const [lines, setLines] = useState<string[]>([]);
-    useEffect(() => {
-        let dead = false;
-        const pull = () => { void NativeApp.debug().then(r => { if (!dead) setLines(r.lines ?? []); }).catch(() => {}); };
-        pull();
-        const t = window.setInterval(pull, 2000);
-        return () => { dead = true; window.clearInterval(t); };
-    }, []);
-    if (!lines.length) return null;
-    return <pre className="xs faint" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 8, fontSize: 10, lineHeight: 1.4 }}>{lines.join('\n')}</pre>;
 }

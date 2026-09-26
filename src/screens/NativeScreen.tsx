@@ -2,8 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { LIVE_TABLES, NativeApp, nativeAppOn, nativeScreen, setNativeAppOn, shellReady } from '../lib/native-app';
-import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
+import { LIVE_TABLES, NativeApp, nativeScreen, shellReady } from '../lib/native-app';
 import { chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep } from '../lib/push';
 import { leaveAccount } from '../lib/account';
 import { signOut } from '../lib/supabase';
@@ -145,13 +144,10 @@ export function MeRoute() {
             case 'logout': await signOut(); return;
             case 'leave': await leaveAccount(uid); return;
             case 'refresh': await refresh(); return;
-            case 'nativeApp': setNativeAppOn(value === true); return;
-            case 'nav': setNativeNavOff(value !== true); return;
         }
     };
     return <NativeScreenHost path="/me" onAction={act} extra={{
         ...info, birthdayThisYear: thisYear, version: APP_VERSION,
-        nativeApp: nativeAppOn(), navOn: !nativeNavOff(),
     }} />;
 }
 
@@ -258,7 +254,7 @@ function NativeScreenHost({ path, extra, onAction }: {
     return <div className="page center-fill" aria-label="앱 화면 열기">
         {error ? <>
             <p>{error}</p>
-            <p className="xs faint">계속 안 열리면 내 정보의 `시험 중: 앱 화면` 스위치를 끄면 예전 화면으로 돌아갑니다.</p>
+            <p className="xs faint">계속 안 열리면 앱을 완전히 닫았다가 다시 열어 보세요.</p>
             <button className="btn primary" onClick={() => { setError(''); setAttempt(x => x + 1); }}>다시 시도</button>
         </> : <span className="spinner" />}
     </div>;
