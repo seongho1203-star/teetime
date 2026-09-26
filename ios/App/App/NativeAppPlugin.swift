@@ -37,10 +37,12 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "shellOff", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "go", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "reply", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "reply", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deep", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "changed", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 11
+    static let version = 12
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
@@ -289,6 +291,40 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /**
+     * **알림을 눌러 온 주소**(5단계 · 웹 `nativeDeepLink`). 껍데기나 껍데기가 세운
+     * 화면이 맨 위에 있으면 틀을 껍데기까지 되돌리고 그 주소로 간다 — 그러면
+     * 뒤로 가기가 늘 탭으로 돌아온다. 대화방·웹이 연 화면이 위에 있으면
+     * 맡지 않는다(`handled: false`) — 웹이 예전처럼 해시로 간다.
+     */
+    @objc func deep(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let path = call.getString("path"), let sh = self.shell,
+                  let nav = sh.navigationController, nav.transitionCoordinator == nil
+            else { call.resolve(["handled": false]); return }
+            let top = nav.topViewController
+            let ours = top === sh || ((top as? NativeScreenController)?.shellOwned ?? false)
+            AppLog.add("알림 딥링크 \(path) 맡음=\(ours)")
+            guard ours else { call.resolve(["handled": false]); return }
+            /* 떠 있는 창(프로필 수정 시트·확인창)은 걷는다 — 알림을 누른 것이 곧 그리로 가겠다는 뜻이다. */
+            let go = {
+                if nav.topViewController !== sh { nav.popToViewController(sh, animated: false) }
+                sh.go(path)
+                call.resolve(["handled": true])
+            }
+            if nav.presentedViewController != nil { nav.dismiss(animated: false, completion: go) } else { go() }
+        }
+    }
+
+    /// 실시간으로 바뀐 표(웹 `NativeShellSync`가 모아 보낸다) — 보이는 앱 화면이 다시 받는다.
+    @objc func changed(_ call: CAPPluginCall) {
+        let tables = Set((call.getArray("tables") as? [String]) ?? [])
+        DispatchQueue.main.async {
+            if !tables.isEmpty { AppLive.post(tables) }
+            call.resolve()
+        }
+    }
+
     @objc func close(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             /* 웹이 떠났다. 맨 위면 내리고, 위에 웹 page가 있으면 그대로 두어
@@ -420,6 +456,7 @@ class NativeScreenController: UIViewController {
         rightButton.isHidden = true
         view.addSubview(header); view.addSubview(body)
         header.addSubview(backButton); header.addSubview(titleLabel); header.addSubview(rightButton)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveChanged(_:)), name: AppLive.changed, object: nil)
         NSLayoutConstraint.activate([
             rightButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -8),
             rightButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
@@ -452,6 +489,28 @@ class NativeScreenController: UIViewController {
 
     /// 화면이 처음 보일 때 한 번 — 화면마다 여기서 받아 온다.
     func loadScreen() {}
+
+    // ── 실시간(5단계) ────────────────────────────────────────────
+    /// 이 화면이 다시 받는 표. 비어 있으면(쓰는 화면) 실시간으로 안 받는다.
+    var liveTables: Set<String> { [] }
+    private var liveWork: DispatchWorkItem?
+    @objc private func liveChanged(_ n: Notification) {
+        guard let t = n.userInfo?["tables"] as? Set<String>, !t.isDisjoint(with: liveTables) else { return }
+        liveSoon(0.4)
+    }
+    private func liveSoon(_ delay: Double) {
+        liveWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.liveFire() }
+        liveWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
+    }
+    /// 보이는 화면만 · 떠나는 중이 아니고 · 창이 안 떠 있을 때. 글을 치는 중이면 조금 뒤에 다시 본다.
+    private func liveFire() {
+        guard viewIfLoaded?.window != nil, !navigating, !isDead, presentedViewController == nil else { return }
+        if view.appHoldsFocus { liveSoon(2); return }
+        AppLog.add("다시 받음 \(path)")
+        loadScreen()
+    }
     /// 웹에 부탁한 일(`action` 이벤트)의 답 — `NativeApp.reply`. 부탁하는 화면(`내 정보`)만 덮는다.
     func onReply(_ data: ChatJSON) {}
 
@@ -543,6 +602,35 @@ class NativeScreenController: UIViewController {
         a.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in then(false) })
         a.addAction(UIAlertAction(title: ok, style: danger ? .destructive : .default) { _ in then(true) })
         present(a, animated: true)
+    }
+}
+
+/**
+ * **실시간 — 바뀐 표를 앱 화면들에 알린다**(5단계).
+ *
+ * 연결은 웹이 들고 있다(`NativeShellSync` — 토큰·다시 잇기를 두 벌로 두지
+ * 않으려는 것). 웹이 표 이름만 모아 보내면(`NativeApp.changed`) 여기서
+ * 뿌리고, **보이는 화면만** 제 표가 있으면 다시 받는다 — 안 보이는 화면은
+ * 보일 때 어차피 다시 받는다. 앱으로 돌아올 때(`willEnterForeground`)도
+ * 전부를 한 번 뿌린다: 접어 둔 동안 끊겼던 연결은 그 사이 것을 안 준다
+ * (웹 `useRefreshOnShow`와 같은 자리다).
+ */
+enum AppLive {
+    static let changed = Notification.Name("AppLiveChanged")
+    static let all: Set<String> = ["rounds", "signups", "polls", "poll_options", "poll_votes",
+                                   "posts", "post_comments", "poll_comments", "round_comments", "profiles",
+                                   "settlements", "settlement_shares", "round_groups", "notifications", "messages"]
+    static func post(_ tables: Set<String>) {
+        AppLog.add("실시간 " + tables.sorted().joined(separator: ","))
+        NotificationCenter.default.post(name: changed, object: nil, userInfo: ["tables": tables])
+    }
+}
+
+extension UIView {
+    /// 이 안에서 누가 글을 치고 있나 — 치는 동안에는 다시 받지 않는다(글칸이 흔들린다).
+    var appHoldsFocus: Bool {
+        if isFirstResponder { return true }
+        return subviews.contains { $0.appHoldsFocus }
     }
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { NativeApp, nativeAppOn, nativeScreen, setNativeAppOn } from '../lib/native-app';
+import { LIVE_TABLES, NativeApp, nativeAppOn, nativeScreen, setNativeAppOn, shellReady } from '../lib/native-app';
 import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
 import { chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep } from '../lib/push';
 import { leaveAccount } from '../lib/account';
@@ -303,9 +303,35 @@ export function NativeShellSync() {
             user, token, path: pathRef.current,
             courses: COURSES, banks: BANKS, guide: guideTable(),
             url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        }).catch(() => {});
+        }).then(() => shellReady(true), () => shellReady(false));
     }, [user, token]);
-    useEffect(() => () => { void NativeApp.shellOff().catch(() => {}); }, []);
+    useEffect(() => () => { shellReady(false); void NativeApp.shellOff().catch(() => {}); }, []);
+
+    /* **실시간을 앱에 넘긴다**(5단계). 웹 화면들이 하던 `useRealtime`과 같은 줄을
+       여기 한 곳에서 듣고, 무엇이 바뀌었는지만 모아 보낸다 — 보이는 앱 화면이
+       그 표를 쓰면 다시 받는다(`AppLive`). 앱이 따로 연결을 두지 않는 것은
+       토큰·다시 잇기를 두 벌로 들고 있지 않으려는 것이다. */
+    useEffect(() => {
+        if (!user) return;
+        const hit = new Set<string>();
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const flush = () => {
+            timer = null;
+            const tables = [...hit];
+            hit.clear();
+            if (tables.length) void NativeApp.changed({ tables }).catch(() => { /* 옛 앱 */ });
+        };
+        const ch = supabase.channel(`shell-live:${Math.random().toString(36).slice(2)}`);
+        for (const table of LIVE_TABLES) {
+            ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+                hit.add(table);
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(flush, 300);
+            });
+        }
+        ch.subscribe();
+        return () => { if (timer) clearTimeout(timer); void supabase.removeChannel(ch); };
+    }, [user]);
 
     useEffect(() => {
         if (!user) return;

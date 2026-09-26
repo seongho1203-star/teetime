@@ -24,6 +24,8 @@ import UIKit
  *    실시간은 5단계에서 붙인다.
  */
 final class AlertsViewController: NativeScreenController, UITableViewDataSource, UITableViewDelegate {
+    /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
+    override var liveTables: Set<String> { ["notifications"] }
     private let table = UITableView(frame: .zero, style: .plain)
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let refresh = UIRefreshControl()

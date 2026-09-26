@@ -15,6 +15,8 @@ import UIKit
  *  - `settle_reminders`가 없는 저장소에서는 `마지막 알림` 줄만 안 나온다.
  */
 final class SettleViewController: NativeScreenController {
+    /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
+    override var liveTables: Set<String> { ["settlements", "settlement_shares"] }
     private static let recent = 30
 
     private let scroll = UIScrollView()

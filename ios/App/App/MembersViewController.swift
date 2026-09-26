@@ -21,6 +21,8 @@ import UIKit
  * 관리는 **그 줄을 누르면** 창(액션시트)이 뜬다 — 웹의 `관리` 단추 몫이다.
  */
 final class MembersViewController: NativeScreenController, UITableViewDataSource, UITableViewDelegate {
+    /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
+    override var liveTables: Set<String> { ["profiles"] }
     static let findAt = 12
 
     private enum Sort: Int { case name = 0, age, region, gender }

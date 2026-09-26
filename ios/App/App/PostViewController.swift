@@ -23,6 +23,8 @@ import UIKit
  * 안에 칸이 있었지만 그건 `textarea`가 키보드에 붙을 길이 없어서였다.
  */
 final class PostViewController: NativeScreenController, UITextViewDelegate {
+    /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
+    override var liveTables: Set<String> { ["posts", "post_comments"] }
     private let postId: String
 
     private let scroll = UIScrollView()

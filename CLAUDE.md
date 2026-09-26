@@ -5381,6 +5381,14 @@ src/lib/account.ts                           ← 탈퇴 순서(`leaveAccount`) �
   {name, value})`를 보내면 `NativeScreenHost`의 `onAction`이 하고 `NativeApp.reply`로
   답한다(→ `onReply`). 푸시 플러그인·로그인 세션·`localStorage`는 웹 것이라 Swift에
   두 벌을 만들지 말 것. `reply`는 앱 판 11부터다.
+- **알림 딥링크와 실시간(5단계)** — 껍데기가 서 있으면 알림이 가리키는 주소를
+  웹 해시로 안 옮기고 `NativeApp.deep`으로 넘긴다(`nativeDeepLink` · 앱이 꺼져
+  있다 켜진 판은 `shellReady`까지 적어 둔다). 실시간은 **웹이 듣고**
+  (`NativeShellSync`의 `LIVE_TABLES`) 표 이름만 `NativeApp.changed`로 넘기면
+  Swift `AppLive`가 뿌리고, 화면은 `liveTables`에 적은 표가 바뀌면 **보일 때만**
+  다시 받는다. **앱에 따로 실시간 연결을 두지 말 것** — 토큰·다시 잇기가
+  두 벌이 된다. 새 화면을 만들면 `liveTables`도 적을 것(쓰는 화면은 비워 둔다).
+  둘 다 앱 판 12부터다.
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).

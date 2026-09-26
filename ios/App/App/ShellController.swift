@@ -56,7 +56,19 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
         viewControllers = [homeTab, boardTab, roundsTab, pollsTab, chatTab]
         delegate = self
         Self.current = self
+        let c = NotificationCenter.default
+        c.addObserver(self, selector: #selector(liveChanged(_:)), name: AppLive.changed, object: nil)
+        c.addObserver(self, selector: #selector(cameBack), name: UIApplication.willEnterForegroundNotification, object: nil)
     }
+
+    /* **실시간(5단계)** — 탭의 숫자를 따라 맞춘다. 화면 자체는 저마다 다시 받는다. */
+    @objc private func liveChanged(_ n: Notification) {
+        guard let t = n.userInfo?["tables"] as? Set<String>,
+              !t.isDisjoint(with: ["messages", "posts", "profiles"]) else { return }
+        refreshBadges()
+    }
+    /// 접어 둔 앱으로 돌아왔다 — 끊겼던 동안의 것을 한 번에 다시 받는다.
+    @objc private func cameBack() { AppLive.post(AppLive.all) }
     required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
@@ -178,7 +190,7 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
 /**
  * 탭 하나의 뼈대 — 머리말(제목 + 오른쪽 단추)과 표. 화면이 보일 때마다
  * 다시 받는다(1초 안에 두 번은 안 받는다). 당겨서도 새로고침된다.
- * 실시간은 5단계에서 붙인다.
+ * 실시간은 `liveTables`에 적은 표가 바뀌면 보일 때만 다시 받는다(5단계).
  */
 class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     let service: NativeChatService
@@ -192,6 +204,10 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
     let emptyLabel = UILabel()
     private var lastLoad = Date.distantPast
     private(set) var loadedOnce = false
+    /// 이 탭이 다시 받는 표(5단계 — 실시간). 보일 때만 받는다.
+    var liveTables: Set<String> { [] }
+    private var livePending: Set<String> = []
+    private var liveWork: DispatchWorkItem?
 
     init(service: NativeChatService, title: String) {
         self.service = service
@@ -236,6 +252,7 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
         emptyLabel.isHidden = true
         view.addSubview(header); header.addSubview(titleLabel); header.addSubview(rightButton)
         view.addSubview(table); view.addSubview(emptyLabel); view.addSubview(spinner)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveChanged(_:)), name: AppLive.changed, object: nil)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -281,6 +298,31 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
         }
     }
     @objc func rightTapped() {}
+
+    // ── 실시간(5단계) ────────────────────────────────────────────
+    @objc private func liveChanged(_ n: Notification) {
+        guard let t = n.userInfo?["tables"] as? Set<String> else { return }
+        let hit = t.intersection(liveTables)
+        guard !hit.isEmpty else { return }
+        livePending.formUnion(hit)
+        liveSoon(0.4)
+    }
+    private func liveSoon(_ delay: Double) {
+        liveWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.liveFire() }
+        liveWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
+    }
+    /// 안 보이는 탭은 버린다 — 보일 때 어차피 다시 받는다. 찾는 칸을 치는 중이면 조금 뒤에.
+    private func liveFire() {
+        guard viewIfLoaded?.window != nil, presentedViewController == nil else { livePending = []; return }
+        if view.appHoldsFocus { liveSoon(2); return }
+        let t = livePending
+        livePending = []
+        liveReload(t)
+    }
+    /// 무엇이 바뀌었는지 보고 다시 받는다 — 기본은 통째로(`load`). 홈은 대화·알림만이면 숫자만 고친다.
+    func liveReload(_ tables: Set<String>) { load() }
 
     func go(_ path: String) { shell?.go(path) }
 

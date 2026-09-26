@@ -23,6 +23,8 @@ import UIKit
  * 댓글 칸은 공지 상세와 같은 붙박이 바(`keyboardLayoutGuide`)다.
  */
 final class PollViewController: NativeScreenController, UITextViewDelegate {
+    /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
+    override var liveTables: Set<String> { ["polls", "poll_options", "poll_votes", "poll_comments"] }
     private let pollId: String
 
     private let scroll = UIScrollView()

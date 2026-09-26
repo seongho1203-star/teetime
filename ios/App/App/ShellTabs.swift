@@ -8,6 +8,7 @@ import UIKit
 // ── 공지 ─────────────────────────────────────────────────────
 
 final class BoardTabController: ShellTabController {
+    override var liveTables: Set<String> { ["posts"] }
     private var posts: [AppPost] = []
 
     init(service: NativeChatService) {
@@ -73,6 +74,7 @@ final class PostCell: CardCell {
 // ── 라운드 ────────────────────────────────────────────────────
 
 final class RoundsTabController: ShellTabController {
+    override var liveTables: Set<String> { ["rounds", "signups"] }
     static let pastRounds = 10
     static let moreRounds = 20
 
@@ -246,6 +248,7 @@ final class RoundCell: CardCell {
 // ── 투표 ─────────────────────────────────────────────────────
 
 final class PollsTabController: ShellTabController {
+    override var liveTables: Set<String> { ["polls", "poll_options", "poll_votes"] }
     static let donePolls = 10
     static let morePolls = 20
     static let optionsShown = 5

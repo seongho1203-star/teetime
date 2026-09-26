@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { IS_NATIVE } from './native';
+import { nativeDeepLink } from './native-app';
 import {
     disableNativePush, enableNativePush, nativeEndpoint, nativePushState, pushStep,
     watchNativePush,
@@ -101,6 +102,9 @@ export function goTo(url: string) {
     try {
         const to = new URL(url, location.href);
         if (to.origin !== location.origin) return;
+        /* 앱 껍데기가 서 있으면 앱이 그 화면을 연다(`nativeDeepLink`) — 해시를 바꾸면
+           웹 화면이 껍데기 위에 한 겹 더 선다. */
+        if (to.hash && nativeDeepLink(to.hash.slice(1) || '/')) return;
         if (to.hash && to.hash !== location.hash) location.hash = to.hash;
     } catch { /* 이상한 주소면 그냥 둔다 */ }
 }

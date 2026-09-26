@@ -42,6 +42,10 @@ export const NativeApp = registerPlugin<{
     log(config: { line: string }): Promise<void>;
     /** 앱 화면이 부탁한 일(`action`)의 답 — `{screen, name, ok, why?, …}`. 앱 판 11부터. */
     reply(config: Record<string, unknown>): Promise<void>;
+    /** 알림을 눌러 온 주소 — 껍데기가 맨 위에 있으면 앱이 열고 `handled: true`. 앱 판 12부터. */
+    deep(config: { path: string }): Promise<{ handled: boolean }>;
+    /** 실시간으로 바뀐 표 — 보이는 앱 화면이 다시 받는다(`AppLive`). 앱 판 12부터. */
+    changed(config: { tables: string[] }): Promise<void>;
     addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeApp');
 
@@ -81,3 +85,52 @@ export function hasNativeApp(): boolean {
 export function nativeScreen(path: string): boolean {
     return hasNativeApp() && NATIVE_SCREENS.some(p => matches(p, path));
 }
+
+/*
+ * **알림을 눌러 온 길(딥링크)** — 5단계.
+ *
+ * 껍데기가 서 있으면 웹 주소를 바꾸지 않고 **앱에 곧바로 넘긴다**(`deep`).
+ * 앱은 틀을 껍데기까지 되돌린 뒤 그 주소로 간다 — 탭이면 켜고, 앱 화면이면
+ * 밀어 올리고, 아직 웹인 화면이면 웹에 열라고 한다(`shell.go`).
+ * 앱이 맡지 못하는 자리(대화방이나 웹이 연 화면이 위에 있을 때 · 옛 앱)면
+ * `handled: false`가 오고, 그때는 예전처럼 해시를 바꾼다.
+ *
+ * **앱이 꺼져 있다가 알림으로 켜진 판**에는 알림 사건이 껍데기보다 먼저
+ * 온다 — 그때 해시를 바꾸면 껍데기가 그 위를 덮어 버린다. 적어 두었다가
+ * 껍데기가 서면(`shellReady`) 그때 넘긴다.
+ */
+let shellUp = false;
+let pendingDeep = '';
+
+function hashTo(path: string) {
+    const h = '#' + path;
+    if (location.hash !== h) location.hash = h;
+}
+
+/** 알림이 가리키는 주소를 앱이 맡았는가(맡았으면 웹은 아무것도 안 한다). */
+export function nativeDeepLink(path: string): boolean {
+    if (!hasNativeApp()) return false;
+    if (!shellUp) { pendingDeep = path; return true; }
+    void NativeApp.deep({ path })
+        .then(r => { if (!r?.handled) hashTo(path); })
+        .catch(() => hashTo(path));
+    return true;
+}
+
+/** 껍데기가 섰다(`ok`) · 못 섰다 · 내렸다 — 기다리던 딥링크가 있으면 그때 넘긴다. */
+export function shellReady(ok: boolean) {
+    shellUp = ok;
+    if (!pendingDeep) return;
+    const p = pendingDeep;
+    pendingDeep = '';
+    if (ok) nativeDeepLink(p); else hashTo(p);
+}
+
+/**
+ * **앱 화면에 알리는 표** — 웹 화면들이 `useRealtime`으로 듣는 것과 같은 줄.
+ * `room_reads`(누가 읽을 때마다)와 `message_reactions`는 뺐다 — 앱 화면 중
+ * 그걸로 바뀌는 곳이 없고, 백 명 방에서는 그것만으로 쉬지 않고 울린다.
+ */
+export const LIVE_TABLES = ['rounds', 'signups', 'polls', 'poll_options', 'poll_votes',
+    'posts', 'post_comments', 'poll_comments', 'round_comments', 'profiles',
+    'settlements', 'settlement_shares', 'round_groups', 'notifications', 'messages'];

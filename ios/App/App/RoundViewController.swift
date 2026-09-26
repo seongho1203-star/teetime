@@ -38,6 +38,8 @@ import UIKit
  * 누르면 그때 올라온다(웹 앱의 댓글 바와 같은 규칙).
  */
 final class RoundViewController: NativeScreenController, UITextViewDelegate {
+    /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
+    override var liveTables: Set<String> { ["rounds", "signups", "round_comments", "round_groups", "settlements", "settlement_shares", "profiles"] }
     private let roundId: String
 
     private let scroll = UIScrollView()
