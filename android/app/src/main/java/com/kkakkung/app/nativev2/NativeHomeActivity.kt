@@ -363,8 +363,8 @@ class NativeHomeActivity : AppCompatActivity() {
         when (id) {
             "home" -> showHome()
             "board" -> showBoard()
-            "rounds" -> loadList("라운드") { api.rounds() }
-            "polls" -> loadList("투표") { api.polls() }
+            "rounds" -> showRoundsList()
+            "polls" -> showPollsList()
             "chat" -> showChat()
         }
     }
@@ -628,6 +628,254 @@ class NativeHomeActivity : AppCompatActivity() {
         val n = java.time.temporal.ChronoUnit.DAYS.between(today, target)
         when (n) { 0L -> "D-DAY"; else -> "D-$n" }
     } catch (_: Exception) { "" }
+
+    private fun showRoundsList() {
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
+        }
+        page.addView(listHeader("라운드", "+ 모집 열기") { roundForm(null) })
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val rows = api.rounds(80)
+                page.removeView(loading)
+                val now = System.currentTimeMillis()
+                val upcoming = rows.filter { epoch(it.optString("tee_at")) >= now }
+                    .sortedBy { epoch(it.optString("tee_at")) }
+                val past = rows.filter { epoch(it.optString("tee_at")) < now }
+                    .sortedByDescending { epoch(it.optString("tee_at")) }
+
+                if (upcoming.isEmpty()) {
+                    emptyBox(page, "예정된 라운드가 없습니다.\n위의 모집 열기로 새 라운드를 올려 보세요.")
+                }
+                upcoming.forEach { page.addView(roundListCard(it, false)) }
+                if (past.isNotEmpty()) {
+                    section(page, "지난 라운드")
+                    past.take(20).forEach { page.addView(roundListCard(it, true)) }
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "라운드를 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun roundListCard(r: JSONObject, past: Boolean): View {
+        val signups = jsonObjects(r.optJSONArray("signups"))
+        val confirmed = signups.count { it.optString("state") == "confirmed" }
+        val waiting = signups.count { it.optString("state") == "waitlist" }
+        val mine = signups.firstOrNull { it.optString("user_id") == session.userId }
+        val full = confirmed >= r.optInt("capacity")
+        val shut = past || r.optString("status") in setOf("closed", "cancelled")
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(if (shut) surface2 else card); setStroke(dp(1), line)
+            }
+            alpha = if (past) 0.68f else 1f
+            isClickable = true; setOnClickListener { showRound(r.optString("id")) }
+        }
+        val badges = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        badges.addView(badge(if (r.optString("kind") == "screen") "🎯 스크린" else "⛳ 필드", dim))
+        val status = when {
+            r.optString("status") == "cancelled" -> "취소됨" to danger
+            past -> "종료" to faint
+            r.optString("status") == "closed" || full -> "모집 마감" to faint
+            else -> "모집중" to grassDeep
+        }
+        badges.addView(badge(status.first, status.second))
+        if (!past && r.optString("status") != "cancelled") {
+            badges.addView(badge(dday(r.optString("tee_at")), if (daysUntil(r.optString("tee_at")) <= 3) warn else dim))
+        }
+        if (mine != null) {
+            badges.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            badges.addView(badge(if (mine.optString("state") == "confirmed") "참가 확정" else "대기중",
+                if (mine.optString("state") == "confirmed") dim else warn))
+        }
+        box.addView(badges)
+        box.addView(TextView(this).apply {
+            text = (if (r.optString("kind") == "screen") "🎯 " else "⛳ ") +
+                r.optString("course").ifBlank { r.optString("title") }
+            textSize = 17.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            setPadding(0, dp(7), 0, dp(2))
+        })
+        box.addView(TextView(this).apply {
+            text = date(r.optString("tee_at")); textSize = 13f; setTextColor(dim)
+        })
+        val foot = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, 0)
+        }
+        val cap = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        val track = FrameLayout(this).apply {
+            background = GradientDrawable().apply { cornerRadius = dp(99).toFloat(); setColor(Color.rgb(231,235,224)) }
+            val fill = View(this@NativeHomeActivity).apply {
+                background = GradientDrawable().apply { cornerRadius = dp(99).toFloat(); setColor(grass) }
+            }
+            addView(fill, FrameLayout.LayoutParams(
+                dp((76 * minOf(1f, confirmed.toFloat() / maxOf(1, r.optInt("capacity")))).toInt()), dp(6)
+            ))
+        }
+        cap.addView(track, LinearLayout.LayoutParams(dp(76), dp(6)))
+        cap.addView(TextView(this).apply {
+            text = "${confirmed}/${r.optInt("capacity")}명" + if (waiting > 0) " · 대기 ${waiting}" else ""
+            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (waiting > 0) warn else dim)
+            setPadding(dp(10), 0, 0, 0)
+        })
+        foot.addView(cap, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (r.optInt("fee") > 0) foot.addView(TextView(this).apply {
+            text = money(r.optInt("fee")); textSize = 13f; setTextColor(faint)
+        })
+        box.addView(foot)
+        box.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(8) }
+        return box
+    }
+
+    private fun showPollsList() {
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
+        }
+        page.addView(listHeader("투표", "+ 투표 만들기") { pollForm() })
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val rows = api.polls(80)
+                page.removeView(loading)
+                val live = rows.filter { !it.optBoolean("closed") && !pollExpired(it.optString("closes_at")) }
+                val done = rows.filterNot { live.contains(it) }
+                if (rows.isEmpty()) emptyBox(page, "아직 투표가 없습니다.\n날짜 정하기, 골프장 고르기 같은 걸 올려 보세요.")
+                live.forEach { page.addView(pollListCard(it, false)) }
+                if (done.isNotEmpty()) {
+                    section(page, "마감된 투표")
+                    done.take(20).forEach { page.addView(pollListCard(it, true)) }
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "투표를 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun pollListCard(p: JSONObject, closed: Boolean): View {
+        val options = jsonObjects(p.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
+        val votes = jsonObjects(p.optJSONArray("poll_votes"))
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(12), dp(13), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(if (closed) surface2 else card); setStroke(dp(1), line)
+            }
+            alpha = if (closed) 0.82f else 1f
+        }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            isClickable = true; setOnClickListener { showPoll(p.optString("id")) }
+        }
+        head.addView(TextView(this).apply {
+            text = p.optString("title"); textSize = 16.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(TextView(this).apply { text = "›"; textSize = 20f; setTextColor(faint) })
+        box.addView(head)
+
+        if (closed) {
+            val counts = options.associateWith { o -> votes.count { it.optString("option_id") == o.optString("id") } }
+            val best = counts.values.maxOrNull() ?: 0
+            val winners = if (best > 0) counts.filterValues { it == best }.keys.joinToString(", ") { it.optString("label") } else ""
+            box.addView(TextView(this).apply {
+                text = if (winners.isBlank()) "아직 받은 표가 없습니다" else "결과  ${winners} · ${best}표"
+                textSize = 13f; setTextColor(dim); setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(Color.rgb(239,242,233)) }
+            })
+        } else {
+            options.take(5).forEach { o ->
+                val oid = o.optString("id")
+                val chosen = votes.any { it.optString("option_id") == oid && it.optString("user_id") == session.userId }
+                val n = votes.count { it.optString("option_id") == oid }
+                val row = TextView(this).apply {
+                    text = (if (chosen) "✓  " else "    ") + o.optString("label") + "    ${n}표"
+                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                    setPadding(dp(13), dp(10), dp(13), dp(10))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(11).toFloat(); setColor(surface2)
+                        if (chosen) setStroke(dp(1), brandDeep)
+                    }
+                    isClickable = true
+                    setOnClickListener {
+                        mutate {
+                            if (chosen) api.retractVote(oid) else api.castVote(oid)
+                            showPollsList()
+                        }
+                    }
+                }
+                box.addView(row, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(6) })
+            }
+            if (options.size > 5) box.addView(TextView(this).apply {
+                text = "+${options.size - 5}개 더 보기"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(dim)
+                setPadding(0, dp(7), 0, 0); isClickable = true; setOnClickListener { showPoll(p.optString("id")) }
+            })
+        }
+        val voters = votes.map { it.optString("user_id") }.distinct().size
+        box.addView(TextView(this).apply {
+            val close = p.optString("closes_at")
+            text = "${voters}명 참여" + if (close.isNotBlank()) " · 마감 ${date(close)}" else ""
+            textSize = 12f; setTextColor(if (!closed && p.optString("closes_at").isNotBlank()) danger else faint)
+            setPadding(0, dp(8), 0, 0)
+        })
+        box.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(8) }
+        return box
+    }
+
+    private fun listHeader(titleText: String, actionText: String, click: () -> Unit): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = titleText; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = actionText; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER; setPadding(dp(12), dp(7), dp(12), dp(7))
+                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(brand) }
+                isClickable = true; setOnClickListener { click() }
+            })
+            setPadding(0, dp(2), 0, dp(12))
+        }
+
+    private fun badge(label: String, color: Int): TextView = TextView(this).apply {
+        text = label; textSize = 10.5f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color)
+        setPadding(dp(6), dp(3), dp(6), dp(3))
+        background = GradientDrawable().apply { cornerRadius = dp(99).toFloat(); setColor(surface2) }
+    }.also {
+        it.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = dp(5) }
+    }
+
+    private fun emptyBox(parent: LinearLayout, message: String) {
+        parent.addView(TextView(this).apply {
+            text = message; textSize = 14f; setTextColor(dim); gravity = Gravity.CENTER
+            setPadding(dp(16), dp(28), dp(16), dp(28))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+            }
+        })
+    }
+
+    private fun epoch(raw: String): Long = try { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
+        catch (_: Exception) { 0L }
+
+    private fun daysUntil(raw: String): Long = try {
+        val target = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul")).toLocalDate()
+        java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(ZoneId.of("Asia/Seoul")), target)
+    } catch (_: Exception) { 99L }
 
     private fun loadList(title: String, loader: suspend () -> List<JSONObject>) {
         val page = page(title)
