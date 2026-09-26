@@ -614,6 +614,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                     "staff" -> 0xFF2C7BD4.toInt(); else -> 0xFFB97C00.toInt()
                 })
             })
+            row.setOnClickListener {
+                removeView(overlay)
+                showProfile(p)
+            }
             peopleCol.addView(row, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
             ))
@@ -644,6 +648,157 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 scroller.visibility = if (media.isEmpty()) View.GONE else View.VISIBLE
             } catch (_: Exception) {
                 /* 네트워크 실패는 사진 묶음을 '지워진 사진'으로 판정하지 않는다. */
+            }
+        }
+    }
+
+    private fun showProfile(person: JSONObject) {
+        hideKeyboard()
+        val overlay = FrameLayout(activity).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+        }
+        val photo = ImageView(activity).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(0xFF121212.toInt())
+        }
+        val avatar = httpsUrl(person.optString("avatar_url"))
+        if (!avatar.isNullOrBlank()) photo.load(avatar) { crossfade(false) }
+        overlay.addView(photo, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        if (avatar.isNullOrBlank()) overlay.addView(TextView(activity).apply {
+            text = person.optString("name").ifBlank { "?" }.takeLast(2)
+            textSize = 72f; typeface = Typeface.DEFAULT_BOLD; setTextColor(0x80FFFFFF.toInt())
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        val foot = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(20f), dp(20f), dp(20f))
+            setBackgroundColor(0x73000000)
+        }
+        val nameRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        nameRow.addView(TextView(activity).apply {
+            text = ChatRows.label(person); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val role = person.optString("role")
+        val roleLabel = when(role) {
+            "superadmin" -> "앱관리자"; "admin" -> "운영자"; "staff" -> "부운영자"; "treasurer" -> "총무"; else -> ""
+        }
+        if (roleLabel.isNotBlank()) nameRow.addView(TextView(activity).apply {
+            text = roleLabel; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
+            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(when(role) {
+                    "superadmin" -> 0xFFB41F72.toInt(); "admin" -> 0xFFE84A7F.toInt()
+                    "staff" -> 0xFF2C7BD4.toInt(); else -> 0xFFB97C00.toInt()
+                })
+            }
+        })
+        foot.addView(nameRow)
+
+        val attend = TextView(activity).apply {
+            textSize = 14f; setTextColor(0xBFFFFFFF.toInt()); visibility = View.GONE
+            setPadding(0, dp(4f), 0, 0)
+        }
+        foot.addView(attend)
+
+        val acts = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            setPadding(0, dp(14f), 0, 0)
+        }
+        fun whitePill(label: String, click: () -> Unit) = TextView(activity).apply {
+            text = label; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = dp(22f).toFloat(); setColor(0x4DFFFFFF)
+            }
+            setOnClickListener { click() }
+        }
+        acts.addView(whitePill("@언급하기") {
+            removeView(overlay)
+            val n = person.optString("name")
+            input.setText("@$n ")
+            input.setSelection(input.text.length)
+            input.requestFocus()
+            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+                ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }, LinearLayout.LayoutParams(0, dp(44f), 1f).apply { marginEnd = dp(4f) })
+        acts.addView(whitePill("🎁 선물하기") {
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("kakaotalk://gift/home")))
+            } catch (_: Exception) {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://gift.kakao.com/")))
+            }
+        }, LinearLayout.LayoutParams(0, dp(44f), 1f).apply { marginStart = dp(4f) })
+        foot.addView(acts)
+        overlay.addView(foot, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM
+        ))
+
+        val close = TextView(activity).apply {
+            text = "✕"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            setOnClickListener { removeView(overlay) }
+        }
+        overlay.addView(close, FrameLayout.LayoutParams(dp(44f), dp(44f), Gravity.TOP or Gravity.START).apply {
+            topMargin = dp(4f); leftMargin = dp(4f)
+        })
+
+        /* Swift ChatProfile: 120px 또는 40px 이상 + 빠른 아래 flick. */
+        var downY = 0f
+        var downAt = 0L
+        overlay.setOnTouchListener { _, e ->
+            when(e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downY = e.rawY; downAt = android.os.SystemClock.uptimeMillis(); true }
+                MotionEvent.ACTION_MOVE -> {
+                    val dy = e.rawY - downY
+                    overlay.translationY = if (dy >= 0) dy else dy / 3f
+                    if (dy > 0) overlay.setBackgroundColor(Color.argb(
+                        (255 * (1f - minOf(1f, dy / maxOf(1, height).toFloat()))).toInt(), 0, 0, 0
+                    ))
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val dy = e.rawY - downY
+                    val dt = maxOf(1L, android.os.SystemClock.uptimeMillis() - downAt)
+                    val vy = dy * 1000f / dt
+                    if (dy > dp(120f) || (dy > dp(40f) && vy > 900f)) removeView(overlay)
+                    else {
+                        overlay.animate().translationY(0f).setDuration(200).start()
+                        overlay.setBackgroundColor(Color.BLACK)
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+        addView(overlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        overlay.bringToFront()
+
+        if (isAdmin()) scope.launch {
+            try {
+                val year = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).year
+                val raw = service.request(
+                    "rest/v1/rpc/attendance_counts", method = "POST",
+                    body = JSONObject().put("p_since", "$year-01-01T00:00:00+09:00")
+                )
+                val rows = raw as? JSONArray ?: return@launch
+                val n = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
+                    .firstOrNull { it.optString("user_id") == person.optString("id") }
+                    ?.optInt("n")
+                if (n != null && overlay.parent != null) {
+                    attend.text = "올해 ${n}회"; attend.visibility = View.VISIBLE
+                }
+            } catch (_: Exception) {
+                /* 오류면 0회라고 거짓말하지 않고 줄 자체를 안 그린다. */
             }
         }
     }
