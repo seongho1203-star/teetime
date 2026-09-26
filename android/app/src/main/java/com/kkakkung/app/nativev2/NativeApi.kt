@@ -2,8 +2,10 @@ package com.kkakkung.app.nativev2
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -12,42 +14,83 @@ import java.util.concurrent.TimeUnit
 
 class NativeApiError(message: String) : Exception(message)
 
+/** Android Native V2 공통 Supabase 클라이언트.
+ *
+ * service_role은 사용하지 않는다. 회원 JWT + anon key만 보내므로 기존 웹과
+ * 똑같은 RLS/RPC 규칙이 적용된다. iOS NativeAppData.swift와 같은 계약을 쓴다.
+ */
 class NativeApi(private val session: NativeSession) {
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
     private fun enc(v: String) = URLEncoder.encode(v, "UTF-8").replace("+", "%20")
 
-    suspend fun rows(
-        table: String,
-        query: List<Pair<String, String>> = emptyList()
-    ): List<JSONObject> = withContext(Dispatchers.IO) {
+    suspend fun request(
+        path: String,
+        query: List<Pair<String, String>> = emptyList(),
+        method: String = "GET",
+        body: JSONObject? = null
+    ): Any? = withContext(Dispatchers.IO) {
         val qs = query.joinToString("&") { enc(it.first) + "=" + enc(it.second) }
         val base = session.supabaseUrl.trimEnd('/')
-        val url = "$base/rest/v1/$table" + if (qs.isEmpty()) "" else "?$qs"
+        val url = "$base/$path" + if (qs.isEmpty()) "" else "?$qs"
+        val payload = when {
+            body != null -> body.toString().toRequestBody("application/json".toMediaType())
+            method == "POST" || method == "PATCH" || method == "DELETE" ->
+                "".toRequestBody("application/json".toMediaType())
+            else -> null
+        }
         val req = Request.Builder().url(url)
             .header("apikey", session.anonKey)
             .header("Authorization", "Bearer ${session.accessToken}")
             .header("Accept", "application/json")
+            .header("Prefer", "return=representation")
+            .method(method, payload)
             .build()
         http.newCall(req).execute().use { res ->
-            val body = res.body?.string().orEmpty()
+            val raw = res.body?.string().orEmpty()
             if (res.code == 401) throw NativeApiError("로그인이 만료됐습니다.")
-            if (res.code == 403) throw NativeApiError("이 화면을 볼 권한이 없습니다.")
-            if (!res.isSuccessful) throw NativeApiError("서버 오류(${res.code})")
-            val value = if (body.isBlank()) JSONArray() else JSONTokener(body).nextValue()
-            val arr = value as? JSONArray ?: JSONArray()
-            buildList {
-                for (i in 0 until arr.length()) arr.optJSONObject(i)?.let(::add)
+            if (res.code == 403) throw NativeApiError("이 작업을 할 권한이 없습니다.")
+            if (!res.isSuccessful) {
+                val message = try {
+                    JSONObject(raw).optString("message").ifBlank { "서버 오류(${res.code})" }
+                } catch (_: Exception) { "서버 오류(${res.code})" }
+                throw NativeApiError(message)
             }
+            if (raw.isBlank()) JSONArray() else JSONTokener(raw).nextValue()
         }
     }
 
+    suspend fun rows(
+        table: String,
+        query: List<Pair<String, String>> = emptyList()
+    ): List<JSONObject> {
+        val arr = request("rest/v1/$table", query) as? JSONArray ?: JSONArray()
+        return buildList {
+            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let(::add)
+        }
+    }
+
+    private fun firstObject(value: Any?): JSONObject? = when (value) {
+        is JSONObject -> value
+        is JSONArray -> value.optJSONObject(0)
+        else -> null
+    }
+
     suspend fun profile(): JSONObject? =
-        rows("profiles", listOf("select" to "*", "id" to "eq.${session.userId}", "limit" to "1"))
-            .firstOrNull()
+        rows("profiles", listOf("select" to "*", "id" to "eq.${session.userId}", "limit" to "1")).firstOrNull()
+
+    suspend fun people(): List<JSONObject> = try {
+        rows("profiles", listOf(
+            "select" to "id,name,avatar_url,role,gender,birth_year,region",
+            "order" to "name", "limit" to "1000"
+        ))
+    } catch (_: Exception) {
+        rows("profiles", listOf("select" to "id,name,avatar_url,role", "order" to "name", "limit" to "1000"))
+    }
 
     suspend fun upcomingRounds(limit: Int = 30): List<JSONObject> =
         rows("rounds", listOf(
@@ -73,9 +116,62 @@ class NativeApi(private val session: NativeSession) {
             "order" to "created_at.desc", "limit" to limit.toString()
         ))
 
+    /** 라운드 상세 — 신청을 딸려 받아 정원/내 상태를 한 응답으로 맞춘다. */
     suspend fun round(id: String): JSONObject? =
-        rows("rounds", listOf("select" to "*", "id" to "eq.$id", "limit" to "1")).firstOrNull()
+        rows("rounds", listOf("select" to "*,signups(*)", "id" to "eq.$id", "limit" to "1")).firstOrNull()
+
+    suspend fun roundComments(id: String): List<JSONObject> =
+        rows("round_comments", listOf(
+            "select" to "*", "round_id" to "eq.$id", "order" to "created_at.asc", "limit" to "500"
+        ))
+
+    suspend fun joinRound(id: String): String? {
+        val v = request("rest/v1/rpc/join_round", method = "POST",
+            body = JSONObject().put("p_round", id).put("p_note", ""))
+        return firstObject(v)?.optString("state")
+    }
+
+    suspend fun leaveRound(id: String) {
+        request("rest/v1/rpc/leave_round", method = "POST", body = JSONObject().put("p_round", id))
+    }
+
+    suspend fun kickSignup(round: String, user: String) {
+        request("rest/v1/rpc/kick_signup", method = "POST",
+            body = JSONObject().put("p_round", round).put("p_user", user))
+    }
+
+    suspend fun addComment(table: String, parentKey: String, parentId: String, body: String) {
+        request("rest/v1/$table", method = "POST",
+            body = JSONObject().put(parentKey, parentId).put("author_id", session.userId).put("body", body))
+    }
+
+    suspend fun deleteRow(table: String, id: String) {
+        val v = request("rest/v1/$table", listOf("id" to "eq.$id"), "DELETE")
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("권한이 없거나 이미 지워졌습니다.")
+    }
+
+    suspend fun setRoundStatus(id: String, status: String) {
+        val v = request("rest/v1/rounds", listOf("id" to "eq.$id"), "PATCH",
+            JSONObject().put("status", status))
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("권한이 없습니다.")
+    }
 
     suspend fun poll(id: String): JSONObject? =
-        rows("polls", listOf("select" to "*", "id" to "eq.$id", "limit" to "1")).firstOrNull()
+        rows("polls", listOf(
+            "select" to "*,poll_options(id,label,sort),poll_votes(option_id,user_id)",
+            "id" to "eq.$id", "limit" to "1"
+        )).firstOrNull()
+
+    suspend fun pollComments(id: String): List<JSONObject> =
+        rows("poll_comments", listOf(
+            "select" to "*", "poll_id" to "eq.$id", "order" to "created_at.asc", "limit" to "500"
+        ))
+
+    suspend fun castVote(optionId: String) {
+        request("rest/v1/rpc/cast_vote", method = "POST", body = JSONObject().put("p_option", optionId))
+    }
+
+    suspend fun retractVote(optionId: String) {
+        request("rest/v1/rpc/retract_vote", method = "POST", body = JSONObject().put("p_option", optionId))
+    }
 }
