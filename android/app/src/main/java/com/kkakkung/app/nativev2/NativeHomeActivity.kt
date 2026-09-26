@@ -119,7 +119,13 @@ class NativeHomeActivity : AppCompatActivity() {
             val loading = ProgressBar(this); page.addView(loading); mount(page)
             scope.launch {
                 try { NativeAuth.refresh(session); showHome() }
-                catch (e: Exception) { NativeSessionStore.clear(this@NativeHomeActivity); toast(e.message ?: "다시 로그인해 주세요."); finish() }
+                catch (e: Exception) {
+                    NativeSessionStore.clear(this@NativeHomeActivity)
+                    toast(e.message ?: "다시 로그인해 주세요.")
+                    startActivity(android.content.Intent(this@NativeHomeActivity, NativeLoginActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    finish()
+                }
             }
         } else {
             routeAfterLogin()
@@ -265,10 +271,8 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun logoutNative() {
         NativeSessionStore.clear(this)
-        val back = android.content.Intent(this, com.kkakkung.app.MainActivity::class.java)
-            .putExtra("native_logout", true)
-            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        startActivity(back)
+        startActivity(android.content.Intent(this, NativeLoginActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK))
         finish()
     }
 
