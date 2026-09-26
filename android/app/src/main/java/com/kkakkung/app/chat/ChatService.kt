@@ -214,6 +214,23 @@ class ChatService(@Volatile var config: ChatConfig) {
         }
     }
 
+    /** 2절 검색. %/_는 호출부에서 막고, 가린 글은 서버에서도 제외한다. */
+    suspend fun searchMessages(room: String, query: String, limit: Int = 100): List<ChatMessage> =
+        messages(room, listOf(
+            "body" to "ilike.*$query*",
+            "hidden_at" to "is.null"
+        ), ascending = false, limit = limit)
+
+    suspend fun aroundMessage(room: String, hit: ChatMessage, side: Int = 35): List<ChatMessage> {
+        val before = messages(room, listOf(
+            "or" to "(created_at.lt.${hit.at},and(created_at.eq.${hit.at},id.lt.${hit.id}))"
+        ), ascending = false, limit = side)
+        val after = messages(room, listOf(
+            "or" to "(created_at.gt.${hit.at},and(created_at.eq.${hit.at},id.gt.${hit.id}))"
+        ), ascending = true, limit = side)
+        return before.reversed() + hit + after
+    }
+
     suspend fun change(message: ChatMessage, patch: JSONObject?) {
         val r = request("rest/v1/messages", listOf("id" to "eq.${message.id}"),
             method = if (patch == null) "DELETE" else "PATCH", body = patch)
