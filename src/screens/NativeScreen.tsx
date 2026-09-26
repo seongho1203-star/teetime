@@ -10,6 +10,8 @@ import { PostDetail } from './PostDetail';
 import { Alerts } from './Alerts';
 import { RoundDetail } from './RoundDetail';
 import { PollDetail } from './PollDetail';
+import { Help } from './Help';
+import { guideTable } from '../lib/guide';
 
 /**
  * **주소마다 앱 화면인지 웹 화면인지 가르는 자리**(`docs/아이폰-네이티브.md`).
@@ -44,6 +46,11 @@ export function PollRoute() {
     return nativeScreen(path) ? <NativeScreenHost path={path} /> : <PollDetail />;
 }
 
+/** 가이드의 글은 웹이 들고 있다(`lib/guide.ts`) — 열 때 통째로 실어 보낸다. */
+export function HelpRoute() {
+    return nativeScreen('/help') ? <NativeScreenHost path="/help" extra={{ guide: guideTable() }} /> : <Help />;
+}
+
 /** 앱 화면이 `navigate`로 보내올 수 있는 주소 — 그 밖은 무시한다(알림의 `url`도 이 안이다). */
 const NAV_OK = /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$|members$|alerts$|settle$|help$|me$)/;
 
@@ -53,7 +60,7 @@ const NAV_OK = /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$|members
  * (`nativeChatEnter`), 열고, `back`이 오면 뒤로 간다. 대화만의 것(읽음·
  * 이모티콘·추천 표)이 없을 뿐이다.
  */
-function NativeScreenHost({ path }: { path: string }) {
+function NativeScreenHost({ path, extra }: { path: string; extra?: Record<string, unknown> }) {
     const { session } = useAuth();
     const user = session?.user.id ?? '';
     const current = useRef(session);
@@ -62,6 +69,8 @@ function NativeScreenHost({ path }: { path: string }) {
     const cameBack = useRef(useNavigationType() === 'POP');
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
+    const extraRef = useRef(extra);
+    useEffect(() => { extraRef.current = extra; }, [extra]);
     useLayoutEffect(() => {
         if (!user) return;
         const screen = crypto.randomUUID();
@@ -96,6 +105,7 @@ function NativeScreenHost({ path }: { path: string }) {
             if (dead) return;
             const ms = slideLeft();
             const result = await NativeApp.open({
+                ...(extraRef.current ?? {}),
                 screen, path, user, token,
                 url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
                 back: hasBackShot(),

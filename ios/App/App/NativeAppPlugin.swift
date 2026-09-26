@@ -42,7 +42,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     static let version = 4
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`·`/rounds/<id>/groups`(쓰는 화면)는 아직 웹이다.
-    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id"]
+    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -65,10 +65,15 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// 주소 → 화면. 새 화면을 만들면 여기와 `screens`에 함께 더한다.
-    @MainActor static func make(_ path: String, service: NativeChatService) -> NativeScreenController? {
+    /// `options`는 웹이 `open`에 실어 보낸 것 — 글을 함께 받는 화면(가이드)이 본다.
+    @MainActor static func make(_ path: String, service: NativeChatService, options: ChatJSON = [:]) -> NativeScreenController? {
         switch path {
         case "/members": return MembersViewController(service: service)
         case "/alerts": return AlertsViewController(service: service)
+        case "/help":
+            /* 글은 웹이 실어 보낸다(`lib/guide.ts`) — 없으면(껍데기가 직접 부른 판) 웹에 맡긴다. */
+            guard let g = options["guide"] as? ChatJSON else { return nil }
+            return HelpViewController(service: service, guide: g)
         default:
             /* `/board/<uuid>` — 그 뒤에 무엇이 더 붙으면(`/edit`) uuid가 아니라 걸러진다. */
             if path.hasPrefix("/board/"), let id = UUID(uuidString: String(path.dropFirst("/board/".count))) {
@@ -114,7 +119,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                 old.loadScreen()
                 call.resolve(["ok": true]); return
             }
-            guard let vc = Self.make(path, service: NativeChatService(config)) else {
+            guard let vc = Self.make(path, service: NativeChatService(config), options: call.options as? ChatJSON ?? [:]) else {
                 call.reject("앱이 아직 모르는 화면입니다: \(path)"); return
             }
             vc.path = path

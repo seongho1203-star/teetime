@@ -38,6 +38,7 @@
 		CB3000000000000000000000E /* HomeTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000E /* HomeTab.swift */; };
 		CB3000000000000000000000F /* RoundViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000F /* RoundViewController.swift */; };
 		CB3000000000000000000010 /* PollViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000010 /* PollViewController.swift */; };
+		CB3000000000000000000011 /* HelpViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000011 /* HelpViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +77,7 @@
 		CB2000000000000000000000E /* HomeTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTab.swift; sourceTree = "<group>"; };
 		CB2000000000000000000000F /* RoundViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000010 /* PollViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000011 /* HelpViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -143,6 +145,7 @@
 				CB2000000000000000000000E /* HomeTab.swift */,
 				CB2000000000000000000000F /* RoundViewController.swift */,
 				CB2000000000000000000010 /* PollViewController.swift */,
+				CB2000000000000000000011 /* HelpViewController.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -302,6 +305,7 @@
 				CB3000000000000000000000E /* HomeTab.swift in Sources */,
 				CB3000000000000000000000F /* RoundViewController.swift in Sources */,
 				CB3000000000000000000010 /* PollViewController.swift in Sources */,
+				CB3000000000000000000011 /* HelpViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

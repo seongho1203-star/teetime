@@ -2017,6 +2017,7 @@ JSON으로 담지 않았다** — 그러면 '내 것만 보냈다고 표시'가 
 `입금 알림 보내기` · `이 기기로 받기`), 화면 문구를 바꾸면 **이 파일도 함께
 고칠 것** — 안 그러면 설명이 거짓말이 된다.
 
+**글은 `src/lib/guide.ts`에 있다**(앱 화면과 같은 글을 쓴다).
 **기능을 새로 넣으면 이 화면에도 꼭지를 더할 것.** 아홉 꼭지가 앱의
 차례가 되어 있다 — 홈 · 라운드 · 조 편성 · 리마인더 · 정산 · 투표와 공지 ·
 대화 · 회원 정보 · 설치와 알림. 안 적으면 만들어 놓고 아무도 모르는
@@ -5253,6 +5254,7 @@ ios/App/App/PostViewController.swift     ← 2단계: 공지 상세 + 댓글
 ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
 ios/App/App/RoundViewController.swift    ← 2단계: 라운드 상세(신청·취소·정산 보기·댓글)
 ios/App/App/PollViewController.swift     ← 2단계: 투표 상세(표 던지기·현황 탭·댓글)
+ios/App/App/HelpViewController.swift     ← 2단계: 사용자 가이드(글은 `src/lib/guide.ts`)
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5291,6 +5293,9 @@ ios/App/App/PollViewController.swift     ← 2단계: 투표 상세(표 던지�
   익명이면 현황 카드가 통째로 없고, 참여 수는 회원 가운데 던진 사람이다.
   **끝났는데 결과 카드를 안 남긴 투표는 앱도 `post_poll_result`를 부른다**
   (`announceClosedPolls` — 홈·투표 탭·상세. 웹만 부르면 앱으로만 쓰는 날 결과가 안 남는다).
+- **가이드의 글은 `src/lib/guide.ts` 한 곳이다.** 웹 `Help.tsx`와 앱 `HelpViewController`가
+  같은 글을 쓴다(앱은 `open({guide})`로 받는다). 표시는 `**굵게**`·`((곁말))` 둘뿐 —
+  웹 `Rich`와 Swift `GuideText`를 한쪽만 고치지 말 것. **Swift에 글을 적지 말 것.**
 - **알림함은 여는 순간 다 읽음으로 찍고 `fresh`로 가른다** — 웹 `Alerts.tsx`와 같은
   규칙(`read_at`으로 그리지 말 것 · id마다 한 번만 판단).
 - **제약을 직접 거는 뷰는 `translatesAutoresizingMaskIntoConstraints = false`를

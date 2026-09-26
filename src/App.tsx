@@ -24,10 +24,9 @@ import { PostEdit } from './screens/PostEdit';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { Me } from './screens/Me';
-import { AlertsRoute, MembersRoute, NativeShellSync, PollRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
+import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
 import { hasNativeApp } from './lib/native-app';
 import { Settle } from './screens/Settle';
-import { Help } from './screens/Help';
 
 /**
  * 라우팅은 **해시 방식**(`/#/rounds`)을 쓴다.
@@ -107,7 +106,7 @@ function Gate() {
                 <Route path="/members" element={<MembersRoute />} />
                 <Route path="/settle" element={<Settle />} />
                 <Route path="/alerts" element={<AlertsRoute />} />
-                <Route path="/help" element={<Help />} />
+                <Route path="/help" element={<HelpRoute />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             <TabBar />
