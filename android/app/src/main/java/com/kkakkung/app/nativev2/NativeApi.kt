@@ -273,6 +273,36 @@ class NativeApi(private val session: NativeSession) {
         ))
     } catch (_: Exception) { emptyList() }
 
+    suspend fun createSettlement(
+        roundId: String, title: String, note: String, bank: String, account: String,
+        amounts: Map<String, Int>
+    ): String {
+        if (amounts.isEmpty()) throw NativeApiError("정산할 사람을 골라 주세요.")
+        val total = amounts.values.sum()
+        val made = request("rest/v1/settlements", method = "POST", body = JSONObject()
+            .put("round_id", roundId).put("title", title).put("body", note)
+            .put("bank", bank).put("account", account).put("total", total)
+            .put("created_by", session.userId))
+        val id = firstObject(made)?.optString("id").orEmpty()
+        if (id.isBlank()) throw NativeApiError("정산을 만들지 못했습니다.")
+        val shares = JSONArray()
+        amounts.forEach { (uid, amount) ->
+            shares.put(JSONObject().put("settlement_id", id).put("user_id", uid).put("amount", amount))
+        }
+        try {
+            request("rest/v1/settlement_shares", method = "POST", body = shares)
+        } catch (e: Exception) {
+            try { request("rest/v1/settlements", listOf("id" to "eq.$id"), "DELETE") } catch (_: Exception) {}
+            throw e
+        }
+        return id
+    }
+
+    suspend fun deleteSettlement(id: String) {
+        val v = request("rest/v1/settlements", listOf("id" to "eq.$id"), "DELETE")
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("정산을 지울 권한이 없습니다.")
+    }
+
     suspend fun markSharePaid(id: String, paid: Boolean = true) {
         val v = request("rest/v1/settlement_shares", listOf("id" to "eq.$id"), "PATCH",
             JSONObject().put("paid", paid))
@@ -298,5 +328,37 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun retractVote(optionId: String) {
         request("rest/v1/rpc/retract_vote", method = "POST", body = JSONObject().put("p_option", optionId))
+    }
+
+    // ── 알림 · 회원 관리 ───────────────────────────────────────
+
+    suspend fun notifications(limit: Int = 50): List<JSONObject> = try {
+        rows("notifications", listOf("select" to "*", "order" to "created_at.desc", "limit" to limit.toString()))
+    } catch (_: Exception) { emptyList() }
+
+    suspend fun markNotificationsRead() {
+        try {
+            request("rest/v1/notifications", listOf("read_at" to "is.null"), "PATCH",
+                JSONObject().put("read_at", java.time.Instant.now().toString()))
+        } catch (_: Exception) {}
+    }
+
+    suspend fun purgeNotifications() {
+        try { request("rest/v1/rpc/purge_my_notifications", method = "POST", body = JSONObject()) }
+        catch (_: Exception) {}
+    }
+
+    suspend fun contacts(): List<JSONObject> = try {
+        rows("profile_private", listOf("select" to "*", "limit" to "1000"))
+    } catch (_: Exception) { emptyList() }
+
+    suspend fun setMemberRole(id: String, role: String) {
+        val v = request("rest/v1/profiles", listOf("id" to "eq.$id"), "PATCH", JSONObject().put("role", role))
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("회원 등급을 바꿀 권한이 없습니다.")
+    }
+
+    suspend fun rejectMember(id: String) {
+        val v = request("rest/v1/profiles", listOf("id" to "eq.$id"), "DELETE")
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("가입 신청을 거절할 권한이 없습니다.")
     }
 }
