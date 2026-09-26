@@ -425,6 +425,14 @@ class NativeApi(private val session: NativeSession) {
 
     // ── 알림 · 회원 관리 ───────────────────────────────────────
 
+    suspend fun pushEnabled(token: String): Boolean = try {
+        rows("push_subscriptions", listOf(
+            "select" to "endpoint",
+            "endpoint" to "eq.fcm:$token",
+            "limit" to "1"
+        )).isNotEmpty()
+    } catch (_: Exception) { false }
+
     suspend fun enablePush(token: String) = withContext(Dispatchers.IO) {
         if (session.needsRefresh) NativeAuth.refresh(session)
         val endpoint = "fcm:$token"
