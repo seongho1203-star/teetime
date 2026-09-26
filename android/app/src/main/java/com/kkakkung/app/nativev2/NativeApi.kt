@@ -160,19 +160,19 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun rounds(limit: Int = 60): List<JSONObject> =
         rows("rounds", listOf(
-            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart",
+            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart,signups(user_id,state,seq,grp)",
             "order" to "tee_at.desc", "limit" to limit.toString()
         ))
 
     suspend fun openPolls(limit: Int = 30): List<JSONObject> =
         rows("polls", listOf(
-            "select" to "id,title,body,multi,anonymous,closes_at,closed,created_at",
+            "select" to "id,title,body,multi,anonymous,closes_at,closed,created_at,poll_options(id,label,sort),poll_votes(option_id,user_id)",
             "closed" to "eq.false", "order" to "created_at.desc", "limit" to limit.toString()
         ))
 
     suspend fun polls(limit: Int = 60): List<JSONObject> =
         rows("polls", listOf(
-            "select" to "id,title,body,multi,anonymous,closes_at,closed,created_at",
+            "select" to "id,title,body,multi,anonymous,closes_at,closed,created_at,poll_options(id,label,sort),poll_votes(option_id,user_id)",
             "order" to "created_at.desc", "limit" to limit.toString()
         ))
 
