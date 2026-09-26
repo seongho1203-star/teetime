@@ -18,11 +18,10 @@ import UIKit
  *  - 글 지우기가 끝나면 목록으로 **바꿔치기**해 간다(`replace`) — 지운 글이
  *    히스토리에 남으면 뒤로 갔을 때 없는 글이 뜬다.
  *
- * 댓글 칸은 **화면 아래 붙박이 바**다 — `keyboardLayoutGuide`에 묶여 키보드와
- * 한 몸으로 오르내린다(네이티브 글칸이라 천지인 깜빡임도 없다). 웹은 카드
- * 안에 칸이 있었지만 그건 `textarea`가 키보드에 붙을 길이 없어서였다.
+ * 댓글 칸은 **카드 안에 그대로 선다**(`CommentInput`) — 누르면 그 자리에서 커서가
+ * 깜빡인다. 한동안 화면 아래 붙박이 바였는데 칸이 둘로 보여 걷어냈다.
  */
-final class PostViewController: NativeScreenController, UITextViewDelegate {
+final class PostViewController: NativeScreenController {
     /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
     override var liveTables: Set<String> { ["posts", "post_comments"] }
     private let postId: String
@@ -45,11 +44,8 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
     private let commentTitle = UILabel()
     private let commentList = UIStackView()
 
-    private let composer = UIView()
-    private let field = UITextView()
-    private let hint = UILabel()
-    private let sendBtn = UIButton(type: .system)
-    private var fieldH: NSLayoutConstraint?
+    /// 댓글 적는 칸 — 카드 맨 아래에 그대로 선다(`CommentInput`).
+    private let commentInput = CommentInput()
 
     private var post: AppPost?
     private var comments: [AppComment] = []
@@ -129,7 +125,7 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
         commentCard.layer.cornerRadius = AppSkin.radius
         commentCard.layer.cornerCurve = .continuous
         commentCard.isLayoutMarginsRelativeArrangement = true
-        commentCard.layoutMargins = UIEdgeInsets(top: 14, left: 14, bottom: 6, right: 14)
+        commentCard.layoutMargins = UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
         commentTitle.font = .systemFont(ofSize: 14, weight: .bold)
         commentTitle.textColor = AppSkin.dim
         commentList.axis = .vertical
@@ -137,6 +133,14 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
         commentCard.addArrangedSubview(commentTitle)
         commentCard.setCustomSpacing(6, after: commentTitle)
         commentCard.addArrangedSubview(commentList)
+        commentCard.setCustomSpacing(10, after: commentList)
+        commentCard.addArrangedSubview(commentInput)
+        commentInput.onSend = { [weak self] t in self?.send(t) }
+        commentInput.dismissOnTap(in: scroll)
+        commentInput.onGrow = { [weak self] in
+            guard let self = self else { return }
+            keepAboveKeyboard(nil, scroll: self.scroll, input: self.commentInput, in: self.view)
+        }
 
         [pinRow, titleText, metaLabel, bodyLabel, shareRow, adminRow, commentCard].forEach { stack.addArrangedSubview($0) }
         stack.setCustomSpacing(4, after: titleText)
@@ -145,77 +149,32 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
 
         scroll.addSubview(stack)
 
-        /* 댓글 적는 바 — 위쪽 가는 선 · 글칸 + `등록`. */
-        composer.backgroundColor = AppSkin.bg
-        composer.translatesAutoresizingMaskIntoConstraints = false
-        let rule = UIView()
-        rule.backgroundColor = AppSkin.line
-        rule.translatesAutoresizingMaskIntoConstraints = false
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.font = .systemFont(ofSize: 16)
-        field.textColor = AppSkin.text
-        field.backgroundColor = AppSkin.surface
-        field.layer.cornerRadius = AppSkin.radiusSm
-        field.layer.borderWidth = 1
-        field.layer.borderColor = AppSkin.line.cgColor
-        field.textContainerInset = UIEdgeInsets(top: 11, left: 9, bottom: 11, right: 9)
-        field.delegate = self
-        field.isScrollEnabled = false
-        hint.text = "댓글 남기기"
-        hint.font = .systemFont(ofSize: 16)
-        hint.textColor = AppSkin.faint
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        hint.isUserInteractionEnabled = false
-        style(sendBtn, title: "등록", color: AppSkin.brand, filled: true)
-        sendBtn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
-        /* **단추는 제 글자만큼만, 글칸이 나머지를 다 쓴다.** 둘 다 제 크기가
-           있어 그냥 두면 어느 쪽을 늘릴지가 애매해 **단추가 화면을 다 먹고
-           글칸이 30pt로 접혔다**(실기기 사진). */
-        sendBtn.setContentHuggingPriority(.required, for: .horizontal)
-        sendBtn.setContentCompressionResistancePriority(.required, for: .horizontal)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        composer.addSubview(rule); composer.addSubview(field); composer.addSubview(hint); composer.addSubview(sendBtn)
-
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.hidesWhenStopped = true
 
-        body.addSubview(scroll); body.addSubview(composer); body.addSubview(spinner)
-        let fh = field.heightAnchor.constraint(equalToConstant: 44)
-        fieldH = fh
+        body.addSubview(scroll); body.addSubview(spinner)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: body.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: body.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: composer.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: body.bottomAnchor),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
-            composer.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            composer.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-            /* **키보드에 묶는다** — 내려가 있으면 안전 영역 위, 올라오면 키보드 위. */
-            composer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            rule.topAnchor.constraint(equalTo: composer.topAnchor),
-            rule.leadingAnchor.constraint(equalTo: composer.leadingAnchor),
-            rule.trailingAnchor.constraint(equalTo: composer.trailingAnchor),
-            rule.heightAnchor.constraint(equalToConstant: 1),
-            field.topAnchor.constraint(equalTo: composer.topAnchor, constant: 9),
-            field.bottomAnchor.constraint(equalTo: composer.bottomAnchor, constant: -9),
-            field.leadingAnchor.constraint(equalTo: composer.leadingAnchor, constant: 16),
-            fh,
-            hint.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: 14),
-            hint.topAnchor.constraint(equalTo: field.topAnchor, constant: 11),
-            sendBtn.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: 10),
-            sendBtn.trailingAnchor.constraint(equalTo: composer.trailingAnchor, constant: -16),
-            sendBtn.bottomAnchor.constraint(equalTo: field.bottomAnchor),
-            sendBtn.heightAnchor.constraint(equalToConstant: 44),
             spinner.centerXAnchor.constraint(equalTo: body.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: body.centerYAnchor)
         ])
         scroll.isHidden = true
-        composer.isHidden = true
+        NotificationCenter.default.addObserver(self, selector: #selector(kbChanged(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(kbChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func kbChanged(_ n: Notification) {
+        keepAboveKeyboard(n, scroll: scroll, input: commentInput, in: view)
     }
 
     /// 단추 모양 — 웹 `.btn ghost sm` / `.btn primary` / `.btn danger sm`.
@@ -260,12 +219,11 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
 
     private func render() {
         guard let p = post else {
-            scroll.isHidden = true; composer.isHidden = true
+            scroll.isHidden = true
             flash("없는 글입니다.", error: true)
             return
         }
         scroll.isHidden = false
-        composer.isHidden = false
         rightButton.isHidden = !canEdit
         pinBadge.isHidden = !p.pinned
         (pinBadge.superview as? UIStackView)?.isHidden = !p.pinned
@@ -373,17 +331,15 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
 
     // ── 댓글 ─────────────────────────────────────────────────────
 
-    @objc private func sendTapped() {
-        let text = field.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !busy else { return }
+    private func send(_ text: String) {
+        guard !busy else { return }
         busy = true
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             defer { self.busy = false }
             do {
                 try await self.service.addComment(table: "post_comments", parentKey: "post_id", parentId: self.postId, body: text)
-                self.field.text = ""
-                self.textViewDidChange(self.field)
+                self.commentInput.clear()
                 self.comments = (try? await self.service.postComments(self.postId)) ?? self.comments
                 self.renderComments()
                 /* 방금 단 줄이 보이게 아래로 — 목록이 자란 뒤에 굴린다. */
@@ -414,18 +370,6 @@ final class PostViewController: NativeScreenController, UITextViewDelegate {
             }
         }
     }
-
-    /// 적은 만큼 늘어난다(44~140) — 웹 `growDraft`와 같은 한도다.
-    func textViewDidChange(_ textView: UITextView) {
-        hint.isHidden = !textView.text.isEmpty || textView.isFirstResponder
-        let fit = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)).height
-        let h = min(140, max(44, fit))
-        textView.isScrollEnabled = fit > 140
-        if fieldH?.constant != h { fieldH?.constant = h; view.layoutIfNeeded() }
-    }
-    /* 안내 글씨는 **초점이 가는 순간** 치운다(웹 규칙 그대로). */
-    func textViewDidBeginEditing(_ textView: UITextView) { hint.isHidden = true }
-    func textViewDidEndEditing(_ textView: UITextView) { hint.isHidden = !textView.text.isEmpty }
 }
 
 /**
@@ -452,8 +396,8 @@ final class CommentRow: UIView {
         bodyLabel.textColor = AppSkin.text
         bodyLabel.numberOfLines = 0
         delBtn.translatesAutoresizingMaskIntoConstraints = false
-        delBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
-        delBtn.tintColor = AppSkin.dim
+        delBtn.setImage(smallX(), for: .normal)
+        delBtn.tintColor = AppSkin.faint
         delBtn.accessibilityLabel = "댓글 지우기"
         delBtn.addTarget(self, action: #selector(delTapped), for: .touchUpInside)
         rule.backgroundColor = AppSkin.line
@@ -497,4 +441,145 @@ final class CommentRow: UIView {
     }
 
     @objc private func delTapped() { onDelete?() }
+}
+
+/// 작은 `✕` — 웹 `.comment-del`처럼 흐리고 작게. 기본 크기(17pt)는 줄마다 너무 도드라졌다
+/// (실기기 제보 — `X가 너무크고`). 누르는 자리는 부르는 쪽이 36pt로 넉넉히 둔다.
+func smallX() -> UIImage? {
+    UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+}
+
+/**
+ * **댓글 적는 칸 — 카드 안에 그대로 선다**(웹 `.comment-form`). 누르면 **그 자리에서**
+ * 커서가 깜빡이고 키보드가 올라온다. 예전에는 화면 아래 붙박이 바(`composer`)였고,
+ * 라운드 상세는 카드 안에 가짜 칸을 두고 누르면 그 바가 따로 올라왔다 — 칸이 둘로
+ * 보였다(사용자 제보 — `댓글칸이 깜빡여야하는데 별도칸이있고`). 네이티브 글칸이라
+ * 천지인 깜빡임이 없으니 웹이 바를 썼던 까닭이 여기엔 없다.
+ *
+ * 키보드가 오르내리면 화면이 `keepAboveKeyboard`로 이 칸을 키보드 위로 올린다.
+ * **화면이 다시 그려져도 같은 칸을 옮겨 붙인다**(새로 만들면 적던 글이 날아간다).
+ */
+final class CommentInput: UIView, UITextViewDelegate {
+    let field = UITextView()
+    private let hint = UILabel()
+    let sendBtn = UIButton(type: .system)
+    private var fieldH: NSLayoutConstraint!
+    /// 다듬은 글을 넘긴다 — 올리고 나서 부르는 쪽이 `clear()`한다(실패하면 글을 남긴다).
+    var onSend: ((String) -> Void)?
+    /// 칸이 자랐을 때 — 부르는 쪽이 키보드 위로 다시 맞춘다.
+    var onGrow: (() -> Void)?
+
+    init() {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.font = .systemFont(ofSize: 16)
+        field.textColor = AppSkin.text
+        field.tintColor = AppSkin.brand
+        field.backgroundColor = AppSkin.surface2
+        field.layer.cornerRadius = AppSkin.radiusSm
+        field.layer.borderWidth = 1
+        field.layer.borderColor = AppSkin.line.cgColor
+        field.textContainerInset = UIEdgeInsets(top: 11, left: 9, bottom: 11, right: 9)
+        field.delegate = self
+        field.isScrollEnabled = false
+        hint.text = "댓글 남기기"
+        hint.font = .systemFont(ofSize: 16)
+        hint.textColor = AppSkin.faint
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        hint.isUserInteractionEnabled = false
+        appButton(sendBtn, title: "등록", color: AppSkin.brand, filled: true)
+        sendBtn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
+        /* 단추는 제 글자만큼만, 글칸이 나머지를 다 쓴다(공지 상세에서 0폭으로 접혔던 자리). */
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(field); addSubview(hint); addSubview(sendBtn)
+        fieldH = field.heightAnchor.constraint(equalToConstant: 44)
+        NSLayoutConstraint.activate([
+            field.topAnchor.constraint(equalTo: topAnchor),
+            field.bottomAnchor.constraint(equalTo: bottomAnchor),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor),
+            fieldH,
+            hint.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: 14),
+            hint.topAnchor.constraint(equalTo: field.topAnchor, constant: 11),
+            sendBtn.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: 8),
+            sendBtn.trailingAnchor.constraint(equalTo: trailingAnchor),
+            sendBtn.bottomAnchor.constraint(equalTo: field.bottomAnchor),
+            sendBtn.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    var trimmed: String { (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    @objc private func sendTapped() {
+        let t = trimmed
+        guard !t.isEmpty else { field.becomeFirstResponder(); return }
+        onSend?(t)
+    }
+
+    /// 칸 밖을 누르면 키보드를 내린다(웹 `lib/keyboard.ts`와 같은 규칙) — 이 칸 자신은 뺀다.
+    /// `cancelsTouchesInView = false`라 누른 단추는 그대로 눌린다.
+    func dismissOnTap(in host: UIView) {
+        let g = UITapGestureRecognizer(target: self, action: #selector(outsideTapped(_:)))
+        g.cancelsTouchesInView = false
+        host.addGestureRecognizer(g)
+    }
+    @objc private func outsideTapped(_ g: UITapGestureRecognizer) {
+        guard field.isFirstResponder, !bounds.contains(g.location(in: self)) else { return }
+        field.resignFirstResponder()
+    }
+
+    /// 올린 뒤 — 칸을 비우고 키보드를 내린다.
+    func clear() {
+        field.text = ""
+        textViewDidChange(field)
+        field.resignFirstResponder()
+    }
+
+    /// 적은 만큼 늘어난다(44~140) — 웹 `growDraft`와 같은 한도다.
+    func textViewDidChange(_ textView: UITextView) {
+        hint.isHidden = !textView.text.isEmpty || textView.isFirstResponder
+        let w = textView.bounds.width > 0 ? textView.bounds.width : 200
+        let fit = textView.sizeThatFits(CGSize(width: w, height: .greatestFiniteMagnitude)).height
+        let h = min(140, max(44, fit))
+        textView.isScrollEnabled = fit > 140
+        if fieldH.constant != h {
+            fieldH.constant = h
+            onGrow?()
+        }
+    }
+    /* 안내 글씨는 **초점이 가는 순간** 치운다(웹 규칙 그대로). */
+    func textViewDidBeginEditing(_ textView: UITextView) { hint.isHidden = true }
+    func textViewDidEndEditing(_ textView: UITextView) { hint.isHidden = !textView.text.isEmpty }
+}
+
+/**
+ * 키보드가 오르내릴 때 — 스크롤 아래를 키보드가 가린 만큼 비우고, 댓글 칸에 초점이
+ * 있으면 그 칸이 키보드 위에 오게 굴린다(웹 `lib/keyboard.ts`의 `reveal`과 같은 몫).
+ * 이미 보이는 자리면 안 굴린다 — 사람이 굴려 둔 자리를 빼앗지 않는다.
+ */
+@MainActor
+func keepAboveKeyboard(_ n: Notification?, scroll: UIScrollView, input: CommentInput, in view: UIView) {
+    if let n = n {
+        let hide = n.name == UIResponder.keyboardWillHideNotification
+        var inset: CGFloat = 0
+        if !hide, let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
+           let host = scroll.superview {
+            let kbTop = view.convert(end, from: nil).minY
+            let bottom = host.convert(scroll.frame, to: view).maxY
+            inset = max(0, bottom - kbTop - scroll.safeAreaInsets.bottom)
+        }
+        scroll.contentInset.bottom = inset
+        scroll.verticalScrollIndicatorInsets.bottom = inset
+        if hide { return }
+    }
+    guard input.field.isFirstResponder, input.window != nil else { return }
+    view.layoutIfNeeded()
+    let r = input.convert(input.bounds, to: scroll)
+    let visible = scroll.bounds.height - scroll.adjustedContentInset.bottom
+    let want = r.maxY + 12 - visible
+    if want > scroll.contentOffset.y {
+        scroll.setContentOffset(CGPoint(x: 0, y: want), animated: true)
+    }
 }

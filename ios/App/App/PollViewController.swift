@@ -20,9 +20,9 @@ import UIKit
  *    부른다(알림을 눌러 목록을 안 거치고 들어오는 사람이 있다).
  *  - `수정`(`/polls/<id>/edit`)은 만든 사람과 운영진 — 쓰는 화면은 아직 웹이다.
  *
- * 댓글 칸은 공지 상세와 같은 붙박이 바(`keyboardLayoutGuide`)다.
+ * 댓글 칸은 공지 상세와 같이 **카드 안에 그대로 선다**(`CommentInput`).
  */
-final class PollViewController: NativeScreenController, UITextViewDelegate {
+final class PollViewController: NativeScreenController {
     /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
     override var liveTables: Set<String> { ["polls", "poll_options", "poll_votes", "poll_comments"] }
     private let pollId: String
@@ -32,11 +32,8 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let refresh = UIRefreshControl()
 
-    private let composer = UIView()
-    private let field = UITextView()
-    private let hint = UILabel()
-    private let sendBtn = UIButton(type: .system)
-    private var fieldH: NSLayoutConstraint?
+    /// 댓글 적는 칸 — 카드 맨 아래에 그대로 선다. 다시 그려도 같은 칸을 옮겨 붙인다.
+    private let commentInput = CommentInput()
 
     private var poll: AppPoll?
     private var comments: [AppComment] = []
@@ -74,70 +71,39 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
         stack.layoutMargins = UIEdgeInsets(top: 4, left: 16, bottom: 24, right: 16)
         scroll.addSubview(stack)
 
-        composer.backgroundColor = AppSkin.bg
-        composer.translatesAutoresizingMaskIntoConstraints = false
-        let rule = UIView()
-        rule.backgroundColor = AppSkin.line
-        rule.translatesAutoresizingMaskIntoConstraints = false
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.font = .systemFont(ofSize: 16)
-        field.textColor = AppSkin.text
-        field.backgroundColor = AppSkin.surface
-        field.layer.cornerRadius = AppSkin.radiusSm
-        field.layer.borderWidth = 1
-        field.layer.borderColor = AppSkin.line.cgColor
-        field.textContainerInset = UIEdgeInsets(top: 11, left: 9, bottom: 11, right: 9)
-        field.delegate = self
-        field.isScrollEnabled = false
-        hint.text = "댓글 남기기"
-        hint.font = .systemFont(ofSize: 16)
-        hint.textColor = AppSkin.faint
-        hint.translatesAutoresizingMaskIntoConstraints = false
-        hint.isUserInteractionEnabled = false
-        appButton(sendBtn, title: "등록", color: AppSkin.brand, filled: true)
-        sendBtn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        composer.addSubview(rule); composer.addSubview(field); composer.addSubview(hint); composer.addSubview(sendBtn)
-
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.hidesWhenStopped = true
 
-        body.addSubview(scroll); body.addSubview(composer); body.addSubview(spinner)
-        let fh = field.heightAnchor.constraint(equalToConstant: 44)
-        fieldH = fh
+        commentInput.onSend = { [weak self] t in self?.send(t) }
+        commentInput.dismissOnTap(in: scroll)
+        commentInput.onGrow = { [weak self] in
+            guard let self = self else { return }
+            keepAboveKeyboard(nil, scroll: self.scroll, input: self.commentInput, in: self.view)
+        }
+
+        body.addSubview(scroll); body.addSubview(spinner)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: body.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: body.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: composer.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: body.bottomAnchor),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
-            composer.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            composer.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-            composer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            rule.topAnchor.constraint(equalTo: composer.topAnchor),
-            rule.leadingAnchor.constraint(equalTo: composer.leadingAnchor),
-            rule.trailingAnchor.constraint(equalTo: composer.trailingAnchor),
-            rule.heightAnchor.constraint(equalToConstant: 1),
-            field.topAnchor.constraint(equalTo: composer.topAnchor, constant: 9),
-            field.bottomAnchor.constraint(equalTo: composer.bottomAnchor, constant: -9),
-            field.leadingAnchor.constraint(equalTo: composer.leadingAnchor, constant: 16),
-            fh,
-            hint.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: 14),
-            hint.topAnchor.constraint(equalTo: field.topAnchor, constant: 11),
-            sendBtn.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: 10),
-            sendBtn.trailingAnchor.constraint(equalTo: composer.trailingAnchor, constant: -16),
-            sendBtn.bottomAnchor.constraint(equalTo: field.bottomAnchor),
-            sendBtn.heightAnchor.constraint(equalToConstant: 44),
             spinner.centerXAnchor.constraint(equalTo: body.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: body.centerYAnchor)
         ])
         scroll.isHidden = true
-        composer.isHidden = true
+        NotificationCenter.default.addObserver(self, selector: #selector(kbChanged(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(kbChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func kbChanged(_ n: Notification) {
+        keepAboveKeyboard(n, scroll: scroll, input: commentInput, in: view)
     }
 
     // ── 받아 오기 ────────────────────────────────────────────────
@@ -167,12 +133,11 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
 
     private func render() {
         guard let p = poll else {
-            scroll.isHidden = true; composer.isHidden = true
+            scroll.isHidden = true
             flash("없는 투표입니다.", error: true)
             return
         }
         scroll.isHidden = false
-        composer.isHidden = false
         rightButton.isHidden = !mayEdit
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let closed = p.closed
@@ -278,6 +243,8 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
             clist.addArrangedSubview(row)
         }
         ccard.content.addArrangedSubview(clist)
+        ccard.content.setCustomSpacing(10, after: clist)
+        ccard.content.addArrangedSubview(commentInput)
         stack.addArrangedSubview(ccard)
 
         // 운영 — 만든 사람과 운영진
@@ -376,17 +343,15 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
 
     // ── 댓글 ─────────────────────────────────────────────────────
 
-    @objc private func sendTapped() {
-        let text = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !busy else { return }
+    private func send(_ text: String) {
+        guard !busy else { return }
         busy = true
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             defer { self.busy = false }
             do {
                 try await self.service.addComment(table: "poll_comments", parentKey: "poll_id", parentId: self.pollId, body: text)
-                self.field.text = ""
-                self.textViewDidChange(self.field)
+                self.commentInput.clear()
                 self.comments = (try? await self.service.pollComments(self.pollId)) ?? self.comments
                 self.render()
                 self.view.layoutIfNeeded()
@@ -405,14 +370,4 @@ final class PollViewController: NativeScreenController, UITextViewDelegate {
             self.run { try await self.service.deleteRow("poll_comments", id: c.id) }
         }
     }
-
-    func textViewDidChange(_ textView: UITextView) {
-        hint.isHidden = !textView.text.isEmpty || textView.isFirstResponder
-        let fit = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)).height
-        let h = min(140, max(44, fit))
-        textView.isScrollEnabled = fit > 140
-        if fieldH?.constant != h { fieldH?.constant = h; view.layoutIfNeeded() }
-    }
-    func textViewDidBeginEditing(_ textView: UITextView) { hint.isHidden = true }
-    func textViewDidEndEditing(_ textView: UITextView) { hint.isHidden = !textView.text.isEmpty }
 }
