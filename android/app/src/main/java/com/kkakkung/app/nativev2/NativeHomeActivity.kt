@@ -1914,16 +1914,21 @@ class NativeHomeActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(24))
         }
-        val back = Button(this).apply {
-            text = "‹  $label"
-            textSize = 17f
-            isAllCaps = false
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setTextColor(ink)
-            setBackgroundColor(Color.TRANSPARENT)
-            setOnClickListener { detail = false; showTab(currentTab) }
+        /* TopBar.css: 36px back + fs-md 800 title + min-height 40px. */
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         }
-        col.addView(back, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        top.addView(TextView(this).apply {
+            text = "‹"; textSize = 34f; setTextColor(dim); gravity = Gravity.CENTER
+            isClickable = true
+            background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(Color.TRANSPARENT) }
+            setOnClickListener { detail = false; showTab(currentTab) }
+        }, LinearLayout.LayoutParams(dp(36), dp(40)))
+        top.addView(TextView(this).apply {
+            text = label; textSize = 16.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(0, dp(40), 1f))
+        col.addView(top, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
         return col
     }
 
