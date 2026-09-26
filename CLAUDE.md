@@ -5273,6 +5273,7 @@ ios/App/App/HelpViewController.swift     ← 2단계: 사용자 가이드(글은
 ios/App/App/FormScreen.swift             ← 3단계: 쓰는 화면 뼈대(저장 바 · 칸)
 ios/App/App/PostEditViewController.swift ← 3단계: 공지 쓰기·고치기
 ios/App/App/PollEditViewController.swift ← 3단계: 투표 만들기·고치기
+ios/App/App/RoundEditViewController.swift ← 3단계: 모집 열기·고치기(골프장 목록은 웹이 실어 보낸다)
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만

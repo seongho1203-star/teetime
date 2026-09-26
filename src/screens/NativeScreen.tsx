@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { NativeApp, nativeScreen } from '../lib/native-app';
@@ -13,6 +13,8 @@ import { PollDetail } from './PollDetail';
 import { Help } from './Help';
 import { PostEdit } from './PostEdit';
 import { PollEdit } from './PollEdit';
+import { RoundEdit } from './RoundEdit';
+import { COURSES } from '../lib/courses';
 import { guideTable } from '../lib/guide';
 
 /**
@@ -60,6 +62,20 @@ export function PollEditRoute() {
     const { id } = useParams<{ id: string }>();
     const path = id ? `/polls/${id}/edit` : '/polls/new';
     return nativeScreen(path) ? <NativeScreenHost path={path} /> : <PollEdit />;
+}
+
+/**
+ * 모집 열기(`/rounds/new` · `?from=` 베끼기)·고치기(`/rounds/<id>/edit`) — 3단계.
+ * **골프장 574곳은 웹이 실어 보낸다**(`lib/courses.ts`) — Swift에 또 적으면 두 벌이 된다.
+ */
+export function RoundEditRoute() {
+    const { id } = useParams<{ id: string }>();
+    const [params] = useSearchParams();
+    const from = id ? null : params.get('from');
+    const path = id ? `/rounds/${id}/edit` : '/rounds/new';
+    return nativeScreen(path)
+        ? <NativeScreenHost key={from ?? 'new'} path={path} extra={{ courses: COURSES, ...(from ? { from } : {}) }} />
+        : <RoundEdit />;
 }
 
 /** 가이드의 글은 웹이 들고 있다(`lib/guide.ts`) — 열 때 통째로 실어 보낸다. */

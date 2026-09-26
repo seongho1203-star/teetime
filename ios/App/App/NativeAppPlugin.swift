@@ -39,11 +39,12 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 6
+    static let version = 7
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
-    /// `:id`는 uuid 한 조각이다 — `/rounds/new`·`/rounds/<id>/edit`·`/groups`(쓰는 화면)는 아직 웹이다.
+    /// `:id`는 uuid 한 조각이다 — `/rounds/<id>/groups`(조 편성)는 아직 웹이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
-                                    "/board/new", "/board/:id/edit", "/polls/new", "/polls/:id/edit"]
+                                    "/board/new", "/board/:id/edit", "/polls/new", "/polls/:id/edit",
+                                    "/rounds/new", "/rounds/:id/edit"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -77,7 +78,16 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             return HelpViewController(service: service, guide: g)
         case "/board/new": return PostEditViewController(service: service, id: nil)
         case "/polls/new": return PollEditViewController(service: service, id: nil)
+        case "/rounds/new":
+            /* 골프장 목록은 웹이 실어 보낸다(`lib/courses.ts`) — 없으면(껍데기가 직접 부른 판) 웹에 맡긴다. */
+            guard let c = options["courses"] as? [ChatJSON] else { return nil }
+            return RoundEditViewController(service: service, id: nil, from: options["from"] as? String, courses: c)
         default:
+            if path.hasPrefix("/rounds/"), path.hasSuffix("/edit"),
+               let id = UUID(uuidString: String(path.dropFirst("/rounds/".count).dropLast("/edit".count))) {
+                guard let c = options["courses"] as? [ChatJSON] else { return nil }
+                return RoundEditViewController(service: service, id: id.uuidString.lowercased(), from: nil, courses: c)
+            }
             if path.hasPrefix("/polls/"), path.hasSuffix("/edit"),
                let id = UUID(uuidString: String(path.dropFirst("/polls/".count).dropLast("/edit".count))) {
                 return PollEditViewController(service: service, id: id.uuidString.lowercased())

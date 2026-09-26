@@ -46,7 +46,8 @@ export const NativeApp = registerPlugin<{
  * 한쪽만 고치면 웹이 보냈는데 앱이 `모르는 화면`으로 거절한다.
  */
 export const NATIVE_SCREENS = ['/members', '/alerts', '/board/:id', '/rounds/:id', '/polls/:id', '/help',
-    '/board/new', '/board/:id/edit', '/polls/new', '/polls/:id/edit'];
+    '/board/new', '/board/:id/edit', '/polls/new', '/polls/:id/edit',
+    '/rounds/new', '/rounds/:id/edit'];
 
 /**
  * 주소가 그 꼴인가 — `:id`는 **uuid 한 조각**이다. 그래서 `/board/new`와
