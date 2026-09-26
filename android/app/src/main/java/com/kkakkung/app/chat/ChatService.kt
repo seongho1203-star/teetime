@@ -177,6 +177,14 @@ class ChatService(@Volatile var config: ChatConfig) {
         return rows("messages", q).map { ChatMessage(it) }
     }
 
+    /** 서랍 사진 줄. 규칙은 Swift와 동일: 이모티콘/가린 글 제외, 최근 30장. */
+    suspend fun recentMedia(room: String, limit: Int = 30): List<ChatMessage> =
+        messages(room, listOf(
+            "image_url" to "not.is.null",
+            "sticker_id" to "is.null",
+            "hidden_at" to "is.null"
+        ), ascending = false, limit = limit)
+
     suspend fun reads(room: String): Map<String, String> {
         val out = HashMap<String, String>()
         for (d in rows("room_reads", listOf("select" to "user_id,last_read_at", "room_id" to "eq.$room", "limit" to "1000"))) {
