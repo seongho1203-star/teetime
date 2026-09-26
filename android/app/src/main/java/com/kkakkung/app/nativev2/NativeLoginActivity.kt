@@ -1,10 +1,14 @@
 package com.kkakkung.app.nativev2
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
+import android.media.AudioAttributes
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -55,9 +59,10 @@ class NativeLoginActivity : AppCompatActivity() {
         NativeSessionStore.init(this)
         window.statusBarColor = bg
         window.navigationBarColor = bg
+        createNotifyChannel()
 
         NativeSessionStore.restore(this)?.let {
-            openHome()
+            openHome(pushTarget(intent))
             return
         }
 
@@ -68,7 +73,12 @@ class NativeLoginActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleCallback(intent.data)
+        val callback = intent.data
+        if (callback?.scheme == "kkakkung" && callback.host == "auth") {
+            handleCallback(callback)
+        } else if (NativeSessionStore.restore(this) != null) {
+            openHome(pushTarget(intent))
+        }
     }
 
     private fun buildLogin() {
@@ -239,10 +249,35 @@ class NativeLoginActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun openHome() {
-        startActivity(Intent(this, NativeHomeActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+    private fun pushTarget(i: Intent?): String? =
+        i?.getStringExtra("url") ?: i?.getStringExtra("path")
+
+    private fun openHome(target: String? = null) {
+        val i = Intent(this, NativeHomeActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (!target.isNullOrBlank()) i.putExtra("native_url", target)
+        startActivity(i)
         finish()
+    }
+
+    /** MainActivity가 더 이상 LAUNCHER가 아니므로 알림 채널도 Native 시작점에서
+        앱 화면보다 먼저 만든다. 기존 까꿍 채널 id/소리/중요도는 그대로다. */
+    private fun createNotifyChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        val ch = NotificationChannel(
+            getString(R.string.notify_channel_id),
+            getString(R.string.notify_channel_name),
+            NotificationManager.IMPORTANCE_HIGH
+        )
+        ch.description = getString(R.string.notify_channel_desc)
+        ch.enableVibration(true)
+        val sound = Uri.parse("android.resource://$packageName/${R.raw.kkakkung}")
+        ch.setSound(sound, AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .build())
+        nm.createNotificationChannel(ch)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
