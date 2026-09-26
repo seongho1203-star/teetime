@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -403,7 +406,20 @@ class ChatListView(context: Context) : RecyclerView(context) {
             bubble.visibility = if (showBubble) View.VISIBLE else View.GONE
             if (showBubble) {
                 val big = r.big && r.kind == "text"
-                body.text = text
+                if (r.mentions.isEmpty()) {
+                    body.text = text
+                } else {
+                    val painted = SpannableString(text)
+                    r.mentions.forEach { hit ->
+                        if (hit.start >= 0 && hit.end <= painted.length && hit.start < hit.end) {
+                            painted.setSpan(
+                                ForegroundColorSpan(if (hit.mine) 0xFFD92B8E.toInt() else 0xFF2C7BD4.toInt()),
+                                hit.start, hit.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                    }
+                    body.text = painted
+                }
                 body.textSize = if (big) ChatSkin.bigSize else ChatSkin.fontSize
                 body.maxWidth = maxW
                 body.setTextColor(ChatSkin.text)
