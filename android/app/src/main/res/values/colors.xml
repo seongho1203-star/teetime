@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Capacitor가 예전에 간접 제공하던 이름들. Native V2가 독립 앱이 된 뒤
+         앱의 실제 까꿍 토큰으로 직접 소유한다. -->
+    <color name="colorPrimary">#D92B8E</color>
+    <color name="colorPrimaryDark">#B41F72</color>
+    <color name="colorAccent">#D92B8E</color>
+</resources>
