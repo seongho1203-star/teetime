@@ -264,11 +264,18 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private class MentionPaint(color: Int) : ForegroundColorSpan(color)
 
-    private fun mentionNames(): List<Pair<String, String>> =
-        people.mapNotNull { p ->
+    private fun mentionNames(): List<Pair<String, String>> {
+        val mine = people.firstOrNull { it.optString("id") == me }
+        val admin = mine?.optString("role") in setOf("staff", "admin", "superadmin")
+        val rows = people.mapNotNull { p ->
             val name = p.optString("name")
-            if (name.isBlank()) null else name to ChatRows.label(p).ifBlank { name }
-        }.distinctBy { it.first }.sortedByDescending { it.first.length }
+            if (name.isBlank() || p.optString("role") in setOf("pending", "banned")) null
+            else name to ChatRows.label(p).ifBlank { name }
+        }.toMutableList()
+        /* Swift ChatMentions.all과 동일. 운영진에게만 후보로 보인다. */
+        if (admin) rows.add("전체" to "전체")
+        return rows.distinctBy { it.first }.sortedByDescending { it.first.length }
+    }
 
     private fun paintMentionText(e: Editable) {
         e.getSpans(0, e.length, MentionPaint::class.java).forEach { e.removeSpan(it) }
@@ -281,7 +288,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val at = text.indexOf(token, from)
                 if (at < 0) break
                 e.setSpan(
-                    MentionPaint(if (name == mineName) 0xFFD92B8E.toInt() else 0xFF2C7BD4.toInt()),
+                    MentionPaint(if (name == mineName || name == "전체") 0xFFD92B8E.toInt() else 0xFF2C7BD4.toInt()),
                     at, at + token.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
                 from = at + token.length
