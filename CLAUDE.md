@@ -5251,6 +5251,7 @@ ios/App/App/NativeAppData.swift          ← NativeChatService에 얹은 조회
 ios/App/App/MembersViewController.swift  ← 1단계: 회원 명단
 ios/App/App/PostViewController.swift     ← 2단계: 공지 상세 + 댓글
 ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
+ios/App/App/RoundViewController.swift    ← 2단계: 라운드 상세(신청·취소·정산 보기·댓글)
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5281,6 +5282,10 @@ ios/App/App/AlertsViewController.swift   ← 2단계: 알림함
   `readable()`이 웹 `readableError`와 같은 잣대로 사람 말로 바꾼다.
 - **댓글 칸은 `keyboardLayoutGuide`에 묶은 붙박이 바다**(`PostViewController`) —
   키보드와 한 몸으로 오르내리고 천지인 깜빡임도 없다. 웹처럼 카드 안에 넣지 말 것.
+- **라운드 상세는 신청·취소를 DB 함수(`join_round`·`leave_round`)에 맡긴다** — 웹과
+  같이 정원을 화면에서 안 센다. 신청 단추는 화면 아래 붙박이 바이고, 댓글 바는
+  **적는 동안만** 키보드 위에 뜬다(`댓글 남기기`를 누르면). 정산은 **보는 쪽만**
+  있다(입금완료·복사·토스) — 만들기는 3단계(쓰는 화면)에서 온다.
 - **알림함은 여는 순간 다 읽음으로 찍고 `fresh`로 가른다** — 웹 `Alerts.tsx`와 같은
   규칙(`read_at`으로 그리지 말 것 · id마다 한 번만 판단).
 - **제약을 직접 거는 뷰는 `translatesAutoresizingMaskIntoConstraints = false`를

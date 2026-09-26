@@ -135,9 +135,10 @@ struct AppAlert {
     ]
 }
 
-/// `signups` 한 줄 — 라운드에 딸려 온다(웹 `SignupHome`).
+/// `signups` 한 줄 — 라운드에 딸려 온다(웹 `SignupHome`·`Signup`).
 struct AppSignup {
     let raw: ChatJSON
+    var id: String { raw["id"] as? String ?? "" }
     var roundId: String { raw["round_id"] as? String ?? "" }
     var userId: String { raw["user_id"] as? String ?? "" }
     var state: String { raw["state"] as? String ?? "" }
@@ -164,6 +165,8 @@ struct AppRound {
     var kind: String { raw["kind"] as? String == "screen" ? "screen" : "field" }
     var caddie: String? { raw["caddie"] as? String }
     var cart: String? { raw["cart"] as? String }
+    var note: String { raw["note"] as? String ?? "" }
+    var createdBy: String? { raw["created_by"] as? String }
     var lat: Double? { raw["lat"] as? Double }
     var lon: Double? { raw["lon"] as? Double }
     var isScreen: Bool { kind == "screen" }
@@ -187,6 +190,67 @@ struct AppRound {
     }
     static let caddieLabel = ["caddie": "캐디", "none": "노캐디"]
     static let cartLabel = ["included": "카트 포함", "excluded": "카트 미포함"]
+    /// 상세의 표만 짧은 말이다(웹 `CADDIE_SHORT`·`CART_SHORT`) — 이름 칸이 따로 있어 `캐디: 캐디`가 된다.
+    static let caddieShort = ["caddie": "있음", "none": "없음"]
+    static let cartShort = ["included": "포함", "excluded": "미포함"]
+    var feeLabel: String { isScreen ? "게임비" : "그린피" }
+    /// 오늘(한국 날짜)보다 앞이면 지난 라운드다.
+    var isPast: Bool { AppDate.daysUntil(teeAt) < 0 }
+    /// 조별로 묶은 확정자 — **조가 하나도 없으면 빈 배열**이고 그때는 한 줄로 그린다(웹 `grouped`).
+    /// 미배정(`nil`)은 늘 맨 뒤다.
+    func grouped() -> [(no: Int?, list: [AppSignup])] {
+        let list = confirmed.sorted { $0.seq < $1.seq }
+        guard list.contains(where: { $0.grp != nil }) else { return [] }
+        var order: [Int?] = []
+        var bag: [Int?: [AppSignup]] = [:]
+        for s in list {
+            let k = s.grp
+            if bag[k] == nil { bag[k] = []; order.append(k) }
+            bag[k]!.append(s)
+        }
+        return order.sorted { a, b in
+            guard let a = a else { return false }
+            guard let b = b else { return true }
+            return a < b
+        }.map { (no: $0, list: bag[$0] ?? []) }
+    }
+}
+
+/// `settlements` 한 줄(웹 `Settlement`).
+struct AppSettlement {
+    let raw: ChatJSON
+    var id: String { raw["id"] as? String ?? "" }
+    var title: String { raw["title"] as? String ?? "" }
+    var body: String { raw["body"] as? String ?? "" }
+    var bank: String { (raw["bank"] as? String ?? "").trimmingCharacters(in: .whitespaces) }
+    var account: String { (raw["account"] as? String ?? "").trimmingCharacters(in: .whitespaces) }
+    var total: Int { raw["total"] as? Int ?? 0 }
+    var createdBy: String? { raw["created_by"] as? String }
+    var createdAt: String { raw["created_at"] as? String ?? "" }
+    /**
+     * 토스 송금 화면 주소(웹 `tossUrl`) — 은행·계좌·내 몫이 채워진 채로 뜬다.
+     * 끝의 `은행`을 떼고(`카카오뱅크`는 `뱅크`라 안 걸린다) 계좌의 `-`를 뺀다.
+     * **토스가 없는 폰에서는 안 열리므로 복사 단추를 그대로 둔다.**
+     */
+    func tossURL(amount: Int?) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = "supertoss"; parts.host = "send"
+        var items = [URLQueryItem(name: "bank", value: bank.replacingOccurrences(of: "은행$", with: "", options: .regularExpression)),
+                     URLQueryItem(name: "accountNo", value: account.filter { $0.isNumber })]
+        if let a = amount, a > 0 { items.append(URLQueryItem(name: "amount", value: String(a))) }
+        parts.queryItems = items
+        return parts.url
+    }
+}
+
+/// `settlement_shares` 한 줄(웹 `SettlementShare`) — 사람마다 낼 돈을 그대로 적는다.
+struct AppShare {
+    let raw: ChatJSON
+    var id: String { raw["id"] as? String ?? "" }
+    var settlementId: String { raw["settlement_id"] as? String ?? "" }
+    var userId: String { raw["user_id"] as? String ?? "" }
+    var amount: Int { raw["amount"] as? Int ?? 0 }
+    var paid: Bool { raw["paid"] as? Bool ?? false }
 }
 
 struct AppPollOption {
@@ -266,6 +330,10 @@ enum AppDate {
     static let stampFmt = fmt("M/d a h:mm")
     /// `8월 21일 (금)`(웹 `formatDate`).
     static let dayFmt = fmt("M월 d일 (E)")
+    /// `2026년 8월 21일 (금)`(웹 `formatFullDate`).
+    static let fullFmt = fmt("yyyy년 M월 d일 (E)")
+    static func fullDate(_ iso: String) -> String { fullFmt.string(from: NativeChatRows.date(iso)) }
+    static func day(_ iso: String) -> String { dayFmt.string(from: NativeChatRows.date(iso)) }
     static func stamp(_ iso: String) -> String { stampFmt.string(from: NativeChatRows.date(iso)) }
     /// `오전 7:30`(웹 `formatTime`).
     static let timeFmt = fmt("a h:mm")
@@ -462,12 +530,51 @@ extension NativeChatService {
         for (k, v) in tees { if let t = v as? String { out[k] = t } }
         return out
     }
-    /// 신청 — 정원 셈은 DB(`join_round`)가 한다.
-    func joinRound(_ id: String) async throws {
-        _ = try await request("rest/v1/rpc/join_round", method: "POST", body: ["p_round": id, "p_note": ""])
+    /// 신청 — 정원 셈은 DB(`join_round`)가 한다. 돌려주는 것은 들어간 자리(`confirmed`/`waitlist`).
+    func joinRound(_ id: String) async throws -> String? {
+        let r = try await request("rest/v1/rpc/join_round", method: "POST", body: ["p_round": id, "p_note": ""])
+        return (r as? ChatJSON)?["state"] as? String
     }
     func leaveRound(_ id: String) async throws {
         _ = try await request("rest/v1/rpc/leave_round", method: "POST", body: ["p_round": id])
+    }
+    /// 운영진이 남을 뺀다 — 확정자였으면 대기 맨 앞이 올라간다(DB `kick_signup`).
+    func kickSignup(_ round: String, user: String) async throws {
+        _ = try await request("rest/v1/rpc/kick_signup", method: "POST", body: ["p_round": round, "p_user": user])
+    }
+
+    // ── 라운드 상세 ──────────────────────────────────────────────
+
+    /// 라운드 하나 + 신청 전부(웹 `RoundDetail`은 따로 부르지만 딸려 받아도 같은 값이다).
+    func round(_ id: String) async throws -> AppRound? {
+        try await rows("rounds", [("select", "*, signups(*)"), ("id", "eq.\(id)"), ("limit", "1")]).first.map { AppRound(raw: $0) }
+    }
+    func roundComments(_ id: String) async throws -> [AppComment] {
+        try await rows("round_comments", [("select", "*"), ("round_id", "eq.\(id)"),
+                                          ("order", "created_at.asc"), ("limit", "500")]).map { AppComment(raw: $0) }
+    }
+    /// 모집 마감·다시 열기·취소·되돌리기 — 정책에 막히면 빈 답이 온다.
+    func setRoundStatus(_ id: String, _ status: String) async throws {
+        let r = try await request("rest/v1/rounds", query: [("id", "eq.\(id)")], method: "PATCH", body: ["status": status]) as? [ChatJSON]
+        guard r?.isEmpty == false else { throw NativeChatError(message: "권한이 없습니다.") }
+    }
+    /// 정산은 최근 것부터 — 표가 없는 저장소에서는 빈 것으로 물러난다.
+    func settlements(_ roundId: String) async -> [AppSettlement] {
+        guard let raw = try? await rows("settlements", [("select", "*"), ("round_id", "eq.\(roundId)"),
+                                                        ("order", "created_at.desc"), ("limit", "50")]) else { return [] }
+        return raw.map { AppSettlement(raw: $0) }
+    }
+    /// 몫은 정산을 받아 온 **뒤에** 그 id들로 부른다 — 몫 표에는 라운드가 안 적혀 있다(웹과 같다).
+    func settlementShares(_ ids: [String]) async -> [AppShare] {
+        guard !ids.isEmpty,
+              let raw = try? await rows("settlement_shares", [("select", "*"), ("settlement_id", "in.(\(ids.joined(separator: ",")))"),
+                                                              ("order", "created_at.asc"), ("limit", "1000")]) else { return [] }
+        return raw.map { AppShare(raw: $0) }
+    }
+    /// `입금완료` — 본인 몫의 `paid`만 뒤집을 수 있다(DB `shares_own_paid`).
+    func setSharePaid(_ id: String, _ paid: Bool) async throws {
+        let r = try await request("rest/v1/settlement_shares", query: [("id", "eq.\(id)")], method: "PATCH", body: ["paid": paid]) as? [ChatJSON]
+        guard r?.isEmpty == false else { throw NativeChatError(message: "권한이 없습니다.") }
     }
 
     // ── 투표 ─────────────────────────────────────────────────────

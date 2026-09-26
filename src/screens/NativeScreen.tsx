@@ -8,6 +8,7 @@ import { hasNativeChat } from '../lib/native-chat';
 import { Members } from './Members';
 import { PostDetail } from './PostDetail';
 import { Alerts } from './Alerts';
+import { RoundDetail } from './RoundDetail';
 
 /**
  * **주소마다 앱 화면인지 웹 화면인지 가르는 자리**(`docs/아이폰-네이티브.md`).
@@ -28,6 +29,12 @@ export function PostRoute() {
 
 export function AlertsRoute() {
     return nativeScreen('/alerts') ? <NativeScreenHost path="/alerts" /> : <Alerts />;
+}
+
+export function RoundRoute() {
+    const { id } = useParams<{ id: string }>();
+    const path = `/rounds/${id ?? ''}`;
+    return nativeScreen(path) ? <NativeScreenHost path={path} /> : <RoundDetail />;
 }
 
 /** 앱 화면이 `navigate`로 보내올 수 있는 주소 — 그 밖은 무시한다(알림의 `url`도 이 안이다). */

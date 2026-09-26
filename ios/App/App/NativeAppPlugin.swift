@@ -39,10 +39,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 3
+    static let version = 4
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
-    /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`(쓰는 화면)는 아직 웹이다.
-    static let screens: [String] = ["/members", "/alerts", "/board/:id"]
+    /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`·`/rounds/<id>/groups`(쓰는 화면)는 아직 웹이다.
+    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -73,6 +73,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             /* `/board/<uuid>` — 그 뒤에 무엇이 더 붙으면(`/edit`) uuid가 아니라 걸러진다. */
             if path.hasPrefix("/board/"), let id = UUID(uuidString: String(path.dropFirst("/board/".count))) {
                 return PostViewController(service: service, id: id.uuidString.lowercased())
+            }
+            /* `/rounds/<uuid>` — `/rounds/new`·`/rounds/<id>/edit`·`/groups`는 uuid가 아니라 걸러진다. */
+            if path.hasPrefix("/rounds/"), let id = UUID(uuidString: String(path.dropFirst("/rounds/".count))) {
+                return RoundViewController(service: service, id: id.uuidString.lowercased())
             }
             return nil
         }
