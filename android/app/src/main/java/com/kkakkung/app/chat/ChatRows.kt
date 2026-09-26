@@ -30,12 +30,15 @@ class ChatRow(
     val quoteText: String?,
     val quoteTo: String?,
     val reacts: List<ChatReact>,
+    /** 말풍선 안 @언급 색. Kotlin String index=UTF-16이라 Android span에 그대로 쓴다. */
+    val mentions: List<ChatMentionHit>,
     val mark: Boolean,
     /** 윗줄과의 사이(dp). 같은 사람·같은 분이면 2, 아니면 10. */
     val top: Int,
 )
 
 class ChatReact(val emoji: String, val n: Int, val mine: Boolean)
+class ChatMentionHit(val start: Int, val end: Int, val mine: Boolean)
 
 /**
  * 글 목록 → 줄 목록. 아이폰 `NativeChatRows.make`를 그대로 옮겼다.
@@ -54,6 +57,31 @@ object ChatRows {
         for (p in people) { val id = p.optString("id"); if (id.isNotEmpty()) who[id] = p }
         val byID = HashMap<String, ChatMessage>()
         for (m in messages) byID[m.id] = m
+        val names = people.mapNotNull { p ->
+            p.optString("name").takeIf { it.isNotBlank() }
+        }.distinct().sortedByDescending { it.length }
+        val myName = who[user]?.optString("name").orEmpty()
+
+        fun mentionHits(body: String): List<ChatMentionHit> {
+            if (!body.contains('@')) return emptyList()
+            val candidates = (listOf("전체") + names).distinct().sortedByDescending { it.length }
+            val hits = ArrayList<ChatMentionHit>()
+            var i = 0
+            while (i < body.length) {
+                if (body[i] == '@') {
+                    val name = candidates.firstOrNull { n ->
+                        i + 1 + n.length <= body.length && body.regionMatches(i + 1, n, 0, n.length)
+                    }
+                    if (name != null) {
+                        hits.add(ChatMentionHit(i, i + 1 + name.length, name == myName || name == "전체"))
+                        i += 1 + name.length
+                        continue
+                    }
+                }
+                i++
+            }
+            return hits
+        }
         val active = people.filter { p -> p.optString("role", "pending") !in listOf("pending", "banned") }
         val activeIds = active.map { it.optString("id") }
         val reactsByMsg = HashMap<String, ArrayList<JSONObject>>()
@@ -89,7 +117,7 @@ object ChatRows {
                     }
                 }
                 out.add(ChatRow(m.id, kind, mine, null, null, null, m.body, null, 0, date, null, false, null, false,
-                    go, to, icon, null, null, null, emptyList(), mark, top)); continue
+                    go, to, icon, null, null, null, emptyList(), emptyList(), mark, top)); continue
             }
 
             var name: String? = null; var avatar: String? = null; var edge: Int? = null
@@ -142,14 +170,14 @@ object ChatRows {
             }
             val reacts = order.map { ChatReact(it, counts[it] ?: 0, mineSet.contains(it)) }
             out.add(ChatRow(m.id, kind, mine, name, avatar, edge, m.body, time, unreadN, date, image, video, cap,
-                big, null, null, null, quoteWho, quoteText, quoteTo, reacts, mark, top))
+                big, null, null, null, quoteWho, quoteText, quoteTo, reacts, mentionHits(m.body), mark, top))
         }
         return out
     }
 
     private fun row(id: String, kind: String, mine: Boolean, body: String, date: String?, top: Int, mark: Boolean) =
         ChatRow(id, kind, mine, null, null, null, body, null, 0, date, null, false, null, false,
-            null, null, null, null, null, null, emptyList(), mark, top)
+            null, null, null, null, null, null, emptyList(), emptyList(), mark, top)
 
     /** `83/신성호/광산구` — 웹 `personLabel`과 같다. 모르는 조각은 그냥 뺀다. */
     fun label(p: JSONObject): String {
