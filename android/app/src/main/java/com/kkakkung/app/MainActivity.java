@@ -2,6 +2,7 @@ package com.kkakkung.app;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.Intent;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
@@ -40,6 +41,16 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.kkakkung.app.nav.NativeNavPlugin.class);
         registerPlugin(com.kkakkung.app.nativev2.NativeAppPlugin.class);
         super.onCreate(savedInstanceState);
+
+        /* Native V2 세션이 Keystore에 있으면 웹 홈을 잠깐 보여 주지 않고
+           Kotlin 앱으로 바로 복귀한다. 토큰 갱신도 NativeHomeActivity가 한다. */
+        com.kkakkung.app.nativev2.NativeSession saved =
+                com.kkakkung.app.nativev2.NativeSessionStore.restore(this);
+        if (saved != null) {
+            startActivity(new Intent(this, com.kkakkung.app.nativev2.NativeHomeActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        }
+
         /* **화면 전환·뒤로 끌기를 맡는 층에 웹뷰를 담는다**(`nav/NavLayer.kt`).
            `super.onCreate`가 웹뷰를 세운 **뒤**여야 한다. 그리고 여기서 거는
            뒤로 단추 처리가 `@capacitor/app`의 것보다 **나중에 걸려야** 이긴다 —
