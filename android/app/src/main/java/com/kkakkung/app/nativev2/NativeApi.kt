@@ -32,7 +32,7 @@ class NativeApi(private val session: NativeSession) {
         path: String,
         query: List<Pair<String, String>> = emptyList(),
         method: String = "GET",
-        body: JSONObject? = null
+        body: Any? = null
     ): Any? = withContext(Dispatchers.IO) {
         val qs = query.joinToString("&") { enc(it.first) + "=" + enc(it.second) }
         val base = session.supabaseUrl.trimEnd('/')
@@ -166,6 +166,48 @@ class NativeApi(private val session: NativeSession) {
         rows("poll_comments", listOf(
             "select" to "*", "poll_id" to "eq.$id", "order" to "created_at.asc", "limit" to "500"
         ))
+
+    suspend fun createRound(fields: JSONObject): String {
+        fields.put("created_by", session.userId)
+        val v = request("rest/v1/rounds", method = "POST", body = fields)
+        return firstObject(v)?.optString("id").orEmpty().ifBlank {
+            throw NativeApiError("라운드를 만들지 못했습니다.")
+        }
+    }
+
+    suspend fun updateRound(id: String, fields: JSONObject) {
+        val v = request("rest/v1/rounds", listOf("id" to "eq.$id"), "PATCH", fields)
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("라운드를 수정할 권한이 없습니다.")
+    }
+
+    suspend fun setRoundGroups(roundId: String, groups: JSONObject, tees: JSONObject = JSONObject()) {
+        request("rest/v1/rpc/set_round_groups", method = "POST",
+            body = JSONObject().put("p_round", roundId).put("p_grps", groups).put("p_tees", tees))
+    }
+
+    suspend fun createPoll(
+        title: String, bodyText: String, multi: Boolean, anonymous: Boolean,
+        closesAt: String, labels: List<String>
+    ): String {
+        val poll = JSONObject()
+            .put("title", title).put("body", bodyText).put("multi", multi)
+            .put("anonymous", anonymous).put("closes_at", closesAt)
+            .put("created_by", session.userId)
+        val created = request("rest/v1/polls", method = "POST", body = poll)
+        val id = firstObject(created)?.optString("id").orEmpty()
+        if (id.isBlank()) throw NativeApiError("투표를 만들지 못했습니다.")
+        val options = JSONArray()
+        labels.forEachIndexed { i, label ->
+            options.put(JSONObject().put("poll_id", id).put("label", label).put("sort", i))
+        }
+        try {
+            request("rest/v1/poll_options", method = "POST", body = options)
+        } catch (e: Exception) {
+            try { request("rest/v1/polls", listOf("id" to "eq.$id"), "DELETE") } catch (_: Exception) {}
+            throw e
+        }
+        return id
+    }
 
     suspend fun castVote(optionId: String) {
         request("rest/v1/rpc/cast_vote", method = "POST", body = JSONObject().put("p_option", optionId))
