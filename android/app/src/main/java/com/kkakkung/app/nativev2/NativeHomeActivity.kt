@@ -50,7 +50,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private val brand = Color.rgb(109, 76, 255)
     private val bg = Color.rgb(247, 247, 250)
     private val card = Color.WHITE
-    private val text = Color.rgb(35, 35, 42)
+    private val ink = Color.rgb(35, 35, 42)
     private val dim = Color.rgb(110, 110, 120)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -149,7 +149,7 @@ class NativeHomeActivity : AppCompatActivity() {
         val page = page("까꿍")
         val hello = TextView(this).apply {
             text = if (session.displayName.isBlank()) "오늘도 즐거운 라운드 되세요." else "${session.displayName}님, 반갑습니다."
-            textSize = 17f; setTextColor(text)
+            textSize = 17f; setTextColor(ink)
             setPadding(0, 0, 0, dp(14))
         }
         page.addView(hello)
@@ -320,7 +320,7 @@ class NativeHomeActivity : AppCompatActivity() {
             textSize = 17f
             isAllCaps = false
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setTextColor(text)
+            setTextColor(ink)
             setBackgroundColor(Color.TRANSPARENT)
             setOnClickListener { detail = false; showTab(currentTab) }
         }
@@ -341,14 +341,14 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun title(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
-            text = value; textSize = 26f; typeface = Typeface.DEFAULT_BOLD; setTextColor(text)
+            text = value; textSize = 26f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
             setPadding(0, dp(6), 0, dp(16))
         })
     }
 
     private fun section(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
-            text = value; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(text)
+            text = value; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
             setPadding(0, dp(20), 0, dp(8))
         })
     }
@@ -356,7 +356,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun line(parent: LinearLayout, label: String, value: String) {
         if (value.isBlank()) return
         parent.addView(TextView(this).apply {
-            text = "$label  $value"; textSize = 15f; setTextColor(text)
+            text = "$label  $value"; textSize = 15f; setTextColor(ink)
             setPadding(0, dp(5), 0, dp(5))
         })
     }
@@ -364,7 +364,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun body(parent: LinearLayout, value: String) {
         if (value.isBlank()) return
         parent.addView(TextView(this).apply {
-            text = value; textSize = 15f; setTextColor(text); setLineSpacing(0f, 1.25f)
+            text = value; textSize = 15f; setTextColor(ink); setLineSpacing(0f, 1.25f)
             setPadding(0, dp(4), 0, dp(8))
         })
     }
@@ -391,7 +391,7 @@ class NativeHomeActivity : AppCompatActivity() {
             isFocusable = true
             setOnClickListener { click() }
             addView(TextView(this@NativeHomeActivity).apply {
-                text = title; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(text)
+                text = title; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
             })
             addView(TextView(this@NativeHomeActivity).apply {
                 text = sub; textSize = 13f; setTextColor(dim); setPadding(0, dp(5), 0, 0)
