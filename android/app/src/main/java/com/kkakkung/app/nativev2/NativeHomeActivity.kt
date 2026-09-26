@@ -121,7 +121,18 @@ class NativeHomeActivity : AppCompatActivity() {
                 try { NativeAuth.refresh(session); showHome() }
                 catch (e: Exception) { NativeSessionStore.clear(this@NativeHomeActivity); toast(e.message ?: "다시 로그인해 주세요."); finish() }
             }
-        } else showHome()
+        } else {
+            showHome()
+            intent.getStringExtra("native_url")?.takeIf { it.isNotBlank() }?.let { target ->
+                content.post { openNativeUrl(target) }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("native_url")?.takeIf { it.isNotBlank() }?.let(::openNativeUrl)
     }
 
     override fun onDestroy() {
