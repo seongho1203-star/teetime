@@ -658,7 +658,8 @@ class NativeHomeActivity : AppCompatActivity() {
         box.addView(peopleBtn)
 
         val custom = linkedMapOf<String, Int>()
-        val amountBtn = Button(this).apply {
+        lateinit var amountBtn: Button
+        amountBtn = Button(this).apply {
             text = "사람별 금액 조정"; isAllCaps = false
             setOnClickListener {
                 val total = totalField.text.toString().replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
