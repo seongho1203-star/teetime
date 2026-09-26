@@ -313,17 +313,54 @@ class NativeHomeActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val p = api.poll(id)
+                val comments = api.pollComments(id)
+                val people = api.people()
                 page.removeView(loading)
                 if (p == null) { error(page, "투표를 찾지 못했습니다."); return@launch }
-                title(page, p.optString("title"))
-                body(page, p.optString("body"))
-                line(page, "마감", date(p.optString("closes_at")))
-                line(page, "상태", if (p.optBoolean("closed")) "마감" else "진행중")
-                section(page, "Native V2 진행")
-                body(page, "선택지 · 투표하기 · 댓글은 다음 단계에서 이 화면에 직접 연결합니다.")
+                renderPoll(page, p, comments, people)
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
             }
+        }
+    }
+
+    private fun renderPoll(
+        page: LinearLayout, p: JSONObject, comments: List<JSONObject>, people: List<JSONObject>
+    ) {
+        val id = p.optString("id")
+        val names = people.associateBy { it.optString("id") }
+        val options = jsonObjects(p.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
+        val votes = jsonObjects(p.optJSONArray("poll_votes"))
+        val closed = p.optBoolean("closed") || pollExpired(p.optString("closes_at"))
+        title(page, "🗳 ${p.optString("title")}")
+        body(page, p.optString("body"))
+        line(page, "상태", if (closed) "마감" else "진행중")
+        line(page, "마감", date(p.optString("closes_at")))
+        if (p.optBoolean("multi")) body(page, "복수 선택 가능")
+
+        section(page, if (closed) "결과" else "선택")
+        options.forEach { option ->
+            val oid = option.optString("id")
+            val selected = votes.any {
+                it.optString("option_id") == oid && it.optString("user_id") == session.userId
+            }
+            val count = votes.count { it.optString("option_id") == oid }
+            val button = action(
+                (if (selected) "✓ " else "") + option.optString("label") + "  ·  ${count}표",
+                primary = selected
+            ) {
+                if (!closed) mutate {
+                    if (selected) api.retractVote(oid) else api.castVote(oid)
+                    showPoll(id)
+                }
+            }
+            button.isEnabled = !closed
+            page.addView(button)
+        }
+        if (options.isEmpty()) empty(page, "선택지가 없습니다.")
+
+        commentsBlock(page, comments, names) { text ->
+            mutate { api.addComment("poll_comments", "poll_id", id, text); showPoll(id) }
         }
     }
 
