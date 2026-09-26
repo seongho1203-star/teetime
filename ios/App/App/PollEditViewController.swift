@@ -99,9 +99,10 @@ final class PollEditViewController: FormScreenController {
             let sel = UICalendarSelectionMultiDate(delegate: pick)
             cal.selectionBehavior = sel
             selection = sel
-            parts.append(mkLabel("📅 날짜로 항목 넣기", size: 14, weight: .bold))
+            /* 사용자가 정한 문구다(`날짜를 선택하면 자동입력됩니다. 이멘트로 변경해줘`). */
+            parts.append(mkLabel("📅 날짜를 선택하면 자동입력됩니다.", size: 14, weight: .bold, lines: 0))
             parts.append(cal)
-            parts.append(mkLabel("누르면 바로 항목이 됩니다. 다시 누르면 빠집니다.", size: 12, color: AppSkin.faint, lines: 0))
+            parts.append(mkLabel("다시 누르면 항목에서 빠집니다.", size: 12, color: AppSkin.faint, lines: 0))
         }
         if locked {
             parts.append(mkLabel("항목 글자를 고치면 이미 그 항목을 고른 분들의 표가 그대로 따라갑니다.", size: 12, color: AppSkin.faint, lines: 0))
@@ -113,7 +114,12 @@ final class PollEditViewController: FormScreenController {
         let (aRow, aSw) = switchRow("익명", desc: locked ? lockedDesc : "누가 무엇을 골랐는지 숨깁니다", on: poll?.anonymous ?? false)
         mSw.isEnabled = !locked; aSw.isEnabled = !locked
         multiSwitch = mSw; anonSwitch = aSw
-        when.date = poll?.closesAt.map { NativeChatRows.date($0) }
+        /* **새 투표는 마감 시각이 처음부터 떠 있다**(사용자 요청 — `투표만들때 시간이
+           기본으로 뜨게끔`). 7일 뒤 21:00으로 채워 두고 바로 고칠 수 있다 —
+           `날짜·시각 고르기`를 한 번 더 눌러야 보이던 것을 없앴다. 고치는 투표는
+           적힌 값 그대로다(마감 시각이 없던 옛 투표는 빈 채로 둔다). */
+        if let p = poll { when.date = p.closesAt.map { NativeChatRows.date($0) } }
+        else { when.date = WhenPicker.daysLater(7, hour: 21, minute: 0) }
         card([mRow, aRow, field("마감 시각", when)])
 
         renderRows()

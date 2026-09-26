@@ -123,6 +123,13 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
             nav.popViewController(animated: false)
         }
         if Self.tabPaths.contains(path) { select(path); return }
+        /* 대화방 위에 얹힌 화면에서 대화로 가라면 **아래 있는 대화방으로 돌아간다** —
+           웹은 아직 `/chat`에 있어 다시 열라고 하면 두 겹이 된다. */
+        if path == "/chat", let nav = navigationController,
+           let chat = nav.viewControllers.last(where: { $0 is NativeChatViewController }) {
+            if nav.topViewController !== chat { nav.popToViewController(chat, animated: true) }
+            return
+        }
         if path == "/chat" { onWeb?(path); return }
         if let vc = NativeAppPlugin.make(path, service: service) {
             vc.path = path

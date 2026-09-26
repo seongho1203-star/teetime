@@ -410,24 +410,28 @@ final class RoundViewController: NativeScreenController, UITextViewDelegate {
         if isAdmin || isOwner {
             let card = CardView()
             card.content.addArrangedSubview(sectionTitle(isAdmin ? "운영" : "내가 연 모집"))
-            let row = UIStackView(); row.axis = .horizontal; row.spacing = 8; row.alignment = .center
-            let wrap = UIStackView(); wrap.axis = .vertical; wrap.spacing = 8
-            var line = row
-            var count = 0
+            /* **한 줄에 같은 폭으로** 선다(사용자 제보 — `운영부분 칸이 안맞아`). 둘·하나로
+               접으면 폭이 제각각이라 들쭉날쭉했다. 단추는 늘 셋이고, 좁은 화면에서는
+               글자가 조금 줄어든다(잘리지 않는다). */
+            let line = UIStackView(); line.axis = .horizontal; line.spacing = 8; line.distribution = .fillEqually
             func put(_ title: String, danger: Bool, _ sel: Selector) {
                 let b = UIButton(type: .system)
                 appButton(b, title: title, color: danger ? AppSkin.danger : AppSkin.text, filled: danger)
+                b.contentEdgeInsets = UIEdgeInsets(top: 10, left: 6, bottom: 10, right: 6)
+                b.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                b.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                b.titleLabel?.adjustsFontSizeToFitWidth = true
+                b.titleLabel?.minimumScaleFactor = 0.75
+                b.titleLabel?.lineBreakMode = .byClipping
                 b.addTarget(self, action: sel, for: .touchUpInside)
-                if count == 2 { line.addArrangedSubview(UIView()); wrap.addArrangedSubview(line); line = UIStackView(); line.axis = .horizontal; line.spacing = 8; line.alignment = .center; count = 0 }
-                line.addArrangedSubview(b); count += 1
+                line.addArrangedSubview(b)
             }
             if r.status == "open" { put("모집 마감", danger: false, #selector(closeTapped)) }
             if r.status == "closed" { put("모집 다시 열기", danger: false, #selector(reopenTapped)) }
             if r.status != "cancelled" { put("라운드 취소", danger: false, #selector(cancelTapped)) }
             else { put("취소 되돌리기", danger: false, #selector(reopenTapped)) }
             put("지우기", danger: true, #selector(deleteTapped))
-            line.addArrangedSubview(UIView()); wrap.addArrangedSubview(line)
-            card.content.addArrangedSubview(wrap)
+            card.content.addArrangedSubview(line)
             stack.addArrangedSubview(card)
         }
 

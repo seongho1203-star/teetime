@@ -195,8 +195,19 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     /// 화면과 웹 사이의 줄을 잇는다 — 새로 세울 때와 되살릴 때 같이 쓴다.
     @MainActor private func bind(_ vc: NativeScreenController, id: String) {
         screen = vc; self.id = id
-        vc.event = { [weak self] type, data in
+        vc.event = { [weak self, weak vc] type, data in
             guard let self = self else { return }
+            /* **앱 화면에서 앱 화면으로는 웹을 거치지 않는다**(사용자 제보 — `내정보에서
+               가이드·회원정보 들어갔다 나오면 홈이 보였다가 내정보화면이 보임`).
+               웹에 맡기면 웹이 이 화면을 닫고(`close` → 틀에서 내림) 다음 화면을 열었다가,
+               돌아올 때 이 화면을 **새로 밀어 올려** 그 사이 껍데기(홈)가 비쳤다.
+               껍데기가 있으면 그 틀에 바로 얹는다 — 웹 주소는 이 화면 그대로 남고,
+               뒤로 오면 이 화면이 아래에 그대로 있다. */
+            if type == "navigate", let vc = vc, let path = data["path"] as? String,
+               !((data["replace"] as? Bool) ?? false), self.shellPush(path, over: vc) {
+                vc.revive()
+                return
+            }
             self.notifyListeners("event", data: ["screen": self.id, "type": type, "data": data])
         }
         vc.service.authNeeded = { [weak self] in
@@ -254,6 +265,22 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// 앱이 그릴 줄 아는 주소면 껍데기 틀에 바로 얹는다(`over`가 맨 위일 때만) — 얹었으면 `true`.
+    @MainActor static func shellPush(_ path: String, over: UIViewController) -> Bool {
+        guard let sh = ShellController.current, let nav = sh.navigationController,
+              over.navigationController === nav, nav.topViewController === over,
+              nav.transitionCoordinator == nil,
+              let next = make(path, service: sh.service) else { return false }
+        AppLog.add("앱→앱 \(path)")
+        next.path = path
+        over.view.endEditing(true)
+        sh.push(next)
+        return true
+    }
+    @MainActor private func shellPush(_ path: String, over: UIViewController) -> Bool {
+        Self.shellPush(path, over: over)
+    }
+
     /// 껍데기를 내린다(로그아웃) — 틀에 뿌리만 남아 웹 로그인 화면이 보인다.
     @objc func shellOff(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -302,8 +329,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let path = call.getString("path"), let sh = self.shell,
                   let nav = sh.navigationController, nav.transitionCoordinator == nil
             else { call.resolve(["handled": false]); return }
-            let top = nav.topViewController
-            let ours = top === sh || ((top as? NativeScreenController)?.shellOwned ?? false)
+            /* 껍데기 위가 **전부** 껍데기가 세운 화면일 때만 맡는다 — 대화방이나 웹이 연
+               화면(`내 정보`)이 사이에 끼어 있으면 틀을 되돌리다 그것까지 내린다. */
+            let above = nav.viewControllers.drop(while: { $0 !== sh }).dropFirst()
+            let ours = above.allSatisfy { ($0 as? NativeScreenController)?.shellOwned ?? false }
             AppLog.add("알림 딥링크 \(path) 맡음=\(ours)")
             guard ours else { call.resolve(["handled": false]); return }
             /* 떠 있는 창(프로필 수정 시트·확인창)은 걷는다 — 알림을 누른 것이 곧 그리로 가겠다는 뜻이다. */

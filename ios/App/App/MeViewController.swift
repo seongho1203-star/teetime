@@ -210,7 +210,9 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         c.content.spacing = 0
         func item(_ title: String, _ sub: String?, _ act: @escaping () -> Void) {
             let b = UIControl()
-            let t = UIStackView(arrangedSubviews: [mkLabel(title, size: 16, weight: sub == nil ? .regular : .bold)])
+            /* 네 줄 다 같은 굵기다(사용자 제보 — `내정보 글씨가 다름`). 곁말이 있는 줄만
+               굵었는데, 그러면 두 가지 글씨가 섞여 보인다. */
+            let t = UIStackView(arrangedSubviews: [mkLabel(title, size: 16, weight: .semibold)])
             t.axis = .vertical
             t.spacing = 2
             if let sub = sub { t.addArrangedSubview(mkLabel(sub, size: 12, color: AppSkin.faint, lines: 0)) }

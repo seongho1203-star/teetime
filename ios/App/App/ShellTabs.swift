@@ -431,7 +431,10 @@ final class PollCell: CardCell {
             let hidPick = p.options.dropFirst(max).contains { mine.contains($0.id) }
             let open = expanded || hidPick
             let shown = open ? p.options : Array(p.options.prefix(max))
-            let showVoters = !p.anonymous && !p.votes.isEmpty
+            /* **누가 골랐나 줄은 표가 없어도 비워 둔 채 선다**(사용자 제보 — 고르기 전과 뒤의
+               항목 크기가 달랐다). 첫 표가 들어오는 순간 줄이 생겨 목록이 통째로 커졌다.
+               익명이면 처음부터 없다. */
+            let showVoters = !p.anonymous
             for o in shown {
                 let on = p.votes.filter { $0.optionId == o.id }
                 let pct = voters > 0 ? CGFloat(on.count) / CGFloat(voters) : 0

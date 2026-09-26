@@ -327,6 +327,13 @@ final class WhenPicker: UIStackView {
         onChange?()
     }
 
+    /// 오늘(한국 날짜)에서 며칠 뒤 그 시각 — 새 투표의 마감 기본값.
+    static func daysLater(_ days: Int, hour: Int, minute: Int) -> Date? {
+        let cal = calendar
+        guard let day = cal.date(byAdding: .day, value: days, to: cal.startOfDay(for: Date())) else { return nil }
+        return cal.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+    }
+
     /// DB에 넣는 모양(UTC ISO).
     static func iso(_ d: Date) -> String {
         let f = ISO8601DateFormatter()
