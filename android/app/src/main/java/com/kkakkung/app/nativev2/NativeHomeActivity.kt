@@ -612,18 +612,89 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showMe() {
-        val page = page("내정보")
-        title(page, session.displayName.ifBlank { "회원" })
-        line(page, "사용자 ID", session.userId.take(8) + "…")
-        body(page, "프로필 수정과 회원 관리도 Native V2에서 순차적으로 옮깁니다.")
-        mount(page)
+        detail = true
+        val page = detailPage("내 정보")
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
             try {
-                val p = api.profile() ?: return@launch
-                line(page, "닉네임", p.optString("name"))
+                val p = api.profile()
+                val priv = api.privateProfile()
+                page.removeView(loading)
+                if (p == null) { error(page, "프로필을 불러오지 못했습니다."); return@launch }
+                title(page, p.optString("name").ifBlank { session.displayName.ifBlank { "회원" } })
                 line(page, "등급", p.optString("role"))
-                line(page, "지역", p.optString("region"))
-            } catch (_: Exception) { }
+                line(page, "성별", when (p.optString("gender")) { "m" -> "남성"; "f" -> "여성"; else -> "" })
+                line(page, "태어난 해", p.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty())
+                line(page, "거주지역", p.optString("region"))
+                line(page, "전화번호", priv?.optString("phone").orEmpty())
+                line(page, "차량번호", priv?.optString("car").orEmpty())
+                page.addView(action("프로필 수정", primary = true) { profileForm(p, priv) })
+                page.addView(action("정산 현황") { showSettlements() })
+                if (p.optString("role") in setOf("staff", "admin", "superadmin")) {
+                    page.addView(action("회원 명단") { showMembers() })
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "프로필을 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun profileForm(profile: JSONObject, priv: JSONObject?) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+        }
+        fun field(h: String, v: String, numeric: Boolean = false): EditText {
+            val e = EditText(this).apply {
+                hint = h; setText(v)
+                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
+            }
+            box.addView(e); return e
+        }
+        val name = field("닉네임", profile.optString("name"))
+        val birth = field("태어난 해", profile.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty(), true)
+        val region = field("거주지역", profile.optString("region"))
+        val phone = field("전화번호", priv?.optString("phone").orEmpty())
+        val car = field("차량번호", priv?.optString("car").orEmpty())
+        val male = CheckBox(this).apply {
+            text = "남성 (체크 해제 = 여성)"; isChecked = profile.optString("gender") == "m"
+        }
+        box.addView(male)
+        val dialog = AlertDialog.Builder(this).setTitle("프로필 수정").setView(box)
+            .setNegativeButton("취소", null).setPositiveButton("저장", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val y = birth.text.toString().toIntOrNull() ?: 0
+                if (name.text.toString().trim().isBlank()) { toast("닉네임을 적어 주세요."); return@setOnClickListener }
+                if (y !in 1900..2100) { toast("태어난 해를 확인해 주세요."); return@setOnClickListener }
+                if (region.text.toString().trim().isBlank()) { toast("거주지역을 적어 주세요."); return@setOnClickListener }
+                dialog.dismiss()
+                mutate {
+                    api.updateMyProfile(
+                        name.text.toString().trim(), if (male.isChecked) "m" else "f", y,
+                        region.text.toString().trim(), phone.text.toString().trim(), car.text.toString().trim()
+                    )
+                    toast("저장했습니다."); showMe()
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showMembers() {
+        detail = true
+        val page = detailPage("회원 명단")
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val people = api.people()
+                page.removeView(loading)
+                section(page, "회원 ${people.size}명")
+                people.sortedBy { it.optString("name") }.forEach { p ->
+                    page.addView(personRow(personLabel(p).ifBlank { p.optString("name") }, p.optString("role")))
+                }
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "회원 명단을 불러오지 못했습니다.")
+            }
         }
     }
 
