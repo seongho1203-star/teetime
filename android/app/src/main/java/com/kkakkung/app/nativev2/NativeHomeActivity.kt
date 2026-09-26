@@ -1033,22 +1033,37 @@ class NativeHomeActivity : AppCompatActivity() {
                 val people = peopleList.associateBy { it.optString("id") }
                 val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
                 val canEdit = admin || post.optString("author_id") == session.userId
-                if (post.optBoolean("pinned")) body(page, "📌 고정 공지")
-                title(page, post.optString("title"))
-                line(page, "작성", personLabel(people[post.optString("author_id")]))
-                line(page, "시각", date(post.optString("created_at")))
-                body(page, post.optString("body"))
-                if (canEdit) page.addView(action("수정") { postForm(post) })
+                if (post.optBoolean("pinned")) page.addView(badge("고정", warn))
+                page.addView(TextView(this@NativeHomeActivity).apply {
+                    text = post.optString("title"); textSize = 20.8f
+                    typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                    setPadding(0, dp(7), 0, dp(4))
+                })
+                page.addView(TextView(this@NativeHomeActivity).apply {
+                    val who = personLabel(people[post.optString("author_id")]).ifBlank { "알 수 없음" }
+                    text = "$who · ${date(post.optString("created_at"))}"
+                    textSize = 11.5f; setTextColor(faint); setPadding(0, 0, 0, dp(10))
+                })
+                if (post.optString("body").isNotBlank()) page.addView(TextView(this@NativeHomeActivity).apply {
+                    text = post.optString("body"); textSize = 14f; setTextColor(ink)
+                    setLineSpacing(0f, 1.55f); setPadding(0, dp(4), 0, dp(10))
+                })
+                val postActions = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END
+                }
+                if (canEdit) postActions.addView(action("수정") { postForm(post) },
+                    LinearLayout.LayoutParams(0, dp(44), 1f))
                 if (admin) {
-                    page.addView(action(if (post.optBoolean("pinned")) "고정 해제" else "맨 위에 고정") {
+                    postActions.addView(action(if (post.optBoolean("pinned")) "고정 해제" else "맨 위에 고정") {
                         mutate { api.togglePostPin(id, !post.optBoolean("pinned")); showPost(id) }
-                    })
-                    page.addView(action("공지 삭제", danger = true) {
+                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                    postActions.addView(action("지우기", danger = true) {
                         confirm("이 공지를 지울까요?", "댓글도 함께 사라지며 되돌릴 수 없습니다.") {
                             mutate { api.deletePost(id); toast("지웠습니다."); showBoard() }
                         }
-                    })
+                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
                 }
+                if (postActions.childCount > 0) page.addView(postActions)
                 commentsBlock(page, comments, people) { text ->
                     mutate { api.addComment("post_comments", "post_id", id, text); showPost(id) }
                 }
@@ -2204,12 +2219,20 @@ class NativeHomeActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(14), dp(10), dp(14), dp(10))
                 background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) }
-                addView(TextView(this@NativeHomeActivity).apply {
+                val head = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                }
+                head.addView(TextView(this@NativeHomeActivity).apply {
                     text = personLabel(names[uid]).ifBlank { "알 수 없음" }
                     textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                head.addView(TextView(this@NativeHomeActivity).apply {
+                    text = timeAgo(c.optString("created_at")); textSize = 11.5f; setTextColor(faint)
                 })
+                addView(head)
                 addView(TextView(this@NativeHomeActivity).apply {
-                    text = c.optString("body"); textSize = 15f; setTextColor(ink); setPadding(0, dp(4), 0, 0)
+                    text = c.optString("body"); textSize = 14f; setTextColor(ink)
+                    setLineSpacing(0f, 1.35f); setPadding(0, dp(4), 0, 0)
                 })
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
