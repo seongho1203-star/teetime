@@ -1,6 +1,8 @@
 package com.kkakkung.app.nativev2
 
 import android.graphics.Color
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -9,6 +11,7 @@ import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -32,6 +35,8 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.time.OffsetDateTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.time.ZoneId
 import java.util.Locale
 import java.util.TimeZone
@@ -184,6 +189,9 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun loadList(title: String, loader: suspend () -> List<JSONObject>) {
         val page = page(title)
+        page.addView(action(if (title == "라운드") "＋ 모집 열기" else "＋ 투표 만들기", primary = true) {
+            if (title == "라운드") roundForm(null) else pollForm()
+        })
         val loading = ProgressBar(this)
         page.addView(loading)
         mount(page)
@@ -274,9 +282,21 @@ class NativeHomeActivity : AppCompatActivity() {
 
         if (admin || owner) {
             val status = r.optString("status")
+            page.addView(action("라운드 수정") { roundForm(r) })
             page.addView(action(if (status == "open") "모집 마감" else "다시 열기") {
                 mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
             })
+            if (confirmed.isNotEmpty()) {
+                page.addView(action("조 편성 · 신청순") {
+                    confirm("신청 순서로 조를 짤까요?", "4명씩 1조부터 자동으로 나눕니다.") {
+                        val groups = JSONObject()
+                        confirmed.forEachIndexed { i, signup ->
+                            groups.put(signup.optString("user_id"), i / 4 + 1)
+                        }
+                        mutate { api.setRoundGroups(id, groups); toast("조 편성을 저장했습니다."); showRound(id) }
+                    }
+                })
+            }
         }
 
         section(page, "참가자 ${confirmed.size}/${r.optInt("capacity")}")
