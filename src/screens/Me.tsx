@@ -241,7 +241,7 @@ export function Me() {
     /** 알림 칸의 첫 줄. 켤 수 없는 상태면 왜인지와 무엇을 하면 되는지를 적는다. */
     const pushLine = (): { hint: string; can: boolean } => {
         switch (push) {
-            case 'on':   return { hint: '새 모집 · 공지 · 투표를 폰으로 받습니다', can: true };
+            case 'on':   return { hint: '라운드 모집, 투표, 공지 알림을 받습니다.', can: true };
             case 'off':  return { hint: '앱을 안 보고 있어도 소식이 옵니다', can: true };
             case 'denied': return {
                 hint: '폰 설정 → 알림에서 까꿍을 켜 주세요', can: false };
@@ -485,7 +485,7 @@ export function Me() {
                                     된다. */}
                                 <div className="switch-desc">
                                     {chat
-                                        ? '새 메시지가 올 때마다 옵니다'
+                                        ? '새 메시지가 올 때마다 알림을 받습니다.'
                                         : '꺼짐 — @언급과 내 글에 온 답장은 그래도 옵니다'}
                                 </div>
                             </div>

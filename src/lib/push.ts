@@ -274,12 +274,53 @@ export async function enablePush(userId: string): Promise<PushState> {
 }
 
 /**
+ * **앱을 깔면 알림이 저절로 켜진다**(사용자 요청 — `앱을 설치하면 기본으로
+ * 알림이 꺼져있는데 기본으로 켜져있게할수없어? 알림 켜는걸 모르면 알림오는지
+ * 모르잖아`).
+ *
+ * **폰이 허락 없이 켜게 두지 않는다** — 아이폰도 안드로이드(13+)도 앱이 알림을
+ * 보내려면 사람이 `허용`을 한 번 눌러야 한다. 그래서 할 수 있는 것은 **처음
+ * 들어왔을 때 그 창을 저절로 띄우는 것**이고, 허용하면 곧바로 켜진다
+ * (`내 정보`에 가서 스위치를 찾을 일이 없다).
+ *
+ * - **앱에서만 한다**(`IS_NATIVE`). 웹(홈 화면 앱)은 누른 손짓 안에서만
+ *   권한을 물을 수 있어 저절로 띄우면 브라우저가 무시한다.
+ * - **기기마다 한 번뿐이다**(`AUTO_KEY`). 켜졌거나 거절했으면 다시 안 묻고,
+ *   **`내 정보`에서 끈 사람도 다시 안 켠다**(`disablePush`가 같은 표를 세운다).
+ * - 끊겨서 실패했으면 표를 안 세우고 다음에 다시 해 본다 — 세 번까지.
+ */
+const AUTO_KEY = 'teetime:push-auto';
+export async function autoEnablePush(userId: string): Promise<void> {
+    if (!IS_NATIVE) return;
+    let tries = 0;
+    try {
+        const v = localStorage.getItem(AUTO_KEY);
+        if (v === 'done') return;
+        tries = Number(v) || 0;
+        if (tries >= 3) return;
+    } catch { return; }
+    const mark = (v: string) => { try { localStorage.setItem(AUTO_KEY, v); } catch { /* 못 적으면 다음에 또 묻는다 */ } };
+    const state = await pushState();
+    if (state === 'on' || state === 'denied') { mark('done'); return; }
+    if (state !== 'off') return;           // 플러그인이 없는 옛 판 — 새 판에서 다시 본다
+    try {
+        const next = await enablePush(userId);
+        if (next === 'on' || next === 'denied') mark('done');
+        else mark(String(tries + 1));
+    } catch {
+        mark(String(tries + 1));
+    }
+}
+
+/**
  * 이 기기에서만 끈다.
  *
  * **행만 지우면 안 된다** — 브라우저 구독이 남아 있으면 켜진 것처럼 보이는데
  * 발송 목록에는 없는 상태가 된다. 구독을 먼저 끊고 행을 지운다.
  */
 export async function disablePush(): Promise<PushState> {
+    /* 사람이 끈 것이니 저절로 켜는 일(`autoEnablePush`)도 다시는 안 한다. */
+    try { localStorage.setItem(AUTO_KEY, 'done'); } catch { /* 그대로 둔다 */ }
     if (IS_NATIVE) return disableNativePush();
     const reg = await navigator.serviceWorker.getRegistration(SW_URL);
     const sub = await reg?.pushManager.getSubscription();

@@ -21,6 +21,8 @@ import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollEditRoute, PollRoute, PostEditRoute, PostRoute, RoundEditRoute, RoundGroupsRoute, RoundRoute, SettleRoute, MeRoute } from './screens/NativeScreen';
 import { hasNativeApp } from './lib/native-app';
+import { autoEnablePush } from './lib/push';
+import { IS_NATIVE } from './lib/native';
 
 /**
  * 라우팅은 **해시 방식**(`/#/rounds`)을 쓴다.
@@ -33,6 +35,16 @@ import { hasNativeApp } from './lib/native-app';
  *
  * 지금 편하자고 BrowserRouter로 바꾸면 그때 전부 다시 손봐야 한다.
  */
+
+/** 앱에 처음 들어오면 알림 허락 창을 저절로 띄운다(`autoEnablePush` — 기기마다 한 번). */
+function AutoPush({ userId }: { userId: string }) {
+    useEffect(() => {
+        /* 첫 화면이 먼저 서고 나서 묻는다 — 들어오자마자 창이 덮으면 무엇을 허락하는지 모른다. */
+        const t = window.setTimeout(() => { void autoEnablePush(userId); }, 1500);
+        return () => window.clearTimeout(t);
+    }, [userId]);
+    return null;
+}
 
 function Gate() {
     const { session, profile, contact, isMember, loading } = useAuth();
@@ -79,6 +91,7 @@ function Gate() {
             {/* **앱 껍데기(홈·탭바)** — 켠 아이폰 앱에서만. 로그인이 끝난 여기서
                 세우고, 로그아웃으로 이 칸이 사라지면 내린다(`NativeShellSync`). */}
             {hasNativeApp() && <NativeShellSync />}
+            {IS_NATIVE && session && <AutoPush userId={session.user.id} />}
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rounds" element={<Rounds />} />

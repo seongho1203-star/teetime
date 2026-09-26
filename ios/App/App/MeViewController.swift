@@ -245,7 +245,7 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
     /** 알림 칸의 첫 줄 — 켤 수 없으면 왜인지와 무엇을 하면 되는지(웹 `pushLine`). */
     private func pushLine() -> (hint: String, can: Bool) {
         switch push {
-        case "on": return ("새 모집 · 공지 · 투표를 폰으로 받습니다", true)
+        case "on": return ("라운드 모집, 투표, 공지 알림을 받습니다.", true)
         case "off": return ("앱을 안 보고 있어도 소식이 옵니다", true)
         case "denied": return ("폰 설정 → 알림에서 까꿍을 켜 주세요", false)
         case "unsupported": return ("앱을 최신 판으로 받으면 켤 수 있습니다", false)
@@ -268,7 +268,7 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         /* 켜져 있을 때만 — 안 받는 기기에서 갈래를 나누는 칸은 누를 일이 없다. */
         if push == "on" {
             let (r2, s2) = appSwitchRow("💬 대화 알림",
-                                     desc: chat ? "새 메시지가 올 때마다 옵니다" : "꺼짐 — @언급과 내 글에 온 답장은 그래도 옵니다",
+                                     desc: chat ? "새 메시지가 올 때마다 알림을 받습니다." : "꺼짐 — @언급과 내 글에 온 답장은 그래도 옵니다",
                                      on: chat)
             s2.isEnabled = !chatBusy
             s2.addTarget(self, action: #selector(chatToggled(_:)), for: .valueChanged)
