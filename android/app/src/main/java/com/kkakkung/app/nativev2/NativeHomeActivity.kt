@@ -174,8 +174,9 @@ class NativeHomeActivity : AppCompatActivity() {
         }
         page.addView(hello)
         val quick = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        quick.addView(action("🔔 알림") { showAlerts() }, LinearLayout.LayoutParams(0, dp(48), 1f))
         quick.addView(action("내 정보") { showMe() }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        quick.addView(action("정산 현황") { showSettlements() }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        quick.addView(action("정산") { showSettlements() }, LinearLayout.LayoutParams(0, dp(48), 1f))
         page.addView(quick)
         val loading = ProgressBar(this)
         page.addView(loading)
@@ -417,6 +418,10 @@ class NativeHomeActivity : AppCompatActivity() {
             }
         }
 
+        page.addView(action("＋ 정산 만들기") {
+            settlementForm(id, confirmed.map { it.optString("user_id") }, people)
+        })
+
         section(page, "참가자 ${confirmed.size}/${r.optInt("capacity")}")
         if (confirmed.isEmpty()) empty(page, "아직 참가자가 없습니다.")
         confirmed.forEach { signup ->
@@ -534,6 +539,122 @@ class NativeHomeActivity : AppCompatActivity() {
             }
         }
         c.attach(content)
+    }
+
+    // ── 알림함 ─────────────────────────────────────────────────
+
+    private fun showAlerts() {
+        detail = true
+        val page = detailPage("알림")
+        val loading = ProgressBar(this); page.addView(loading); mount(page)
+        scope.launch {
+            try {
+                val list = api.notifications()
+                api.markNotificationsRead()
+                api.purgeNotifications()
+                page.removeView(loading)
+                if (list.isEmpty()) {
+                    empty(page, "아직 온 알림이 없습니다.\n모집·정산·조 편성 소식이 여기 쌓입니다.")
+                }
+                list.forEach { n ->
+                    val titleText = n.optString("title").ifBlank { "알림" }
+                    val url = n.optString("url")
+                    val row = cardView(
+                        (if (n.isNull("read_at") || n.optString("read_at").isBlank()) "N  " else "") + titleText,
+                        n.optString("body").take(90) + if (n.optString("body").length > 90) "…" else ""
+                    ) { openNativeUrl(url) }
+                    if (url.isBlank()) row.isClickable = false
+                    page.addView(row)
+                }
+                if (list.isNotEmpty()) body(page, "90일이 지난 알림은 저절로 지워집니다.")
+            } catch (e: Exception) {
+                page.removeView(loading); error(page, e.message ?: "알림을 불러오지 못했습니다.")
+            }
+        }
+    }
+
+    private fun openNativeUrl(raw: String) {
+        val path = raw.removePrefix("#")
+        when {
+            path.startsWith("/rounds/") -> showRound(path.substringAfter("/rounds/").substringBefore('/'))
+            path.startsWith("/polls/") -> showPoll(path.substringAfter("/polls/").substringBefore('/'))
+            path.startsWith("/board/") -> showPost(path.substringAfter("/board/").substringBefore('/'))
+            path == "/rounds" -> showTab("rounds")
+            path == "/polls" -> showTab("polls")
+            path == "/board" -> showTab("board")
+            path == "/chat" -> showTab("chat")
+        }
+    }
+
+    private fun settlementForm(roundId: String, joined: List<String>, people: List<JSONObject>) {
+        val candidates = people.filter { it.optString("role") !in setOf("pending", "banned") }
+        val labels = candidates.map { personLabel(it).ifBlank { it.optString("name") } }.toTypedArray()
+        val checked = BooleanArray(candidates.size) { i -> joined.contains(candidates[i].optString("id")) }
+        val picked = candidates.mapIndexedNotNull { i, p -> if (checked[i]) p.optString("id") else null }.toMutableSet()
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
+        }
+        fun f(h: String, numeric: Boolean = false): EditText {
+            val e = EditText(this).apply {
+                hint = h
+                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
+            }
+            box.addView(e); return e
+        }
+        val titleField = f("정산 제목")
+        val totalField = f("총금액", true)
+        val bankField = f("은행")
+        val accountField = f("계좌번호")
+        val noteField = f("안내 (선택)")
+        val peopleBtn = Button(this).apply {
+            isAllCaps = false
+            fun label() { text = "정산할 사람 ${picked.size}명 선택" }
+            label()
+            setOnClickListener {
+                AlertDialog.Builder(this@NativeHomeActivity)
+                    .setTitle("정산할 사람")
+                    .setMultiChoiceItems(labels, checked) { _, which, on ->
+                        checked[which] = on
+                        val uid = candidates[which].optString("id")
+                        if (on) picked.add(uid) else picked.remove(uid)
+                    }
+                    .setPositiveButton("완료") { _, _ -> label() }
+                    .show()
+            }
+        }
+        box.addView(peopleBtn)
+
+        val dialog = AlertDialog.Builder(this).setTitle("정산 만들기").setView(box)
+            .setNegativeButton("취소", null).setPositiveButton("보내기", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleField.text.toString().trim()
+                val total = totalField.text.toString().replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
+                if (title.isBlank()) { toast("정산 제목을 적어 주세요."); return@setOnClickListener }
+                if (picked.isEmpty()) { toast("정산할 사람을 골라 주세요."); return@setOnClickListener }
+                if (total <= 0) { toast("총금액을 적어 주세요."); return@setOnClickListener }
+                val ids = picked.toList()
+                val each = (total / ids.size / 10) * 10
+                var left = total - each * ids.size
+                val amounts = linkedMapOf<String, Int>()
+                ids.forEachIndexed { i, uid ->
+                    val extra = if (i == 0) left else 0
+                    amounts[uid] = each + extra
+                    if (i == 0) left = 0
+                }
+                dialog.dismiss()
+                mutate {
+                    api.createSettlement(
+                        roundId, title, noteField.text.toString().trim(),
+                        bankField.text.toString().trim(), accountField.text.toString().trim(), amounts
+                    )
+                    toast("${ids.size}명에게 정산을 보냈습니다.")
+                    showRound(roundId)
+                }
+            }
+        }
+        dialog.show()
     }
 
     // ── 정산 현황 ───────────────────────────────────────────────
