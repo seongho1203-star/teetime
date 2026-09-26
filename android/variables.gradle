@@ -13,4 +13,7 @@ ext {
     androidxJunitVersion = '1.2.1'
     androidxEspressoCoreVersion = '3.6.1'
     cordovaAndroidVersion = '10.1.1'
+    /* @capacitor/push-notifications 7 계열과 같은 FCM SDK. Native V2 Kotlin도
+       같은 토큰 API를 직접 쓰므로 app 모듈에 compile dependency를 명시한다. */
+    firebaseMessagingVersion = '24.1.0'
 }
