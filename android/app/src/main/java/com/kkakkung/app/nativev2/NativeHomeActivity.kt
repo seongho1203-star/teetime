@@ -1697,39 +1697,123 @@ class NativeHomeActivity : AppCompatActivity() {
                 val priv = api.privateProfile()
                 page.removeView(loading)
                 if (p == null) { error(page, "프로필을 불러오지 못했습니다."); return@launch }
-                val avatar = p.optString("avatar_url")
-                if (avatar.isNotBlank()) {
-                    page.addView(ImageView(this@NativeHomeActivity).apply {
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                        load(avatar)
-                        background = GradientDrawable().apply {
-                            shape = GradientDrawable.OVAL; setColor(Color.rgb(235, 235, 240))
-                        }
-                        clipToOutline = true
-                    }, LinearLayout.LayoutParams(dp(88), dp(88)).apply {
-                        gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(8)
-                    })
+
+                /* Home.css .me-head — 얼굴 64px + 이름/직책/지역을 한 줄 머리말로. */
+                val head = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(8), 0, dp(12))
                 }
-                page.addView(action("프로필 사진 바꾸기") { avatarPicker.launch("image/*") })
-                title(page, p.optString("name").ifBlank { session.displayName.ifBlank { "회원" } })
-                line(page, "등급", p.optString("role"))
-                line(page, "성별", when (p.optString("gender")) { "m" -> "남성"; "f" -> "여성"; else -> "" })
-                line(page, "태어난 해", p.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty())
-                line(page, "거주지역", p.optString("region"))
-                line(page, "전화번호", priv?.optString("phone").orEmpty())
-                line(page, "차량번호", priv?.optString("car").orEmpty())
-                page.addView(action("프로필 수정", primary = true) { profileForm(p, priv) })
-                page.addView(action("이 기기로 알림 받기") {
+                val avatarWrap = FrameLayout(this@NativeHomeActivity).apply {
+                    isClickable = true; setOnClickListener { avatarPicker.launch("image/*") }
+                }
+                val avatar = nativeAvatar(p, 64)
+                avatarWrap.addView(avatar, FrameLayout.LayoutParams(dp(64), dp(64)))
+                avatarWrap.addView(TextView(this@NativeHomeActivity).apply {
+                    text = "+"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL; setColor(brand); setStroke(dp(2), bg)
+                    }
+                }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.END or Gravity.BOTTOM))
+                head.addView(avatarWrap, LinearLayout.LayoutParams(dp(66), dp(66)))
+
+                val who = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, 0, 0)
+                }
+                who.addView(TextView(this@NativeHomeActivity).apply {
+                    text = p.optString("name").ifBlank { session.displayName.ifBlank { "회원" } }
+                    textSize = 20.8f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                })
+                val meta = listOfNotNull(
+                    roleLabel(p.optString("role")).takeIf { it.isNotBlank() },
+                    p.optString("region").takeIf { it.isNotBlank() }
+                ).joinToString(" · ")
+                who.addView(TextView(this@NativeHomeActivity).apply {
+                    text = meta; textSize = 13f; setTextColor(dim); setPadding(0, dp(3), 0, 0)
+                })
+                head.addView(who, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                page.addView(head)
+
+                val info = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+                    }
+                }
+                info.addView(menuInfoRow("성별", when (p.optString("gender")) { "m" -> "남성"; "f" -> "여성"; else -> "미입력" }))
+                info.addView(menuInfoRow("생년월일", birthDisplay(p, priv)))
+                info.addView(menuInfoRow("전화번호", priv?.optString("phone").orEmpty().ifBlank { "미입력" }))
+                info.addView(menuInfoRow("차량번호", priv?.optString("car").orEmpty().ifBlank { "미입력" }))
+                page.addView(info)
+
+                section(page, "설정")
+                val menu = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+                    }
+                }
+                menu.addView(menuLink("프로필 수정") { profileForm(p, priv) })
+                menu.addView(menuLink("이 기기로 알림 받기") {
                     if (NativePush.requestIfNeeded(this@NativeHomeActivity, notificationPermission)) enableNativePush()
                 })
-                page.addView(action("정산 현황") { showSettlements() })
+                menu.addView(menuLink("정산 현황") { showSettlements() })
                 if (p.optString("role") in setOf("staff", "admin", "superadmin")) {
-                    page.addView(action("회원 명단") { showMembers() })
+                    menu.addView(menuLink("회원 명단") { showMembers() })
                 }
+                menu.addView(menuLink("로그아웃", danger = true) { logoutNative() })
+                page.addView(menu)
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "프로필을 불러오지 못했습니다.")
             }
         }
+    }
+
+    private fun menuInfoRow(label: String, value: String): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = label; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(dim)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = value; textSize = 13f; setTextColor(ink)
+            })
+        }
+
+    private fun menuLink(label: String, danger: Boolean = false, click: () -> Unit): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(15), dp(14), dp(15))
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = label; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (danger) this@NativeHomeActivity.danger else ink)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = "›"; textSize = 20f; setTextColor(faint)
+            })
+            isClickable = true; setOnClickListener { click() }
+        }
+
+    private fun birthDisplay(p: JSONObject, priv: JSONObject?): String {
+        val y = p.optInt("birth_year", 0)
+        val md = priv?.optString("birth_md").orEmpty()
+        if (y <= 0 && md.isBlank()) return "미입력"
+        val cal = if (priv?.optString("birth_cal") == "lunar") "음력 " else ""
+        return buildString {
+            if (y > 0) append(y).append("년 ")
+            if (md.isNotBlank()) {
+                val bits = md.split("-")
+                if (bits.size == 2) append(cal).append(bits[0].toIntOrNull() ?: bits[0]).append("월 ")
+                    .append(bits[1].toIntOrNull() ?: bits[1]).append("일")
+            }
+        }.trim()
+    }
+
+    private fun roleLabel(role: String): String = when (role) {
+        "superadmin" -> "앱관리자"; "admin" -> "운영자"; "staff" -> "부운영자"
+        "treasurer" -> "총무"; "pending" -> "승인 대기"; "banned" -> "추방"
+        "member" -> "회원"; else -> role
     }
 
     private fun profileForm(profile: JSONObject, priv: JSONObject?) {
