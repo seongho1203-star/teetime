@@ -1,6 +1,9 @@
 package com.kkakkung.app.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -20,8 +23,10 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -234,6 +239,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         list.onCard = { path -> navigate(path) }
         list.onQuote = { id -> list.scrollTo(id) }
         list.onReply = { id -> if (stage2) setReply(id) }
+        list.onHold = { row, anchor -> if (stage2) showHold(row, anchor) }
         list.onPhoto = { url -> openOutside(url) }
         list.onTop = { loadMore() }
         list.onBottom = { bottom -> if (bottom) markRead() }
@@ -388,6 +394,144 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         mentionEnd = mentionStart
         showMentionCard(mentionNames().take(6))
         input.requestFocus()
+    }
+
+    private fun isAdmin(): Boolean =
+        people.firstOrNull { it.optString("id") == me }?.optString("role") in setOf("staff", "admin", "superadmin")
+
+    private fun showHold(row: ChatRow, anchor: View) {
+        val message = messages.firstOrNull { it.id == row.id } ?: return
+        if (row.id.startsWith("tmp:")) return
+
+        /* 가린 글은 운영진의 '가리기 해제' 하나만. 복사·답장·반응은 없다. */
+        if (row.kind == "hidden") {
+            if (!isAdmin()) return
+            val pop = holdPopup()
+            pop.first.addView(holdLine("가리기 해제", false) {
+                pop.second.dismiss()
+                mutateMessage(message, JSONObject().put("hidden_at", JSONObject.NULL))
+            })
+            showHoldPopup(pop.second, anchor, row.mine)
+            return
+        }
+
+        val pop = holdPopup()
+        fun add(label: String, danger: Boolean = false, action: () -> Unit) {
+            pop.first.addView(holdLine(label, danger) { pop.second.dismiss(); action() })
+            if (pop.first.childCount > 1) {
+                val at = pop.first.childCount - 1
+                pop.first.addView(View(activity).apply { setBackgroundColor(0x1A000000) }, at,
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1f)))
+            }
+        }
+        add("복사") { copyText(message.body) }
+        add("선택 복사") { selectableCopy(message.body) }
+        add("댓글") { setReply(message.id) }
+        add("공유") { shareMessage(message) }
+        if (isAdmin()) add("가리기") {
+            mutateMessage(message, JSONObject().put("hidden_at", java.time.Instant.now().toString()))
+        }
+        if (message.user == me) add("삭제", true) { mutateMessage(message, null) }
+
+        /* 반응은 메뉴와 분리된 아래 알약. 값은 config.reactions, 즉 웹에서 받은 것뿐. */
+        if (service.config.reactions.isNotEmpty()) {
+            val reactRow = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+                setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
+            }
+            service.config.reactions.forEach { emoji ->
+                val mine = row.reacts.firstOrNull { it.emoji == emoji }?.mine == true
+                reactRow.addView(TextView(activity).apply {
+                    text = emoji; textSize = 21f; gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(18f).toFloat()
+                        setColor(if (mine) 0x33D92B8E else 0x33FFFFFF)
+                    }
+                    setOnClickListener {
+                        pop.second.dismiss()
+                        scope.launch {
+                            try {
+                                service.react(row.id, emoji, mine)
+                                reactions = service.reactions(realIDs()); render(keepBottom = true)
+                            } catch (e: Exception) { notice(e.message ?: "반응을 바꾸지 못했습니다.") }
+                        }
+                    }
+                }, LinearLayout.LayoutParams(0, dp(38f), 1f).apply { marginEnd = dp(3f) })
+            }
+            pop.first.addView(reactRow)
+        }
+        showHoldPopup(pop.second, anchor, row.mine)
+    }
+
+    private fun holdPopup(): Pair<LinearLayout, PopupWindow> {
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14f).toFloat(); setColor(0xF2FFFFFF.toInt())
+            }
+            elevation = dp(8f).toFloat()
+        }
+        val popup = PopupWindow(box, dp(300f), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true; elevation = dp(10f).toFloat()
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        }
+        return box to popup
+    }
+
+    private fun holdLine(label: String, danger: Boolean, action: () -> Unit): View =
+        TextView(activity).apply {
+            text = label; textSize = 15f; gravity = Gravity.CENTER_VERTICAL
+            setTextColor(if (danger) 0xFFE2402A.toInt() else ChatSkin.text)
+            setPadding(dp(14f), 0, dp(14f), 0)
+            setOnClickListener { action() }
+            minHeight = dp(40f)
+        }
+
+    private fun showHoldPopup(popup: PopupWindow, anchor: View, mine: Boolean) {
+        val loc = IntArray(2); anchor.getLocationOnScreen(loc)
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+        val width = dp(300f)
+        val x = if (mine) (loc[0] + anchor.width - width).coerceAtLeast(dp(8f))
+                else loc[0].coerceAtMost(screenW - width - dp(8f))
+        /* 아래 공간을 먼저 쓰고, 300px쯤 안 나오면 위로. */
+        val below = screenH - (loc[1] + anchor.height)
+        val y = if (below >= dp(260f)) loc[1] + anchor.height + dp(4f)
+                else (loc[1] - dp(260f)).coerceAtLeast(dp(8f))
+        popup.showAtLocation(this, Gravity.TOP or Gravity.START, x, y)
+    }
+
+    private fun copyText(text: String) {
+        (activity.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
+            ?.setPrimaryClip(ClipData.newPlainText("대화", text))
+        notice("복사했습니다.")
+    }
+
+    private fun selectableCopy(text: String) {
+        val v = TextView(activity).apply {
+            this.text = text; textSize = 16f; setTextColor(ChatSkin.text)
+            setTextIsSelectable(true); setPadding(dp(18f), dp(14f), dp(18f), dp(14f))
+        }
+        AlertDialog.Builder(activity).setView(v).setPositiveButton("닫기", null).show()
+    }
+
+    private fun shareMessage(m: ChatMessage) {
+        val parts = listOfNotNull(m.body.takeIf { it.isNotBlank() }, m.image)
+        val i = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, parts.joinToString("\n"))
+        }
+        activity.startActivity(Intent.createChooser(i, "공유"))
+    }
+
+    private fun mutateMessage(m: ChatMessage, patch: JSONObject?) {
+        scope.launch {
+            try {
+                service.change(m, patch)
+                if (patch == null) messages.removeAll { it.id == m.id }
+                else sync()
+                render(keepBottom = true)
+            } catch (e: Exception) { notice(e.message ?: "처리하지 못했습니다.") }
+        }
     }
 
     private fun setReply(id: String) {
