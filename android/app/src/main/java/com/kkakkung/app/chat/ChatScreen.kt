@@ -21,6 +21,8 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.ScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
@@ -69,6 +71,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val header = LinearLayout(activity)
     private val backBtn = ImageView(activity)
     private val searchBtn = ImageView(activity)
+    private val menuBtn = ImageView(activity)
     private val searchInput = EditText(activity)
     private val searchCancel = TextView(activity)
     private val findBar = LinearLayout(activity)
@@ -133,6 +136,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         searchBtn.scaleType = ImageView.ScaleType.CENTER
         searchBtn.contentDescription = "대화 검색"
         searchBtn.setOnClickListener { if (stage2) enterSearch() }
+        menuBtn.setImageResource(R.drawable.ic_chat_menu)
+        menuBtn.scaleType = ImageView.ScaleType.CENTER
+        menuBtn.contentDescription = "대화 메뉴"
+        menuBtn.setOnClickListener { if (stage2) showDrawer() }
         showNormalHeader()
         column.addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52f)))
 
@@ -431,7 +438,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         header.removeAllViews()
         header.addView(backBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { leftMargin = dp(8f) })
         header.addView(View(activity), LinearLayout.LayoutParams(0, dp(1f), 1f))
-        if (stage2) header.addView(searchBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { rightMargin = dp(8f) })
+        if (stage2) {
+            header.addView(searchBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)))
+            header.addView(menuBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { rightMargin = dp(8f) })
+        }
     }
 
     private fun enterSearch() {
@@ -523,6 +533,134 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             list.scrollTo(hit.id)
         }
     }
+
+    private fun showDrawer() {
+        hideKeyboard()
+        val overlay = FrameLayout(activity).apply {
+            setBackgroundColor(0x52000000)
+            isClickable = true
+        }
+        val panel = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            setPadding(dp(16f), dp(10f), dp(16f), dp(12f))
+            isClickable = true
+        }
+        overlay.addView(panel, FrameLayout.LayoutParams(
+            (resources.displayMetrics.widthPixels * 0.88f).toInt(),
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            Gravity.END
+        ))
+        overlay.setOnClickListener { removeView(overlay) }
+
+        panel.addView(TextView(activity).apply {
+            text = "닫기"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(ChatSkin.text); gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(8f)); setOnClickListener { removeView(overlay) }
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44f)))
+
+        val photoHead = drawerHead("▣", "사진·동영상")
+        panel.addView(photoHead)
+        val shots = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        val scroller = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false; addView(shots)
+        }
+        panel.addView(scroller, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(72f)
+        ).apply { bottomMargin = dp(14f) })
+
+        val active = people.filter { it.optString("role") !in setOf("pending", "banned") }
+            .sortedWith(compareBy<JSONObject>(
+                { p -> when { p.optString("role") in setOf("staff","admin","superadmin") -> 0; p.optString("role")=="treasurer" -> 1; else -> 2 } },
+                { p -> p.optInt("birth_year", 9999).let { if (it <= 0) 9999 else it } },
+                { p -> p.optString("name") }
+            ))
+        panel.addView(drawerHead("▣", "참여자 ${active.size}명"))
+
+        val peopleCol = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val peopleScroll = ScrollView(activity).apply { addView(peopleCol) }
+        panel.addView(peopleScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+
+        active.forEach { p ->
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(7f), 0, dp(7f)); isClickable = true
+            }
+            val face = TextView(activity).apply {
+                val n = p.optString("name"); text = if (n.length >= 2) n.takeLast(2) else n
+                textSize = 11f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12f).toFloat(); setColor(0xFFDDE3D1.toInt())
+                }
+            }
+            row.addView(face, LinearLayout.LayoutParams(dp(36f), dp(36f)))
+            row.addView(TextView(activity).apply {
+                val mine = p.optString("id") == me
+                text = (if (mine) "나  " else "") + ChatRows.label(p)
+                textSize = 15f; setTextColor(ChatSkin.text)
+                setPadding(dp(13f), 0, 0, 0)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            val role = p.optString("role")
+            val roleText = when (role) {
+                "superadmin" -> "♛"; "admin" -> "♛"; "staff" -> "♛"; "treasurer" -> "₩"; else -> ""
+            }
+            if (roleText.isNotEmpty()) row.addView(TextView(activity).apply {
+                text = roleText; textSize = 13f; typeface = Typeface.DEFAULT_BOLD
+                setTextColor(when(role) {
+                    "superadmin" -> 0xFFB41F72.toInt(); "admin" -> 0xFFE84A7F.toInt()
+                    "staff" -> 0xFF2C7BD4.toInt(); else -> 0xFFB97C00.toInt()
+                })
+            })
+            peopleCol.addView(row, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
+            ))
+        }
+
+        addView(overlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        overlay.bringToFront()
+
+        scope.launch {
+            try {
+                val media = service.recentMedia(room, 30)
+                media.forEach { m ->
+                    val url = httpsUrl(m.image) ?: return@forEach
+                    val thumb = ImageView(activity).apply {
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        background = android.graphics.drawable.ColorDrawable(0xFFE5E5E5.toInt())
+                        load(url) { crossfade(false) }
+                        setOnClickListener { openOutside(url) }
+                    }
+                    shots.addView(thumb, LinearLayout.LayoutParams(dp(64f), dp(64f)).apply {
+                        marginEnd = dp(4f)
+                    })
+                }
+                if (media.size >= 30) shots.addView(TextView(activity).apply {
+                    text = "→\n더보기"; textSize = 12f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
+                }, LinearLayout.LayoutParams(dp(64f), dp(64f)))
+                photoHead.visibility = if (media.isEmpty()) View.GONE else View.VISIBLE
+                scroller.visibility = if (media.isEmpty()) View.GONE else View.VISIBLE
+            } catch (_: Exception) {
+                /* 네트워크 실패는 사진 묶음을 '지워진 사진'으로 판정하지 않는다. */
+            }
+        }
+    }
+
+    private fun drawerHead(mark: String, title: String): View =
+        LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            val icon = TextView(activity).apply {
+                text = mark; textSize = 11f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(6f).toFloat(); setColor(ChatSkin.cardBadge)
+                }
+            }
+            addView(icon, LinearLayout.LayoutParams(dp(20f), dp(20f)))
+            addView(TextView(activity).apply {
+                text = title; textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ChatSkin.text)
+            }, LinearLayout.LayoutParams(0, dp(26f), 1f).apply { marginStart = dp(10f) })
+        }
 
     private fun isAdmin(): Boolean =
         people.firstOrNull { it.optString("id") == me }?.optString("role") in setOf("staff", "admin", "superadmin")
