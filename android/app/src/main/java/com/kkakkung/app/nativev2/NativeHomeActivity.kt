@@ -27,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -58,6 +59,7 @@ class NativeHomeActivity : AppCompatActivity() {
     private val card = Color.WHITE
     private val ink = Color.rgb(35, 35, 42)
     private val dim = Color.rgb(110, 110, 120)
+    private val danger = Color.rgb(190, 45, 55)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
