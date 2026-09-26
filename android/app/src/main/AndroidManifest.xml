@@ -37,16 +37,6 @@
             android:screenOrientation="portrait"
             android:exported="false" />
 
-        <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
-            android:name=".MainActivity"
-            android:label="@string/title_activity_main"
-            android:theme="@style/AppTheme.NoActionBarLaunch"
-            android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize"
-            android:exported="false">
-        </activity>
-
         <!--
           **알림이 앱 밖(시스템 트레이)에서 그려질 때 쓰는 기본값 셋이다.**
           앱이 꺼져 있을 때 오는 알림은 우리 코드가 아니라 파이어베이스 SDK가
