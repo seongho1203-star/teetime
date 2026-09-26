@@ -70,8 +70,12 @@ final class RoundViewController: NativeScreenController, UITextViewDelegate {
     private var canSettle: Bool { isAdmin || me?.role == "treasurer" }
     private var isOwner: Bool { round?.createdBy == myId }
 
-    init(service: NativeChatService, id: String) {
+    /// 은행 목록(웹 `BANKS`) — 웹이 실어 보낸다. 비어 있으면 `＋ 정산`이 안 뜬다.
+    private let banks: [String]
+
+    init(service: NativeChatService, id: String, banks: [String] = []) {
         roundId = id
+        self.banks = banks
         super.init(service: service, title: "라운드")
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -382,7 +386,16 @@ final class RoundViewController: NativeScreenController, UITextViewDelegate {
 
         // 정산 — 돈은 댓글보다 먼저 눈에 들어와야 한다
         let settleCard = CardView()
-        settleCard.content.addArrangedSubview(sectionTitle(settlements.isEmpty ? "정산" : "정산 \(settlements.count)"))
+        let settleTitle = sectionTitle(settlements.isEmpty ? "정산" : "정산 \(settlements.count)")
+        if banks.isEmpty {
+            settleCard.content.addArrangedSubview(settleTitle)
+        } else {
+            /* **만드는 것은 회원 누구나**(웹 `Settlements`) — 걷는 사람이 곧 만드는 사람이다. */
+            let add = UIButton(type: .system)
+            appButton(add, title: "＋ 정산", color: AppSkin.text, filled: false)
+            add.addTarget(self, action: #selector(addSettlementTapped), for: .touchUpInside)
+            settleCard.content.addArrangedSubview(hrow([settleTitle, UIView(), add], fill: true))
+        }
         if settlements.isEmpty {
             settleCard.content.addArrangedSubview(mkLabel("아직 정산이 없습니다.", size: 12, color: AppSkin.faint))
         }
@@ -702,6 +715,22 @@ final class RoundViewController: NativeScreenController, UITextViewDelegate {
     private func togglePaid(_ m: AppShare) {
         guard !busy else { return }
         run { try await self.service.setSharePaid(m.id, !m.paid) }
+    }
+
+    /// 정산 만들기 — 라운드 위에 시트로 뜬다(주소가 없다 · `SettlementEditViewController`).
+    @objc private func addSettlementTapped() {
+        guard let r = round else { return }
+        /* 고르는 명단은 **회원 전체**(대기·추방만 뺀다) — 참가자로 좁히면 뒷풀이만 온 사람을 못 넣는다. */
+        let members = people.values.filter { $0.role != "pending" && $0.role != "banned" }
+            .sorted { $0.name < $1.name }
+        let vc = SettlementEditViewController(service: service, roundId: roundId, people: members,
+                                              joined: r.confirmed.sorted { $0.seq < $1.seq }.map { $0.userId },
+                                              banks: banks) { [weak self] n in
+            self?.flash("\(n)명에게 정산을 보냈습니다.")
+            self?.loadScreen()
+        }
+        vc.modalPresentationStyle = .pageSheet
+        present(vc, animated: true)
     }
 
     private func deleteSettlement(_ s: AppSettlement, count: Int) {

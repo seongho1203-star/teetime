@@ -39,7 +39,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 7
+    static let version = 8
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다 — `/rounds/<id>/groups`(조 편성)는 아직 웹이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
@@ -48,6 +48,9 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var screen: NativeScreenController?
     private var id = ""
+    /// 웹이 `shell()`에 실어 보낸 공용 목록 — `courses`(골프장) · `banks`(은행) · `guide`(가이드 글).
+    /// 글과 목록의 원본은 웹 한 곳이다(`lib/courses.ts`·`types.ts BANKS`·`lib/guide.ts`) — **Swift에 또 적지 말 것.**
+    @MainActor static var shared: ChatJSON = [:]
     /// 앱 껍데기(홈·탭바) — 로그인이 끝나면 웹이 세우고, 로그아웃하면 내린다.
     private var shell: ShellController?
 
@@ -68,7 +71,10 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// 주소 → 화면. 새 화면을 만들면 여기와 `screens`에 함께 더한다.
     /// `options`는 웹이 `open`에 실어 보낸 것 — 글을 함께 받는 화면(가이드)이 본다.
-    @MainActor static func make(_ path: String, service: NativeChatService, options: ChatJSON = [:]) -> NativeScreenController? {
+    @MainActor static func make(_ path: String, service: NativeChatService, options given: ChatJSON = [:]) -> NativeScreenController? {
+        /* 웹이 껍데기를 세울 때 실어 보낸 목록(골프장·은행·가이드 글)을 바탕에 깐다 —
+           껍데기가 직접 여는 화면(`shell.go`)에는 웹의 `open`이 없기 때문이다. */
+        let options = shared.merging(given) { $1 }
         switch path {
         case "/members": return MembersViewController(service: service)
         case "/alerts": return AlertsViewController(service: service)
@@ -103,7 +109,8 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             /* `/rounds/<uuid>` — `/rounds/new`·`/rounds/<id>/edit`·`/groups`는 uuid가 아니라 걸러진다. */
             if path.hasPrefix("/rounds/"), let id = UUID(uuidString: String(path.dropFirst("/rounds/".count))) {
-                return RoundViewController(service: service, id: id.uuidString.lowercased())
+                return RoundViewController(service: service, id: id.uuidString.lowercased(),
+                                           banks: options["banks"] as? [String] ?? [])
             }
             if path.hasPrefix("/polls/"), let id = UUID(uuidString: String(path.dropFirst("/polls/".count))) {
                 return PollViewController(service: service, id: id.uuidString.lowercased())
@@ -196,6 +203,8 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                   let root = self.bridge?.viewController, let nav = root.navigationController
             else { call.reject("껍데기를 세울 수 없습니다."); return }
             let path = call.getString("path") ?? "/"
+            let o = call.options as? ChatJSON ?? [:]
+            for k in ["courses", "banks", "guide"] where o[k] != nil { Self.shared[k] = o[k] }
             if let sh = self.shell, sh.service.config.user == config.user,
                nav.viewControllers.contains(where: { $0 === sh }) {
                 sh.service.config = config

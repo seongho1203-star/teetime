@@ -5274,6 +5274,7 @@ ios/App/App/FormScreen.swift             ← 3단계: 쓰는 화면 뼈대(저�
 ios/App/App/PostEditViewController.swift ← 3단계: 공지 쓰기·고치기
 ios/App/App/PollEditViewController.swift ← 3단계: 투표 만들기·고치기
 ios/App/App/RoundEditViewController.swift ← 3단계: 모집 열기·고치기(골프장 목록은 웹이 실어 보낸다)
+ios/App/App/SettlementEditViewController.swift ← 3단계: 정산 만들기(라운드 위 시트 · 주소 없음)
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
@@ -5367,6 +5368,9 @@ ios/App/App/RoundEditViewController.swift ← 3단계: 모집 열기·고치기(
     해시를 직접 민다**(`location.hash`). 다리 양쪽이 `AppLog`(`내 정보`의
     스위치 아래 줄)에 `탭 누름 · onWeb · 열라는 주소 받음`을 남기니, 또
     안 눌리면 그 줄부터 볼 것(`NativeApp.log`가 웹 쪽 한 줄을 같은 기록에 얹는다).
+- **골프장·은행·가이드 글은 웹이 한 번 실어 보낸다**(`shell()` → `NativeAppPlugin.shared`,
+  `make`가 바탕에 깐다). 원본은 웹(`lib/courses.ts`·`BANKS`·`lib/guide.ts`) 한 곳이다 —
+  **Swift에 목록을 또 적지 말 것.** 그 값이 없으면(옛 웹) `make`가 `nil`로 웹에 맡긴다.
 - **새 화면을 더할 때 넷이 한 벌이다** — `NativeAppPlugin.screens`(Swift) ·
   `NATIVE_SCREENS`(웹) · `NativeAppPlugin.make`의 갈래 · `NativeScreen.tsx`의
   `…Route`. 그리고 `project.pbxproj`에 새 id(`CB2…`/`CB3…` 꼬리번호를 올려서).

@@ -15,6 +15,7 @@ import { PostEdit } from './PostEdit';
 import { PollEdit } from './PollEdit';
 import { RoundEdit } from './RoundEdit';
 import { COURSES } from '../lib/courses';
+import { BANKS } from '../lib/types';
 import { guideTable } from '../lib/guide';
 
 /**
@@ -41,7 +42,7 @@ export function AlertsRoute() {
 export function RoundRoute() {
     const { id } = useParams<{ id: string }>();
     const path = `/rounds/${id ?? ''}`;
-    return nativeScreen(path) ? <NativeScreenHost path={path} /> : <RoundDetail />;
+    return nativeScreen(path) ? <NativeScreenHost path={path} extra={{ banks: BANKS }} /> : <RoundDetail />;
 }
 
 export function PollRoute() {
@@ -202,8 +203,11 @@ export function NativeShellSync() {
 
     useEffect(() => {
         if (!user || !token) return;
+        /* 공용 목록을 함께 실어 보낸다 — 껍데기가 직접 여는 화면(모집 열기·가이드·
+           정산)도 쓰게. 원본은 여기 한 곳이다(`NativeAppPlugin.shared`). */
         void NativeApp.shell({
             user, token, path: pathRef.current,
+            courses: COURSES, banks: BANKS, guide: guideTable(),
             url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
         }).catch(() => {});
     }, [user, token]);
