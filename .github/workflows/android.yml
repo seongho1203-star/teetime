@@ -33,9 +33,17 @@ on:
   push:
     branches: [main, android-native-v2]
     paths:
-      # Android는 이제 Kotlin/리소스만 앱에 담는다. 웹 변경은 Android 빌드를
-      # 만들지 않는다 — iOS/웹과 독립된 네이티브 앱이다.
+      # 앱 안에 담기는 화면
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      # 앱 껍데기
       - 'android/**'
+      - 'capacitor.config.ts'
       - '.github/workflows/android.yml'
 
 permissions:
@@ -43,7 +51,7 @@ permissions:
 
 # 두 판이 겹치면 Play에 같은 번호가 두 번 올라가 뒤엣것이 거절된다.
 concurrency:
-  group: android-${{ github.ref }}
+  group: android
   cancel-in-progress: false
 
 jobs:
@@ -69,26 +77,34 @@ jobs:
             echo "store=" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+
+      - run: npm ci
 
       # **이 결과가 그대로 앱에 담긴다.** `VITE_APP_BUILD`는 `내 정보`에
       # `버전 1.7`로 나오는 그 뒷자리이고, 아래 `appVersionCode`와 **같은
       # 값을 준다** — 화면의 숫자와 Play에 올라간 번호가 같아야 폰에서
       # 새 앱을 받았는지 그것 하나로 가릴 수 있다.
       # **아이폰과 번호가 다른 것이 정상이다** — 워크플로가 저마다 센다.
-      # NativeAuth/NativeApi의 BuildConfig에 직접 들어가는 두 값이다.
-      - name: Supabase 설정 확인
+      - name: 웹 빌드
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_BUILD: ${{ github.run_number }}
         run: |
           if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
-            echo "::error::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 시크릿이 없습니다."
+            echo "::error::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 시크릿이 없습니다. docs/설치.md 6번 참고."
             exit 1
           fi
+          npm run build
 
       # **알림에 필요한 파일이다**(FCM). 안드로이드 알림은 구글을 반드시
       # 거치고, 이 파일이 없으면 앱은 멀쩡히 만들어지는데 **폰이 알림
@@ -125,6 +141,9 @@ jobs:
               sys.exit(1)
           PY
 
+      - name: 앱 껍데기 맞추기
+        run: npx cap sync android
+
       # **서명 열쇠를 파일로 놓는다.** 저장소에는 안 두고 비밀값에서 꺼낸다
       # (아이폰이 `.p8`을 그렇게 다루는 것과 같다).
       - name: 서명 열쇠 놓기
@@ -155,8 +174,6 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           cd android
           chmod +x gradlew
@@ -213,7 +230,7 @@ jobs:
           [ -n "$MAN" ] || { echo "::error::AAB 에서 매니페스트를 못 읽었습니다."; exit 1; }
 
           echo "── AAB 안의 알림 권한 ──"
-          echo "$MAN" | grep -a -q 'POST_NOTIFICATIONS' \
+          grep -a 'POST_NOTIFICATIONS' <<<"$MAN" >/dev/null \
             || { echo "::error::AAB 에 알림 권한(POST_NOTIFICATIONS)이 없습니다."; exit 1; }
 
           # ── 알림음 ──
