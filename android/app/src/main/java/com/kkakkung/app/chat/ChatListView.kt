@@ -86,6 +86,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onPhoto: ((String) -> Unit)? = null
     var onQuote: ((String) -> Unit)? = null
     var onReply: ((String) -> Unit)? = null
+    var onHold: ((ChatRow, View) -> Unit)? = null
     var onTop: (() -> Unit)? = null
     var onBottom: ((Boolean) -> Unit)? = null
 
@@ -278,6 +279,18 @@ class ChatListView(context: Context) : RecyclerView(context) {
             bubble.addView(quoteRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ctx.dp(1f)).apply { topMargin = ctx.dp(5f); bottomMargin = ctx.dp(6f) })
             bubble.addView(body)
             bubble.setOnClickListener { current?.quoteTo?.let { onQuote?.invoke(it) } }
+            bubble.setOnLongClickListener {
+                current?.let { r -> onHold?.invoke(r, bubble) }
+                true
+            }
+            picture.setOnLongClickListener {
+                current?.let { r -> onHold?.invoke(r, picture) }
+                true
+            }
+            noticeChip.setOnLongClickListener {
+                current?.takeIf { it.kind == "hidden" }?.let { r -> onHold?.invoke(r, noticeChip) }
+                true
+            }
             content.addView(bubble)
             reacts.textSize = 12f; reacts.setTextColor(ChatSkin.text)
             reacts.setPadding(ctx.dp(8f), ctx.dp(4f), ctx.dp(8f), ctx.dp(4f))
@@ -319,7 +332,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
             markChip.visibility = if (r.mark) View.VISIBLE else View.GONE
             markChip.text = "여기까지 읽으셨습니다"
 
-            val notice = r.kind == "system"
+            val notice = r.kind == "system" || r.kind == "hidden"
             noticeChip.visibility = if (notice) View.VISIBLE else View.GONE
             noticeChip.text = r.body
             noticeChip.maxWidth = listWidth - ctx.dp(40f)
