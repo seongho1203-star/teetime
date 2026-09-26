@@ -1243,6 +1243,12 @@ post_birthday_greetings(p_lmonth, p_lday)  ← DB가 사람을 고르고 한 줄
 
 **탭바 순서는 홈 · 공지 · 라운드 · 투표 · 대화다**(사용자가 정했다).
 
+**탭바 아이콘은 SF Symbol이 아니라 사용자가 고른 선 그림 다섯이다**(Lucide의
+`house`·`megaphone`·`flag`·`chart-column`·`message-circle` · 선 1.75). 원본 SVG는
+`docs/탭-아이콘/`, 아이폰은 거기서 뽑은 템플릿 PNG(`Assets.xcassets/tab-*` · 25pt @2x·@3x)를
+`ShellController`가 쓴다 — 탭바가 색을 칠하므로 검은 선 그대로 둔다. **SF Symbol로 되돌리지 말 것**
+(사용자가 후보 페이지를 보고 `이걸로 하자`로 정했다). 안드로이드도 같은 SVG를 쓴다.
+
 예정된 라운드가 없으면 빈칸 대신 `모집 열기`를 놓는다 — 누구나 열 수 있는
 앱이라 그 자리가 곧 초대장이다.
 

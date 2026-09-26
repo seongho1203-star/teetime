@@ -48,11 +48,18 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
         pollsTab = PollsTabController(service: service)
         super.init(nibName: nil, bundle: nil)
         for t in [homeTab, boardTab, roundsTab, pollsTab] { t.shell = self }
-        homeTab.tabBarItem = UITabBarItem(title: "홈", image: UIImage(systemName: "house"), tag: 0)
-        boardTab.tabBarItem = UITabBarItem(title: "공지", image: UIImage(systemName: "megaphone"), tag: 1)
-        roundsTab.tabBarItem = UITabBarItem(title: "라운드", image: UIImage(systemName: "flag"), tag: 2)
-        pollsTab.tabBarItem = UITabBarItem(title: "투표", image: UIImage(systemName: "chart.bar"), tag: 3)
-        chatTab.tabBarItem = UITabBarItem(title: "대화", image: UIImage(systemName: "bubble.left"), tag: 4)
+        /* 탭 아이콘은 SF Symbol이 아니라 **우리가 넣은 선 그림**이다(사용자가 고른 것 —
+           Lucide의 house·megaphone·flag·chart-column·message-circle, 선 1.75).
+           원본 SVG는 `docs/탭-아이콘/`에 있고 `Assets.xcassets/tab-*`는 거기서 뽑은
+           템플릿 PNG라 탭바 색(흐림·분홍)을 그대로 받는다. 못 찾으면 옛 SF Symbol로. */
+        func icon(_ name: String, _ fallback: String) -> UIImage? {
+            UIImage(named: "tab-\(name)")?.withRenderingMode(.alwaysTemplate) ?? UIImage(systemName: fallback)
+        }
+        homeTab.tabBarItem = UITabBarItem(title: "홈", image: icon("house", "house"), tag: 0)
+        boardTab.tabBarItem = UITabBarItem(title: "공지", image: icon("megaphone", "megaphone"), tag: 1)
+        roundsTab.tabBarItem = UITabBarItem(title: "라운드", image: icon("flag", "flag"), tag: 2)
+        pollsTab.tabBarItem = UITabBarItem(title: "투표", image: icon("chart-column", "chart.bar"), tag: 3)
+        chatTab.tabBarItem = UITabBarItem(title: "대화", image: icon("message-circle", "bubble.left"), tag: 4)
         viewControllers = [homeTab, boardTab, roundsTab, pollsTab, chatTab]
         delegate = self
         Self.current = self
