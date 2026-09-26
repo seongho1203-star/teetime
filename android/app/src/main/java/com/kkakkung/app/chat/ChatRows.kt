@@ -104,7 +104,7 @@ object ChatRows {
             val mark = m.id == unread
 
             if (m.hidden) {
-                out.add(row(m.id, "system", mine, "가려진 메시지입니다", date, top, mark)); continue
+                out.add(row(m.id, "hidden", mine, "가려진 메시지입니다", date, top, mark)); continue
             }
             if (m.system) {
                 var kind = "system"; var to: String? = null; var go: String? = null; var icon: String? = null
