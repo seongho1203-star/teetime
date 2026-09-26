@@ -91,6 +91,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onBottom: ((Boolean) -> Unit)? = null
 
     private val rows = ArrayList<ChatRow>()
+    private var findQuery = ""
     private val lm = LinearLayoutManager(context).apply { stackFromEnd = true }
     private val rowAdapter = RowAdapter()
     var atBottom = true
@@ -125,6 +126,11 @@ class ChatListView(context: Context) : RecyclerView(context) {
                 if (dy < 0 && lm.findFirstVisibleItemPosition() <= 1) onTop?.invoke()
             }
         })
+    }
+
+    fun setFindQuery(query: String) {
+        findQuery = query
+        rowAdapter.notifyDataSetChanged()
     }
 
     val rowCount: Int get() = rows.size
@@ -449,6 +455,19 @@ class ChatListView(context: Context) : RecyclerView(context) {
                         }
                     }
                     body.text = painted
+                }
+                if (findQuery.length >= 2 && text.isNotEmpty()) {
+                    val base = if (body.text is android.text.Spanned)
+                        android.text.SpannableString(body.text) else SpannableString(text)
+                    var from = 0
+                    while (from < text.length) {
+                        val at = text.indexOf(findQuery, from, ignoreCase = true)
+                        if (at < 0) break
+                        base.setSpan(ForegroundColorSpan(0xFF2C7BD4.toInt()), at, at + findQuery.length,
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        from = at + findQuery.length
+                    }
+                    body.text = base
                 }
                 body.textSize = if (big) ChatSkin.bigSize else ChatSkin.fontSize
                 body.maxWidth = maxW
