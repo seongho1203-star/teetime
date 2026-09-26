@@ -834,6 +834,37 @@ class NativeHomeActivity : AppCompatActivity() {
         return box
     }
 
+    private fun infoPair(a: Pair<String, String>, b: Pair<String, String>): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(infoCell(a.first, a.second), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(infoCell(b.first, b.second), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(1)
+            })
+        }
+
+    private fun infoCell(label: String, value: String): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(8), dp(13), dp(8))
+            setBackgroundColor(card)
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = label; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; setTextColor(faint)
+            })
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = value; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+            })
+        }
+
+    private fun fullDate(raw: String): String = try {
+        val z = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
+        z.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN))
+    } catch (_: Exception) { date(raw) }
+
+    private fun timeOnly(raw: String): String = try {
+        val z = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
+        z.format(DateTimeFormatter.ofPattern("HH:mm", Locale.KOREAN))
+    } catch (_: Exception) { "" }
+
     private fun listHeader(titleText: String, actionText: String, click: () -> Unit): View =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -1100,18 +1131,69 @@ class NativeHomeActivity : AppCompatActivity() {
         val owner = r.optString("created_by") == session.userId
         val screen = r.optString("kind") == "screen"
 
+        val heroBadges = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        heroBadges.addView(badge(if (screen) "🎯 스크린" else "⛳ 필드", if (screen) dim else grassDeep))
+        val statusText = when (r.optString("status")) {
+            "cancelled" -> "취소됨"
+            "closed" -> "모집 마감"
+            else -> if (open && confirmed.size < r.optInt("capacity")) "모집중"
+                    else if (open) "모집 마감" else "종료"
+        }
+        heroBadges.addView(badge(statusText, when (statusText) {
+            "모집중" -> grassDeep; "취소됨" -> danger; else -> faint
+        }))
+        if (r.optString("status") != "cancelled" && !isPast(r.optString("tee_at")))
+            heroBadges.addView(badge(dday(r.optString("tee_at")), if (daysUntil(r.optString("tee_at")) <= 3) warn else dim))
+        page.addView(heroBadges)
+
         title(page, (if (screen) "🎯 " else "⛳ ") +
             r.optString("course").ifBlank { r.optString("title") })
-        line(page, "종류", if (screen) "스크린" else "필드")
-        line(page, "날짜", date(r.optString("tee_at")))
-        line(page, "정원", "${r.optInt("capacity")}명")
-        line(page, if (screen) "게임비" else "그린피", money(r.optInt("fee")))
-        line(page, "상태", when (r.optString("status")) {
-            "closed" -> "모집 마감"; "cancelled" -> "취소됨"
-            else -> if (open) "모집중" else "종료"
-        })
-        r.optString("note").takeIf { it.isNotBlank() }?.let {
-            section(page, "전달 내용"); body(page, it)
+        if (r.optString("title").isNotBlank() && r.optString("course").isNotBlank())
+            body(page, r.optString("title"))
+
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(11).toFloat(); setColor(line)
+            }
+            setPadding(dp(1), dp(1), dp(1), dp(1))
+        }
+        info.addView(infoPair(
+            "날짜" to fullDate(r.optString("tee_at")),
+            (if (screen) "시작" else "티오프") to timeOnly(r.optString("tee_at"))
+        ))
+        info.addView(infoPair(
+            "정원" to "${r.optInt("capacity")}명",
+            (if (screen) "게임비" else "그린피") to money(r.optInt("fee"))
+        ))
+        if (!screen) info.addView(infoPair(
+            "캐디" to r.optString("caddie").ifBlank { "미정" },
+            "카트" to r.optString("cart").ifBlank { "미정" }
+        ))
+        page.addView(info, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(4); bottomMargin = dp(8) })
+
+        r.optString("note").takeIf { it.isNotBlank() }?.let { note ->
+            val noteBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(11), dp(13), dp(11))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(18).toFloat(); setColor(Color.rgb(255,248,225))
+                    setStroke(dp(1), Color.rgb(239,207,126))
+                }
+            }
+            noteBox.addView(TextView(this).apply {
+                text = "전달 내용"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(warn)
+            })
+            noteBox.addView(TextView(this).apply {
+                text = note; textSize = 14f; setTextColor(ink); setLineSpacing(0f, 1.35f)
+                setPadding(0, dp(5), 0, 0)
+            })
+            page.addView(noteBox, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) })
         }
 
         if (mine == null && open) {
