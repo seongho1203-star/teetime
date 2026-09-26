@@ -206,24 +206,102 @@ class NativeHomeActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val r = api.round(id)
+                val comments = api.roundComments(id)
+                val people = api.people()
+                val myProfile = api.profile()
                 page.removeView(loading)
                 if (r == null) { error(page, "라운드를 찾지 못했습니다."); return@launch }
-                title(page, r.optString("title").ifBlank { r.optString("course") })
-                line(page, "장소", r.optString("course"))
-                line(page, "일시", date(r.optString("tee_at")))
-                line(page, "정원", "${r.optInt("capacity")}명")
-                line(page, "비용", money(r.optInt("fee")))
-                line(page, "상태", r.optString("status"))
-                val note = r.optString("note")
-                if (note.isNotBlank()) {
-                    section(page, "안내")
-                    body(page, note)
-                }
-                section(page, "Native V2 진행")
-                body(page, "참가/취소 · 조편성 · 댓글은 다음 단계에서 이 화면에 직접 연결합니다.")
+                renderRound(page, r, comments, people, myProfile)
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
             }
+        }
+    }
+
+    private fun renderRound(
+        page: LinearLayout, r: JSONObject, comments: List<JSONObject>,
+        people: List<JSONObject>, myProfile: JSONObject?
+    ) {
+        val id = r.optString("id")
+        val names = people.associateBy { it.optString("id") }
+        val signups = jsonObjects(r.optJSONArray("signups"))
+        val confirmed = signups.filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
+        val waiting = signups.filter { it.optString("state") == "waitlist" }.sortedBy { it.optInt("seq") }
+        val mine = signups.firstOrNull { it.optString("user_id") == session.userId }
+        val open = r.optString("status") == "open" && !isPast(r.optString("tee_at"))
+        val admin = myProfile?.optString("role") in setOf("staff", "admin", "superadmin")
+        val owner = r.optString("created_by") == session.userId
+        val screen = r.optString("kind") == "screen"
+
+        title(page, (if (screen) "🎯 " else "⛳ ") +
+            r.optString("course").ifBlank { r.optString("title") })
+        line(page, "종류", if (screen) "스크린" else "필드")
+        line(page, "날짜", date(r.optString("tee_at")))
+        line(page, "정원", "${r.optInt("capacity")}명")
+        line(page, if (screen) "게임비" else "그린피", money(r.optInt("fee")))
+        line(page, "상태", when (r.optString("status")) {
+            "closed" -> "모집 마감"; "cancelled" -> "취소됨"
+            else -> if (open) "모집중" else "종료"
+        })
+        r.optString("note").takeIf { it.isNotBlank() }?.let {
+            section(page, "전달 내용"); body(page, it)
+        }
+
+        if (mine == null && open) {
+            page.addView(action("참가 신청", primary = true) {
+                confirm("참가 신청", "이 라운드에 신청할까요?") {
+                    mutate {
+                        val state = api.joinRound(id)
+                        toast(if (state == "confirmed") "참가가 확정되었습니다." else "자리가 차서 대기자로 올렸습니다.")
+                        showRound(id)
+                    }
+                }
+            })
+        } else if (mine != null) {
+            page.addView(action(if (mine.optString("state") == "confirmed") "신청 취소" else "대기 취소", danger = true) {
+                val msg = if (mine.optString("state") == "confirmed" && waiting.isNotEmpty())
+                    "취소하면 대기 1번인 ${personLabel(names[waiting.first().optString("user_id")])}님이 올라갑니다."
+                else "다시 신청하면 순번은 맨 뒤가 됩니다."
+                confirm("신청을 취소할까요?", msg) {
+                    mutate { api.leaveRound(id); toast("신청을 취소했습니다."); showRound(id) }
+                }
+            })
+        }
+
+        if (admin || owner) {
+            val status = r.optString("status")
+            page.addView(action(if (status == "open") "모집 마감" else "다시 열기") {
+                mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
+            })
+        }
+
+        section(page, "참가자 ${confirmed.size}/${r.optInt("capacity")}")
+        if (confirmed.isEmpty()) empty(page, "아직 참가자가 없습니다.")
+        confirmed.forEach { signup ->
+            val uid = signup.optString("user_id")
+            val row = personRow(personLabel(names[uid]).ifBlank { "알 수 없음" }, "확정")
+            if ((admin || owner) && uid != session.userId) {
+                row.setOnLongClickListener {
+                    confirm("명단에서 뺄까요?", "대기자가 있으면 맨 앞 사람이 자동으로 올라갑니다.") {
+                        mutate { api.kickSignup(id, uid); showRound(id) }
+                    }
+                    true
+                }
+            }
+            page.addView(row)
+        }
+        if (waiting.isNotEmpty()) {
+            section(page, "대기 ${waiting.size}명")
+            waiting.forEachIndexed { i, signup ->
+                page.addView(personRow(
+                    personLabel(names[signup.optString("user_id")]).ifBlank { "알 수 없음" },
+                    "대기 ${i + 1}"
+                ))
+            }
+        }
+
+        commentsBlock(page, comments, names) { text ->
+            mutate { api.addComment("round_comments", "round_id", id, text); showRound(id) }
         }
     }
 
