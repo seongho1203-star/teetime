@@ -259,3 +259,98 @@ final class FormTextView: UITextView, UITextViewDelegate {
         onChange?()
     }
 }
+
+/**
+ * **날짜·시각 한 칸** — 투표 `마감 시각`과 모집 열기의 `티오프`가 같이 쓴다
+ * (웹 `components/DateTimeField.tsx`와 같은 자리).
+ *
+ * 웹이 브라우저 날짜 칸을 걷어내고 달력을 직접 그린 까닭은 **아이폰이 웹뷰
+ * 안에서 영어 창을 제멋대로 띄워서**였다. 네이티브 `UIDatePicker`는
+ * `ko_KR`로 두면 한글이고 늘 같은 모양이라 그 까닭이 없다 — 그래서 여기서는
+ * 시스템 것을 쓴다. **시간대는 늘 한국이다**(기기 시간대를 따르면 해외에 있는
+ * 사람에게만 시각이 어긋난다).
+ *
+ * **아직 안 골랐으면 비어 있다**(`date == nil`) — 웹처럼 고르는 것은
+ * 사람 몫이다. `고르기`를 누르면 다음 날 `hour:minute`에서 시작한다.
+ */
+final class WhenPicker: UIStackView {
+    static let seoul = TimeZone(identifier: "Asia/Seoul") ?? .current
+    static var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = seoul
+        c.locale = Locale(identifier: "ko_KR")
+        return c
+    }
+    private let picker = UIDatePicker()
+    private let pickBtn = UIButton(type: .system)
+    private let hour: Int, minute: Int
+    var onChange: (() -> Void)?
+    var date: Date? {
+        didSet {
+            if let d = date, picker.date != d { picker.date = d }
+            picker.isHidden = date == nil
+            pickBtn.isHidden = date != nil
+        }
+    }
+
+    /// `quick`는 바로누름(`3일 후` 같은 것 · 지금부터 며칠 뒤 같은 시각).
+    init(hour: Int, minute: Int, quick: [(String, Int)] = []) {
+        self.hour = hour; self.minute = minute
+        super.init(frame: .zero)
+        axis = .vertical
+        spacing = 8
+        alignment = .leading
+        picker.datePickerMode = .dateAndTime
+        picker.preferredDatePickerStyle = .compact
+        picker.locale = Locale(identifier: "ko_KR")
+        picker.timeZone = Self.seoul
+        picker.calendar = Self.calendar
+        picker.tintColor = AppSkin.brand
+        picker.isHidden = true
+        picker.addTarget(self, action: #selector(picked), for: .valueChanged)
+        appButton(pickBtn, title: "📅 날짜·시각 고르기", color: AppSkin.text, filled: false)
+        pickBtn.addTarget(self, action: #selector(startTapped), for: .touchUpInside)
+        addArrangedSubview(picker)
+        addArrangedSubview(pickBtn)
+        if !quick.isEmpty {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 6
+            for (title, days) in quick {
+                let b = UIButton(type: .system)
+                appButton(b, title: title, color: AppSkin.dim, filled: false)
+                b.tag = days
+                b.addTarget(self, action: #selector(quickTapped(_:)), for: .touchUpInside)
+                row.addArrangedSubview(b)
+            }
+            addArrangedSubview(row)
+        }
+    }
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func picked() { date = picker.date; onChange?() }
+    @objc private func startTapped() {
+        let cal = Self.calendar
+        let day = cal.startOfDay(for: Date(timeIntervalSinceNow: 86400))
+        date = cal.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+        onChange?()
+    }
+    @objc private func quickTapped(_ b: UIButton) {
+        date = Date(timeIntervalSinceNow: TimeInterval(b.tag) * 86400)
+        onChange?()
+    }
+
+    /// DB에 넣는 모양(UTC ISO).
+    static func iso(_ d: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: d)
+    }
+    /// `10월 4일 (일)` — 웹 `dateLabel`과 같은 모양.
+    static func dayLabel(_ dc: DateComponents) -> String {
+        let cal = calendar
+        guard let d = cal.date(from: dc) else { return "" }
+        let week = ["일", "월", "화", "수", "목", "금", "토"][cal.component(.weekday, from: d) - 1]
+        return "\(cal.component(.month, from: d))월 \(cal.component(.day, from: d))일 (\(week))"
+    }
+}

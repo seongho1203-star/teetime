@@ -41,6 +41,7 @@
 		CB3000000000000000000011 /* HelpViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000011 /* HelpViewController.swift */; };
 		CB3000000000000000000012 /* FormScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000012 /* FormScreen.swift */; };
 		CB3000000000000000000013 /* PostEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000013 /* PostEditViewController.swift */; };
+		CB3000000000000000000014 /* PollEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000014 /* PollEditViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -82,6 +83,7 @@
 		CB2000000000000000000011 /* HelpViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000012 /* FormScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormScreen.swift; sourceTree = "<group>"; };
 		CB2000000000000000000013 /* PostEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostEditViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000014 /* PollEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollEditViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +154,7 @@
 				CB2000000000000000000011 /* HelpViewController.swift */,
 				CB2000000000000000000012 /* FormScreen.swift */,
 				CB2000000000000000000013 /* PostEditViewController.swift */,
+				CB2000000000000000000014 /* PollEditViewController.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -314,6 +317,7 @@
 				CB3000000000000000000011 /* HelpViewController.swift in Sources */,
 				CB3000000000000000000012 /* FormScreen.swift in Sources */,
 				CB3000000000000000000013 /* PostEditViewController.swift in Sources */,
+				CB3000000000000000000014 /* PollEditViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -39,11 +39,11 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 5
+    static let version = 6
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
-    /// `:id`는 uuid 한 조각이다 — `/rounds/new`·`/rounds/<id>/edit`·`/groups`·`/polls/new`(쓰는 화면)는 아직 웹이다.
+    /// `:id`는 uuid 한 조각이다 — `/rounds/new`·`/rounds/<id>/edit`·`/groups`(쓰는 화면)는 아직 웹이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
-                                    "/board/new", "/board/:id/edit"]
+                                    "/board/new", "/board/:id/edit", "/polls/new", "/polls/:id/edit"]
 
     private var screen: NativeScreenController?
     private var id = ""
@@ -76,7 +76,12 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let g = options["guide"] as? ChatJSON else { return nil }
             return HelpViewController(service: service, guide: g)
         case "/board/new": return PostEditViewController(service: service, id: nil)
+        case "/polls/new": return PollEditViewController(service: service, id: nil)
         default:
+            if path.hasPrefix("/polls/"), path.hasSuffix("/edit"),
+               let id = UUID(uuidString: String(path.dropFirst("/polls/".count).dropLast("/edit".count))) {
+                return PollEditViewController(service: service, id: id.uuidString.lowercased())
+            }
             /* `/board/<uuid>/edit` — 공지 고치기(3단계). */
             if path.hasPrefix("/board/"), path.hasSuffix("/edit"),
                let id = UUID(uuidString: String(path.dropFirst("/board/".count).dropLast("/edit".count))) {

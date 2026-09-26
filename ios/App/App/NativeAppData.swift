@@ -493,6 +493,20 @@ extension NativeChatService {
                                        body: ["title": title, "body": body, "pinned": pinned, "updated_at": AppDate.nowIso()]) as? [ChatJSON]
         guard result?.isEmpty == false else { throw NativeChatError(message: "내가 쓴 글만 고칠 수 있습니다.") }
     }
+    /// 줄 넣기(여러 줄 한 번에) — 넣은 줄을 돌려준다.
+    func insertRows(_ table: String, _ rows: [ChatJSON]) async throws -> [ChatJSON] {
+        try await request("rest/v1/\(table)", method: "POST", body: rows) as? [ChatJSON] ?? []
+    }
+    /// 한 줄 고치기 — 정책에 막히면 빈 답이 온다.
+    func patchRow(_ table: String, id: String, _ body: ChatJSON) async throws {
+        let r = try await request("rest/v1/\(table)", query: [("id", "eq.\(id)")], method: "PATCH", body: body) as? [ChatJSON]
+        guard r?.isEmpty == false else { throw NativeChatError(message: "권한이 없습니다.") }
+    }
+    /// 여러 줄 지우기.
+    func deleteRows(_ table: String, ids: [String]) async throws {
+        guard !ids.isEmpty else { return }
+        _ = try await request("rest/v1/\(table)", query: [("id", "in.(\(ids.joined(separator: ",")))")], method: "DELETE")
+    }
     /// 내 등급 한 칸 — 쓰는 화면이 '누가 쓸 수 있나'를 가린다. 못 받으면 일반회원으로 본다.
     func myRole() async -> String {
         let r = try? await rows("profiles", [("select", "role"), ("id", "eq.\(config.user)"), ("limit", "1")])
