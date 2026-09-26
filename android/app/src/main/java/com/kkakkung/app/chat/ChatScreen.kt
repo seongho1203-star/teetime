@@ -68,6 +68,13 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val column = LinearLayout(activity)
     private val header = LinearLayout(activity)
     private val backBtn = ImageView(activity)
+    private val searchBtn = ImageView(activity)
+    private val searchInput = EditText(activity)
+    private val searchCancel = TextView(activity)
+    private val findBar = LinearLayout(activity)
+    private val findCount = TextView(activity)
+    private val findUp = TextView(activity)
+    private val findDown = TextView(activity)
     private val list = ChatListView(activity)
     private val status = TextView(activity)
     private val mentionPanel = LinearLayout(activity)
@@ -94,12 +101,16 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var readJob: Job? = null
     private var metaJob: Job? = null
     private var syncJob: Job? = null
+    private var searchJob: Job? = null
     private var softInputBefore: Int? = null
     private val stage2 get() = ChatCatchup.stage2(activity)
     private var pullY = 0f
     private var lastIme = false
     private var navColorBefore: Int? = null
     private var quoted: ChatMessage? = null
+    private var searching = false
+    private var searchHits: List<ChatMessage> = emptyList()
+    private var searchIndex = -1
     private var mentionStart = -1
     private var mentionEnd = -1
     private var paintingMentions = false
@@ -118,7 +129,11 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         backBtn.scaleType = ImageView.ScaleType.CENTER
         backBtn.contentDescription = "뒤로"
         backBtn.setOnClickListener { goBack() }
-        header.addView(backBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { leftMargin = dp(8f) })
+        searchBtn.setImageResource(R.drawable.ic_chat_search)
+        searchBtn.scaleType = ImageView.ScaleType.CENTER
+        searchBtn.contentDescription = "대화 검색"
+        searchBtn.setOnClickListener { if (stage2) enterSearch() }
+        showNormalHeader()
         column.addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52f)))
 
         val body = FrameLayout(activity)
@@ -152,6 +167,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         column.addView(replyPanel, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { leftMargin = dp(10f); rightMargin = dp(10f); bottomMargin = dp(4f) })
+
+        findBar.orientation = LinearLayout.HORIZONTAL
+        findBar.gravity = Gravity.CENTER_VERTICAL
+        findBar.visibility = View.GONE
+        findBar.setPadding(dp(12f), dp(7f), dp(12f), dp(7f))
+        findBar.setBackgroundColor(ChatSkin.bg)
+        findCount.textSize = 14f; findCount.setTextColor(Color.WHITE)
+        findBar.addView(findCount, LinearLayout.LayoutParams(0, dp(38f), 1f))
+        for ((button, label, step) in listOf(Triple(findUp, "⌃", 1), Triple(findDown, "⌄", -1))) {
+            button.text = label; button.textSize = 22f; button.gravity = Gravity.CENTER
+            button.setTextColor(Color.WHITE)
+            button.setOnClickListener { stepSearch(step) }
+            findBar.addView(button, LinearLayout.LayoutParams(dp(44f), dp(38f)))
+        }
+        column.addView(findBar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         /* 글칸 줄 — 카톡처럼 뒤에 판을 안 깔고(보라 그대로) 흰 알약 하나가 뜬다.
            한 줄 48 · 둥글기 24 (CLAUDE.md `글칸 한 줄은 48px`). */
@@ -276,7 +307,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     fun destroy() {
-        detach(); loadJob?.cancel(); scope.cancel()
+        detach(); loadJob?.cancel(); searchJob?.cancel(); scope.cancel()
     }
 
     fun updateToken(token: String) {
@@ -394,6 +425,103 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         mentionEnd = mentionStart
         showMentionCard(mentionNames().take(6))
         input.requestFocus()
+    }
+
+    private fun showNormalHeader() {
+        header.removeAllViews()
+        header.addView(backBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { leftMargin = dp(8f) })
+        header.addView(View(activity), LinearLayout.LayoutParams(0, dp(1f), 1f))
+        if (stage2) header.addView(searchBtn, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { rightMargin = dp(8f) })
+    }
+
+    private fun enterSearch() {
+        if (searching) return
+        searching = true
+        hideMentionCard(); clearReply(); hideKeyboard()
+        header.removeAllViews()
+        searchInput.hint = "대화내용 검색"
+        searchInput.textSize = 16f; searchInput.setSingleLine(true)
+        searchInput.setTextColor(ChatSkin.text); searchInput.setHintTextColor(0xFF8B9486.toInt())
+        searchInput.background = GradientDrawable().apply {
+            cornerRadius = dp(18f).toFloat(); setColor(Color.WHITE)
+        }
+        searchInput.setPadding(dp(12f), 0, dp(12f), 0)
+        searchCancel.text = "취소"; searchCancel.textSize = 14f; searchCancel.setTextColor(ChatSkin.text)
+        searchCancel.gravity = Gravity.CENTER
+        searchCancel.setOnClickListener { leaveSearch() }
+        header.addView(searchInput, LinearLayout.LayoutParams(0, dp(38f), 1f).apply {
+            leftMargin = dp(10f); rightMargin = dp(6f)
+        })
+        header.addView(searchCancel, LinearLayout.LayoutParams(dp(52f), dp(44f)))
+        composer.visibility = View.GONE
+        findBar.visibility = View.VISIBLE
+        findCount.text = "두 글자 이상 입력"
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) { queueSearch(s?.toString().orEmpty()) }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        searchInput.requestFocus()
+        (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun leaveSearch() {
+        searchJob?.cancel(); searching = false; searchHits = emptyList(); searchIndex = -1
+        list.setFindQuery("")
+        searchInput.setText("")
+        findBar.visibility = View.GONE; composer.visibility = View.VISIBLE
+        showNormalHeader()
+        hideKeyboard()
+    }
+
+    private fun queueSearch(raw: String) {
+        if (!searching) return
+        val q = raw.trim()
+        searchJob?.cancel()
+        if (q.length < 2 || q.contains('%') || q.contains('_')) {
+            searchHits = emptyList(); searchIndex = -1
+            list.setFindQuery(if (q.length >= 2) q else "")
+            findCount.text = if (q.contains('%') || q.contains('_')) "% · _ 는 검색할 수 없습니다" else "두 글자 이상 입력"
+            return
+        }
+        list.setFindQuery(q)
+        searchJob = scope.launch {
+            delay(300)
+            try {
+                val hits = service.searchMessages(room, q, 100).filter { !it.hidden }
+                if (!searching || searchInput.text.toString().trim() != q) return@launch
+                searchHits = hits
+                searchIndex = if (hits.isEmpty()) -1 else 0 // 서버 desc = 가장 최근
+                updateFindCount()
+                if (searchIndex >= 0) showSearchHit(searchHits[searchIndex])
+            } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) findCount.text = "검색하지 못했습니다"
+            }
+        }
+    }
+
+    private fun stepSearch(delta: Int) {
+        if (searchHits.isEmpty()) return
+        searchIndex = (searchIndex + delta).coerceIn(0, searchHits.lastIndex)
+        updateFindCount(); showSearchHit(searchHits[searchIndex])
+    }
+
+    private fun updateFindCount() {
+        findCount.text = if (searchHits.isEmpty() || searchIndex < 0) "0 / 0"
+            else "${searchIndex + 1} / ${searchHits.size}"
+    }
+
+    private fun showSearchHit(hit: ChatMessage) {
+        scope.launch {
+            if (messages.none { it.id == hit.id }) {
+                try {
+                    merge(service.aroundMessage(room, hit))
+                    render(keepBottom = false)
+                } catch (_: Exception) {}
+            }
+            list.scrollTo(hit.id)
+        }
     }
 
     private fun isAdmin(): Boolean =
