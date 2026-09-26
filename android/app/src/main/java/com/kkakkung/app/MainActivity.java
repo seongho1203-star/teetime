@@ -42,6 +42,16 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.kkakkung.app.nativev2.NativeAppPlugin.class);
         super.onCreate(savedInstanceState);
 
+        /* Native V2에서 로그아웃하면 숨겨져 있던 WebView의 Supabase localStorage도
+           함께 비운다. 그렇지 않으면 Native 세션만 지운 직후 React가 옛 세션을
+           다시 Native V2에 넘겨 '로그아웃이 안 되는' 고리가 생긴다. */
+        boolean nativeLogout = getIntent() != null && getIntent().getBooleanExtra("native_logout", false);
+        if (nativeLogout && getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().evaluateJavascript(
+                    "try{localStorage.clear();sessionStorage.clear();location.reload()}catch(e){}",
+                    null);
+        }
+
         /* Native V2 세션이 Keystore에 있으면 웹 홈을 잠깐 보여 주지 않고
            Kotlin 앱으로 바로 복귀한다. 토큰 갱신도 NativeHomeActivity가 한다. */
         com.kkakkung.app.nativev2.NativeSession saved =
