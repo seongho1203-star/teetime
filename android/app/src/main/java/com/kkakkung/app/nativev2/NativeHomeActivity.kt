@@ -906,7 +906,9 @@ class NativeHomeActivity : AppCompatActivity() {
         detail = false
         currentTab = "board"; selectTabCompat("board")
         chat?.let { if (it.parent != null) it.detach() }
-        val page = page("공지")
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
+        }
         val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
             try {
@@ -914,18 +916,74 @@ class NativeHomeActivity : AppCompatActivity() {
                 val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
                 val people = api.people().associateBy { it.optString("id") }
                 val posts = api.posts()
-                page.removeView(loading)
-                if (admin) page.addView(action("＋ 공지 쓰기", primary = true) { postForm(null) })
-                if (posts.isEmpty()) empty(page, "아직 공지가 없습니다.")
+                page.removeAllViews()
+                val head = LinearLayout(this@NativeHomeActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                }
+                head.addView(TextView(this@NativeHomeActivity).apply {
+                    text = "공지"; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                if (admin) head.addView(TextView(this@NativeHomeActivity).apply {
+                    text = "+ 글쓰기"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER; setPadding(dp(12), dp(7), dp(12), dp(7))
+                    background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(brand) }
+                    isClickable = true; setOnClickListener { postForm(null) }
+                })
+                page.addView(head, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(12) })
+
+                if (posts.isEmpty()) {
+                    emptyBox(page, "아직 공지가 없습니다.\n중요한 것만 여기 남기세요. 대화는 대화 탭에서 합니다.")
+                }
                 posts.forEach { p ->
-                    page.addView(cardView(
-                        (if (p.optBoolean("pinned")) "📌 " else "") + p.optString("title"),
-                        personLabel(people[p.optString("author_id")]) + " · " + date(p.optString("created_at"))
-                    ) { showPost(p.optString("id")) })
+                    val box = LinearLayout(this@NativeHomeActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(13), dp(12), dp(13), dp(12))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+                        }
+                        isClickable = true; setOnClickListener { showPost(p.optString("id")) }
+                    }
+                    val titleRow = LinearLayout(this@NativeHomeActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    }
+                    if (p.optBoolean("pinned")) titleRow.addView(badge("고정", warn))
+                    titleRow.addView(TextView(this@NativeHomeActivity).apply {
+                        text = p.optString("title"); textSize = 16.3f
+                        typeface = Typeface.DEFAULT_BOLD; setTextColor(ink); maxLines = 1
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    box.addView(titleRow)
+                    val preview = p.optString("body").replace(Regex("\\s+"), " ").trim()
+                    if (preview.isNotBlank()) box.addView(TextView(this@NativeHomeActivity).apply {
+                        text = preview; textSize = 13f; setTextColor(dim); maxLines = 2
+                        setPadding(0, dp(5), 0, dp(5))
+                    })
+                    box.addView(TextView(this@NativeHomeActivity).apply {
+                        val who = personLabel(people[p.optString("author_id")]).ifBlank { "알 수 없음" }
+                        text = "$who · ${timeAgo(p.optString("created_at"))}"
+                        textSize = 11.5f; setTextColor(faint)
+                    })
+                    page.addView(box, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(8) })
                 }
             } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "공지를 불러오지 못했습니다.")
+                page.removeAllViews(); error(page, e.message ?: "공지를 불러오지 못했습니다.")
             }
+        }
+    }
+
+    private fun timeAgo(raw: String): String {
+        val ms = epoch(raw)
+        if (ms <= 0) return date(raw)
+        val sec = maxOf(0L, (System.currentTimeMillis() - ms) / 1000)
+        return when {
+            sec < 60 -> "방금 전"
+            sec < 3600 -> "${sec / 60}분 전"
+            sec < 86400 -> "${sec / 3600}시간 전"
+            sec < 604800 -> "${sec / 86400}일 전"
+            else -> date(raw)
         }
     }
 
