@@ -30,6 +30,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.util.Locale
 import java.util.TimeZone
 
@@ -521,6 +523,143 @@ class NativeHomeActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(10) }
         }
     }
+
+    private fun action(
+        label: String, primary: Boolean = false, danger: Boolean = false, click: () -> Unit
+    ): Button = Button(this).apply {
+        text = label; textSize = 15f; isAllCaps = false
+        setTextColor(if (primary) Color.WHITE else if (danger) this@NativeHomeActivity.danger else ink)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(13).toFloat()
+            setColor(if (primary) brand else Color.WHITE)
+            if (!primary) setStroke(dp(1), if (danger) this@NativeHomeActivity.danger else Color.rgb(225, 225, 232))
+        }
+        setOnClickListener { click() }
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
+        ).apply { topMargin = dp(8); bottomMargin = dp(4) }
+    }
+
+    private fun personRow(name: String, state: String): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) }
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = name; textSize = 15f; setTextColor(ink)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(this@NativeHomeActivity).apply {
+                text = state; textSize = 12f; setTextColor(dim)
+            })
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6) }
+        }
+
+    private fun commentsBlock(
+        parent: LinearLayout,
+        comments: List<JSONObject>,
+        names: Map<String, JSONObject>,
+        submit: (String) -> Unit
+    ) {
+        section(parent, "댓글 ${comments.size}")
+        if (comments.isEmpty()) empty(parent, "아직 댓글이 없습니다.")
+        comments.forEach { c ->
+            val uid = c.optString("author_id")
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) }
+                addView(TextView(this@NativeHomeActivity).apply {
+                    text = personLabel(names[uid]).ifBlank { "알 수 없음" }
+                    textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
+                })
+                addView(TextView(this@NativeHomeActivity).apply {
+                    text = c.optString("body"); textSize = 15f; setTextColor(ink); setPadding(0, dp(4), 0, 0)
+                })
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(6) }
+            }
+            if (uid == session.userId) {
+                row.setOnLongClickListener {
+                    confirm("댓글을 지울까요?", "지운 댓글은 되돌릴 수 없습니다.") {
+                        mutate {
+                            val table = if (c.has("round_id")) "round_comments" else "poll_comments"
+                            api.deleteRow(table, c.optString("id"))
+                            if (table == "round_comments") showRound(c.optString("round_id"))
+                            else showPoll(c.optString("poll_id"))
+                        }
+                    }
+                    true
+                }
+            }
+            parent.addView(row)
+        }
+
+        val input = EditText(this).apply {
+            hint = "댓글 남기기"; textSize = 15f; setTextColor(ink); setHintTextColor(dim)
+            minHeight = dp(48); maxLines = 5
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat(); setColor(Color.WHITE)
+                setStroke(dp(1), Color.rgb(225, 225, 232))
+            }
+        }
+        parent.addView(input, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+        parent.addView(action("등록", primary = true) {
+            val value = input.text.toString().trim()
+            if (value.isNotEmpty()) submit(value)
+        })
+    }
+
+    private fun jsonObjects(a: JSONArray?): List<JSONObject> {
+        if (a == null) return emptyList()
+        return buildList { for (i in 0 until a.length()) a.optJSONObject(i)?.let(::add) }
+    }
+
+    private fun personLabel(p: JSONObject?): String {
+        if (p == null) return ""
+        val parts = ArrayList<String>()
+        val y = p.optInt("birth_year", 0)
+        if (y > 0) parts.add((y % 100).toString().padStart(2, '0'))
+        p.optString("name").trim().takeIf { it.isNotEmpty() }?.let(parts::add)
+        p.optString("region").trim().takeIf { it.isNotEmpty() }?.let(parts::add)
+        return parts.joinToString("/")
+    }
+
+    private fun isPast(raw: String): Boolean = try {
+        val day = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul")).toLocalDate()
+        day.isBefore(java.time.LocalDate.now(ZoneId.of("Asia/Seoul")))
+    } catch (_: Exception) { false }
+
+    private fun pollExpired(raw: String): Boolean {
+        if (raw.isBlank() || raw == "null") return false
+        return try { OffsetDateTime.parse(raw).toInstant().toEpochMilli() < System.currentTimeMillis() }
+        catch (_: Exception) { false }
+    }
+
+    private fun confirm(title: String, message: String, yes: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(title).setMessage(message)
+            .setNegativeButton("취소", null)
+            .setPositiveButton("확인") { _, _ -> yes() }
+            .show()
+    }
+
+    private fun mutate(work: suspend () -> Unit) {
+        scope.launch {
+            try { work() }
+            catch (e: Exception) { toast(e.message ?: "처리하지 못했습니다.") }
+        }
+    }
+
+    private fun toast(message: String) =
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
     private fun date(raw: String): String {
         if (raw.isBlank() || raw == "null") return ""
