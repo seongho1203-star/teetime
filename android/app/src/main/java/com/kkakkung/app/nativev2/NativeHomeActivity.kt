@@ -1,6 +1,7 @@
 package com.kkakkung.app.nativev2
 
 import android.graphics.Color
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.app.DatePickerDialog
@@ -28,6 +29,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import coil.load
+import com.kkakkung.app.R
 import com.kkakkung.app.chat.ChatConfig
 import com.kkakkung.app.chat.ChatScreen
 import com.kkakkung.app.chat.ChatService
@@ -67,12 +69,21 @@ class NativeHomeActivity : AppCompatActivity() {
     private var currentTab = "home"
     private val tabs = linkedMapOf<String, Button>()
 
-    private val brand = Color.rgb(109, 76, 255)
-    private val bg = Color.rgb(247, 247, 250)
-    private val card = Color.WHITE
-    private val ink = Color.rgb(35, 35, 42)
-    private val dim = Color.rgb(110, 110, 120)
-    private val danger = Color.rgb(190, 45, 55)
+    /* src/styles/tokens.css와 숫자까지 같은 까꿍 디자인 토큰.
+       Native V2에서 새 색을 만들지 않는다. */
+    private val brand = Color.rgb(217, 43, 142)       // #d92b8e
+    private val brandDeep = Color.rgb(180, 31, 114)   // #b41f72
+    private val grass = Color.rgb(124, 184, 40)       // #7cb828
+    private val grassDeep = Color.rgb(91, 141, 24)    // #5b8d18
+    private val bg = Color.rgb(245, 247, 241)          // #f5f7f1
+    private val card = Color.WHITE                     // --surface
+    private val surface2 = Color.rgb(239, 242, 233)   // #eff2e9
+    private val line = Color.rgb(221, 227, 209)        // #dde3d1
+    private val ink = Color.rgb(27, 31, 25)            // #1b1f19
+    private val dim = Color.rgb(91, 100, 85)           // #5b6455
+    private val faint = Color.rgb(139, 148, 134)       // #8b9486
+    private val danger = Color.rgb(226, 64, 42)        // #e2402a
+    private val warn = Color.rgb(185, 124, 0)          // #b97c00
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -110,7 +121,7 @@ class NativeHomeActivity : AppCompatActivity() {
         }
         api = NativeApi(session)
         window.statusBarColor = bg
-        window.navigationBarColor = Color.WHITE
+        window.navigationBarColor = card
         buildShell()
         /* 만료 직전이면 첫 화면을 읽기 전에 갱신한다. 실패하면 저장 세션을
            지우고 뒤의 웹 로그인 화면으로 돌아간다. */
@@ -285,14 +296,14 @@ class NativeHomeActivity : AppCompatActivity() {
         bottom = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.WHITE)
-            elevation = dp(10).toFloat()
+            setBackgroundColor(card)
+            elevation = 0f
         }
         root.addView(content, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         root.addView(bottom, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(64)
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(58)
         ))
 
         /* Android 15(target 35)의 edge-to-edge 보정.
@@ -311,22 +322,31 @@ class NativeHomeActivity : AppCompatActivity() {
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
 
-        listOf(
-            "home" to "홈",
-            "board" to "공지",
-            "rounds" to "라운드",
-            "polls" to "투표",
-            "chat" to "대화"
-        ).forEach { (id, label) ->
+        val tabSpecs = listOf(
+            Triple("home", "홈", R.drawable.ic_tab_home),
+            Triple("board", "공지", R.drawable.ic_tab_board),
+            Triple("rounds", "라운드", R.drawable.ic_tab_round),
+            Triple("polls", "투표", R.drawable.ic_tab_poll),
+            Triple("chat", "대화", R.drawable.ic_tab_chat)
+        )
+        tabSpecs.forEach { (id, label, icon) ->
             val b = Button(this).apply {
                 text = label
-                textSize = 13f
+                textSize = 11.5f // --fs-xs
+                typeface = Typeface.DEFAULT_BOLD
                 isAllCaps = false
+                gravity = Gravity.CENTER
+                setPadding(0, dp(5), 0, dp(3))
+                setTextColor(faint)
+                setCompoundDrawablesWithIntrinsicBounds(0, icon, 0, 0)
+                compoundDrawablePadding = dp(3)
+                compoundDrawableTintList = ColorStateList.valueOf(faint)
                 setBackgroundColor(Color.TRANSPARENT)
+                minHeight = 0; minimumHeight = 0
                 setOnClickListener { showTab(id) }
             }
             tabs[id] = b
-            bottom.addView(b, LinearLayout.LayoutParams(0, dp(56), 1f))
+            bottom.addView(b, LinearLayout.LayoutParams(0, dp(58), 1f))
         }
     }
 
@@ -334,8 +354,10 @@ class NativeHomeActivity : AppCompatActivity() {
         detail = false
         currentTab = id
         tabs.forEach { (key, b) ->
-            b.setTextColor(if (key == id) brand else dim)
-            b.typeface = if (key == id) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            val c = if (key == id) brand else faint
+            b.setTextColor(c)
+            b.compoundDrawableTintList = ColorStateList.valueOf(c)
+            b.typeface = Typeface.DEFAULT_BOLD
         }
         chat?.let { if (it.parent != null && id != "chat") it.detach() }
         when (id) {
@@ -357,8 +379,10 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun showHome() {
         currentTab = "home"
         tabs.forEach { (key, b) ->
-            b.setTextColor(if (key == "home") brand else dim)
-            b.typeface = if (key == "home") Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            val c = if (key == "home") brand else faint
+            b.setTextColor(c)
+            b.compoundDrawableTintList = ColorStateList.valueOf(c)
+            b.typeface = Typeface.DEFAULT_BOLD
         }
         chat?.let { if (it.parent != null) it.detach() }
         val page = page("까꿍")
