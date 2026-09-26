@@ -7,6 +7,10 @@
  *
  * 넷 다 **자리 수를 먼저 정하고 사람을 담는다.** 규칙이 다른 것은
  * '누구를 먼저 담느냐'뿐이라, 조 인원이 고르게 나뉘는 규칙은 한 곳에만 있다.
+ *
+ * **아이폰 앱 화면에 같은 규칙이 옮겨 적혀 있다**(`ios/App/App/RoundGroupsViewController.swift`의
+ * `GroupRules` — 함수 이름도 같다). 조 편성을 앱이 그리면서 화면 안에서 곧바로
+ * 나눠야 해 다리로 부를 수가 없었다. **여기를 고치면 거기도 함께 고칠 것.**
  */
 
 import type { Gender, GroupPerson } from './types';

@@ -14,6 +14,7 @@ import { Help } from './Help';
 import { PostEdit } from './PostEdit';
 import { PollEdit } from './PollEdit';
 import { RoundEdit } from './RoundEdit';
+import { RoundGroups } from './RoundGroups';
 import { COURSES } from '../lib/courses';
 import { BANKS } from '../lib/types';
 import { guideTable } from '../lib/guide';
@@ -77,6 +78,13 @@ export function RoundEditRoute() {
     return nativeScreen(path)
         ? <NativeScreenHost key={from ?? 'new'} path={path} extra={{ courses: COURSES, ...(from ? { from } : {}) }} />
         : <RoundEdit />;
+}
+
+/** 조 편성(`/rounds/<id>/groups`) — 3단계. 나누는 규칙은 Swift `GroupRules`에 옮겨 적었다(`lib/groups.ts`와 한 벌). */
+export function RoundGroupsRoute() {
+    const { id } = useParams<{ id: string }>();
+    const path = `/rounds/${id ?? ''}/groups`;
+    return nativeScreen(path) ? <NativeScreenHost path={path} /> : <RoundGroups />;
 }
 
 /** 가이드의 글은 웹이 들고 있다(`lib/guide.ts`) — 열 때 통째로 실어 보낸다. */

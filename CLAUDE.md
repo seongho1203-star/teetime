@@ -353,7 +353,9 @@ new.state = 'confirmed')`로 걸려 있다(`docs/설치.md` 7번).
   되는데, 그때마다 `round_groups`에 쓰면 그때마다 폰이 울린다.
 - **아무도 조에 안 들면 편성을 걷어낸다**(`round_groups` 행을 지운다).
   그래야 `조 편성 지우기`가 되고, 지운 것이 알림으로 나가지도 않는다.
-- **나누는 규칙은 `lib/groups.ts`에 있다** — 화면이 아니다. 넷이고 앞으로
+- **나누는 규칙은 `lib/groups.ts`에 있다** — 화면이 아니다.
+    **아이폰 앱 화면에 같은 규칙이 옮겨 적혀 있다**(`RoundGroupsViewController.swift`의
+    `GroupRules` · 함수 이름도 같다) — 여기를 고치면 거기도 함께 고칠 것. 넷이고 앞으로
   더 늘 수 있는데 화면 안에 두면 눈으로만 확인하게 된다.
   `node --experimental-strip-types .dev/groups-check.mts`가 브라우저 없이
   숫자로 붙들어 둔다(19가지).
@@ -5275,6 +5277,7 @@ ios/App/App/PostEditViewController.swift ← 3단계: 공지 쓰기·고치기
 ios/App/App/PollEditViewController.swift ← 3단계: 투표 만들기·고치기
 ios/App/App/RoundEditViewController.swift ← 3단계: 모집 열기·고치기(골프장 목록은 웹이 실어 보낸다)
 ios/App/App/SettlementEditViewController.swift ← 3단계: 정산 만들기(라운드 위 시트 · 주소 없음)
+ios/App/App/RoundGroupsViewController.swift ← 3단계: 조 편성(나누는 규칙 `GroupRules`는 `src/lib/groups.ts`와 한 벌)
 ```
 
 - **스위치 뒤에 있다**(`내 정보 → 🧪 시험 중: 앱 화면`). 켠 아이폰 앱에서만
