@@ -206,15 +206,35 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun showAccountGate(profile: JSONObject, contact: JSONObject?, banned: Boolean) {
         detail = true
         bottom.visibility = View.GONE
-        val page = page(if (banned) "이용 제한" else "가입 승인 대기중")
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(24), dp(16), dp(24))
+        }
+        page.addView(TextView(this).apply {
+            text = if (banned) "이용 제한" else "가입 승인 대기중"
+            textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink); gravity = Gravity.CENTER
+        })
+        page.addView(TextView(this).apply {
+            text = if (banned)
+                "이 계정은 이용이 제한되었습니다.\n궁금한 점은 운영진에게 물어봐 주세요."
+            else "운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.\n알아볼 수 있게 아래 정보를 적어 주세요."
+            textSize = 13f; setTextColor(dim); gravity = Gravity.CENTER; setLineSpacing(0f, 1.5f)
+            setPadding(0, dp(8), 0, dp(14))
+        })
         if (banned) {
-            body(page, "이 계정은 이용이 제한되었습니다.\n궁금한 점은 운영진에게 물어봐 주세요.")
             page.addView(action("로그아웃", danger = true) { logoutNative() })
             mount(page); return
         }
-        body(page, "아직 가입 승인 대기중입니다.\n운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.")
-        body(page, "운영진이 알아볼 수 있게 아래 정보를 적어 주세요.")
-        profileGateForm(page, profile, contact, pending = true)
+        val cardBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+            }
+        }
+        profileGateForm(cardBox, profile, contact, pending = true)
+        page.addView(cardBox, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
         page.addView(action("승인 여부 다시 확인") { routeAfterLogin() })
         page.addView(action("로그아웃", danger = true) { logoutNative() })
         mount(page)
@@ -223,9 +243,19 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun showRequiredProfile(profile: JSONObject, contact: JSONObject?) {
         detail = true
         bottom.visibility = View.GONE
-        val page = page("몇 가지만 더 알려 주세요")
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(24), dp(16), dp(24))
+        }
+        title(page, "몇 가지만 더 알려 주세요")
         body(page, "생년월일 · 성별 · 거주지역이 빠져 있습니다.\n조 편성과 생일 축하에 사용합니다.")
-        profileGateForm(page, profile, contact, pending = false)
+        val cardBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+            }
+        }
+        profileGateForm(cardBox, profile, contact, pending = false)
+        page.addView(cardBox)
         page.addView(action("로그아웃", danger = true) { logoutNative() })
         mount(page)
     }
