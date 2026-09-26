@@ -83,6 +83,26 @@ class NativeApi(private val session: NativeSession) {
     suspend fun profile(): JSONObject? =
         rows("profiles", listOf("select" to "*", "id" to "eq.${session.userId}", "limit" to "1")).firstOrNull()
 
+    suspend fun privateProfile(): JSONObject? = try {
+        rows("profile_private", listOf("select" to "*", "id" to "eq.${session.userId}", "limit" to "1")).firstOrNull()
+    } catch (_: Exception) { null }
+
+    suspend fun updateMyProfile(
+        name: String, gender: String, birthYear: Int, region: String,
+        phone: String, car: String
+    ) {
+        val pub = request("rest/v1/profiles", listOf("id" to "eq.${session.userId}"), "PATCH",
+            JSONObject().put("name", name).put("gender", gender)
+                .put("birth_year", birthYear).put("region", region))
+        if ((pub as? JSONArray)?.length() == 0) throw NativeApiError("프로필을 저장하지 못했습니다.")
+        val priv = JSONObject().put("id", session.userId).put("phone", phone).put("car", car)
+        try {
+            request("rest/v1/profile_private", listOf("id" to "eq.${session.userId}"), "PATCH", priv)
+        } catch (_: Exception) {
+            request("rest/v1/profile_private", method = "POST", body = priv)
+        }
+    }
+
     suspend fun people(): List<JSONObject> = try {
         rows("profiles", listOf(
             "select" to "id,name,avatar_url,role,gender,birth_year,region",
