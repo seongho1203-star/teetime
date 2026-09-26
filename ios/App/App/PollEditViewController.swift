@@ -144,8 +144,10 @@ final class PollEditViewController: FormScreenController {
             }
             let x = UIButton(type: .system)
             x.translatesAutoresizingMaskIntoConstraints = false
-            x.setImage(UIImage(systemName: "xmark"), for: .normal)
-            x.tintColor = AppSkin.dim
+            /* 댓글 ✕와 같은 작은 표(`smallX` · 흐린 색) — 기본 크기는 너무 도드라졌다
+               (사용자 제보 — `여기 X도 너무커`). 누르는 자리는 40×44 그대로다. */
+            x.setImage(smallX(), for: .normal)
+            x.tintColor = AppSkin.faint
             x.isEnabled = rows.count > 2
             x.tag = i
             x.accessibilityLabel = "항목 \(i + 1) 지우기"

@@ -251,8 +251,8 @@ final class RoundGroupsViewController: FormScreenController {
         p.accessibilityLabel = "\(n)조 \(kind)"
         p.addTarget(self, action: #selector(teePicked(_:)), for: .valueChanged)
         let x = UIButton(type: .system)
-        x.setTitle("✕", for: .normal)
-        x.setTitleColor(AppSkin.faint, for: .normal)
+        x.setImage(smallX(), for: .normal)   // 화면 안의 ✕는 다 같은 작은 표다
+        x.tintColor = AppSkin.faint
         x.tag = n
         x.accessibilityLabel = "\(n)조 \(kind) 지우기"
         x.addTarget(self, action: #selector(teeClear(_:)), for: .touchUpInside)
