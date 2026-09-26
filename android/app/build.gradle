@@ -16,6 +16,8 @@ android {
         versionCode project.hasProperty('appVersionCode') ? appVersionCode.toInteger() : 1
         versionName project.hasProperty('appVersionName') ? appVersionName : "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "SUPABASE_URL", '"' + (System.getenv('VITE_SUPABASE_URL') ?: '') + '"'
+        buildConfigField "String", "SUPABASE_ANON_KEY", '"' + (System.getenv('VITE_SUPABASE_ANON_KEY') ?: '') + '"'
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -47,6 +49,7 @@ android {
     /* `capacitor.build.gradle`이 자바를 21로 맞추므로 코틀린도 같게 둔다 —
        어긋나면 `Inconsistent JVM-target`으로 선다. */
     kotlinOptions { jvmTarget = '21' }
+    buildFeatures { buildConfig true }
 
     buildTypes {
         release {
