@@ -1956,21 +1956,49 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun memberManageRow(p: JSONObject, contact: JSONObject?): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.WHITE) }
-            addView(TextView(this@NativeHomeActivity).apply {
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
+            }
+
+            val main = LinearLayout(this@NativeHomeActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            }
+            main.addView(nativeAvatar(p, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
+            val textCol = LinearLayout(this@NativeHomeActivity).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, 0, 0)
+            }
+            val nameRow = LinearLayout(this@NativeHomeActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            }
+            nameRow.addView(TextView(this@NativeHomeActivity).apply {
                 text = personLabel(p).ifBlank { p.optString("name") }
-                textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            })
-            val meta = listOfNotNull(
-                p.optString("role").takeIf { it.isNotBlank() },
-                contact?.optString("car")?.takeIf { it.isNotBlank() },
-                contact?.optString("phone")?.takeIf { it.isNotBlank() }
+                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink); maxLines = 1
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val role = p.optString("role")
+            if (role != "member" && role.isNotBlank()) {
+                nameRow.addView(TextView(this@NativeHomeActivity).apply {
+                    text = roleLabel(role); textSize = 10.5f; typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(when (role) {
+                        "superadmin" -> brandDeep; "admin" -> brand; "staff" -> Color.rgb(46,111,178)
+                        "treasurer" -> warn; "pending" -> warn; "banned" -> danger; else -> dim
+                    })
+                    setPadding(dp(7), 0, 0, 0)
+                })
+            }
+            textCol.addView(nameRow)
+            val details = listOfNotNull(
+                contact?.optString("car")?.takeIf { it.isNotBlank() }?.let { "🚗 $it" },
+                contact?.optString("phone")?.takeIf { it.isNotBlank() }?.let { "☎ $it" }
             ).joinToString(" · ")
-            if (meta.isNotBlank()) body(this, meta)
+            if (details.isNotBlank()) textCol.addView(TextView(this@NativeHomeActivity).apply {
+                text = details; textSize = 11.5f; setTextColor(faint); setPadding(0, dp(3), 0, 0)
+            })
+            main.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(main)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+            ).apply { bottomMargin = dp(7) }
         }
 
     private fun roundCard(r: JSONObject): View = cardView(
