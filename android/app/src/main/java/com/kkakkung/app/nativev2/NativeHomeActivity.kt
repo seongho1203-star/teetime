@@ -118,10 +118,10 @@ class NativeHomeActivity : AppCompatActivity() {
 
         listOf(
             "home" to "홈",
+            "board" to "공지",
             "rounds" to "라운드",
             "polls" to "투표",
-            "chat" to "채팅",
-            "me" to "내정보"
+            "chat" to "대화"
         ).forEach { (id, label) ->
             val b = Button(this).apply {
                 text = label
@@ -145,10 +145,10 @@ class NativeHomeActivity : AppCompatActivity() {
         chat?.let { if (it.parent != null && id != "chat") it.detach() }
         when (id) {
             "home" -> showHome()
+            "board" -> showBoard()
             "rounds" -> loadList("라운드") { api.rounds() }
             "polls" -> loadList("투표") { api.polls() }
             "chat" -> showChat()
-            "me" -> showMe()
         }
     }
 
@@ -166,6 +166,10 @@ class NativeHomeActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(14))
         }
         page.addView(hello)
+        val quick = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        quick.addView(action("내 정보") { showMe() }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        quick.addView(action("정산 현황") { showSettlements() }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        page.addView(quick)
         val loading = ProgressBar(this)
         page.addView(loading)
         mount(page)
