@@ -413,6 +413,29 @@ class NativeApi(private val session: NativeSession) {
 
     // ── 알림 · 회원 관리 ───────────────────────────────────────
 
+    suspend fun enablePush(token: String) = withContext(Dispatchers.IO) {
+        if (session.needsRefresh) NativeAuth.refresh(session)
+        val endpoint = "fcm:$token"
+        val url = session.supabaseUrl.trimEnd('/') + "/rest/v1/push_subscriptions?on_conflict=endpoint"
+        val payload = JSONObject()
+            .put("endpoint", endpoint).put("user_id", session.userId)
+            .put("p256dh", "").put("auth", "").put("ua", "android-native-v2")
+        val req = Request.Builder().url(url)
+            .header("apikey", session.anonKey)
+            .header("Authorization", "Bearer ${session.accessToken}")
+            .header("Content-Type", "application/json")
+            .header("Prefer", "resolution=merge-duplicates,return=representation")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) throw NativeApiError("알림을 서버에 등록하지 못했습니다.")
+        }
+    }
+
+    suspend fun disablePush(token: String) {
+        request("rest/v1/push_subscriptions", listOf("endpoint" to "eq.fcm:$token"), "DELETE")
+    }
+
     suspend fun notifications(limit: Int = 50): List<JSONObject> = try {
         rows("notifications", listOf("select" to "*", "order" to "created_at.desc", "limit" to limit.toString()))
     } catch (_: Exception) { emptyList() }
