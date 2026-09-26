@@ -128,7 +128,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         input.minHeight = dp(48f); input.maxHeight = dp(120f); input.maxLines = 5
         input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         input.setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
-        composer.addView(input, LinearLayout.LayoutParams(0, dp(48f), 1f).apply { rightMargin = dp(6f) })
+        composer.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6f) })
         sendBtn.setImageResource(R.drawable.ic_chat_send_up)
         sendBtn.scaleType = ImageView.ScaleType.CENTER
         sendBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ChatSkin.brand) }
