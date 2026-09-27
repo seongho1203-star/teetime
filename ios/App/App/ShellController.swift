@@ -39,6 +39,8 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
     let roundsTab: RoundsTabController
     let pollsTab: PollsTabController
     private let chatTab = UIViewController()
+    /// 탭 사이를 좌우로 밀어 옮기는 손짓(`TabSwipe`) — 대리자가 약하게 잡히므로 여기서 들고 있는다.
+    private let swipe = TabSwipe()
 
     init(service: NativeChatService) {
         self.service = service
@@ -94,6 +96,7 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
         tabBar.standardAppearance = ap
         tabBar.scrollEdgeAppearance = ap
         tabBar.tintColor = AppSkin.brand
+        swipe.attach(to: self)
         Task { @MainActor [weak self] in await self?.refreshPeople() }
     }
 
@@ -169,6 +172,18 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
         return true
     }
 
+    /* 탭을 **누를 때는 그대로 툭 바뀐다** — 미끄러지는 것은 밀 때뿐이다(`swipe.active`).
+       누르는 것까지 미끄러지게 하면 웹에서 두 번 걷어낸 그 모양이 된다. */
+    func tabBarController(_ tabBarController: UITabBarController,
+                          animationControllerForTransitionFrom fromVC: UIViewController,
+                          to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        swipe.active ? swipe : nil
+    }
+    func tabBarController(_ tabBarController: UITabBarController,
+                          interactionControllerFor animationController: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
+        swipe.interactive
+    }
+
     // ── 탭의 숫자 ────────────────────────────────────────────────
 
     /// 탭 위의 숫자 — 웹 `useLiveCounts`와 같은 뜻. 빨강은 **내가 안 본 것**(공지·대화·승인),
@@ -196,6 +211,169 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
     func markBoardSeen() {
         UserDefaults.standard.set(NativeChatRows.now(), forKey: boardSeenKey)
         set(boardTab, 0, alert: true)
+    }
+}
+
+// ── 탭 사이를 밀어 옮기기 ──────────────────────────────────────
+
+/**
+ * **탭 사이를 좌우로 밀어 옮긴다**(사용자 요청 — `탭바 메뉴간 좌우슬라이드로
+ * 이동할수있게해줘`). 왼쪽으로 밀면 오른쪽 탭, 오른쪽으로 밀면 왼쪽 탭이다.
+ * 옮기는 것은 **홈 · 공지 · 라운드 · 투표 넷 사이**뿐이다 — `대화`는 탭이
+ * 아니라 들어갔다 나오는 화면이라(CLAUDE.md) 밀어서 가지 않는다.
+ *
+ * **웹에서는 두 번 넣었다 걷어낸 자리다** — 거기서 막힌 것은 옆 탭을 그릴
+ * 길이 없다는 것이었다(아직 안 그린 화면이라 끌고 나올 그림이 없다).
+ * **앱 껍데기에서는 옆 탭이 진짜 화면**이라 그 걸림돌이 없다 — 한 번 연
+ * 탭은 살아 있고, 처음 가는 탭은 누를 때와 똑같이 그때 받아 온다.
+ *
+ * - **손가락을 따라온다** — `UIPercentDrivenInteractiveTransition`.
+ *   화면 폭의 34%를 넘기거나 튕기면(800pt/s) 넘어가고, 아니면 제자리로.
+ *   값은 뒤로 끌기(`NavLayer`의 `TAKE`·`FLICK`)와 같다.
+ * - **`gestureRecognizerShouldBegin`에서는 방향만 본다** — 거리를 보면
+ *   거의 늘 거짓이 되어 손짓이 통째로 안 선다(`NavLayer`에서 겪은 자리).
+ * - **가로로 미는 손짓에 임자가 있는 자리는 넘긴다** — 실제로 가로로
+ *   넘치는 굴림 칸 · 고르는 칸(`UISegmentedControl`)·밀대·스위치.
+ * - **서는 순간 목록의 굴리기를 끊는다** — 안 끊으면 옆으로 미는 동안
+ *   손끝이 조금만 흘러도 목록이 같이 굴러간다(대화방 `lockList`의 그 자리).
+ * - **탭 화면이 맨 위일 때만** — 상세가 얹혀 있거나 창이 떠 있으면 안 선다.
+ * - 움직임을 줄여 달라고 해 둔 기기에서는 끌리는 것 없이 곧바로 바뀐다.
+ */
+final class TabSwipe: NSObject, UIGestureRecognizerDelegate, UIViewControllerAnimatedTransitioning {
+    static let TAKE: CGFloat = 0.34
+    static let FLICK: CGFloat = 800
+    static let SLOPE: CGFloat = 1.2
+    /// 밀 수 있는 탭 수 — 홈·공지·라운드·투표(`ShellController.tabPaths`).
+    private var count: Int { ShellController.tabPaths.count }
+
+    private weak var shell: ShellController?
+    private let pan = UIPanGestureRecognizer()
+    /// 미는 중인가 — 이때만 탭 전환에 움직임을 붙인다(누를 때는 툭).
+    private(set) var active = false
+    private(set) var interactive: UIPercentDrivenInteractiveTransition?
+    /// true면 오른쪽 탭으로(손가락은 왼쪽으로).
+    private var forward = true
+    /// 이 손짓과 함께 선 목록의 굴리기 — 서는 순간 끊는다.
+    private var scrolls = NSHashTable<UIGestureRecognizer>.weakObjects()
+
+    func attach(to shell: ShellController) {
+        self.shell = shell
+        pan.addTarget(self, action: #selector(onPan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = self
+        shell.view.addGestureRecognizer(pan)
+    }
+
+    // ── 손짓 ──
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard g === pan, let shell = shell, let v = pan.view, !active,
+              shell.presentedViewController == nil,
+              shell.transitionCoordinator == nil,
+              shell.selectedIndex < count else { return false }
+        if let nav = shell.navigationController, nav.topViewController !== shell { return false }
+        let t = pan.translation(in: v)
+        let vel = pan.velocity(in: v)
+        let dx: CGFloat, dy: CGFloat
+        if abs(vel.x) < 1, abs(vel.y) < 1 { dx = t.x; dy = t.y } else { dx = vel.x; dy = vel.y }
+        guard dx != 0, abs(dx) >= abs(dy) * Self.SLOPE else { return false }
+        let fwd = dx < 0
+        let target = shell.selectedIndex + (fwd ? 1 : -1)
+        guard target >= 0, target < count else { return false }
+        if taken(at: pan.location(in: v), in: v) { return false }
+        forward = fwd
+        return true
+    }
+
+    /// 누른 자리가 가로 손짓의 임자인가 — 가로로 넘치는 굴림 칸, 고르는 칸·밀대·스위치.
+    private func taken(at p: CGPoint, in v: UIView) -> Bool {
+        var cur = v.hitTest(p, with: nil)
+        while let c = cur, c !== v {
+            if c is UISegmentedControl || c is UISlider || c is UISwitch { return true }
+            if let sv = c as? UIScrollView, !(sv is UITableView),
+               sv.contentSize.width > sv.bounds.width + 1 { return true }
+            cur = c.superview
+        }
+        return false
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        /* 목록의 굴리기와는 나란히 선다 — 누가 먼저 서느냐로 갈리지 않게.
+           우리가 서면 그 자리에서 목록 쪽을 끊는다(`.began`). */
+        if g === pan, other.view is UIScrollView { scrolls.add(other); return true }
+        return false
+    }
+
+    @objc private func onPan(_ p: UIPanGestureRecognizer) {
+        guard let shell = shell, let v = p.view else { return }
+        let w = max(v.bounds.width, 1)
+        let dx = p.translation(in: v).x
+        let progress = max(0, min(0.99, (forward ? -dx : dx) / w))
+        switch p.state {
+        case .began:
+            for s in scrolls.allObjects { s.isEnabled = false; s.isEnabled = true }
+            scrolls.removeAllObjects()
+            v.endEditing(true)
+            let target = shell.selectedIndex + (forward ? 1 : -1)
+            guard target >= 0, target < count else { return }
+            AppLog.add("탭 밀기 \(shell.selectedIndex) → \(target)")
+            if UIAccessibility.isReduceMotionEnabled {
+                shell.selectedIndex = target
+                p.isEnabled = false; p.isEnabled = true
+                return
+            }
+            let it = UIPercentDrivenInteractiveTransition()
+            it.completionCurve = .easeOut
+            interactive = it
+            active = true
+            shell.selectedIndex = target
+        case .changed:
+            interactive?.update(progress)
+        case .ended, .cancelled, .failed:
+            guard let it = interactive else { active = false; return }
+            let vx = p.velocity(in: v).x
+            let along = forward ? -vx : vx
+            let go = p.state == .ended && (along > Self.FLICK || (progress > Self.TAKE && along > -Self.FLICK))
+            it.completionSpeed = 1
+            if go { it.finish() } else { it.cancel() }
+            interactive = nil
+            active = false
+        default: break
+        }
+    }
+
+    // ── 움직임 ──
+
+    func transitionDuration(using ctx: UIViewControllerContextTransitioning?) -> TimeInterval { 0.3 }
+
+    /* 두 화면이 한 장처럼 나란히 밀린다 — 떠나는 탭이 한 폭 밀려 나가고 가는 탭이
+       반대쪽 끝에서 들어온다. 탭바는 이 그릇 밖이라 그대로 있다(누르는 자리니까).
+       `.allowUserInteraction` — 없으면 움직이는 동안 손짓이 통째로 꺼진다
+       (전체화면 프로필에서 겪은 자리다). */
+    func animateTransition(using ctx: UIViewControllerContextTransitioning) {
+        guard let from = ctx.view(forKey: .from), let to = ctx.view(forKey: .to),
+              let toVC = ctx.viewController(forKey: .to) else {
+            ctx.completeTransition(!ctx.transitionWasCancelled)
+            return
+        }
+        let c = ctx.containerView
+        let w = c.bounds.width
+        let s: CGFloat = forward ? 1 : -1
+        to.frame = ctx.finalFrame(for: toVC)
+        to.transform = CGAffineTransform(translationX: s * w, y: 0)
+        c.addSubview(to)
+        UIView.animate(withDuration: transitionDuration(using: ctx), delay: 0,
+                       options: [.curveLinear, .allowUserInteraction], animations: {
+            from.transform = CGAffineTransform(translationX: -s * w, y: 0)
+            to.transform = .identity
+        }, completion: { _ in
+            /* 되돌아간 판에도 자리를 반드시 되돌린다 — 남으면 탭 화면이 옆으로 밀린 채 굳는다. */
+            from.transform = .identity
+            to.transform = .identity
+            let done = !ctx.transitionWasCancelled
+            if !done { to.removeFromSuperview() }
+            ctx.completeTransition(done)
+        })
     }
 }
 
