@@ -127,6 +127,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var metaJob: Job? = null
     private val syncRunner by lazy { ChatRefreshRunner(scope) { syncNow() } }
     private var searchJob: Job? = null
+    private var searchJumpJob: Job? = null
+    private var searchGeneration = 0
+    private var searchWatcherInstalled = false
     private var cheerJob: Job? = null
     private var softInputBefore: Int? = null
     private val stage2 get() = ChatCatchup.stage2(activity)
@@ -409,6 +412,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         profileDialog?.dismiss(); profileDialog = null
         gallery?.dismiss(); gallery = null
         visible = false
+        if (searching) leaveSearch()
         hideMentionCard()
         hideKeyboard()
         navColorBefore?.let { activity.window.navigationBarColor = it; navColorBefore = null }
@@ -552,8 +556,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun enterSearch() {
         if (searching) return
+        if (!loaded) { notice("대화를 불러온 뒤 다시 검색해 주세요."); return }
         searching = true
         hideMentionCard(); clearReply(); hideKeyboard()
+        stickerTray.visibility = View.GONE
         header.removeAllViews()
         searchInput.hint = "대화내용 검색"
         searchInput.textSize = 16f; searchInput.setSingleLine(true)
@@ -572,18 +578,26 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         composer.visibility = View.GONE
         findBar.visibility = View.VISIBLE
         findCount.text = "두 글자 이상 입력"
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) { queueSearch(s?.toString().orEmpty()) }
-            override fun afterTextChanged(s: Editable?) {}
-        })
+        if (!searchWatcherInstalled) {
+            searchWatcherInstalled = true
+            searchInput.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+                override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) { queueSearch(s?.toString().orEmpty()) }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+        }
         searchInput.requestFocus()
         (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
             ?.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
     }
 
     private fun leaveSearch() {
-        searchJob?.cancel(); searching = false; searchHits = emptyList(); searchIndex = -1
+        searching = false
+        searchGeneration++
+        searchJob?.cancel(); searchJob = null
+        searchJumpJob?.cancel(); searchJumpJob = null
+        searchHits = emptyList(); searchIndex = -1
+        searchInput.clearFocus()
         list.setFindQuery("")
         searchInput.setText("")
         findBar.visibility = View.GONE; composer.visibility = View.VISIBLE
@@ -592,27 +606,31 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     private fun queueSearch(raw: String) {
-        if (!searching) return
+        if (!searching || !visible) return
         val q = raw.trim()
+        val generation = ++searchGeneration
         searchJob?.cancel()
+        searchJumpJob?.cancel(); searchJumpJob = null
+        searchHits = emptyList(); searchIndex = -1
         if (q.length < 2 || q.contains('%') || q.contains('_')) {
-            searchHits = emptyList(); searchIndex = -1
             list.setFindQuery(if (q.length >= 2) q else "")
             findCount.text = if (q.contains('%') || q.contains('_')) "% · _ 는 검색할 수 없습니다" else "두 글자 이상 입력"
             return
         }
         list.setFindQuery(q)
+        findCount.text = "검색 중…"
         searchJob = scope.launch {
             delay(300)
             try {
                 val hits = service.searchMessages(room, q, 100).filter { !it.hidden }
-                if (!searching || searchInput.text.toString().trim() != q) return@launch
+                if (!visible || !searching || generation != searchGeneration) return@launch
                 searchHits = hits
                 searchIndex = if (hits.isEmpty()) -1 else 0 // 서버 desc = 가장 최근
                 updateFindCount()
                 if (searchIndex >= 0) showSearchHit(searchHits[searchIndex])
             } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) findCount.text = "검색하지 못했습니다"
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (visible && searching && generation == searchGeneration) findCount.text = "검색하지 못했습니다"
             }
         }
     }
@@ -629,14 +647,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     private fun showSearchHit(hit: ChatMessage) {
-        scope.launch {
-            if (messages.none { it.id == hit.id }) {
-                try {
-                    merge(service.aroundMessage(room, hit))
-                    render(keepBottom = false)
-                } catch (_: Exception) {}
+        searchJumpJob?.cancel()
+        val generation = searchGeneration
+        searchJumpJob = scope.launch {
+            try {
+                val around = if (messages.none { it.id == hit.id }) service.aroundMessage(room, hit) else emptyList()
+                if (!visible || !searching || generation != searchGeneration ||
+                    searchHits.getOrNull(searchIndex)?.id != hit.id) return@launch
+                if (around.isNotEmpty()) { merge(around); render(keepBottom = false) }
+                list.scrollTo(hit.id)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (_: Exception) {
+                if (visible && searching && generation == searchGeneration &&
+                    searchHits.getOrNull(searchIndex)?.id == hit.id) {
+                    findCount.text = "대화를 불러오지 못했습니다 · 화살표로 다시 시도"
+                }
             }
-            list.scrollTo(hit.id)
         }
     }
 
@@ -1321,6 +1347,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     /** `←`·안드로이드 뒤로 — 갈 곳은 웹이 정한다(히스토리가 비었으면 홈). */
     fun goBack() {
         profileDialog?.let { it.dismiss(); return }
+        drawerOverlay?.let { removeView(it); return }
         if (navigating) return
         navigating = true
         hideKeyboard()
