@@ -654,6 +654,17 @@ export type MessageReaction = {
 };
 
 /**
+ * 이모티콘 추천 말 한 줄 — `이 이모티콘 ← 이 말`(`schema.sql` 7-3).
+ * 치는 글에 이 말이 들어 있으면 입력칸 위 줄에 그 이모티콘이 뜬다.
+ * **말은 깎아 둔 꼴이다**(`lib/suggest.ts`의 `norm`).
+ */
+export type StickerWord = {
+    sticker_id: string;
+    word: string;
+    created_at: string;
+};
+
+/**
  * 알림함 한 줄 — **폰으로 밀어 준 그 알림을 서버에도 남긴 것**이다.
  *
  * 미는 것으로 끝내면 **배너를 놓쳤을 때 되짚을 데가 없다.** 아이콘에
@@ -880,6 +891,7 @@ export interface Database {
             messages: Table<Message>;
             room_reads: Table<RoomRead>;
             message_reactions: Table<MessageReaction>;
+            sticker_words: Table<StickerWord>;
             push_subscriptions: Table<PushSubscriptionRow>;
             round_reminders: Table<RoundReminder>;
             notifications: Table<AppNotification>;

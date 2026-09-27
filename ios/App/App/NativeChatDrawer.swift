@@ -1485,6 +1485,20 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
     }
 
     var onPick: ((ChatJSON) -> Void)?
+    /**
+     * **길게 누르면** — 앱관리자가 그 이모티콘의 추천 말을 고친다
+     * (`NativeChatViewController.editWords`). 누구인지는 화면이 가린다 —
+     * 다른 사람에게는 아무 일이 없다.
+     */
+    var onHold: ((ChatJSON) -> Void)?
+    /**
+     * 추천 말이 달린 이모티콘 — **앱관리자에게만** 칸 귀퉁이에 작은 점을
+     * 찍는다. 어느 것에 적었는지 안 보이면 적은 것을 되짚으려 하나씩
+     * 길게 눌러 봐야 한다. 회원에게는 늘 비어 있다.
+     */
+    var worded: Set<String> = [] {
+        didSet { if worded != oldValue, !isHidden { grid.reloadData() } }
+    }
     private var groups: [ChatJSON] = []
     private var group = 0
     private let tabs = UIScrollView()
@@ -1511,9 +1525,18 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
         grid.backgroundColor = .clear
         grid.alwaysBounceVertical = true
         grid.register(NativeStickerCell.self, forCellWithReuseIdentifier: "sticker")
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.minimumPressDuration = 0.45
+        grid.addGestureRecognizer(hold)
         addSubview(tabs); addSubview(line); addSubview(grid)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func held(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began, let at = grid.indexPathForItem(at: g.location(in: grid)),
+              items.indices.contains(at.item) else { return }
+        onHold?(items[at.item])
+    }
 
     private var items: [ChatJSON] {
         return groups.indices.contains(group) ? groups[group]["stickers"] as? [ChatJSON] ?? [] : []
@@ -1620,6 +1643,18 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
         cell.contentView.backgroundColor = (item["id"] as? String) == picked
             ? UIColor(red: 0.91, green: 0.29, blue: 0.50, alpha: 0.14) : .clear
         cell.contentView.layer.cornerRadius = 8
+        /* 추천 말이 달린 것에 작은 잔디색 점(앱관리자에게만 — `worded`).
+           칸을 다시 쓰므로 늘 켜고 끄기를 함께 한다. */
+        let dotTag = 7707
+        let dot = cell.contentView.viewWithTag(dotTag) ?? {
+            let v = UIView(); v.tag = dotTag
+            v.backgroundColor = ChatSkin().cardBadge
+            v.layer.cornerRadius = 4; v.isUserInteractionEnabled = false
+            v.autoresizingMask = [.flexibleLeftMargin, .flexibleBottomMargin]
+            cell.contentView.addSubview(v); return v
+        }()
+        dot.frame = CGRect(x: cell.contentView.bounds.width - 12, y: 4, width: 8, height: 8)
+        dot.isHidden = !worded.contains(item["id"] as? String ?? "")
         return cell
     }
     func collectionView(_ c: UICollectionView, didSelectItemAt i: IndexPath) {

@@ -36,12 +36,10 @@ struct NativeChatConfig {
     /// 한쪽만 고치게 된다.
     let reactions: [String]
     /**
-     * 치는 글에 어울리는 이모티콘을 고르는 표 — **웹이 정한다**
-     * (`src/lib/suggest.ts`의 `suggestTable()`).
-     *
-     * 서른 꼭지에 이백 줄이라 **앱에 또 적으면 반드시 어긋난다.**
-     * 앱이 하는 일은 `글에 그 말이 들었는가`를 보는 것뿐이다
-     * (`NativeChatViewController.suggestFind`).
+     * 옛 판이 받던 추천 표 — **이제 늘 비어 온다.** 추천 말은 DB
+     * `sticker_words`에 있고 대화 화면이 스스로 받는다(`stickerWords()` ·
+     * 앱관리자가 서랍에서 길게 눌러 고치면 앱을 새로 안 깔아도 먹어야 한다).
+     * 이름만 남겨 둔다.
      */
     let suggest: [ChatJSON]
     /// 한 줄에 몇 장까지 · 그 가운데 움직이는 것은 몇 장까지.
@@ -59,7 +57,6 @@ struct NativeChatConfig {
         back = d["back"] as? Bool ?? false
         let five = d["reactions"] as? [String] ?? []
         reactions = five.isEmpty ? ["👍", "❤️", "😂", "😮", "😢"] : five
-        /* 표가 없는 옛 웹에서 열리면 줄이 아예 안 뜰 뿐이다 — 막지 않는다. */
         suggest = d["suggest"] as? [ChatJSON] ?? []
         suggestMax = d["suggestMax"] as? Int ?? 8
         suggestAnim = d["suggestAnim"] as? Int ?? 2
@@ -193,6 +190,31 @@ final class NativeChatService {
                 ("message_id", "in.(\(chunk))"), ("order", "created_at.asc"), ("limit", "1000")])
         }
         return out
+    }
+    /**
+     * 이모티콘 추천 말 — `이 이모티콘 ← 이 말` 줄들(`schema.sql` 7-3).
+     * **표가 없는 저장소에서는 던진다** — 부르는 쪽이 빈손으로 넘긴다.
+     */
+    func stickerWords() async throws -> [ChatJSON] {
+        try await rows("sticker_words", [("select", "sticker_id,word"), ("limit", "5000")])
+    }
+    /**
+     * 한 이모티콘의 추천 말을 고친다 — **바뀐 것만** 지우고 넣는다.
+     * 넣고 지우는 것은 앱관리자만 된다(RLS `is_super()`) — 아니면 넣기가
+     * 막히고, 지우기는 한 줄도 안 지워지므로 그것도 막힌 것으로 본다.
+     * 말은 깎아 둔 꼴이라 `,`·`"`·괄호가 없어 따옴표로 묶기만 하면 된다.
+     */
+    func setStickerWords(_ id: String, add: [String], remove: [String]) async throws {
+        if !remove.isEmpty {
+            let list = remove.map { "\"\($0)\"" }.joined(separator: ",")
+            let gone = try await request("rest/v1/sticker_words",
+                query: [("sticker_id", "eq.\(id)"), ("word", "in.(\(list))")], method: "DELETE") as? [ChatJSON]
+            if gone?.isEmpty != false { throw NativeChatError(message: "앱관리자만 고칠 수 있습니다.") }
+        }
+        if !add.isEmpty {
+            _ = try await request("rest/v1/sticker_words", method: "POST",
+                body: add.map { ["sticker_id": id, "word": $0] })
+        }
     }
     func send(_ row: ChatJSON) async throws -> NativeChatMessage {
         // A stable client UUID makes retry after an ambiguous network failure idempotent.

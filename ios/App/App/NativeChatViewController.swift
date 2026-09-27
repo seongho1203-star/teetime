@@ -176,6 +176,18 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         people.contains { $0["id"] as? String == me && ["staff", "admin", "superadmin"].contains($0["role"] as? String ?? "") }
     }
     private var members: [ChatJSON] { people.filter { !["pending", "banned"].contains($0["role"] as? String ?? "pending") } }
+    /// 앱관리자 한 사람 — 추천 말을 고치는 것은 이 사람만 한다(DB `is_super()`).
+    private var isSuper: Bool {
+        people.contains { $0["id"] as? String == me && ($0["role"] as? String) == "superadmin" }
+    }
+    /**
+     * 추천 말 — **DB `sticker_words`가 곧 규칙이다**(사용자 요청 — `이걸 내가
+     * 수동으로 입력해서 지정하고싶은데` · `자동 추천 전부 끄기`). 이모티콘
+     * 이름으로 짐작하던 옛 표는 걷어냈다. `wordRules`는 `말 → 이모티콘들`,
+     * `stickerWords`는 `이모티콘 → 말들`(서랍에서 고칠 때 칸을 채운다).
+     */
+    private var wordRules: [String: [String]] = [:]
+    private var stickerWords: [String: [String]] = [:]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -237,6 +249,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         mentions.onPick = { [weak self] name in self?.mentionPicked(name) }
         suggest.onPick = { [weak self] item in self?.stickerPicked(item) }
         tray.onPick = { [weak self] item in self?.stickerPicked(item) }
+        tray.onHold = { [weak self] item in self?.editWords(item) }
         /* 카드를 누르면 **그 이모티콘만** 나간다(글은 입력칸에 남는다 —
            웹의 미리보기와 같은 규칙). `✕`는 고른 것을 뗀다. */
         peek.onSend = { [weak self] in self?.composerSend(text: "") }
@@ -467,7 +480,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            지나도 … 다른 이모티콘탭을 누르지않는이상`).
            **`layoutIfNeeded()` 앞으로 도로 옮기지 말 것** — 폭은 안 바뀌므로
            `layoutSubviews`의 폭 검사에도 안 걸린다. */
-        if on { tray.mark(sticker?["id"] as? String ?? ""); tray.refresh() }
+        if on {
+            tray.worded = isSuper ? Set(stickerWords.keys) : []
+            tray.mark(sticker?["id"] as? String ?? ""); tray.refresh()
+        }
         if bottom { list.scrollToBottom(animated: false) }
     }
 
@@ -675,7 +691,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                 async let r = self.service.room(); async let p = self.service.people()
                 let (room, people) = try await (r, p); try Task.checkCancellation()
                 self.room = room["id"] as? String ?? ""; self.people = people
-                self.refreshMentionPaint()
+                self.refreshMentionPaint(); self.loadWords()
                 let latest = try await self.service.messages(self.room, limit: 100)
                 try Task.checkCancellation()
                 self.messages = latest.reversed(); self.hasMore = latest.count == 100
@@ -835,6 +851,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                     try Task.checkCancellation()
                     self.people = fresh; self.refreshMentionPaint()
                 }
+                self.loadWords()
                 self.reads = try await self.service.reads(self.room)
                 self.reactions = try await self.service.reactions(self.realIDs)
                 try Task.checkCancellation(); self.render(); self.markRead()
@@ -1082,10 +1099,10 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 치는 글에 어울리는 이모티콘 줄 — 카톡의 그것이다(사용자 요청 —
      * `굿모닝하면 관련 이모티콘이뜨는거말이야`).
      *
-     * **고르는 규칙은 웹에만 있다**(`src/lib/suggest.ts`). 열 때 표를 통째로
-     * 받아 오므로(`config.suggest`) 여기서 하는 일은 **글에 그 말이
-     * 들었는지**를 보는 것뿐이다 — 서른 꼭지에 이백 줄이라 앱에 또 적으면
-     * 반드시 어긋난다(축하 폭죽은 말이 셋뿐이라 양쪽에 적어 두었다).
+     * **어떤 말에 어떤 이모티콘이 뜨는지는 DB `sticker_words`가 정한다**
+     * (`loadWords` · 앱관리자가 서랍에서 길게 눌러 고친다 — `editWords`).
+     * 여기서 하는 일은 **글에 그 말이 들었는지**를 보는 것뿐이다. 이모티콘
+     * 이름으로 짐작하던 옛 표는 걷어냈다(사용자 요청 — `자동 추천 전부 끄기`).
      *
      * **이미 골라 둔 것이 있으면 접는다** — 그 자리에 미리보기가 이미 서
      * 있다. **`@`를 치는 동안에도 접는다** — 입력칸 위에 두 줄이 겹쳐
@@ -1102,6 +1119,102 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         composer.suggestHits = found.items.isEmpty ? [] : found.hits
     }
 
+    /// 한 말을 깎은 꼴로 — DB에 넣는 값이자 견주는 값이다(웹 `norm`).
+    private func normWord(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        out.append(contentsOf: normalize(text).scalars)
+        return String(out)
+    }
+
+    /**
+     * 적은 글을 말들로 — 쉼표·줄바꿈으로 나누고 깎고, 두 글자 아래와
+     * 겹치는 것은 뺀다. **웹 `splitWords`와 결과가 같아야 한다**
+     * (`.dev/suggest-check.mts`가 웹 쪽을 붙들어 둔다).
+     */
+    private func splitWords(_ text: String) -> (words: [String], short: Bool) {
+        var out: [String] = []; var short = false
+        for part in text.components(separatedBy: CharacterSet(charactersIn: ",，\n")) {
+            let w = normWord(part)
+            let n = w.unicodeScalars.count
+            if n == 0 { continue }
+            if n < 2 { short = true; continue }
+            if n <= 20 && !out.contains(w) { out.append(w) }
+        }
+        return (out, short)
+    }
+
+    /**
+     * DB에서 추천 말을 받는다 — **대화방을 열 때와 다시 이어질 때마다.**
+     * 앱관리자가 고친 것이 다른 사람 폰에도 다음 번 열 때 먹는다.
+     * **표가 없는 저장소에서는 조용히 빈손이다** — 줄만 안 뜨고 대화는 산다.
+     */
+    private func loadWords() {
+        Task { [weak self] in
+            guard let self = self, let raw = try? await self.service.stickerWords() else { return }
+            self.applyWords(raw)
+        }
+    }
+    private func applyWords(_ raw: [ChatJSON]) {
+        var byId: [String: [String]] = [:]
+        var byWord: [String: [String]] = [:]
+        for r in raw {
+            guard let id = r["sticker_id"] as? String, let word = r["word"] as? String else { continue }
+            let w = normWord(word)
+            guard w.unicodeScalars.count >= 2 else { continue }
+            if !(byId[id]?.contains(w) ?? false) { byId[id, default: []].append(w) }
+            if !(byWord[w]?.contains(id) ?? false) { byWord[w, default: []].append(id) }
+        }
+        stickerWords = byId; wordRules = byWord
+        tray.worded = isSuper ? Set(byId.keys) : []
+    }
+
+    /**
+     * 서랍에서 이모티콘을 **길게 누르면** 그 이모티콘의 추천 말을 고친다 —
+     * **앱관리자만**(사용자 요청 — `이걸 내가 수동으로 입력해서 지정하고
+     * 싶은데 … 차후 이모티콘을 추가할때도 내가 입력하고싶어`).
+     * 다른 사람에게는 길게 눌러도 아무 일이 없다(DB도 막는다).
+     *
+     * - **쉼표로 나눠 여럿을 적는다.** 비워서 저장하면 추천에서 빠진다.
+     * - **바뀐 것만** 지우고 넣는다(`setStickerWords`).
+     * - 저장하면 곧바로 이 폰에 먹고, 다른 사람은 대화방을 다시 열 때 먹는다.
+     */
+    private func editWords(_ item: ChatJSON) {
+        guard isSuper, let id = item["id"] as? String else { return }
+        let label = item["label"] as? String ?? "이모티콘"
+        let now = stickerWords[id] ?? []
+        let ask = UIAlertController(title: "추천 말 · \(label)",
+            message: "글에 이 말이 들어 있으면 이 이모티콘이 뜹니다.\n쉼표로 나눠 여럿 적을 수 있고, 비우면 추천에서 빠집니다.",
+            preferredStyle: .alert)
+        ask.addTextField { f in
+            f.text = now.joined(separator: ", ")
+            f.placeholder = "예: 굿모닝, 좋은아침"
+            f.clearButtonMode = .whileEditing
+        }
+        ask.addAction(UIAlertAction(title: "취소", style: .cancel))
+        ask.addAction(UIAlertAction(title: "저장", style: .default) { [weak self, weak ask] _ in
+            guard let self = self else { return }
+            let (next, short) = self.splitWords(ask?.textFields?.first?.text ?? "")
+            let add = next.filter { !now.contains($0) }
+            let remove = now.filter { !next.contains($0) }
+            guard !add.isEmpty || !remove.isEmpty else {
+                if short { self.notice("한 글자 말은 넣지 않습니다") }
+                return
+            }
+            Task { [weak self] in
+                guard let self = self else { return }
+                do {
+                    try await self.service.setStickerWords(id, add: add, remove: remove)
+                    if let raw = try? await self.service.stickerWords() { self.applyWords(raw) }
+                    self.notice(short ? "저장했습니다 · 한 글자 말은 뺐습니다"
+                                      : next.isEmpty ? "추천에서 뺐습니다" : "추천 말을 저장했습니다")
+                } catch {
+                    self.notice(error.localizedDescription)
+                }
+            }
+        })
+        present(ask, animated: true)
+    }
+
     /**
      * 깎은 글과 **그 글자가 원문 어디였는지**. 깎으면서 공백·문장부호가
      * 빠지므로, 되짚어 칠하려면 자리를 함께 들고 있어야 한다.
@@ -1116,7 +1229,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
 
     /**
      * **글자를 깎는 자리가 웹과 같아야 한다**(공백·문장부호를 지우고
-     * 소문자로) — 표의 말은 웹이 이미 그렇게 깎아 보낸 값이다.
+     * 소문자로 · 웹 `lib/suggest.ts`의 `norm`). DB의 말도 이 자로 깎아
+     * 넣는다(`editWords`).
      */
     private func normalize(_ text: String) -> NormText {
         /* **물음표는 남긴다** — 웹 `suggest.ts`의 `norm`과 같다(`응?`·`뭐?`가
@@ -1149,20 +1263,16 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private func suggestFind(_ text: String) -> (items: [ChatJSON], hits: [NSRange]) {
         let none: (items: [ChatJSON], hits: [NSRange]) = ([], [])
         let flat = service.config.stickers.flatMap { ($0["stickers"] as? [ChatJSON]) ?? [] }
-        guard !flat.isEmpty, !service.config.suggest.isEmpty else { return none }
+        guard !flat.isEmpty, !wordRules.isEmpty else { return none }
         let norm = normalize(text)
         /* 두 글자부터 본다 — 웹의 `SUGGEST_MIN`과 같은 값이다. */
         guard norm.scalars.count >= 2 else { return none }
         var hit = Set<String>()
         var spots: [NSRange] = []
-        for rule in service.config.suggest {
-            guard let words = rule["words"] as? [String], let ids = rule["ids"] as? [String] else { continue }
-            var any = false
-            for word in words where !word.isEmpty {
-                let found = places(of: word, in: norm)
-                if !found.isEmpty { any = true; spots.append(contentsOf: found) }
-            }
-            guard any else { continue }
+        for (word, ids) in wordRules {
+            let found = places(of: word, in: norm)
+            guard !found.isEmpty else { continue }
+            spots.append(contentsOf: found)
             for id in ids { hit.insert(id) }
         }
         guard !hit.isEmpty else { return none }

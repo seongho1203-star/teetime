@@ -2491,6 +2491,36 @@ create policy avatars_del on storage.objects for delete to authenticated
            and ((storage.foldername(name))[1] = auth.uid()::text or is_admin()));
 
 
+-- ═══ 7-3. 이모티콘 추천 말 ═════════════════════════════════════
+--
+-- 글을 치면 입력칸 위에 뜨는 이모티콘 줄(카톡의 그것)이 **이 표만 보고**
+-- 고른다. 사용자 요청 — `이걸 내가 수동으로 입력해서 지정하고싶은데 …
+-- 차후 이모티콘을 추가할때도 내가 입력하고싶어` · `자동 추천 전부 끄기`.
+-- 예전에는 앱에 박힌 표(`src/lib/suggest.ts`)가 이모티콘 이름으로 짐작해
+-- 골랐는데 엉뚱한 것이 자주 걸렸다 — **이제 이름으로 짐작하는 길은 없다.**
+--
+-- - **한 줄이 `이 이모티콘 ← 이 말`이다.** 말을 여럿 달려면 줄을 여럿 넣는다.
+-- - **앱을 새로 안 깔아도 바로 먹는다** — 앱은 대화방을 열 때마다 이 표를
+--   받아 온다. 앱관리자가 서랍에서 이모티콘을 길게 눌러 적는다.
+-- - **말은 깎아 둔 꼴로 넣는다**(공백·문장부호를 지우고 소문자 · `?`는 남긴다).
+--   앱이 깎아서 넣으므로 `굿모닝!`과 `굿모닝`이 두 줄로 갈리지 않는다.
+-- - **두 글자부터다** — 한 글자는 치는 내내 걸린다(`ㅋ` 하나에 줄이 뜬다).
+-- - **읽기는 회원 전부, 넣고 지우는 것은 앱관리자 한 사람**(`is_super()`).
+--   아무나 넣게 열면 남의 대화창에 엉뚱한 그림을 띄울 수 있다.
+create table if not exists sticker_words (
+    sticker_id text not null check (char_length(sticker_id) between 1 and 40),
+    word       text not null check (char_length(word) between 2 and 20),
+    created_at timestamptz not null default now(),
+    primary key (sticker_id, word)
+);
+alter table sticker_words enable row level security;
+drop policy if exists sticker_words_read  on sticker_words;
+drop policy if exists sticker_words_super on sticker_words;
+create policy sticker_words_read  on sticker_words for select using (is_member());
+create policy sticker_words_super on sticker_words for all
+    using (is_super()) with check (is_super());
+
+
 -- ═══ 8. 실시간 ═════════════════════════════════════════════════
 --
 -- 이 테이블들이 바뀌면 앱으로 밀어 준다. 채팅은 물론이고

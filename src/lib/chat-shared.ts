@@ -1,11 +1,12 @@
 import { STICKER_GROUPS, stickerSrc } from './stickers';
-import { suggestTable, SUGGEST_MAX, SUGGEST_ANIM } from './suggest';
+import { SUGGEST_MAX, SUGGEST_ANIM } from './suggest';
 import { REACTIONS } from './types';
 
 /**
  * **대화 화면이 쓰는 규칙 셋을 한 꾸러미로** — 반응 그림글자 · 이모티콘 목록 ·
- * 추천 표. 셋 다 **원본은 웹 한 곳**이다(`REACTIONS` · `lib/stickers.ts` ·
- * `lib/suggest.ts`). 앱(Swift·Kotlin)에 또 적으면 두 벌이 되어 언젠가 어긋난다.
+ * 추천 한도. 원본은 웹 한 곳이다(`REACTIONS` · `lib/stickers.ts` ·
+ * `lib/suggest.ts`) — 앱(Swift·Kotlin)에 또 적으면 두 벌이 되어 언젠가
+ * 어긋난다. **추천 말 자체는 DB(`sticker_words`)에 있고 앱이 스스로 받는다.**
  *
  * 부르는 곳이 둘이다:
  *  - 아이폰 — 대화를 열 때(`screens/NativeChat.tsx` → `NativeChat.open`).
@@ -22,7 +23,10 @@ export function chatShared(): Record<string, unknown> {
         reactions: REACTIONS,
         stickers: STICKER_GROUPS.map(g => ({ ...g, stickers: g.stickers.map(s => ({ ...s,
             src: new URL(stickerSrc(`sticker:${s.id}`), window.location.href).href })) })),
-        suggest: suggestTable(),
+        /* **추천 말은 이제 앱이 DB(`sticker_words`)에서 스스로 받는다** —
+           앱관리자가 고치면 앱을 새로 안 깔아도 바로 먹어야 하기 때문이다.
+           이름은 옛 판이 읽으므로 빈 채로 남겨 둔다. */
+        suggest: [],
         suggestMax: SUGGEST_MAX,
         suggestAnim: SUGGEST_ANIM,
     };

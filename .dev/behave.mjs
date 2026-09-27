@@ -3047,6 +3047,7 @@ console.log('\n── 옛 스키마에서도 열리는가 ──');
 const oldTables = { ...tables };
 delete oldTables.round_groups;
 delete oldTables.settle_reminders;
+delete oldTables.sticker_words;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 oldTables.signups = tables.signups.map(({ grp, ...rest }) => rest);
 /* **성별·태어난 해도 칸째 없앤다.** 여기가 이번에 제일 위험한 자리다 —
@@ -3060,8 +3061,10 @@ oldTables.profiles = tables.profiles.map(({ gender, birth_year, region, ...rest 
 oldTables.polls = tables.polls.map(({ result_at, ...rest }) => rest);
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 oldTables.messages = tables.messages.map(({ poll_id, ...rest }) => rest);
+/* `sticker_words`(추천 말)도 없는 저장소 — 대화가 그대로 열리고 줄만
+   안 떠야 한다(`Chat.tsx`가 오류를 빈손으로 넘긴다). */
 const MISSING = ['round_groups', 'settle_reminders', 'profile_private',
-                 'message_reactions'];
+                 'message_reactions', 'sticker_words'];
 /* **없는 칸을 달라고 하면 진짜 PostgREST는 400을 준다.** 흉내가 그냥
    빼고 주면 `fetchPeople()`이 좁은 목록으로 물러나는 길을 아예 안 타서,
    이 시험이 통과해도 실제로는 명단을 받는 화면이 전부 죽는다. */
@@ -5208,8 +5211,9 @@ console.log('\n── 이름이 없으면 닉네임부터 받는다 ──');
  * 굿모닝하면 관련 이모티콘이뜨는거말이야`.
  *
  * **고르는 규칙은 여기서 안 본다** — 그건 브라우저가 필요 없어
- * `node --experimental-strip-types .dev/suggest-check.mts`가 92가지로
- * 붙들어 둔다. 여기서 보는 것은 **화면에서 정말 그렇게 도는가**다:
+ * `node --experimental-strip-types .dev/suggest-check.mts`가 붙들어 둔다.
+ * **말과 이모티콘은 DB `sticker_words`가 정한다**(고정 자료에 `굿모닝`·
+ * `감사` 두 말을 넣어 두었다 — 이름으로 짐작하는 길은 걷어냈다). 여기서 보는 것은 **화면에서 정말 그렇게 도는가**다:
  * 줄이 뜨고 · 아무 때나 안 뜨고 · 누르면 미리보기로 물리고 · **글자를 칠 때
  * 화면이 다시 안 그려지는가**(그 마지막이 이 기능의 값이 달린 자리다).
  */

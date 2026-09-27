@@ -339,6 +339,15 @@ export const message_reactions = [
     { message_id: 'm8', user_id: uid(2), emoji: '😂', created_at: iso(0, 9, 34) },
 ];
 
+/* 이모티콘 추천 말(`sticker_words`) — **이제 이것만 보고 고른다**
+   (앱관리자가 앱 서랍에서 길게 눌러 적는다). `behave`의 `치는 글에
+   어울리는 이모티콘` 칸이 `굿모닝`·`감사합니다`로 재므로 그 둘을 둔다. */
+export const sticker_words = [
+    { sticker_id: 'ghi', word: '굿모닝', created_at: iso(-3, 9, 0) },
+    { sticker_id: 'pnhi', word: '굿모닝', created_at: iso(-3, 9, 0) },
+    { sticker_id: 'gthanks', word: '감사', created_at: iso(-3, 9, 0) },
+];
+
 /* 사람마다 대화를 어디까지 읽었나. 말풍선 옆의 `안 읽은 사람 수`가 이걸로
    셈해진다. 회원 다섯 중 셋만 최근까지 읽은 것으로 두어, 숫자가 나오는
    말풍선과 안 나오는(다 읽은) 말풍선이 한 화면에 같이 보이게 했다. */
@@ -383,5 +392,5 @@ export const tables = {
     settlements, settlement_shares, settle_reminders,
     polls, poll_options, poll_votes,
     poll_comments, posts, post_comments, rooms, messages, room_reads,
-    message_reactions, push_subscriptions, notifications,
+    message_reactions, sticker_words, push_subscriptions, notifications,
 };

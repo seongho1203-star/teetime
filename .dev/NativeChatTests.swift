@@ -6,6 +6,8 @@ final class ChatFixtureProtocol: URLProtocol {
     static var rows: [[String: Any]] = []
     static var requests: [URLRequest] = []
     static var rejectWrites = false
+    /// 추천 말(`sticker_words`) — 대화 화면이 DB에서 스스로 받는다.
+    static var words: [[String: Any]] = []
     static let user = "00000000-0000-0000-0000-000000000001"
     static let room = "00000000-0000-0000-0000-000000000002"
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "native-chat.test" }
@@ -23,6 +25,7 @@ final class ChatFixtureProtocol: URLProtocol {
         var code = 200
         if path.hasSuffix("/rooms") { output = [["id": Self.room, "name": "Native fixture"]] }
         else if path.hasSuffix("/profiles") { output = [["id": Self.user, "name": "Tester", "role": "member"]] }
+        else if path.hasSuffix("/sticker_words") { output = Self.words }
         else if path.hasSuffix("/messages") {
             if request.httpMethod == "POST" {
                 if Self.rejectWrites { code = 403 }
@@ -229,9 +232,14 @@ final class NativeChatTests: XCTestCase {
             ["id": "a1", "label": "굿모닝", "src": "https://native-chat.test/a1.png"],
             ["id": "a2", "label": "좋은 아침", "src": "https://native-chat.test/a2.png"],
         ]]]
-        await prepare(extra: ["stickers": stickers,
-                              "suggest": [["words": ["굿모닝"], "ids": ["a1", "a2"]]]])
+        /* **추천 말은 DB에서 온다**(`sticker_words`) — 열 때 실어 보내던 표는
+           이제 늘 빈손이다. 깎이지 않은 말(`굿 모닝!`)도 깎아서 걸려야 한다. */
+        ChatFixtureProtocol.words = [["sticker_id": "a1", "word": "굿모닝"],
+                                     ["sticker_id": "a2", "word": "굿 모닝!"]]
+        defer { ChatFixtureProtocol.words = [] }
+        await prepare(extra: ["stickers": stickers])
         defer { finish() }
+        await settle(0.3)
         let composer = try XCTUnwrap(find(chat.view, ComposerBar.self))
         let strip = try XCTUnwrap(find(chat.view, SuggestBar.self))
         let peek = try XCTUnwrap(find(chat.view, StickerPeek.self))

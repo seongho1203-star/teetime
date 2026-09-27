@@ -4,15 +4,15 @@
  * 사용자 요청 — `카톡처럼 메시지에 따라 이모티콘이 뜨는기능을 만들자.
  * 굿모닝하면 관련 이모티콘이뜨는거말이야`.
  *
- * **글에 아무것도 저장하지 않는다.** `@언급`·링크·축하 폭죽과 같은 결이다 —
- * 치는 글자를 보고 그 자리에서 고르므로 **붙여넣을 SQL도 새 칸도 없고**,
- * 말을 늘리면 이 파일만 고치면 된다.
+ * **어떤 말에 어떤 이모티콘이 뜨는지는 DB의 `sticker_words` 표가 정한다**
+ * (사용자 요청 — `이걸 내가 수동으로 입력해서 지정하고싶은데 … 차후
+ * 이모티콘을 추가할때도 내가 입력하고싶어` · `자동 추천 전부 끄기`).
+ * 앱관리자가 대화의 이모티콘 서랍에서 그림을 **길게 눌러** 말을 적는다.
+ * 그래서 **앱을 새로 안 깔아도 바로 먹는다.**
  *
- * **규칙은 여기 한 곳에 있다 — 앱에 또 적지 말 것.** 앱 대화 화면은
- * `screens/NativeChat.tsx`가 열 때 `suggestTable()`을 그대로 실어 보내고
- * (`ios/App/App/NativeChatViewController.swift`), Swift는 **글자가 들었는지만**
- * 본다. 축하 폭죽(`lib/cheer.ts`)은 말이 셋뿐이라 양쪽에 적어 두었지만
- * 여기는 서른 꼭지에 이백 줄이라 두 벌이 되면 반드시 어긋난다.
+ * 이 파일에 남은 것은 **깎는 자(`norm`)와 고르는 차례**뿐이다. 앱(Swift·
+ * Kotlin)은 그 표를 스스로 받아 오고, 깎는 자만 한 벌씩 들고 있다 —
+ * **한쪽만 고치지 말 것.**
  *
  * **고르면 곧바로 안 나간다** — 이모티콘 서랍에서 고른 것과 똑같이 입력칸
  * 위에 미리보기로 물려 두고, 글을 마저 적어 한 마디로 함께 보낸다.
@@ -31,11 +31,14 @@ export const SUGGEST_MAX = 8;
  * **여덟 장을 다 움직이는 것으로 채우면 안 된다.** 움직이는 한 장이
  * 평균 105KB에 열두 프레임이라(멈춘 것은 7KB) 글자를 칠 때마다 줄이
  * 갈리는 자리에서 폰이 그대로 주저앉는다 — `미리 받아 두기`가 움직이는
- * 것만 여섯 장으로 묶어 둔 그 까닭과 같다. 차례가 묶음 차례라 그냥
- * 두면 **앞의 여덟이 전부 움짤**이 된다(`❄️ 펭귄 움짤`이 첫 묶음이다).
- * 헤드리스로 재 보니 줄이 처음 뜨는 글자에서만 65ms가 났다.
+ * 것만 여섯 장으로 묶어 둔 그 까닭과 같다.
+ *
+ * **둘에서 넷으로 올렸다** — 말을 사람이 직접 고르게 되면서, 고른 움짤이
+ * 셋째부터 조용히 빠지면 `왜 안 뜨지`가 된다. 넷이면 한 말에 두세 장씩
+ * 다는 쓰임새를 다 덮고, 움직이는 것만 여덟을 다는 일은 드물다.
+ * **앱도 이 값을 받아 쓴다**(`chatShared()`의 `suggestAnim`).
  */
-export const SUGGEST_ANIM = 2;
+export const SUGGEST_ANIM = 4;
 
 /**
  * 몇 글자부터 보나. **한 글자로는 안 본다** — `ㅋ` 하나에 줄이 뜨면
@@ -51,133 +54,55 @@ export const SUGGEST_MIN = 2;
  *
  * **물음표(`?`)만은 남긴다**(사용자 요청 — `응? 엥? 뭐? → 응?·엥?·뭐?·
  * 어쩌라고?`). `응`·`엥`·`뭐`는 한 글자라 그대로는 말로 못 넣고(`응원`·
- * `뭐해`에 다 걸린다), 물음표가 붙어야 그 뜻이 된다. 그래서 `헉!?`·
- * `뭐해요?`·`어디로?`·`뭐해?` 같은 이름의 열쇠에도 `?`가 남는다 — 표의
- * `labels`에 그대로 적을 것(`suggest-check`가 잡는다). 전각 `？`는
- * `?`로 본다. **앱의 `normalize`도 같다**(`NativeChatViewController`) —
+ * `뭐해`에 다 걸린다), 물음표가 붙어야 그 뜻이 된다. 전각 `？`는 `?`로 본다. **앱의 `normalize`도 같다**(`NativeChatViewController`) —
  * 한쪽만 고치면 `응?`이 웹에서만 걸린다.
  */
-const norm = (s: string): string =>
+export const norm = (s: string): string =>
     s.replace(/？/g, '?').replace(/[\s!~.,…'"“”()·:;\-_/]/g, '').toLowerCase();
 
 /** 이모티콘 이름을 견줄 수 있는 꼴로. `커피 한 잔` → `커피한잔` */
 export const labelKey = (label: string): string => norm(label);
 
-/**
- * `치는 말 → 어울리는 이모티콘 이름` 표.
- *
- * - **`words`는 사람이 칠 만한 말**이다. 글에 그 말이 **들어 있으면** 걸린다
- *   (`굿모닝입니다`도 `굿모닝`에 걸린다). 공백은 지우고 보므로 `좋은 아침`도
- *   `좋은아침`에 걸린다.
- * - **`labels`는 이모티콘 이름을 깎아 둔 값**이다(`labelKey`). 같은 이름이
- *   묶음마다 하나씩 있어(`화이팅!`이 다섯 곳) 한 줄에 여러 캐릭터가 저절로
- *   섞인다 — 카톡이 세트마다 하나씩 보여 주는 그 모양이다.
- * - **한 글자 말을 넣지 말 것** — `굿`을 넣으면 `굿모닝`까지 걸려 인사 자리에
- *   엉뚱한 것이 섞인다. `밥`처럼 그 자체로 뜻이 또렷한 것만 예외로 둔다.
- *
- * **이름을 잘못 적으면 조용히 아무것도 안 걸린다.**
- * `node --experimental-strip-types .dev/suggest-check.mts`가 그걸 잡는다 —
- * 표를 고쳤으면 먼저 돌려 볼 것(브라우저가 필요 없다).
- */
-export type SuggestTopic = { words: string[]; labels: string[] };
-
-export const SUGGEST_TOPICS: SuggestTopic[] = [
-    { words: ['안녕', '하이', '반가', '굿모닝', '좋은아침', 'ㅎㅇ', '방가', '하잉'],
-      labels: ['안녕', '반가워', '빼꼼', '까꿍', '윙크'] },
-    { words: ['잘자', '굿나잇', '굿밤', '자러', '졸려', '졸립', '주무'],
-      labels: ['잘자', '잘자요', '쿨쿨', '포근'] },
-    { words: ['감사', '고마', '고맙', 'ㄱㅅ', '땡큐', 'thank'],
-      labels: ['감사합니다', '꾸벅', '고마워'] },
-    { words: ['축하', 'ㅊㅋ', '추카', '생일', '결혼', '승진'],
-      labels: ['축하해', '신난다', '꽃다발'] },
-    { words: ['화이팅', '파이팅', '홧팅', '힘내', '아자', '응원'],
-      labels: ['화이팅', '파이팅', '힘내', '아자아자', '불타오른다'] },
-    { words: ['나이스', '굿샷', '버디', '이글', '홀인원', '우승', '잘치'],
-      labels: ['나이스', '나이스샷', '굿샷', '버디', 'birdie', 'nice', 'holeinone',
-               '멋진스윙', '우승', 'champion', 'par'] },
-    { words: ['골프', '라운딩', '라운드', '티오프', '스윙', '드라이버', '퍼팅', '필드'],
-      labels: ['스윙', '드라이버', '퍼팅', '필드', '골프백', '카트', '깃발'] },
-    { words: ['오비', '뒤땅', '벙커', '해저드', '퐁당', '아쉽', '아깝', '망했'],
-      labels: ['아ob', '뒤땅', '벙커', '풍덩', '아쉽네요', '어질어질'] },
-    { words: ['좋아', '조아', 'ㅇㅋ', '오케', '콜요', 'ㄱㄱ', '넵넵', '알겠', 'ok'],
-      labels: ['좋아요', 'good', '멋져', '브이', '좋아'] },
-    { words: ['ㅋㅋ', 'ㅎㅎ', '웃겨', '빵터', 'ㅋㄷ'],
-      labels: ['빵터짐', 'ㅋㅋㅋㅋ', '메롱', 'ㅋㅋㅋ'] },
-    { words: ['ㅠㅠ', 'ㅜㅜ', '슬프', '슬퍼', '속상', '울고', '눈물'],
-      labels: ['엉엉', '눈물펑펑', '힝'] },
-    { words: ['헉', '대박', 'ㄷㄷ', '실화', '헐', '깜짝'],
-      labels: ['헉', '헉?', '어질어질', '어흥'] },
-    { words: ['화나', '화남', '짜증', '열받', '빡쳐'],
-      labels: ['화났어', '흥'] },
-    { words: ['한잔', '맥주', '소주', '회식', '뒷풀이', '뒤풀이', '건배', '치맥'],
-      labels: ['한잔해요', '한잔해', '여유한잔', '라운딩끝'] },
-    { words: ['커피', '카페', '아메리카노'],
-      labels: ['커피한잔', '여유'] },
-    { words: ['사랑', '하트', '좋아해', '애정'],
-      labels: ['하트', '하트눈', '손가락하트', '사랑해요', '좋아좋아', '두근두근'] },
-    { words: ['부탁', '제발', 'ㅂㅌ'],
-      labels: ['부탁해', '꾸벅'] },
-    { words: ['미안', '죄송', 'ㅈㅅ'],
-      labels: ['죄송합니다', '꾸벅', '쭈뼛', '미안해'] },
-    { words: ['출발', '갑니다', '가는중', '이동', '도착'],
-      labels: ['출발', '달려', '다녀올게요', '여행가자'] },
-    { words: ['수고', '고생', '잘가', '또봐', '다음에', '들어가세'],
-      labels: ['수고했어요', '또봐요', '다음에또', '다녀올게요', '오늘도행복'] },
-    { words: ['비와', '비온', '우천', '장마', '소나기', '빗길'],
-      labels: ['비와요'] },
-    { words: ['더워', '덥다', '폭염', '더운'],
-      labels: ['더워'] },
-    { words: ['밥', '점심', '저녁', '먹자', '맛있', '식사', '배고'],
-      labels: ['냠냠', '요리중'] },
-    { words: ['일하는', '근무', '퇴근', '야근', '출근', '회사', '업무'],
-      labels: ['일하는중'] },
-    { words: ['뭐해', '어디', '언제', '몇시'],
-      labels: ['뭐해요?', '뭐해?', '어디로?', '음'] },
-    /* **물음표까지 쳐야 걸린다**(위 `norm`) — `응`만으로는 `응원`에도 걸린다. */
-    { words: ['응?', '엥?', '뭐?', '머?', '어쩌라고', '어쩌라구'],
-      labels: ['응?', '엥?', '뭐?', '어쩌라고?'] },
-    { words: ['피곤', '힘들', '지침', '쉬고', '쉬는'],
-      labels: ['뻗음', '쉬는중', '포근', '여유'] },
-    { words: ['건강', '아프', '감기', '몸조리'],
-      labels: ['건강하세요'] },
-    { words: ['설레', '기대', '두근'],
-      labels: ['설레', '두근두근'] },
-    { words: ['입금', '정산', '회비', '송금'],
-      labels: ['돈복'] },
-    { words: ['노래', '음악', '춤', '신나'],
-      labels: ['신나는음악', '신나는춤', '신난다'] },
-];
-
 /** 앱에 실어 보내는 꼴 — 말 하나에 이모티콘 여럿이다. */
 export type SuggestRule = { words: string[]; ids: string[] };
 
+/** DB 한 줄(`sticker_words`) — 이모티콘 하나에 말 하나. */
+export type StickerWordRow = { sticker_id: string; word: string };
+
 /**
- * 표를 이모티콘 id로 풀어 둔 것.
+ * DB의 줄들을 규칙으로 묶는다 — **같은 말끼리 모은다.**
  *
- * **이름 그대로 친 것도 걸리게** 이름마다 한 줄을 더 넣는다 — `쿨쿨`을
- * 치면 묶음마다 있는 `쿨쿨`이 다 나온다. **두 글자부터만** 넣는다
- * (`음…`은 한 글자라 `다음`·`있음`에 걸려 쓸모가 없다).
+ * **규칙은 이제 이 표뿐이다**(사용자 요청 — `이걸 내가 수동으로 입력해서
+ * 지정하고싶은데` · `자동 추천 전부 끄기`). 예전에는 이 파일에 박힌 표가
+ * 이모티콘 이름으로 짐작해 골랐는데 엉뚱한 것이 자주 걸렸다 — **이름으로
+ * 짐작하는 길을 되살리지 말 것.** 앱관리자가 서랍에서 이모티콘을 길게
+ * 눌러 적은 말만 걸린다.
+ *
+ * 말은 DB에 깎아 둔 꼴로 들어 있지만 **여기서 한 번 더 깎는다** — 손으로
+ * SQL로 넣은 줄이 깎이지 않은 채 들어와도 걸리게 하려는 것이다.
+ * **없는 이모티콘 id는 그냥 둔다** — 목록을 훑을 때 저절로 빠진다.
  */
-export const suggestTable = (): SuggestRule[] => {
-    const out: SuggestRule[] = [];
-    for (const topic of SUGGEST_TOPICS) {
-        const want = new Set(topic.labels);
-        const ids = STICKERS.filter(s => want.has(labelKey(s.label))).map(s => s.id);
-        const words = topic.words.map(norm).filter(w => w.length >= SUGGEST_MIN);
-        if (ids.length && words.length) out.push({ words, ids });
+export const buildRules = (rows: StickerWordRow[]): SuggestRule[] => {
+    const byWord = new Map<string, string[]>();
+    for (const r of rows) {
+        const w = norm(r.word ?? '');
+        if (w.length < SUGGEST_MIN || !r.sticker_id) continue;
+        const list = byWord.get(w);
+        if (!list) byWord.set(w, [r.sticker_id]);
+        else if (!list.includes(r.sticker_id)) list.push(r.sticker_id);
     }
-    const byKey = new Map<string, string[]>();
-    for (const s of STICKERS) {
-        const key = labelKey(s.label);
-        if (key.length < SUGGEST_MIN) continue;
-        const list = byKey.get(key);
-        if (list) list.push(s.id); else byKey.set(key, [s.id]);
-    }
-    for (const [key, ids] of byKey) out.push({ words: [key], ids });
-    return out;
+    return [...byWord].map(([w, ids]) => ({ words: [w], ids }));
 };
 
-const TABLE = suggestTable();
+/** 앱관리자가 적은 말을 넣기 좋은 꼴로 — 쉼표·줄바꿈으로 나누고 깎는다. */
+export const splitWords = (text: string): string[] => {
+    const out: string[] = [];
+    for (const part of text.split(/[,，\n]/)) {
+        const w = norm(part);
+        if (w.length >= SUGGEST_MIN && w.length <= 20 && !out.includes(w)) out.push(w);
+    }
+    return out;
+};
 
 /**
  * 치는 글에 어울리는 이모티콘 — **이모티콘 목록 차례 그대로** 돌려준다.
@@ -186,11 +111,12 @@ const TABLE = suggestTable();
  * 앱도 같은 차례를 쓰므로 웹과 앱이 같은 줄을 보여 준다 —
  * **한쪽만 고치지 말 것.**
  */
-export const suggestFor = (draft: string): Sticker[] => {
+export const suggestFor = (draft: string, rules: SuggestRule[]): Sticker[] => {
+    if (!rules.length) return [];
     const text = norm(draft);
     if (text.length < SUGGEST_MIN) return [];
     const hit = new Set<string>();
-    for (const rule of TABLE) {
+    for (const rule of rules) {
         if (rule.words.some(w => text.includes(w))) for (const id of rule.ids) hit.add(id);
     }
     if (!hit.size) return [];

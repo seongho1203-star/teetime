@@ -61,7 +61,7 @@ type KbSignal = {
 import { emojiOnly } from '../lib/emoji';
 import { isSticker, stickerLabel, stickerRef, stickerSrc,
          STICKER_GROUPS, STICKERS } from '../lib/stickers';
-import { suggestFor } from '../lib/suggest';
+import { buildRules, suggestFor, type SuggestRule } from '../lib/suggest';
 import { HoldIcon } from '../components/HoldIcons';
 import { shareText, sharePhotoFile } from '../lib/share';
 import { purgeOldPhotos } from '../lib/photos';
@@ -368,6 +368,18 @@ export function Chat() {
        있다. **state가 아니라 DOM에 직접 그린다**(아래 `syncSuggest`). */
     const suggestBox = useRef<HTMLDivElement>(null);
     const suggestNow = useRef('');
+    /* 어떤 말에 어떤 이모티콘을 띄울지 — **DB의 `sticker_words`가 정한다**
+       (앱관리자가 앱 서랍에서 길게 눌러 적는다). 화면을 열 때 한 번 받는다.
+       **표가 없는 저장소에서는 조용히 빈손이다** — 줄만 안 뜨고 대화는 산다. */
+    const suggestRules = useRef<SuggestRule[]>([]);
+    useEffect(() => {
+        let live = true;
+        supabase.from('sticker_words').select('sticker_id, word').limit(5000)
+            .then(({ data, error }) => {
+                if (live && !error && data) suggestRules.current = buildRules(data);
+            });
+        return () => { live = false; };
+    }, []);
     const fileRef = useRef<HTMLInputElement>(null);
 
     const chatRef = useRef<HTMLDivElement>(null);
@@ -2595,7 +2607,7 @@ export function Chat() {
      * **달라졌을 때만 다시 만든다**(`suggestNow`) — 글자마다 단추 여덟 개를
      * 새로 만들면 그것대로 무겁고, 누르려던 것이 손가락 밑에서 갈린다.
      *
-     * 고르는 값은 `lib/suggest.ts` 한 곳에 있다 — **앱도 그 표를 받아 쓴다.**
+     * 고르는 차례는 `lib/suggest.ts`에, 말과 이모티콘은 DB `sticker_words`에 있다.
      */
     const syncSuggest = useCallback(() => {
         const box = suggestBox.current;
@@ -2603,7 +2615,7 @@ export function Chat() {
         const value = draftValue();
         /* `@`를 치는 동안은 부르는 일이 먼저다 — 입력칸 위에 두 줄이 겹쳐
            쌓이면 말풍선이 통째로 가린다. */
-        const list = mentionQuery(value, draftCaret()) ? [] : suggestFor(value);
+        const list = mentionQuery(value, draftCaret()) ? [] : suggestFor(value, suggestRules.current);
         const key = list.map(s => s.id).join(',');
         if (key === suggestNow.current) return;
         suggestNow.current = key;
@@ -3860,8 +3872,8 @@ export function Chat() {
                     머리말의 그 65ms). 그래서 `.chat-over` 안이 아니라 그 위에
                     형제로 세우고, 뒤는 같은 대화 바탕색으로 덮는다.
                     고르면 곧바로 안 나가고 아래 미리보기로 물려 둔다 —
-                    규칙은 `lib/suggest.ts` 한 곳에 있고 **앱도 그 표를 받아
-                    쓴다**(한쪽만 고치지 말 것). */}
+                    말과 이모티콘은 DB `sticker_words`에 있다(앱관리자가 앱
+                    서랍에서 길게 눌러 적는다). */}
                 <div className="chat-suggest" ref={suggestBox} hidden
                      role="list" aria-label="어울리는 이모티콘" />
                 {/* **바 줄 위에 쌓이는 것 셋을 한 칸에 묶는다**(`.chat-over`) —
