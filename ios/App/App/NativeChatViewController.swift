@@ -773,6 +773,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private func showCheer() {
         guard isViewLoaded else { return }
         cheer.isHidden = false
+        cheer.play()
         cheerHide?.cancel()
         let job = DispatchWorkItem { [weak self] in self?.cheer.isHidden = true }
         cheerHide = job
