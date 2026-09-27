@@ -6012,6 +6012,17 @@ iOS가 키보드와 그 칸을 **한 번의 움직임으로 함께** 옮기므�
 
 ### 안드로이드 앱
 
+**앱 전체가 코틀린이다(GPT의 `android-native-v2`를 2026-09-27에 합쳤다).**
+시작점(LAUNCHER)은 `nativev2/NativeLoginActivity`이고 로그인도 네이티브가
+한다(PKCE · `kkakkung://auth`). 웹뷰(`MainActivity`)는 더는 안 열린다 —
+`App.tsx`의 안드로이드 시작 코드(`openAndroidNativeV2`)는 예비 길로 남은 것이다.
+- **gradle 단계에 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY`를 줘야 한다**
+  (`android.yml`). 로그인이 `BuildConfig`로 읽는데, 빠지면 빌드는 초록인데
+  폰에서 로그인이 빈 주소로 나간다 — 합칠 때 실제로 빠져 있었다. 그래서
+  `로그인 주소가 실렸는지` 단계가 APK의 코드를 읽어 본다.
+- 가이드 글은 빌드 때 `.dev/native-guide.mjs`가 `src/lib/guide.ts`에서 뽑는다
+  (gradle이 node를 부른다) — Kotlin에 글을 또 적지 말 것.
+
 `android/`도 저장소에 있다(아이폰과 같은 이유 — 손으로 고쳐 둔 것이 있다).
 
 - **카카오 로그인이 돌아오는 문**(`kkakkung://`)이 매니페스트에 있다.

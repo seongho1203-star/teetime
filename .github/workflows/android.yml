@@ -169,7 +169,13 @@ jobs:
       # **알림과 까꿍 소리까지 여기서 확인된다.**
       # 50초쯤 더 걸리는 것이 전부이고, Play에 올리는 것은 여전히 AAB다.
       - name: 앱 만들기 (AAB · 폰에 넣어 볼 APK)
+        # **Supabase 주소·anon 키를 여기에도 줘야 한다** — 네이티브 로그인
+        # (`NativeAuth`)이 `BuildConfig.SUPABASE_URL`로 읽는데 gradle이 이
+        # 단계의 환경에서 박아 넣는다. 빠지면 빌드는 초록인데 폰에서 로그인이
+        # 빈 주소로 나간다(웹 빌드 단계에만 있던 것을 합칠 때 잡았다).
         env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           ANDROID_KEYSTORE_PATH: ${{ steps.sign.outputs.store }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -180,6 +186,22 @@ jobs:
           ./gradlew bundleRelease assembleDebug --no-daemon \
             -PappVersionCode=${{ github.run_number }} \
             -PappVersionName=1.${{ github.run_number }}
+
+      # **로그인 주소가 앱에 박혔는지** — 우리가 넣은 값을 다시 보는 것이
+      # 아니라 **만들어진 APK의 코드(dex)**를 읽는다.
+      - name: 로그인 주소가 실렸는지
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        run: |
+          APK=$(find android/app/build/outputs/apk -name '*.apk' | head -1 || true)
+          if [ -z "$APK" ]; then echo "::error::APK를 못 찾았습니다."; exit 1; fi
+          HOST=$(printf '%s' "$VITE_SUPABASE_URL" | sed -e 's#^https\?://##' -e 's#/.*##')
+          if unzip -p "$APK" 'classes*.dex' | grep -aqF "$HOST"; then
+            echo "로그인 주소가 앱에 들어 있습니다."
+          else
+            echo "::error::앱에 Supabase 주소가 없습니다 — 네이티브 로그인이 빈 주소로 나갑니다. '앱 만들기' 단계의 env를 볼 것."
+            exit 1
+          fi
 
       # ── 알림이 진짜 실렸는지 ──────────────────────────────────
       #
