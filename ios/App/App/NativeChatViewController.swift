@@ -1172,14 +1172,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
      * 서랍에서 이모티콘을 **길게 누르면** 그 이모티콘의 추천 말을 고친다 —
      * **앱관리자만**(사용자 요청 — `이걸 내가 수동으로 입력해서 지정하고
      * 싶은데 … 차후 이모티콘을 추가할때도 내가 입력하고싶어`).
-     * 다른 사람에게는 길게 눌러도 아무 일이 없다(DB도 막는다).
+     * 다른 사람에게는 `앱관리자만 …` 한 줄만 뜬다(DB도 막는다) — 말없이
+     * 돌아서면 고장으로 보인다.
      *
      * - **쉼표로 나눠 여럿을 적는다.** 비워서 저장하면 추천에서 빠진다.
      * - **바뀐 것만** 지우고 넣는다(`setStickerWords`).
      * - 저장하면 곧바로 이 폰에 먹고, 다른 사람은 대화방을 다시 열 때 먹는다.
      */
     private func editWords(_ item: ChatJSON) {
-        guard isSuper, let id = item["id"] as? String else { return }
+        /* 앱관리자가 아니면 말없이 돌아서지 않고 까닭을 알린다 — 조용하면
+           고장으로 보인다(사용자 제보 — `이모티콘을 길게눌러도 아무반응이
+           없는데`). 등급을 못 읽은 판도 이 줄로 드러난다. */
+        guard isSuper else { notice("추천 말은 앱관리자만 정할 수 있습니다"); return }
+        guard let id = item["id"] as? String else { return }
         let label = item["label"] as? String ?? "이모티콘"
         let now = stickerWords[id] ?? []
         let ask = UIAlertController(title: "추천 말 · \(label)",

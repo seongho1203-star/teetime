@@ -1488,7 +1488,7 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
     /**
      * **길게 누르면** — 앱관리자가 그 이모티콘의 추천 말을 고친다
      * (`NativeChatViewController.editWords`). 누구인지는 화면이 가린다 —
-     * 다른 사람에게는 아무 일이 없다.
+     * 눌리는 순간 손끝이 한 번 떨리고, 다른 사람에게는 까닭 한 줄이 뜬다.
      */
     var onHold: ((ChatJSON) -> Void)?
     /**
@@ -1535,6 +1535,9 @@ final class StickerTray: UIView, UICollectionViewDataSource, UICollectionViewDel
     @objc private func held(_ g: UILongPressGestureRecognizer) {
         guard g.state == .began, let at = grid.indexPathForItem(at: g.location(in: grid)),
               items.indices.contains(at.item) else { return }
+        /* 눌렸다는 것을 손끝으로 먼저 알린다 — 창이 뜨기까지 한 박자가
+           있어, 아무 반응이 없는 줄 알고 손을 떼는 일이 없게. */
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onHold?(items[at.item])
     }
 
