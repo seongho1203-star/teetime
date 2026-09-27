@@ -20,7 +20,7 @@ import { Board } from './screens/Board';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollEditRoute, PollRoute, PostEditRoute, PostRoute, RoundEditRoute, RoundGroupsRoute, RoundRoute, SettleRoute, MeRoute } from './screens/NativeScreen';
-import { hasNativeApp } from './lib/native-app';
+import { hasNativeApp, hasAndroidNativeV2, openAndroidNativeV2 } from './lib/native-app';
 import { autoEnablePush } from './lib/push';
 import { IS_NATIVE } from './lib/native';
 
@@ -63,6 +63,28 @@ function Gate() {
     /* 키보드가 올라오면 탭바를 감추고, 글칸 밖을 누르면 내린다.
        **대화 화면은 제 셈을 따로 들고 있어 누르기로는 안 내린다.** */
     useKeyboardChrome();
+
+    /* Android Native V2의 임시 부트스트랩.
+       로그인/가입승인/필수 프로필 확인까지만 기존 웹 인증을 빌리고, 그 다음부터
+       보이는 홈·라운드·투표·채팅은 Kotlin NativeHomeActivity가 맡는다.
+       Native Auth가 완성되면 이 effect 자체를 제거한다. */
+    const androidOpened = useRef(false);
+    useEffect(() => {
+        if (loading || !session || !hasAndroidNativeV2()) return;
+        /* 로그인만 성립하면 Android Native V2가 이후 가입대기/필수프로필/회원
+           gate까지 맡는다. 디자인은 기존 Pending/FillProfile 흐름을 그대로
+           재현하고 WebView는 최초 OAuth를 마칠 때까지만 남긴다. */
+        if (androidOpened.current) return;
+        androidOpened.current = true;
+        void openAndroidNativeV2(
+            session.user.id,
+            session.access_token,
+            session.refresh_token,
+            session.expires_at ? session.expires_at * 1000 : Date.now() + 55 * 60 * 1000,
+            profile?.name ?? '',
+        )
+            .catch(() => { androidOpened.current = false; });
+    }, [loading, session, isMember, profile, contact]);
 
     if (!isConfigured) return <Setup />;
 

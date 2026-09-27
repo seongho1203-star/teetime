@@ -38,6 +38,7 @@ public class MainActivity extends BridgeActivity {
            `super.onCreate` **앞**이어야 다리가 만들어질 때 함께 실린다. */
         registerPlugin(com.kkakkung.app.chat.NativeChatPlugin.class);
         registerPlugin(com.kkakkung.app.nav.NativeNavPlugin.class);
+        registerPlugin(com.kkakkung.app.nativev2.NativeAppPlugin.class);
         super.onCreate(savedInstanceState);
         /* **화면 전환·뒤로 끌기를 맡는 층에 웹뷰를 담는다**(`nav/NavLayer.kt`).
            `super.onCreate`가 웹뷰를 세운 **뒤**여야 한다. 그리고 여기서 거는

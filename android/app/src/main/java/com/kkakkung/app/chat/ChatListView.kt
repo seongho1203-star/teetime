@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -12,8 +15,10 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.dispose
 import coil.load
 import coil.transform.RoundedCornersTransformation
 
@@ -81,14 +86,41 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onCard: ((String) -> Unit)? = null
     var onPhoto: ((String) -> Unit)? = null
     var onQuote: ((String) -> Unit)? = null
+    var onReply: ((String) -> Unit)? = null
+    var onPersonMessage: ((String) -> Unit)? = null
+    var onHold: ((ChatRow, View) -> Unit)? = null
     var onTop: (() -> Unit)? = null
     var onBottom: ((Boolean) -> Unit)? = null
+    internal var onScrollInfo: ((ChatScrollInfo) -> Unit)? = null
+
+    var onUploadRetry: ((String) -> Unit)? = null
+    var onUploadCancel: ((String) -> Unit)? = null
+    private var uploads = emptyMap<String, ChatUploadState>()
+
+    fun setUploads(states: Map<String, ChatUploadState>) {
+        uploads = states
+        // 바이트가 바뀔 때 사진이나 목록을 다시 그리지 않고 보이는 진행 표시만 바꾼다.
+        for (i in 0 until childCount) (getChildViewHolder(getChildAt(i)) as? RowHolder)?.bindUpload()
+    }
 
     private val rows = ArrayList<ChatRow>()
+    private var findQuery = ""
     private val lm = LinearLayoutManager(context).apply { stackFromEnd = true }
     private val rowAdapter = RowAdapter()
     var atBottom = true
         private set
+    private var pausedViewport: ChatViewport? = null
+    private var pendingViewport: ChatViewport? = null
+    val canMarkRead: Boolean
+        get() = rows.isNotEmpty() && isAttachedToWindow && pendingViewport == null &&
+            !isLayoutRequested && !isComputingLayout && atBottom && !canScrollVertically(1)
+    private val reportViewport = Runnable {
+        if (isAttachedToWindow && pendingViewport == null && !isLayoutRequested && !isComputingLayout) {
+            atBottom = !canScrollVertically(1)
+            onBottom?.invoke(atBottom)
+            reportScrollInfo(false)
+        }
+    }
 
     init {
         setBackgroundColor(ChatSkin.bg)
@@ -97,50 +129,122 @@ class ChatListView(context: Context) : RecyclerView(context) {
         itemAnimator = null
         clipToPadding = false
         overScrollMode = View.OVER_SCROLL_NEVER
+        /* iPhone ChatList와 같은 '말풍선을 왼쪽으로 밀어 답장'.
+           놓으면 줄은 제자리로 돌아오고 답장 상태만 남는다. */
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+            override fun onMove(rv: RecyclerView, a: ViewHolder, b: ViewHolder) = false
+            override fun getSwipeDirs(rv: RecyclerView, holder: ViewHolder): Int =
+                if (rows.getOrNull(holder.bindingAdapterPosition)?.id?.startsWith("tmp:") == true) 0
+                else super.getSwipeDirs(rv, holder)
+            override fun getSwipeThreshold(viewHolder: ViewHolder) = 0.28f
+            override fun onSwiped(viewHolder: ViewHolder, direction: Int) {
+                val pos = viewHolder.bindingAdapterPosition
+                val row = rows.getOrNull(pos)
+                if (row != null && row.kind !in setOf("system", "card") && !row.id.startsWith("tmp:")) {
+                    onReply?.invoke(row.id)
+                }
+                if (pos >= 0) rowAdapter.notifyItemChanged(pos)
+            }
+        }).attachToRecyclerView(this)
+
         addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                val bottom = !rv.canScrollVertically(1)
-                if (bottom != atBottom) { atBottom = bottom; onBottom?.invoke(bottom) }
+                if (pendingViewport == null && !isComputingLayout && !isLayoutRequested) {
+                    val bottom = !rv.canScrollVertically(1)
+                    if (bottom != atBottom) { atBottom = bottom; onBottom?.invoke(bottom) }
+                }
+                if (pendingViewport == null) reportScrollInfo(dy != 0 && scrollState != SCROLL_STATE_IDLE)
                 if (dy < 0 && lm.findFirstVisibleItemPosition() <= 1) onTop?.invoke()
             }
         })
     }
 
+    fun refreshScrollInfo() {
+        removeCallbacks(reportViewport)
+        post(reportViewport)
+    }
+
+    private fun reportScrollInfo(moved: Boolean) {
+        val first = lm.findFirstVisibleItemPosition().coerceAtMost(rows.lastIndex)
+        var date: String? = null
+        if (first >= 0) for (index in first downTo 0) {
+            if (rows[index].date != null) { date = rows[index].date; break }
+        }
+        onScrollInfo?.invoke(ChatScrollInfo(date, computeVerticalScrollOffset(),
+            computeVerticalScrollRange(), computeVerticalScrollExtent(), moved,
+            canScrollVertically(-1) || canScrollVertically(1), canScrollVertically(1)))
+    }
+
+    fun setFindQuery(query: String) {
+        findQuery = query
+        rowAdapter.notifyDataSetChanged()
+    }
+
     val rowCount: Int get() = rows.size
 
-    /** 줄을 통째로 갈아 끼운다. 맨 아래를 보고 있었으면 그대로 붙인다. */
+    /** Preserve the pending session anchor even if a sync arrives before the first layout. */
     fun submit(next: List<ChatRow>, keepBottom: Boolean) {
-        val anchor = if (!keepBottom) anchorSpot() else null
+        val anchor = pendingViewport ?: if (!keepBottom) captureViewport(false) else null
         rows.clear(); rows.addAll(next)
         rowAdapter.notifyDataSetChanged()
-        if (keepBottom) scrollToBottom(false)
-        else if (anchor != null) restore(anchor)
+        if (anchor != null) restore(anchor)
+        else if (keepBottom) scrollToBottom(false)
     }
 
-    private class Spot(val id: String, val offset: Int)
-
-    /** 화면 맨 위에 걸린 줄과 그 줄이 위로 지나간 만큼 — 위에 줄을 더 붙여도 같은 자리다. */
-    private fun anchorSpot(): Spot? {
-        val i = lm.findFirstVisibleItemPosition()
-        if (i < 0 || i >= rows.size) return null
-        val v = lm.findViewByPosition(i) ?: return null
-        return Spot(rows[i].id, v.top)
+    private fun captureViewport(followBottom: Boolean): ChatViewport? {
+        val first = lm.findFirstVisibleItemPosition()
+        if (first < 0 || first >= rows.size) return null
+        val last = lm.findLastVisibleItemPosition().coerceAtMost(rows.lastIndex)
+        val anchors = (first..last).mapNotNull { index ->
+            lm.findViewByPosition(index)?.let { rows[index].id to (lm.getDecoratedTop(it) - paddingTop) }
+        }
+        return ChatViewport(followBottom && atBottom, anchors, first)
     }
 
-    private fun restore(spot: Spot) {
-        val i = rows.indexOfFirst { it.id == spot.id }
-        if (i >= 0) lm.scrollToPositionWithOffset(i, spot.offset)
+    fun pauseSession() {
+        stopScroll()
+        if (pausedViewport == null) pausedViewport = pendingViewport ?: captureViewport(true)
+    }
+
+    fun resumeSession() {
+        val saved = pausedViewport ?: return
+        pausedViewport = null
+        pendingViewport = saved
+        atBottom = false
+        restore(saved)
+    }
+
+    private fun restore(spot: ChatViewport) {
+        if (spot.bottom) { scrollToBottom(false); return }
+        val target = spot.resolve(rows.map { it.id }) ?: return
+        lm.scrollToPositionWithOffset(target.first, target.second)
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        pendingViewport = null
+        removeCallbacks(reportViewport)
+        post(reportViewport)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(reportViewport)
+        super.onDetachedFromWindow()
     }
 
     fun scrollToBottom(animated: Boolean) {
         if (rows.isEmpty()) return
         if (animated) smoothScrollToPosition(rows.size - 1) else lm.scrollToPositionWithOffset(rows.size - 1, 0)
-        post { atBottom = !canScrollVertically(1); onBottom?.invoke(atBottom) }
+        removeCallbacks(reportViewport)
+        post(reportViewport)
     }
 
     fun scrollTo(id: String) {
         val i = rows.indexOfFirst { it.id == id }
-        if (i >= 0) lm.scrollToPositionWithOffset(i, context.dp(40f))
+        if (i >= 0) {
+            atBottom = false
+            lm.scrollToPositionWithOffset(i, context.dp(40f))
+        }
     }
 
     private inner class RowAdapter : RecyclerView.Adapter<RowHolder>() {
@@ -149,6 +253,10 @@ class ChatListView(context: Context) : RecyclerView(context) {
         override fun onBindViewHolder(holder: RowHolder, position: Int) {
             val w = if (width > 0) width else context.resources.displayMetrics.widthPixels
             holder.bind(rows[position], w)
+        }
+        override fun onViewRecycled(holder: RowHolder) {
+            holder.releaseMedia()
+            super.onViewRecycled(holder)
         }
     }
 
@@ -173,6 +281,12 @@ class ChatListView(context: Context) : RecyclerView(context) {
         private val contentRow = LinearLayout(ctx)
         private val content = LinearLayout(ctx)
         private val picture = ImageView(ctx)
+        private val mediaBox = FrameLayout(ctx)
+        private val uploadBox = LinearLayout(ctx)
+        private val uploadRing = android.widget.ProgressBar(ctx)
+        private val uploadLabel = TextView(ctx)
+        private val uploadCancel = TextView(ctx)
+        private val uploadRetry = TextView(ctx)
         private val videoMark = TextView(ctx)
         private val bubble = LinearLayout(ctx)
         private val quoteWho = TextView(ctx)
@@ -230,6 +344,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
             initials.gravity = Gravity.CENTER; initials.textSize = 11f; initials.setTextColor(ChatSkin.text)
             initials.background = GradientDrawable().apply { cornerRadius = ctx.dp(10f).toFloat(); setColor(0xFFDDE3D1.toInt()) }
             avatarBox.addView(initials, FrameLayout.LayoutParams(av, av))
+            avatarBox.setOnClickListener { current?.id?.let { onPersonMessage?.invoke(it) } }
             msgRow.addView(avatarBox)
 
             column.orientation = LinearLayout.VERTICAL
@@ -240,8 +355,23 @@ class ChatListView(context: Context) : RecyclerView(context) {
             content.orientation = LinearLayout.VERTICAL
             picture.scaleType = ImageView.ScaleType.FIT_CENTER
             picture.adjustViewBounds = true
-            picture.setOnClickListener { current?.image?.let { if (current?.kind == "photo") onPhoto?.invoke(it) } }
-            content.addView(picture)
+            picture.setOnClickListener { current?.image?.let { if (current?.kind == "photo" && current?.id?.startsWith("tmp:") != true) onPhoto?.invoke(it) } }
+            mediaBox.addView(picture, FrameLayout.LayoutParams(-2, -2))
+            uploadBox.orientation = LinearLayout.VERTICAL; uploadBox.gravity = Gravity.CENTER
+            uploadBox.setBackgroundColor(0xAA000000.toInt())
+            uploadBox.addView(uploadRing, LinearLayout.LayoutParams(ctx.dp(28f), ctx.dp(28f)))
+            uploadLabel.setTextColor(Color.WHITE); uploadLabel.textSize = 12f; uploadLabel.gravity = Gravity.CENTER
+            uploadLabel.setPadding(ctx.dp(4f), ctx.dp(4f), ctx.dp(4f), 0)
+            uploadBox.addView(uploadLabel)
+            uploadRetry.text = "다시 시도"; uploadCancel.text = "취소"
+            for (button in listOf(uploadRetry, uploadCancel)) {
+                button.setTextColor(Color.WHITE); button.gravity = Gravity.CENTER; button.textSize = 13f
+                uploadBox.addView(button, LinearLayout.LayoutParams(-1, ctx.dp(44f)))
+            }
+            uploadRetry.setOnClickListener { current?.id?.let { onUploadRetry?.invoke(it) } }
+            uploadCancel.setOnClickListener { current?.id?.let { onUploadCancel?.invoke(it) } }
+            mediaBox.addView(uploadBox, FrameLayout.LayoutParams(-1, -1))
+            content.addView(mediaBox)
             videoMark.text = "▶ 동영상"; videoMark.setTextColor(ChatSkin.on); videoMark.textSize = 13f
             videoMark.gravity = Gravity.CENTER
             content.addView(videoMark)
@@ -258,6 +388,18 @@ class ChatListView(context: Context) : RecyclerView(context) {
             bubble.addView(quoteRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ctx.dp(1f)).apply { topMargin = ctx.dp(5f); bottomMargin = ctx.dp(6f) })
             bubble.addView(body)
             bubble.setOnClickListener { current?.quoteTo?.let { onQuote?.invoke(it) } }
+            bubble.setOnLongClickListener {
+                current?.let { r -> onHold?.invoke(r, bubble) }
+                true
+            }
+            picture.setOnLongClickListener {
+                current?.let { r -> onHold?.invoke(r, picture) }
+                true
+            }
+            noticeChip.setOnLongClickListener {
+                current?.takeIf { it.kind == "hidden" }?.let { r -> onHold?.invoke(r, noticeChip) }
+                true
+            }
             content.addView(bubble)
             reacts.textSize = 12f; reacts.setTextColor(ChatSkin.text)
             reacts.setPadding(ctx.dp(8f), ctx.dp(4f), ctx.dp(8f), ctx.dp(4f))
@@ -290,8 +432,27 @@ class ChatListView(context: Context) : RecyclerView(context) {
             gravity = Gravity.CENTER_HORIZONTAL; topMargin = ctx.dp(8f); bottomMargin = ctx.dp(4f)
         }
 
+        fun bindUpload() {
+            val state = uploads[current?.id]
+            uploadBox.visibility = if (state != null) View.VISIBLE else View.GONE
+            if (state == null) return
+            uploadRing.visibility = if (state.failed) View.GONE else View.VISIBLE
+            uploadLabel.text = if (!state.failed && state.total > 0) state.label + "\n" +
+                String.format(java.util.Locale.KOREA, "%.2f / %.2fMB", state.sent / 1048576.0, state.total / 1048576.0)
+                else state.label
+            uploadRetry.visibility = if (state.failed) View.VISIBLE else View.GONE
+            uploadCancel.visibility = if (state.cancellable) View.VISIBLE else View.GONE
+        }
+
+        fun releaseMedia() {
+            picture.dispose(); picture.setImageDrawable(null)
+            avatar.dispose(); avatar.setImageDrawable(null)
+        }
+
         fun bind(r: ChatRow, listWidth: Int) {
             current = r
+            mediaBox.visibility = if (r.kind == "photo" || r.kind == "sticker") View.VISIBLE else View.GONE
+            bindUpload()
             val ctx = itemView.context
             root.setPadding(root.paddingLeft, ctx.dp(r.top.toFloat()), root.paddingRight, 0)
             dateChip.visibility = if (r.date != null) View.VISIBLE else View.GONE
@@ -299,7 +460,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
             markChip.visibility = if (r.mark) View.VISIBLE else View.GONE
             markChip.text = "여기까지 읽으셨습니다"
 
-            val notice = r.kind == "system"
+            val notice = r.kind == "system" || r.kind == "hidden"
             noticeChip.visibility = if (notice) View.VISIBLE else View.GONE
             noticeChip.text = r.body
             noticeChip.maxWidth = listWidth - ctx.dp(40f)
@@ -320,7 +481,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
 
             val isMsg = !notice && !isCard
             msgRow.visibility = if (isMsg) View.VISIBLE else View.GONE
-            if (!isMsg) return
+            if (!isMsg) { releaseMedia(); return }
 
             /* 얼굴·이름 — 묶음의 첫 줄에만, 남의 글에만. */
             val showFace = !r.mine
@@ -376,11 +537,12 @@ class ChatListView(context: Context) : RecyclerView(context) {
                 "photo" -> {
                     picture.visibility = View.VISIBLE
                     picture.maxWidth = ctx.dp(ChatSkin.photoW); picture.maxHeight = ctx.dp(ChatSkin.photoH)
-                    picture.minimumWidth = ctx.dp(120f); picture.minimumHeight = ctx.dp(120f)
+                    picture.minimumWidth = ctx.dp(120f); picture.minimumHeight = ctx.dp(if (uploads.containsKey(r.id)) 220f else 120f)
                     picture.setBackgroundColor(0x33000000)
                     videoMark.visibility = if (r.video) View.VISIBLE else View.GONE
-                    if (r.video) picture.setImageDrawable(null)
-                    else picture.load(httpsUrl(r.image)) {
+                    picture.load(httpsUrl(r.image)) {
+                        chatVideoFrame(r.video)
+                        size(ctx.dp(ChatSkin.photoW), ctx.dp(ChatSkin.photoH))
                         crossfade(false)
                         transformations(RoundedCornersTransformation(ctx.dp(ChatSkin.photoRadius).toFloat()))
                     }
@@ -394,7 +556,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
                     videoMark.visibility = View.GONE
                     picture.load(r.image) { crossfade(false) }
                 }
-                else -> { picture.visibility = View.GONE; videoMark.visibility = View.GONE }
+                else -> { picture.dispose(); picture.setImageDrawable(null); picture.visibility = View.GONE; videoMark.visibility = View.GONE }
             }
 
             /* 말풍선 — 글, 또는 그림 밑에 붙는 한 줄(`cap`). 이모지만 보낸 글은 벗긴다. */
@@ -403,7 +565,33 @@ class ChatListView(context: Context) : RecyclerView(context) {
             bubble.visibility = if (showBubble) View.VISIBLE else View.GONE
             if (showBubble) {
                 val big = r.big && r.kind == "text"
-                body.text = text
+                if (r.mentions.isEmpty()) {
+                    body.text = text
+                } else {
+                    val painted = SpannableString(text)
+                    r.mentions.forEach { hit ->
+                        if (hit.start >= 0 && hit.end <= painted.length && hit.start < hit.end) {
+                            painted.setSpan(
+                                ForegroundColorSpan(if (hit.mine) 0xFFD92B8E.toInt() else 0xFF2C7BD4.toInt()),
+                                hit.start, hit.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                    }
+                    body.text = painted
+                }
+                if (findQuery.length >= 2 && text.isNotEmpty()) {
+                    val base = if (body.text is android.text.Spanned)
+                        android.text.SpannableString(body.text) else SpannableString(text)
+                    var from = 0
+                    while (from < text.length) {
+                        val at = text.indexOf(findQuery, from, ignoreCase = true)
+                        if (at < 0) break
+                        base.setSpan(ForegroundColorSpan(0xFF2C7BD4.toInt()), at, at + findQuery.length,
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        from = at + findQuery.length
+                    }
+                    body.text = base
+                }
                 body.textSize = if (big) ChatSkin.bigSize else ChatSkin.fontSize
                 body.maxWidth = maxW
                 body.setTextColor(ChatSkin.text)

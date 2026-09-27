@@ -1,3 +1,4 @@
+import { chatShared } from './chat-shared';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
 /**
@@ -86,6 +87,27 @@ export function nativeScreen(path: string): boolean {
     return hasNativeApp() && NATIVE_SCREENS.some(p => matches(p, path));
 }
 
+
+/* ── Android Native V2 ──────────────────────────────────────────
+ * iOS NativeApp 계약은 Claude 작업 그대로 둔다. Android는 완전 네이티브 전환
+ * 기간에 로그인 세션만 받아 NativeHomeActivity로 들어간다. Native Auth가
+ * 완성되면 이 임시 open 호출도 제거한다.
+ */
+export function hasAndroidNativeV2(): boolean {
+    return Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('NativeApp');
+}
+
+export async function openAndroidNativeV2(
+    user: string, token: string, refresh: string, expires: number, name = '',
+): Promise<void> {
+    if (!hasAndroidNativeV2()) return;
+    await NativeApp.open({
+        user, token, refresh, expires, name,
+        url: import.meta.env.VITE_SUPABASE_URL,
+        key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        ...chatShared(),
+    });
+}
 /*
  * **알림을 눌러 온 길(딥링크)** — 5단계.
  *
