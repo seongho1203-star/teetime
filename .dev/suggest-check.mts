@@ -26,6 +26,9 @@ const ROWS = [
     { sticker_id: 'gthanks', word: '감사' },
     { sticker_id: 'wbeung', word: '응?' },
     { sticker_id: 'wbeung', word: '엥?' },
+    /* 기호가 붙어야 말이 되는 것 — `짱`은 한 글자라 그대로는 못 넣는다. */
+    { sticker_id: 'gthanks', word: '짱!' },
+    { sticker_id: 'ctthanks', word: '^^' },
     /* 손으로 SQL로 넣어 깎이지 않은 채 들어온 줄 — 그래도 걸려야 한다. */
     { sticker_id: 'pnthanks', word: '땡 큐!' },
     /* 한 글자는 DB가 막지만 혹시 들어와도 안 걸려야 한다. */
@@ -47,7 +50,7 @@ ok(ids('굿모닝').includes('ghi') && ids('굿모닝').includes('pnhi'), '`굿�
 ok(ids('굿모닝입니다').includes('ghi'), '뒤에 붙어도 걸린다');
 ok(ids('굿 모닝!').includes('ghi'), '공백·문장부호는 지우고 본다');
 ok(ids('감사합니다').includes('gthanks'), '`감사` → `감사합니다`에도 걸린다');
-ok(ids('땡큐요').includes('pnthanks'), '깎이지 않은 채 들어온 줄도 걸린다');
+ok(ids('땡큐!요').includes('pnthanks'), '깎이지 않은 채 들어온 줄도 걸린다(공백만 지운다)');
 ok(!ids('굿모닝').includes('nope-gone'), '없는 이모티콘은 조용히 빠진다');
 
 /* ── 2. 이름으로 짐작하지 않는다 ──────────────────────────────
@@ -64,6 +67,16 @@ ok(ids('응?').includes('wbeung'), '`응?`');
 ok(ids('응？').includes('wbeung'), '전각 `？`도 같다');
 ok(!ids('응원합니다').includes('wbeung'), '`응원`에는 안 뜬다');
 ok(ids('엥? 뭐야').includes('wbeung'), '`엥?`');
+
+/* ── 3-1. 특수기호도 말이 된다 ─────────────────────────────
+   사용자 요청 — `특수기호는 안되나? 짱! 응? 엥?`. 지우는 것은 공백뿐이다. */
+console.log('\n── 특수기호 ──');
+ok(ids('짱!').includes('gthanks'), '`짱!`');
+ok(ids('완전 짱!!!').includes('gthanks'), '`완전 짱!!!`에도 걸린다');
+ok(ids('짱！').includes('gthanks'), '전각 `！`도 같다');
+ok(!ids('짱이다').includes('gthanks'), '`!` 없는 `짱이다`에는 안 뜬다');
+ok(ids('알겠어요^^').includes('ctthanks'), '기호만으로 된 말(`^^`)도 걸린다');
+ok(ids('굿모닝!!').includes('ghi'), '기호 없이 적은 말은 기호가 붙어도 걸린다');
 
 /* ── 4. 아무 때나 뜨면 안 된다 ────────────────────────────── */
 console.log('\n── 안 떠야 하는 자리 ──');
@@ -92,11 +105,12 @@ ok(both.every((id, i) => i === 0 || order.get(both[i - 1])! < order.get(id)!),
    깎고, 한 글자·겹치는 것은 뺀다. **앱(Swift)의 같은 셈과 결과가 같아야
    한다**(`NativeChatViewController.splitWords`). */
 console.log('\n── 적어 넣는 말 ──');
-const split = splitWords('굿모닝, 좋은 아침!, ㅋ, 굿모닝\n응?，Hello');
-ok(JSON.stringify(split) === JSON.stringify(['굿모닝', '좋은아침', '응?', 'hello']),
+const split = splitWords('굿모닝, 좋은 아침!, ㅋ, 굿모닝\n응?，Hello, 짱!');
+ok(JSON.stringify(split) === JSON.stringify(['굿모닝', '좋은아침!', '응?', 'hello', '짱!']),
    `나누고 깎는다 (${split.join(' · ')})`);
 ok(splitWords('').length === 0 && splitWords(' , ,').length === 0, '빈 것은 빈손이다');
-ok(norm('화이팅!!') === '화이팅' && norm('응？') === '응?', '깎는 자 — 문장부호는 지우고 `?`는 남긴다');
+ok(norm('화 이팅!!') === '화이팅!!' && norm('응？') === '응?' && norm('짱！') === '짱!',
+   '깎는 자 — 공백만 지우고 기호는 남긴다');
 
 console.log(`\n${fail ? '❌' : '✅'} ${pass}개 통과 · ${fail}개 실패`);
 process.exitCode = fail ? 1 : 0;

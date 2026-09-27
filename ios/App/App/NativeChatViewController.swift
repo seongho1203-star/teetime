@@ -1188,11 +1188,11 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         let label = item["label"] as? String ?? "이모티콘"
         let now = stickerWords[id] ?? []
         let ask = UIAlertController(title: "추천 말 · \(label)",
-            message: "글에 이 말이 들어 있으면 이 이모티콘이 뜹니다.\n쉼표로 나눠 여럿 적을 수 있고, 비우면 추천에서 빠집니다.",
+            message: "글에 이 말이 들어 있으면 이 이모티콘이 뜹니다.\n쉼표로 나눠 여럿 적을 수 있고, 비우면 추천에서 빠집니다.\n짱! · 응? · ^^ 처럼 기호도 그대로 됩니다.",
             preferredStyle: .alert)
         ask.addTextField { f in
             f.text = now.joined(separator: ", ")
-            f.placeholder = "예: 굿모닝, 좋은아침"
+            f.placeholder = "예: 굿모닝, 짱!, 응?"
             f.clearButtonMode = .whileEditing
         }
         ask.addAction(UIAlertAction(title: "취소", style: .cancel))
@@ -1221,7 +1221,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
 
     /**
-     * 깎은 글과 **그 글자가 원문 어디였는지**. 깎으면서 공백·문장부호가
+     * 깎은 글과 **그 글자가 원문 어디였는지**. 깎으면서 공백이
      * 빠지므로, 되짚어 칠하려면 자리를 함께 들고 있어야 한다.
      * 자리는 **UTF-16 기준**이라 그대로 `NSRange`로 쓴다.
      */
@@ -1233,18 +1233,19 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
 
     /**
-     * **글자를 깎는 자리가 웹과 같아야 한다**(공백·문장부호를 지우고
+     * **글자를 깎는 자리가 웹과 같아야 한다**(공백만 지우고 기호는 남기고
      * 소문자로 · 웹 `lib/suggest.ts`의 `norm`). DB의 말도 이 자로 깎아
      * 넣는다(`editWords`).
      */
     private func normalize(_ text: String) -> NormText {
-        /* **물음표는 남긴다** — 웹 `suggest.ts`의 `norm`과 같다(`응?`·`뭐?`가
-           그 물음표로 갈린다). 전각 `？`는 `?`로 본다. **한쪽만 고치지 말 것.** */
-        let drop = CharacterSet(charactersIn: " \t\n!~.,…'\"“”()·:;-_/")
+        /* **지우는 것은 공백뿐이다 — 특수기호는 다 남긴다**(사용자 요청 —
+           `특수기호는 안되나? 짱! 응? 엥?`). 웹 `suggest.ts`의 `norm`과 같다.
+           전각 `？！～`는 반각으로 본다. **한쪽만 고치지 말 것.** */
+        let drop = CharacterSet.whitespacesAndNewlines
         var kept: [Unicode.Scalar] = [], from: [Int] = [], to: [Int] = []
         var at = 0
         for raw in text.unicodeScalars {
-            let u: Unicode.Scalar = raw == "？" ? "?" : raw
+            let u: Unicode.Scalar = raw == "？" ? "?" : raw == "！" ? "!" : raw == "～" ? "~" : raw
             let w = UTF16.width(raw)
             if !drop.contains(u) {
                 for low in String(u).lowercased().unicodeScalars {
