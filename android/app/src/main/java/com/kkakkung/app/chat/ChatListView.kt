@@ -91,6 +91,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onHold: ((ChatRow, View) -> Unit)? = null
     var onTop: (() -> Unit)? = null
     var onBottom: ((Boolean) -> Unit)? = null
+    internal var onScrollInfo: ((ChatScrollInfo) -> Unit)? = null
 
     var onUploadRetry: ((String) -> Unit)? = null
     var onUploadCancel: ((String) -> Unit)? = null
@@ -117,6 +118,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
         if (isAttachedToWindow && pendingViewport == null && !isLayoutRequested && !isComputingLayout) {
             atBottom = !canScrollVertically(1)
             onBottom?.invoke(atBottom)
+            reportScrollInfo(false)
         }
     }
 
@@ -151,9 +153,26 @@ class ChatListView(context: Context) : RecyclerView(context) {
                     val bottom = !rv.canScrollVertically(1)
                     if (bottom != atBottom) { atBottom = bottom; onBottom?.invoke(bottom) }
                 }
+                if (pendingViewport == null) reportScrollInfo(dy != 0 && scrollState != SCROLL_STATE_IDLE)
                 if (dy < 0 && lm.findFirstVisibleItemPosition() <= 1) onTop?.invoke()
             }
         })
+    }
+
+    fun refreshScrollInfo() {
+        removeCallbacks(reportViewport)
+        post(reportViewport)
+    }
+
+    private fun reportScrollInfo(moved: Boolean) {
+        val first = lm.findFirstVisibleItemPosition().coerceAtMost(rows.lastIndex)
+        var date: String? = null
+        if (first >= 0) for (index in first downTo 0) {
+            if (rows[index].date != null) { date = rows[index].date; break }
+        }
+        onScrollInfo?.invoke(ChatScrollInfo(date, computeVerticalScrollOffset(),
+            computeVerticalScrollRange(), computeVerticalScrollExtent(), moved,
+            canScrollVertically(-1) || canScrollVertically(1), canScrollVertically(1)))
     }
 
     fun setFindQuery(query: String) {

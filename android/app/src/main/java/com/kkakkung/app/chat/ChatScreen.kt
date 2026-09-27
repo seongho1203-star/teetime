@@ -83,6 +83,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val findUp = TextView(activity)
     private val findDown = TextView(activity)
     private val list = ChatListView(activity)
+    private val scrollHints = ChatScrollHints(activity) { list.scrollToBottom(true) }
     private val status = TextView(activity)
     private val mentionPanel = LinearLayout(activity)
     private val suggestPanel = HorizontalScrollView(activity)
@@ -173,6 +174,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
         val body = FrameLayout(activity)
         body.addView(list, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        body.addView(scrollHints, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         status.setTextColor(Color.WHITE); status.textSize = 15f; status.gravity = Gravity.CENTER
         status.setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
         status.setOnClickListener { startLoad() }
@@ -381,6 +383,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 sendSelectedMedia()
             }
         }
+        list.onScrollInfo = { info ->
+            if (stage2 && visible && !searching) scrollHints.update(info) else scrollHints.reset()
+        }
         list.onTop = { loadMore() }
         list.onBottom = { bottom -> if (bottom) markRead() else readJob?.cancel() }
     }
@@ -403,10 +408,12 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
         if (!loaded) startLoad() else { list.resumeSession(); realtime?.start(); sync(); markRead() }
         ViewCompat.requestApplyInsets(this)
+        list.refreshScrollInfo()
     }
 
     fun detach() {
         if (visible) list.pauseSession()
+        scrollHints.reset()
         syncRunner.cancel()
         metaJob?.cancel(); readJob?.cancel()
         drawerOverlay?.let { removeView(it) }
@@ -559,6 +566,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         if (searching) return
         if (!loaded) { notice("대화를 불러온 뒤 다시 검색해 주세요."); return }
         searching = true
+        scrollHints.reset()
         hideMentionCard(); clearReply(); hideKeyboard()
         stickerTray.visibility = View.GONE
         header.removeAllViews()
@@ -604,6 +612,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         findBar.visibility = View.GONE; composer.visibility = View.VISIBLE
         showNormalHeader()
         hideKeyboard()
+        list.refreshScrollInfo()
     }
 
     private fun queueSearch(raw: String) {
