@@ -1,22 +1,13 @@
 package com.kkakkung.app.chat
 
-import android.os.Handler
-import android.os.Looper
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -265,113 +256,5 @@ class ChatService(@Volatile var config: ChatConfig) {
         val path = "$room/${UUID.randomUUID().toString().lowercase()}.$ext"
         request("storage/v1/object/chat-photos/$path", method = "POST", bytes = data, contentType = type)
         return "${config.url}/storage/v1/object/public/chat-photos/$path"
-    }
-}
-
-/**
- * 실시간 — Supabase의 Phoenix v1 규약(아이폰 `NativeChatRealtime`과 같다).
- * 20초 heartbeat, 답이 없으면 다시 잇고, 토큰이 바뀌면 알린다.
- *
- * **알려 주는 것은 메인 갈래에서 한다** — 받는 쪽이 화면을 고치는 코드다.
- */
-class ChatRealtime(private val service: ChatService, private val room: String) {
-    var changed: ((JSONObject) -> Unit)? = null
-    var connected: (() -> Unit)? = null
-    var status: ((Boolean) -> Unit)? = null
-
-    private val main = Handler(Looper.getMainLooper())
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var socket: WebSocket? = null
-    private var heartbeat: Job? = null
-    private var retry: Job? = null
-    @Volatile private var active = false
-    @Volatile private var pending = false
-    private var ref = 0
-    private var generation = 0
-
-    fun start() {
-        stop(); active = true; pending = false
-        val gen = ++generation
-        val base = service.config.url.replaceFirst("https://", "wss://")
-        val url = "$base/realtime/v1/websocket?apikey=${service.config.key}&vsn=1.0.0"
-        val req = Request.Builder().url(url).build()
-        socket = service.http.newWebSocket(req, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (gen != generation) return
-                val changes = JSONArray()
-                    .put(JSONObject().put("event", "*").put("schema", "public").put("table", "messages").put("filter", "room_id=eq.$room"))
-                    .put(JSONObject().put("event", "*").put("schema", "public").put("table", "room_reads").put("filter", "room_id=eq.$room"))
-                    .put(JSONObject().put("event", "*").put("schema", "public").put("table", "message_reactions"))
-                val cfg = JSONObject()
-                    .put("broadcast", JSONObject().put("self", false))
-                    .put("presence", JSONObject().put("enabled", false))
-                    .put("private", false)
-                    .put("postgres_changes", changes)
-                send("phx_join", JSONObject().put("access_token", service.config.token).put("config", cfg))
-                heartbeat = scope.launch {
-                    while (isActive) {
-                        delay(20_000)
-                        if (pending) { reconnect(); return@launch }
-                        pending = true
-                        send("heartbeat", JSONObject(), "phoenix")
-                    }
-                }
-            }
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                if (gen != generation) return
-                val d = try { JSONObject(text) } catch (e: Exception) { return }
-                val event = d.optString("event")
-                val topic = d.optString("topic")
-                val payload = d.optJSONObject("payload") ?: JSONObject()
-                if (event == "phx_reply" && topic == "phoenix") pending = false
-                if (event == "phx_reply" && topic != "phoenix") {
-                    if (payload.optString("status") == "ok") main.post { status?.invoke(true); connected?.invoke() }
-                    else reconnect()
-                }
-                if (event == "postgres_changes") {
-                    val change = payload.optJSONObject("data")
-                    if (change != null) main.post { changed?.invoke(change) }
-                }
-                if (event == "phx_error" || event == "phx_close" ||
-                    (event == "system" && payload.optString("status") == "error")) reconnect()
-            }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (gen == generation) reconnect()
-            }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (gen == generation) reconnect()
-            }
-        })
-    }
-
-    fun updateToken() { send("access_token", JSONObject().put("access_token", service.config.token)) }
-
-    @Synchronized private fun send(event: String, payload: JSONObject, topic: String? = null) {
-        ref += 1
-        val msg = JSONObject().put("topic", topic ?: "realtime:native-$room")
-            .put("event", event).put("payload", payload).put("ref", ref.toString())
-        socket?.send(msg.toString())
-    }
-
-    private fun reconnect() {
-        if (!active) return
-        synchronized(this) {
-            if (retry != null) return
-            main.post { status?.invoke(false) }
-            socket?.cancel(); socket = null
-            heartbeat?.cancel(); heartbeat = null
-            retry = scope.launch {
-                delay(3_000)
-                synchronized(this@ChatRealtime) { retry = null }
-                if (active) main.post { if (active) start() }
-            }
-        }
-    }
-
-    fun stop() {
-        active = false
-        heartbeat?.cancel(); heartbeat = null
-        retry?.cancel(); retry = null
-        socket?.cancel(); socket = null
     }
 }
