@@ -53,6 +53,20 @@ android {
     }
     kotlinOptions { jvmTarget = '21' }
     buildFeatures { buildConfig true }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED',
+                '--add-opens=java.base/java.util=ALL-UNNAMED',
+                '--add-opens=java.base/java.io=ALL-UNNAMED',
+                '--add-opens=java.base/java.net=ALL-UNNAMED',
+                '--add-opens=java.base/java.security=ALL-UNNAMED',
+                '--add-opens=java.base/java.text=ALL-UNNAMED',
+                '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED',
+                '--add-opens=java.desktop/java.awt.font=ALL-UNNAMED',
+                '--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED'
+        }
+    }
 
     buildTypes {
         release {
@@ -86,6 +100,7 @@ dependencies {
     implementation "io.coil-kt:coil-gif:2.7.0"
     implementation "io.coil-kt:coil-video:2.7.0"
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.robolectric:robolectric:4.17"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1"
     testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
     testImplementation "org.json:json:20240303"

@@ -23,6 +23,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
     var tabSelected: ((String) -> Unit)? = null
     private var busy = false
     private var dragging = false
+    val transitioning get() = busy || dragging
     private var rejected = false
     private var startX = 0f
     private var startY = 0f
@@ -30,11 +31,19 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
     private var preview: Screen? = null
     private var direction = 0
     private val density = resources.displayMetrics.density
+    private var refreshAfterPop = false
+    fun invalidatePrevious() { refreshAfterPop = true }
+    private fun animationsEnabled() = android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled()
     private val ease = PathInterpolator(.32f, .72f, 0f, 1f)
     private fun attach(screen: Screen) {
         (screen.view.parent as? ViewGroup)?.removeView(screen.view)
         addView(screen.view, LayoutParams(-1, -1))
         screen.view.visibility = View.VISIBLE
+    }
+    private fun scrollView(view: View): View? {
+        if (view is ScrollView) return view
+        if (view is ViewGroup) for (i in 0 until view.childCount) scrollView(view.getChildAt(i))?.let { return it }
+        return null
     }
     fun show(key: String, view: View, root: Boolean, refresh: (() -> Unit)? = null) {
         if (busy || dragging) return
@@ -42,16 +51,17 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         val old = current
         if (root || old == null || old.key == key) {
             if (root) screens.clear() else if (old != null) screens.removeAt(screens.lastIndex)
-            val oldY = if (old?.key == key) old.view.scrollY else 0
+            val oldY = if (old?.key == key) scrollView(old.view)?.scrollY ?: old.view.scrollY else 0
             removeAllViews(); screens.add(entry); attach(entry)
-            view.post { view.scrollTo(0, oldY) }; changed?.invoke(); return
+            view.post { (scrollView(view) ?: view).scrollTo(0, oldY) }; changed?.invoke(); return
         }
         screens.add(entry); attach(entry)
         busy = true
         view.translationX = width.toFloat()
-        old.view.animate().translationX(-width * .25f).setDuration(500).setInterpolator(ease).start()
+        val duration = if (animationsEnabled()) 500L else 0L
+        old.view.animate().translationX(-width * .25f).setDuration(duration).setInterpolator(ease).start()
         rootMotion?.invoke(-width * .25f, screens.size == 2)
-        view.animate().translationX(0f).setDuration(500).setInterpolator(ease).withEndAction {
+        view.animate().translationX(0f).setDuration(duration).setInterpolator(ease).withEndAction {
             removeView(old.view); old.view.translationX = 0f
             busy = false; changed?.invoke()
         }.start()
@@ -69,7 +79,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         val front = current ?: return
         val behind = screens[screens.lastIndex - 1]
         busy = true
-        val duration = if (android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled()) 500L else 0L
+        val duration = if (animationsEnabled()) 500L else 0L
         behind.view.animate().translationX(if (go) 0f else -width * .25f).setDuration(duration).setInterpolator(ease).start()
         rootMotion?.invoke(if (go) 0f else -width * .25f, screens.size == 2)
         front.view.animate().translationX(if (go) width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).withEndAction {
@@ -77,11 +87,12 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
             else removeView(behind.view)
             front.view.translationX = 0f; behind.view.translationX = 0f
             busy = false; dragging = false; changed?.invoke()
+            if (go && refreshAfterPop) { refreshAfterPop = false; behind.refresh?.invoke() }
         }.start()
     }
     private fun protected(view: View, x: Float, y: Float): Boolean {
         if (view.visibility != View.VISIBLE || x < 0 || y < 0 || x >= view.width || y >= view.height) return false
-        if (view is EditText || view is Spinner || view is RadioGroup || view is AbsSeekBar ||
+        if (view is EditText || view is Spinner || view is RadioGroup || view is CompoundButton || view is AbsSeekBar || view.tag == "swipe-excluded" ||
             view is HorizontalScrollView || view.canScrollHorizontally(-1) || view.canScrollHorizontally(1)) return true
         if (view is ViewGroup) for (i in view.childCount - 1 downTo 0) {
             val c = view.getChildAt(i)
@@ -129,6 +140,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         val dx = e.x - startX
         val front = current ?: return false
         if (e.actionMasked == MotionEvent.ACTION_MOVE) {
+            if (!animationsEnabled()) return true
             if (canPop) {
                 val x = dx.coerceIn(0f, width.toFloat())
                 front.view.translationX = x
@@ -149,7 +161,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
                 val next = preview ?: return true
                 val go = !cancelled && (-direction*dx > width*.34f || -direction*vx > 800f)
                 busy = true
-                val duration = if (android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled()) 500L else 0L
+                val duration = if (animationsEnabled()) 500L else 0L
                 front.view.animate().translationX(if (go) -direction*width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).start()
                 next.view.animate().translationX(if (go) 0f else direction*width.toFloat()).setDuration(duration).setInterpolator(ease).withEndAction {
                     if (go) { removeView(front.view); screens.clear(); screens.add(next); tabSelected?.invoke(next.key) }

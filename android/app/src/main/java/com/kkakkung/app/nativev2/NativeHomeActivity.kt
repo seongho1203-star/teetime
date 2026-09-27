@@ -214,7 +214,7 @@ class NativeHomeActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (!::api.isInitialized || !::content.isInitialized) return
-        if (resumedOnce && currentFocus !is EditText) content.current?.refresh?.invoke()
+        if (resumedOnce && currentFocus !is EditText && !content.transitioning) content.current?.refresh?.invoke()
         resumedOnce = true
         NativePushForeground.active = true
         refreshBadges()
@@ -393,15 +393,15 @@ class NativeHomeActivity : AppCompatActivity() {
             setBackgroundColor(bg)
             changed = {
                 detail = content.canPop
-                bottom.translationX = 0f
-                bottom.visibility = if (detail) View.GONE else View.VISIBLE
                 val top = content.current
-                if (top?.key == "/chat") chat?.attach(top.view as ViewGroup)
+                if (!detail) (top?.view?.tag as? LinearLayout)?.let { bar -> bindBottomBar(bar) }
+                if (top?.key == "/chat" && chat?.parent == null) chat?.attach(top.view as ViewGroup)
+                refreshBadges()
             }
-            rootMotion = { x, rootVisible ->
-                if (rootVisible) { bottom.visibility = View.VISIBLE; bottom.animate().cancel(); bottom.translationX = x }
+            tabSelected = { key ->
+                currentTab = key.removePrefix("/").ifEmpty { "home" }
+                if (currentTab == "board") getSharedPreferences("native-seen", MODE_PRIVATE).edit().putString("board:${session.userId}", java.time.Instant.now().toString()).apply()
             }
-            tabSelected = { key -> currentTab = key.removePrefix("/").ifEmpty { "home" }; selectTabCompat(currentTab) }
             tabNeighbor = { direction ->
                 val order = listOf("home", "board", "rounds", "polls")
                 val index = order.indexOf(currentTab) + direction
@@ -415,14 +415,8 @@ class NativeHomeActivity : AppCompatActivity() {
                 }
             }
         }
-        bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(card)
-            elevation = 0f
-        }
+        bottom = makeBottomBar()
         root.addView(content, FrameLayout.LayoutParams(-1, -1))
-        root.addView(bottom, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM))
 
         /* Android 15(target 35)의 edge-to-edge 보정.
            - 평소: 기존 까꿍 디자인/64dp 탭바는 그대로 두고 system bar만 피한다.
@@ -438,48 +432,50 @@ class NativeHomeActivity : AppCompatActivity() {
                숨긴다. ChatScreen/댓글칸이 따로 IME 높이를 더하지 않으므로
                '키보드는 떴는데 입력창은 아래에 남음'과 이중 여백을 함께 막는다. */
             v.setPadding(0, bars.top, 0, if (imeVisible) ime.bottom else bars.bottom)
-            bottom.visibility = if (imeVisible || content.canPop) View.GONE else View.VISIBLE
+            if (!content.canPop) bottom.visibility = if (imeVisible) View.GONE else View.VISIBLE
             ins
         }
 
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
 
-        val tabSpecs = listOf(
-            Triple("home", "홈", R.drawable.ic_tab_home),
-            Triple("board", "공지", R.drawable.ic_tab_board),
-            Triple("rounds", "라운드", R.drawable.ic_tab_round),
-            Triple("polls", "투표", R.drawable.ic_tab_poll),
-            Triple("chat", "대화", R.drawable.ic_tab_chat)
-        )
-        tabSpecs.forEach { (id, label, icon) ->
-            val b = Button(this).apply {
-                text = label
-                textSize = 11.5f // --fs-xs
-                typeface = Typeface.DEFAULT_BOLD
-                isAllCaps = false
-                gravity = Gravity.CENTER
-                setPadding(0, dp(5), 0, dp(3))
-                setTextColor(faint)
-                setCompoundDrawablesWithIntrinsicBounds(0, icon, 0, 0)
-                compoundDrawablePadding = dp(3)
-                compoundDrawableTintList = ColorStateList.valueOf(faint)
-                setBackgroundColor(Color.TRANSPARENT)
-                minHeight = 0; minimumHeight = 0
-                setOnClickListener { showTab(id) }
-            }
-            tabs[id] = b
+    }
+
+    private fun makeBottomBar(): LinearLayout {
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(card) }
+        listOf(Triple("home", "홈", R.drawable.ic_tab_home), Triple("board", "공지", R.drawable.ic_tab_board),
+            Triple("rounds", "라운드", R.drawable.ic_tab_round), Triple("polls", "투표", R.drawable.ic_tab_poll),
+            Triple("chat", "대화", R.drawable.ic_tab_chat)).forEach { (id, label, icon) ->
             val cell = FrameLayout(this)
+            val b = Button(this).apply {
+                tag = id; text = label; textSize = 11.5f; isAllCaps = false; gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(5), 0, dp(3))
+                setTextColor(if (id == currentTab) brand else faint)
+                setCompoundDrawablesWithIntrinsicBounds(0, icon, 0, 0); compoundDrawablePadding = dp(3)
+                compoundDrawableTintList = ColorStateList.valueOf(if (id == currentTab) brand else faint)
+                setBackgroundColor(Color.TRANSPARENT); minHeight = 0; minimumHeight = 0
+                setOnClickListener { if (!content.transitioning) showTab(id) }
+            }
             cell.addView(b, FrameLayout.LayoutParams(-1, -1))
-            val number = TextView(this).apply {
+            cell.addView(TextView(this).apply {
                 textSize = 10f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
                 setPadding(dp(4), 0, dp(4), 0); minWidth = dp(16); visibility = View.GONE
                 background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(if (id in setOf("rounds", "polls")) grassDeep else danger) }
-            }
-            cell.addView(number, FrameLayout.LayoutParams(-2, dp(16), Gravity.TOP or Gravity.END).apply { rightMargin = dp(9); topMargin = dp(2) })
-            tabBadges[id] = number
-            bottom.addView(cell, LinearLayout.LayoutParams(0, dp(58), 1f))
+            }, FrameLayout.LayoutParams(-2, dp(16), Gravity.TOP or Gravity.END).apply { rightMargin = dp(9); topMargin = dp(2) })
+            bar.addView(cell, LinearLayout.LayoutParams(0, dp(58), 1f))
         }
+        return bar
+    }
+
+    private fun bindBottomBar(bar: LinearLayout) {
+        bottom = bar; tabs.clear(); tabBadges.clear()
+        for (i in 0 until bar.childCount) {
+            val cell = bar.getChildAt(i) as FrameLayout
+            val button = cell.getChildAt(0) as Button
+            tabs[button.tag as String] = button
+            tabBadges[button.tag as String] = cell.getChildAt(1) as TextView
+        }
+        selectTabCompat(currentTab)
     }
 
     private fun showTab(id: String) {
@@ -1403,7 +1399,7 @@ class NativeHomeActivity : AppCompatActivity() {
                 mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
             }
             op("취소", true) { confirm("라운드 취소", "모집을 취소할까요?") { mutate { api.setRoundStatus(id, "cancelled"); showRound(id) } } }
-            op("지우기", true) { confirm("라운드 삭제", "신청과 댓글도 함께 삭제됩니다.") { mutate { api.deleteRow("rounds", id); navigateBack() } } }
+            op("지우기", true) { confirm("라운드 삭제", "신청과 댓글도 함께 삭제됩니다.") { mutate { api.deleteRow("rounds", id); content.invalidatePrevious(); navigateBack() } } }
             page.addView(operations)
             if (confirmed.isNotEmpty()) page.addView(action("조 편성") { showGroups(r, people) })
             page.addView(action("대화방에 공유") { mutate { api.shareRound(r); toast("대화방에 공유했습니다.") } })
@@ -1505,7 +1501,7 @@ class NativeHomeActivity : AppCompatActivity() {
             val kept = JSONObject(); assignments.values.distinct().forEach { group ->
                 if (tees.has(group.toString())) kept.put(group.toString(), tees.get(group.toString()))
             }
-            mutate { api.setRoundGroups(id, result, kept); toast("조 편성을 저장했습니다."); navigateBack() }
+            mutate { api.setRoundGroups(id, result, kept); toast("조 편성을 저장했습니다."); content.invalidatePrevious(); navigateBack() }
         })
         mount(page); paint()
         scope.launch { try { tees = api.groupTees(id); paint() } catch (_: Exception) { } }
@@ -1519,11 +1515,14 @@ class NativeHomeActivity : AppCompatActivity() {
             section(page, settlement.optString("title"))
             if (mine != null) {
                 body(page, "내 몫 ${money(mine.optInt("amount"))}")
-                page.addView(action(if (mine.optBoolean("paid")) "입금완료" else "입금완료로 표시", primary = !mine.optBoolean("paid")) {
-                    if (!mine.optBoolean("paid")) confirm("입금완료", "입금을 마치셨나요?") {
-                        mutate { api.markSharePaid(mine.optString("id")); showRound(roundId) }
+                val paid = mine.optBoolean("paid")
+                val paidButton = action(if (paid) "입금완료 ✓" else "입금완료", primary = true) {
+                    confirm(if (paid) "입금완료 취소" else "입금완료", if (paid) "입금 표시를 취소할까요?" else "입금을 마치셨나요?") {
+                        mutate { api.markSharePaid(mine.optString("id"), !paid); showRound(roundId) }
                     }
-                })
+                }
+                if (paid) paidButton.background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(grass) }
+                page.addView(paidButton)
             }
             val bank = settlement.optString("bank"); val account = settlement.optString("account")
             if (account.isNotBlank()) {
@@ -2445,14 +2444,18 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun mount(page: LinearLayout) {
         val key = pendingKey
         val root = key in setOf("/", "/board", "/rounds", "/polls")
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(bg)
-            if (root) { setPadding(0, 0, 0, dp(58)); clipToPadding = false }
-        }
+        val scroll = ScrollView(this).apply { setBackgroundColor(bg) }
         scroll.addView(page, ViewGroup.LayoutParams(-1, -2))
-        if (buildingTabPreview) {
-            builtPreview = NativeScreenStack.Screen(key, scroll, pendingRefresh)
-        } else content.show(key, scroll, root, pendingRefresh)
+        val view: View = if (root) FrameLayout(this).apply {
+            setBackgroundColor(bg)
+            addView(scroll, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) })
+            val bar = if (buildingTabPreview) makeBottomBar() else bottom
+            (bar.parent as? ViewGroup)?.removeView(bar)
+            bar.visibility = View.VISIBLE
+            addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM)); tag = bar
+        } else scroll
+        if (buildingTabPreview) builtPreview = NativeScreenStack.Screen(key, view, pendingRefresh)
+        else content.show(key, view, root, pendingRefresh)
     }
 
     private fun title(parent: LinearLayout, value: String) {
