@@ -1238,7 +1238,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun setReply(id: String) {
         val m = messages.firstOrNull { it.id == id } ?: return
-        if (m.hidden || m.system) return
+        if (m.hidden || m.system || m.id.startsWith("tmp:")) return
         quoted = m
         replyPanel.removeAllViews()
 
@@ -1442,7 +1442,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     /** 다시 이었을 때 — 떠나 있던 동안 온 글을 마지막 글 뒤로 받아 온다. */
     private fun sync() {
         if (!visible || !loaded || syncJob != null) return
-        val tail = messages.lastOrNull()
+        val tail = messages.lastOrNull { !it.id.startsWith("tmp:") }
         syncJob = scope.launch {
             try {
                 var more = true
@@ -1494,7 +1494,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun loadMore() {
         if (!visible || !loaded || !hasMore || loadingMore) return
-        val first = messages.firstOrNull() ?: return
+        val first = messages.firstOrNull { !it.id.startsWith("tmp:") } ?: return
         loadingMore = true
         scope.launch {
             try {
