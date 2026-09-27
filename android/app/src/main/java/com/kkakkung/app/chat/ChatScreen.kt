@@ -280,6 +280,11 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         list.onCard = { path -> navigate(path) }
         list.onQuote = { id -> list.scrollTo(id) }
         list.onReply = { id -> if (stage2) setReply(id) }
+        list.onPersonMessage = { id ->
+            if (stage2) messages.firstOrNull { it.id == id }?.let { m ->
+                people.firstOrNull { it.optString("id") == m.user }?.let(::showProfile)
+            }
+        }
         list.onHold = { row, anchor -> if (stage2) showHold(row, anchor) }
         list.onPhoto = { url -> openOutside(url) }
         list.onTop = { loadMore() }
