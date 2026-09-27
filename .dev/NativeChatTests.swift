@@ -233,9 +233,11 @@ final class NativeChatTests: XCTestCase {
             ["id": "a2", "label": "좋은 아침", "src": "https://native-chat.test/a2.png"],
         ]]]
         /* **추천 말은 DB에서 온다**(`sticker_words`) — 열 때 실어 보내던 표는
-           이제 늘 빈손이다. 깎이지 않은 말(`굿 모닝!`)도 깎아서 걸려야 한다. */
+           이제 늘 빈손이다. 깎이지 않은 말(`굿 모닝`)도 공백을 지워 걸려야 한다.
+           **기호는 안 지운다**(`짱!`이 한 글자가 되면 안 된다) — 그래서 여기는
+           기호 없이 두고, `굿모닝!!`처럼 쳐도 걸리는지를 따로 본다. */
         ChatFixtureProtocol.words = [["sticker_id": "a1", "word": "굿모닝"],
-                                     ["sticker_id": "a2", "word": "굿 모닝!"]]
+                                     ["sticker_id": "a2", "word": "굿 모닝"]]
         defer { ChatFixtureProtocol.words = [] }
         await prepare(extra: ["stickers": stickers])
         defer { finish() }
@@ -243,8 +245,8 @@ final class NativeChatTests: XCTestCase {
         let composer = try XCTUnwrap(find(chat.view, ComposerBar.self))
         let strip = try XCTUnwrap(find(chat.view, SuggestBar.self))
         let peek = try XCTUnwrap(find(chat.view, StickerPeek.self))
-        composer.text = "굿모닝"
-        chat.composerChanged(text: "굿모닝", sel: 3)
+        composer.text = "굿모닝!!"
+        chat.composerChanged(text: "굿모닝!!", sel: 5)
         await settle()
         XCTAssertFalse(strip.isHidden)
         XCTAssertTrue(peek.isHidden)
@@ -280,7 +282,7 @@ final class NativeChatTests: XCTestCase {
         XCTAssertEqual(ChatFixtureProtocol.rows.last?["image_url"] as? String, "sticker:a1")
         XCTAssertEqual(ChatFixtureProtocol.rows.last?["body"] as? String, "")
         await settle(0.2)
-        XCTAssertEqual(composer.text, "굿모닝")
+        XCTAssertEqual(composer.text, "굿모닝!!")
         XCTAssertTrue(peek.isHidden)
     }
 
