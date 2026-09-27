@@ -403,6 +403,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     fun detach() {
+        gallery?.dismiss(); gallery = null
         visible = false
         hideMentionCard()
         hideKeyboard()
@@ -635,6 +636,13 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
     }
 
+    private var gallery: ChatGalleryDialog? = null
+
+    private fun showGallery() {
+        gallery?.dismiss()
+        gallery = ChatGalleryDialog(activity, service, room, ::showPhoto).also { it.show() }
+    }
+
     private fun showDrawer() {
         hideKeyboard()
         val overlay = FrameLayout(activity).apply {
@@ -723,13 +731,17 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                         marginEnd = dp(4f)
                     })
                 }
-                if (media.size >= 30) shots.addView(TextView(activity).apply {
+                if (media.isNotEmpty()) shots.addView(TextView(activity).apply {
                     text = "→\n더보기"; textSize = 12f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
+                    setOnClickListener { removeView(overlay); showGallery() }
                 }, LinearLayout.LayoutParams(dp(64f), dp(64f)))
                 photoHead.visibility = if (media.isEmpty()) View.GONE else View.VISIBLE
                 scroller.visibility = if (media.isEmpty()) View.GONE else View.VISIBLE
             } catch (_: Exception) {
-                /* 네트워크 실패는 사진 묶음을 '지워진 사진'으로 판정하지 않는다. */
+                shots.addView(TextView(activity).apply {
+                    text = "사진·동영상 다시 불러오기"; setTextColor(ChatSkin.text)
+                    setOnClickListener { removeView(overlay); showGallery() }
+                })
             }
         }
     }

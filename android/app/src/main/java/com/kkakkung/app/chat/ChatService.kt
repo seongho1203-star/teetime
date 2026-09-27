@@ -178,12 +178,14 @@ class ChatService(@Volatile var config: ChatConfig) {
     }
 
     /** 서랍 사진 줄. 규칙은 Swift와 동일: 이모티콘/가린 글 제외, 최근 30장. */
-    suspend fun recentMedia(room: String, limit: Int = 30): List<ChatMessage> =
+    suspend fun recentMedia(room: String, limit: Int = 30, before: ChatMessage? = null): List<ChatMessage> =
         messages(room, listOf(
             "image_url" to "not.is.null",
-            "sticker_id" to "is.null",
+            "image_url" to "not.ilike.sticker:%",
             "hidden_at" to "is.null"
-        ), ascending = false, limit = limit)
+        ) + (before?.let { listOf("or" to
+            "(created_at.lt.${it.at},and(created_at.eq.${it.at},id.lt.${it.id}))") } ?: emptyList()),
+            ascending = false, limit = limit)
 
     suspend fun reads(room: String): Map<String, String> {
         val out = HashMap<String, String>()
