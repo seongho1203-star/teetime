@@ -403,6 +403,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     fun detach() {
+        profileDialog?.dismiss(); profileDialog = null
         gallery?.dismiss(); gallery = null
         visible = false
         hideMentionCard()
@@ -816,12 +817,20 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
     }
 
+    private var profileDialog: android.app.Dialog? = null
+
     private fun showProfile(person: JSONObject) {
         hideKeyboard()
-        val overlay = FrameLayout(activity).apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
+        profileDialog?.dismiss()
+        val dialog = android.app.Dialog(activity, R.style.ChatPhotoTheme)
+        val drag = ChatProfileDragView(activity) { dialog.dismiss() }
+        val overlay = drag.sheet
+        var attendanceJob: Job? = null
+        dialog.setOnDismissListener {
+            attendanceJob?.cancel()
+            if (profileDialog === dialog) profileDialog = null
         }
+        profileDialog = dialog
         val photo = ImageView(activity).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(0xFF121212.toInt())
@@ -887,13 +896,17 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             setOnClickListener { click() }
         }
         acts.addView(whitePill("@언급하기") {
-            removeView(overlay)
+            dialog.dismiss()
             val n = person.optString("name")
             input.setText("@$n ")
             input.setSelection(input.text.length)
-            input.requestFocus()
-            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
-                ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+            input.post {
+                if (visible && input.isAttachedToWindow) {
+                    input.requestFocus()
+                    (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+                        ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
         }, LinearLayout.LayoutParams(0, dp(44f), 1f).apply { marginEnd = dp(4f) })
         acts.addView(whitePill("🎁 선물하기") {
             try {
@@ -910,44 +923,17 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
         val close = TextView(activity).apply {
             text = "✕"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            setOnClickListener { removeView(overlay) }
+            setOnClickListener { dialog.dismiss() }
         }
         overlay.addView(close, FrameLayout.LayoutParams(dp(44f), dp(44f), Gravity.TOP or Gravity.START).apply {
             topMargin = dp(4f); leftMargin = dp(4f)
         })
 
-        /* Swift ChatProfile: 120px 또는 40px 이상 + 빠른 아래 flick. */
-        var downY = 0f
-        var downAt = 0L
-        overlay.setOnTouchListener { _, e ->
-            when(e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downY = e.rawY; downAt = android.os.SystemClock.uptimeMillis(); true }
-                MotionEvent.ACTION_MOVE -> {
-                    val dy = e.rawY - downY
-                    overlay.translationY = if (dy >= 0) dy else dy / 3f
-                    if (dy > 0) overlay.setBackgroundColor(Color.argb(
-                        (255 * (1f - minOf(1f, dy / maxOf(1, height).toFloat()))).toInt(), 0, 0, 0
-                    ))
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    val dy = e.rawY - downY
-                    val dt = maxOf(1L, android.os.SystemClock.uptimeMillis() - downAt)
-                    val vy = dy * 1000f / dt
-                    if (dy > dp(120f) || (dy > dp(40f) && vy > 900f)) removeView(overlay)
-                    else {
-                        overlay.animate().translationY(0f).setDuration(200).start()
-                        overlay.setBackgroundColor(Color.BLACK)
-                    }
-                    true
-                }
-                else -> true
-            }
-        }
-        addView(overlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        overlay.bringToFront()
+        dialog.setContentView(drag)
+        dialog.show()
+        dialog.window?.setLayout(-1, -1)
 
-        if (isAdmin()) scope.launch {
+        if (isAdmin()) attendanceJob = scope.launch {
             try {
                 val year = java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).year
                 val raw = service.request(
@@ -958,7 +944,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val n = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
                     .firstOrNull { it.optString("user_id") == person.optString("id") }
                     ?.optInt("n")
-                if (n != null && overlay.parent != null) {
+                if (n != null && dialog.isShowing) {
                     attend.text = "올해 ${n}회"; attend.visibility = View.VISIBLE
                 }
             } catch (_: Exception) {
@@ -1310,6 +1296,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     /** `←`·안드로이드 뒤로 — 갈 곳은 웹이 정한다(히스토리가 비었으면 홈). */
     fun goBack() {
+        profileDialog?.let { it.dismiss(); return }
         if (navigating) return
         navigating = true
         hideKeyboard()
