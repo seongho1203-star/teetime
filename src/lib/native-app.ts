@@ -1,3 +1,4 @@
+import { chatShared } from './chat-shared';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
 /**
@@ -94,5 +95,6 @@ export async function openAndroidNativeV2(
         user, token, refresh, expires, name,
         url: import.meta.env.VITE_SUPABASE_URL,
         key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        ...chatShared(),
     });
 }
