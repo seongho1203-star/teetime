@@ -721,13 +721,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val media = service.recentMedia(room, 30)
                 media.forEach { m ->
                     val url = httpsUrl(m.image) ?: return@forEach
+                    val video = ChatMedia.isVideo(url)
+                    val tile = FrameLayout(activity).apply {
+                        contentDescription = if (video) "동영상 열기" else "사진 열기"
+                        setOnClickListener { showPhoto(url) }
+                    }
                     val thumb = ImageView(activity).apply {
                         scaleType = ImageView.ScaleType.CENTER_CROP
                         background = android.graphics.drawable.ColorDrawable(0xFFE5E5E5.toInt())
-                        load(url) { crossfade(false) }
-                        setOnClickListener { showPhoto(url) }
+                        load(url) { crossfade(false); chatVideoFrame(video); size(dp(64f), dp(64f)) }
                     }
-                    shots.addView(thumb, LinearLayout.LayoutParams(dp(64f), dp(64f)).apply {
+                    tile.addView(thumb, FrameLayout.LayoutParams(-1, -1))
+                    if (video) tile.addView(TextView(activity).apply {
+                        text = "▶"; textSize = 18f; gravity = Gravity.CENTER
+                        setTextColor(Color.WHITE); setBackgroundColor(0x33000000)
+                    }, FrameLayout.LayoutParams(-1, -1))
+                    shots.addView(tile, LinearLayout.LayoutParams(dp(64f), dp(64f)).apply {
                         marginEnd = dp(4f)
                     })
                 }

@@ -192,6 +192,10 @@ class ChatListView(context: Context) : RecyclerView(context) {
             val w = if (width > 0) width else context.resources.displayMetrics.widthPixels
             holder.bind(rows[position], w)
         }
+        override fun onViewRecycled(holder: RowHolder) {
+            holder.releaseMedia()
+            super.onViewRecycled(holder)
+        }
     }
 
     private inner class RowHolder(ctx: Context) : RecyclerView.ViewHolder(LinearLayout(ctx)) {
@@ -378,6 +382,11 @@ class ChatListView(context: Context) : RecyclerView(context) {
             uploadCancel.visibility = if (state.cancellable) View.VISIBLE else View.GONE
         }
 
+        fun releaseMedia() {
+            picture.dispose(); picture.setImageDrawable(null)
+            avatar.dispose(); avatar.setImageDrawable(null)
+        }
+
         fun bind(r: ChatRow, listWidth: Int) {
             current = r
             mediaBox.visibility = if (r.kind == "photo" || r.kind == "sticker") View.VISIBLE else View.GONE
@@ -410,7 +419,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
 
             val isMsg = !notice && !isCard
             msgRow.visibility = if (isMsg) View.VISIBLE else View.GONE
-            if (!isMsg) return
+            if (!isMsg) { releaseMedia(); return }
 
             /* 얼굴·이름 — 묶음의 첫 줄에만, 남의 글에만. */
             val showFace = !r.mine
@@ -469,8 +478,9 @@ class ChatListView(context: Context) : RecyclerView(context) {
                     picture.minimumWidth = ctx.dp(120f); picture.minimumHeight = ctx.dp(if (uploads.containsKey(r.id)) 220f else 120f)
                     picture.setBackgroundColor(0x33000000)
                     videoMark.visibility = if (r.video) View.VISIBLE else View.GONE
-                    if (r.video) { picture.dispose(); picture.setImageDrawable(null) }
-                    else picture.load(httpsUrl(r.image)) {
+                    picture.load(httpsUrl(r.image)) {
+                        chatVideoFrame(r.video)
+                        size(ctx.dp(ChatSkin.photoW), ctx.dp(ChatSkin.photoH))
                         crossfade(false)
                         transformations(RoundedCornersTransformation(ctx.dp(ChatSkin.photoRadius).toFloat()))
                     }
@@ -484,7 +494,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
                     videoMark.visibility = View.GONE
                     picture.load(r.image) { crossfade(false) }
                 }
-                else -> { picture.visibility = View.GONE; videoMark.visibility = View.GONE }
+                else -> { picture.dispose(); picture.setImageDrawable(null); picture.visibility = View.GONE; videoMark.visibility = View.GONE }
             }
 
             /* 말풍선 — 글, 또는 그림 밑에 붙는 한 줄(`cap`). 이모지만 보낸 글은 벗긴다. */

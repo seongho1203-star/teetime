@@ -128,15 +128,14 @@ internal class ChatGalleryDialog(
         override fun onBindViewHolder(holder: MediaHolder, position: Int) {
             val item = items[position]; val url = item.image ?: return
             holder.boundId = item.id
-            holder.label.text = ""
-            holder.box.contentDescription = if (ChatMedia.isVideo(url)) "동영상 열기" else "사진 열기"
+            val video = ChatMedia.isVideo(url)
+            holder.label.text = if (video) "▶" else ""
+            holder.label.setTextColor(if (video) Color.WHITE else Color.DKGRAY)
+            holder.label.setBackgroundColor(if (video) 0x33000000 else Color.TRANSPARENT)
+            holder.box.contentDescription = if (video) "동영상 열기" else "사진 열기"
             holder.box.setOnClickListener { openMedia(url) }
-            if (ChatMedia.isVideo(url)) {
-                holder.photo.load(null)
-                holder.label.text = "▶\n동영상"
-                return
-            }
             holder.photo.load(url) {
+                chatVideoFrame(video)
                 crossfade(false)
                 listener(onError = { _, result ->
                     if (holder.boundId == item.id) {
@@ -146,6 +145,9 @@ internal class ChatGalleryDialog(
                                 val index = items.indexOfFirst { it.id == item.id }
                                 if (index >= 0) { items.removeAt(index); notifyItemRemoved(index); if (!failed) updateStatus() }
                             }
+                        } else if (video) {
+                            // A decoder failure must not prevent playback of the original.
+                            holder.label.text = "▶\n동영상 열기"
                         } else {
                             holder.label.text = "다시 불러오기"
                             holder.box.setOnClickListener {
