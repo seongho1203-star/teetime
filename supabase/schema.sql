@@ -1370,6 +1370,77 @@ returns boolean language sql stable as $$
     select p_closed or (p_closes is not null and p_closes < now());
 $$;
 
+-- ── 회원 자격을 잃으면 진행 중인 투표의 표를 뺀다 ───────────────
+--
+-- 사용자 질문 — `투표 또는 라운드에 참석,투표한 사람이 대기 또는 추방으로
+-- 빠질때 투표에 그대로있는건 의도한거야??`. 라운드는 `drop_future_seats`가
+-- 앞으로의 자리를 비우는데 투표에는 그런 규칙이 없어, 화면의 `N명 참여`
+-- (회원만 센다)와 항목별 표 수(그 사람 표까지 센다)가 어긋났다.
+--
+-- - **진행 중인 투표만** 뺀다 — 잣대는 `poll_shut()`(= 화면의 `pollClosed()`).
+--   끝난 투표는 결과 카드가 이미 대화방에 남아 있어, 지금 빼면 그 결과와
+--   화면 숫자가 달라진다. 라운드가 지난 기록을 남기는 것과 같은 결이다.
+-- - **`drop_future_seats`에 합치지 않았다** — 그 함수는 표·`poll_shut`보다
+--   앞에 적혀 있고 곧바로 한 번 정리하는 `do` 블록이 부르므로, 새 DB에서는
+--   아직 없는 표를 찾다 멈춘다. 그래서 투표 쪽 정의 뒤에 따로 둔다.
+-- - 탈퇴(행 지우기)는 `poll_votes`가 `on delete cascade`라 이미 빠진다.
+-- - **회원이 부를 수 없게 막는다** — 남의 표를 지우는 함수다.
+create or replace function drop_open_votes(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    delete from poll_votes v
+     using polls p
+     where v.user_id = p_user
+       and p.id = v.poll_id
+       and not poll_shut(p.closed, p.closes_at);
+end;
+$$;
+
+revoke all on function drop_open_votes(uuid) from public;
+revoke all on function drop_open_votes(uuid) from anon;
+revoke all on function drop_open_votes(uuid) from authenticated;
+
+create or replace function profiles_lost_votes()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    if new.role in ('pending', 'banned')
+       and old.role not in ('pending', 'banned') then
+        perform drop_open_votes(new.id);
+    end if;
+    return new;
+end;
+$$;
+
+drop trigger if exists profiles_lost_votes_upd on profiles;
+create trigger profiles_lost_votes_upd after update of role on profiles
+    for each row execute function profiles_lost_votes();
+
+-- **이미 어긋나 있는 것을 한 번 정리한다**(라운드 쪽 `do` 블록과 같은 까닭).
+-- 여러 번 돌려도 안전하다.
+do $$
+declare
+    v_user uuid;
+begin
+    for v_user in
+        select distinct v.user_id
+          from poll_votes v
+          join profiles pr on pr.id = v.user_id
+          join polls p on p.id = v.poll_id
+         where pr.role in ('pending', 'banned')
+           and not poll_shut(p.closed, p.closes_at)
+    loop
+        perform drop_open_votes(v_user);
+    end loop;
+end $$;
+
 /**
  * 대화방에 안내 한 줄 남기기.
  *
