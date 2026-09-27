@@ -86,6 +86,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onPhoto: ((String) -> Unit)? = null
     var onQuote: ((String) -> Unit)? = null
     var onReply: ((String) -> Unit)? = null
+    var onPersonMessage: ((String) -> Unit)? = null
     var onHold: ((ChatRow, View) -> Unit)? = null
     var onTop: (() -> Unit)? = null
     var onBottom: ((Boolean) -> Unit)? = null
@@ -257,6 +258,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
             initials.gravity = Gravity.CENTER; initials.textSize = 11f; initials.setTextColor(ChatSkin.text)
             initials.background = GradientDrawable().apply { cornerRadius = ctx.dp(10f).toFloat(); setColor(0xFFDDE3D1.toInt()) }
             avatarBox.addView(initials, FrameLayout.LayoutParams(av, av))
+            avatarBox.setOnClickListener { current?.id?.let { onPersonMessage?.invoke(it) } }
             msgRow.addView(avatarBox)
 
             column.orientation = LinearLayout.VERTICAL
