@@ -1278,12 +1278,16 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private fun showPhoto(url: String) {
         val source = httpsUrl(url) ?: return
         val path = android.net.Uri.parse(source).path.orEmpty().lowercase()
-        if (!stage2 || listOf(".mp4", ".mov", ".m4v").any { path.endsWith(it) }) {
+        if (!stage2) {
             openOutside(source)
             return
         }
         hideKeyboard()
-        ChatPhotoDialog.show(activity, source)
+        if (listOf(".mp4", ".mov", ".m4v").any { path.endsWith(it) }) {
+            ChatVideoDialog.show(activity, source)
+        } else {
+            ChatPhotoDialog.show(activity, source)
+        }
     }
 
     private fun openOutside(url: String) {

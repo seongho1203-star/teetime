@@ -18,6 +18,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.dispose
 import coil.load
 import coil.transform.RoundedCornersTransformation
 
@@ -420,7 +421,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
                     picture.minimumWidth = ctx.dp(120f); picture.minimumHeight = ctx.dp(120f)
                     picture.setBackgroundColor(0x33000000)
                     videoMark.visibility = if (r.video) View.VISIBLE else View.GONE
-                    if (r.video) picture.setImageDrawable(null)
+                    if (r.video) { picture.dispose(); picture.setImageDrawable(null) }
                     else picture.load(httpsUrl(r.image)) {
                         crossfade(false)
                         transformations(RoundedCornersTransformation(ctx.dp(ChatSkin.photoRadius).toFloat()))
