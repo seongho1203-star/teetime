@@ -1484,8 +1484,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             if (!visible) return
             people = latestPeople
             refreshDrawerPeople?.invoke()
-            paintMentionText(input.text)
-            updateMentionCard()
+            if (stage2 && BaseInputConnection.getComposingSpanStart(input.text) < 0) {
+                paintMentionText(input.text)
+                updateMentionCard()
+            }
             render(keepBottom = true)
         } catch (e: kotlinx.coroutines.CancellationException) { throw e
         } catch (_: Exception) { /* Keep the last valid roster when offline. */ }
