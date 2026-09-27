@@ -1,6 +1,16 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+def nativeGuideDir = layout.buildDirectory.dir('generated/nativeGuide')
+android.sourceSets.main.assets.srcDir(nativeGuideDir)
+tasks.register('generateNativeGuide', Exec) {
+    workingDir rootProject.projectDir.parentFile
+    inputs.files('../../src/lib/guide.ts', '../../.dev/native-guide.mjs')
+    outputs.file(nativeGuideDir.map { it.file('guide.json') })
+    commandLine 'node', '.dev/native-guide.mjs', nativeGuideDir.get().file('guide.json').asFile.absolutePath
+}
+tasks.named('preBuild').configure { dependsOn('generateNativeGuide') }
+
 android {
     namespace "com.kkakkung.app"
     compileSdk rootProject.ext.compileSdkVersion

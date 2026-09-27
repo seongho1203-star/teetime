@@ -13,6 +13,9 @@ import kotlin.math.abs
 
 /** Retain actual screens (including scroll positions/drafts), never recreate on pop. */
 internal class NativeScreenStack(context: Context) : FrameLayout(context) {
+    companion object {
+        internal fun completesTab(progress: Float, along: Float) = along > 800f || (progress > .34f && along > -800f)
+    }
     data class Screen(val key: String, val view: View, val refresh: (() -> Unit)?)
     private val screens = mutableListOf<Screen>()
     val current: Screen? get() = screens.lastOrNull()
@@ -76,11 +79,11 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         settlePop(true)
         return true
     }
-    private fun settlePop(go: Boolean) {
+    private fun settlePop(go: Boolean, gesture: Boolean = false) {
         val front = current ?: return
         val behind = screens[screens.lastIndex - 1]
         busy = true
-        val duration = if (animationsEnabled()) 500L else 0L
+        val duration = if (!animationsEnabled()) 0L else if (gesture) 230L else 500L
         behind.view.animate().translationX(if (go) 0f else -width * .25f).setDuration(duration).setInterpolator(ease).start()
         rootMotion?.invoke(if (go) 0f else -width * .25f, screens.size == 2)
         front.view.animate().translationX(if (go) width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).withEndAction {
@@ -159,12 +162,14 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
             velocity?.computeCurrentVelocity(1000)
             val vx = (velocity?.xVelocity ?: 0f) / density
             val cancelled = e.actionMasked == MotionEvent.ACTION_CANCEL
-            if (canPop) settlePop(!cancelled && (dx > width*.34f || vx > 800f))
+            if (canPop) settlePop(!cancelled && (dx > width*.34f || vx > 800f), gesture = true)
             else {
                 val next = preview ?: return true
-                val go = !cancelled && (-direction*dx > width*.34f || -direction*vx > 800f)
+                val along = -direction * vx
+                val progress = -direction * dx / width.coerceAtLeast(1)
+                val go = !cancelled && completesTab(progress, along)
                 busy = true
-                val duration = if (animationsEnabled()) 500L else 0L
+                val duration = if (animationsEnabled()) 300L else 0L
                 front.view.animate().translationX(if (go) -direction*width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).start()
                 next.view.animate().translationX(if (go) 0f else direction*width.toFloat()).setDuration(duration).setInterpolator(ease).withEndAction {
                     if (go) { removeView(front.view); screens.clear(); screens.add(next); tabSelected?.invoke(next.key) }

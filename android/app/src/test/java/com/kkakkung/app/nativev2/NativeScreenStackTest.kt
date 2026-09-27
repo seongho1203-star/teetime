@@ -36,7 +36,9 @@ class NativeScreenStackTest {
         val alerts = EditText(activity).apply { setText("보관한 초안") }
         stack.show("/alerts", alerts, false); settle()
         stack.show("/rounds/id", FrameLayout(activity), false); settle()
-        assertTrue(stack.pop()); settle()
+        assertTrue(stack.pop())
+        assertEquals(500L, stack.current!!.view.animate().duration)
+        settle()
         assertEquals("/alerts", stack.current?.key)
         assertSame(alerts, stack.current?.view)
         assertEquals("보관한 초안", alerts.text.toString())
@@ -51,7 +53,9 @@ class NativeScreenStackTest {
         assertTrue(stack.onInterceptTouchEvent(event(MotionEvent.ACTION_MOVE, 90f)))
         stack.onTouchEvent(event(MotionEvent.ACTION_MOVE, 90f))
         assertEquals(80f, detail.translationX, .001f)
-        stack.onTouchEvent(event(MotionEvent.ACTION_CANCEL, 90f)); settle()
+        stack.onTouchEvent(event(MotionEvent.ACTION_CANCEL, 90f))
+        assertEquals(230L, detail.animate().duration)
+        settle()
         assertSame(detail, stack.current?.view); assertEquals(0f, detail.translationX, .001f)
         stack.onInterceptTouchEvent(event(MotionEvent.ACTION_DOWN, 10f))
         assertTrue(stack.onInterceptTouchEvent(event(MotionEvent.ACTION_MOVE, 220f)))
@@ -91,7 +95,9 @@ class NativeScreenStackTest {
             assertEquals(width * .8f, board.translationX, .01f)
         }
         begin()
-        stack.onTouchEvent(event(MotionEvent.ACTION_CANCEL, width * .7f)); settle()
+        stack.onTouchEvent(event(MotionEvent.ACTION_CANCEL, width * .7f))
+        assertEquals(300L, board.animate().duration)
+        settle()
         assertSame(home, stack.current?.view); assertNull(selected)
         assertNull(board.parent)
         begin()
@@ -100,5 +106,13 @@ class NativeScreenStackTest {
         assertSame(board, stack.current?.view); assertEquals("/board", selected)
         assertNull(home.parent); assertEquals(0f, board.translationX, .001f)
         activity.finish()
+    }
+
+    @Test fun reverseFlingCancelsTabEvenBeyondDistanceThreshold() {
+        assertFalse(NativeScreenStack.completesTab(.8f, -801f))
+        assertFalse(NativeScreenStack.completesTab(.8f, -800f))
+        assertTrue(NativeScreenStack.completesTab(.35f, -799f))
+        assertFalse(NativeScreenStack.completesTab(.34f, 0f))
+        assertTrue(NativeScreenStack.completesTab(.1f, 801f))
     }
 }

@@ -8,6 +8,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeApiParityTest {
+    @Test fun pollPagesIncludeUndatedLivePollsAndUseStablePastBoundary() = runBlocking {
+        MockWebServer().use { server ->
+            val at = "2026-09-27T10:00:00Z"
+            server.enqueue(MockResponse().setBody("[{\"id\":\"old\",\"closed\":false,\"closes_at\":null}]"))
+            server.enqueue(MockResponse().setBody("[{\"id\":\"new\",\"closed\":false,\"closes_at\":\"2026-10-01T00:00:00Z\"}]"))
+            server.enqueue(MockResponse().setBody("[]"))
+            val client = api(server)
+            assertEquals(listOf("old", "new"), client.livePolls(at).map { it.getString("id") })
+            repeat(3) { offset ->
+                val query = server.takeRequest().requestUrl!!
+                assertEquals("eq.false", query.queryParameter("closed"))
+                assertEquals("(closes_at.is.null,closes_at.gt.$at)", query.queryParameter("or"))
+                assertEquals(offset.toString(), query.queryParameter("offset"))
+            }
+            server.enqueue(MockResponse().setBody("[]"))
+            client.pastPolls(10, at)
+            val past = server.takeRequest().requestUrl!!
+            assertEquals("(closed.eq.true,closes_at.lte.$at)", past.queryParameter("or"))
+            assertEquals("10", past.queryParameter("offset"))
+            assertEquals("11", past.queryParameter("limit"))
+        }
+    }
     private fun api(server: MockWebServer) = NativeApi(NativeSession("member", "member-token", "", 0, server.url("/").toString(), "anon"))
     @Test fun deletionCleansPushThenPhotosThenAccountWithMemberToken() = runBlocking {
         MockWebServer().use { server ->

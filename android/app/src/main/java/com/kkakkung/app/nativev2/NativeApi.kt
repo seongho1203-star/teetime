@@ -218,6 +218,27 @@ class NativeApi(private val session: NativeSession) {
             "order" to "created_at.desc", "limit" to limit.toString()
         )).also { announceClosedPolls(it) }
 
+    /** Read every live page: old polls without a deadline remain live until closed. */
+    suspend fun livePolls(at: String = java.time.Instant.now().toString()): List<JSONObject> {
+        val all = mutableListOf<JSONObject>()
+        while (true) {
+            val page = rows("polls", listOf(
+                "select" to "*,poll_options(id,label,sort),poll_votes(option_id,user_id)",
+                "closed" to "eq.false", "or" to "(closes_at.is.null,closes_at.gt.$at)",
+                "order" to "created_at.desc,id.desc", "limit" to "200", "offset" to all.size.toString()
+            ))
+            if (page.isEmpty()) return all
+            all.addAll(page)
+        }
+    }
+
+    suspend fun pastPolls(offset: Int, at: String, limit: Int = 11): List<JSONObject> =
+        rows("polls", listOf(
+            "select" to "*,poll_options(id,label,sort),poll_votes(option_id,user_id)",
+            "or" to "(closed.eq.true,closes_at.lte.$at)",
+            "order" to "created_at.desc,id.desc", "limit" to limit.toString(), "offset" to offset.toString()
+        )).also { announceClosedPolls(it) }
+
     /** 라운드 상세 — 신청을 딸려 받아 정원/내 상태를 한 응답으로 맞춘다. */
     suspend fun round(id: String): JSONObject? =
         rows("rounds", listOf("select" to "*,signups(*)", "id" to "eq.$id", "limit" to "1")).firstOrNull()

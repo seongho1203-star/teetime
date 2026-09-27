@@ -898,15 +898,32 @@ class NativeHomeActivity : AppCompatActivity() {
         val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
             try {
-                val rows = api.polls(80)
+                val at = java.time.Instant.now().toString()
+                val live = api.livePolls(at)
+                val done = api.pastPolls(0, at)
                 page.removeView(loading)
-                val live = rows.filter { !it.optBoolean("closed") && !pollExpired(it.optString("closes_at")) }
-                val done = rows.filterNot { live.contains(it) }
-                if (rows.isEmpty()) emptyBox(page, "아직 투표가 없습니다.\n날짜 정하기, 골프장 고르기 같은 걸 올려 보세요.")
+                if (live.isEmpty() && done.isEmpty()) emptyBox(page, "아직 투표가 없습니다.\n날짜 정하기, 골프장 고르기 같은 걸 올려 보세요.")
                 live.forEach { page.addView(pollListCard(it, false)) }
                 if (done.isNotEmpty()) {
                     section(page, "마감된 투표")
-                    done.take(20).forEach { page.addView(pollListCard(it, true)) }
+                    val past = LinearLayout(this@NativeHomeActivity).apply { orientation = LinearLayout.VERTICAL }
+                    page.addView(past)
+                    var offset = 0
+                    lateinit var more: Button
+                    fun append(rows: List<JSONObject>) {
+                        rows.take(10).forEach { past.addView(pollListCard(it, true)) }
+                        offset += minOf(10, rows.size)
+                        more.visibility = if (rows.size > 10) View.VISIBLE else View.GONE
+                    }
+                    more = action("지난 투표 더 보기") {
+                        more.isEnabled = false
+                        scope.launch {
+                            try { append(api.pastPolls(offset, at)) }
+                            catch (e: Exception) { toast(e.message ?: "지난 투표를 불러오지 못했습니다.") }
+                            finally { more.isEnabled = true }
+                        }
+                    }
+                    page.addView(more); append(done)
                 }
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "투표를 불러오지 못했습니다.")
@@ -1739,14 +1756,16 @@ class NativeHomeActivity : AppCompatActivity() {
 
     // ── 알림함 ─────────────────────────────────────────────────
 
-    private fun showAlerts() {
-        prepareScreen("/alerts") { showAlerts() }
+    private fun showAlerts(fresh: MutableSet<String> = mutableSetOf()) {
+        prepareScreen("/alerts") { showAlerts(fresh) }
         detail = true
         val page = detailPage("알림")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
             try {
                 val list = api.notifications()
+                list.filter { it.isNull("read_at") || it.optString("read_at").isBlank() }
+                    .forEach { fresh.add(it.optString("id")) }
                 api.markNotificationsRead()
                 api.purgeNotifications()
                 page.removeView(loading)
@@ -1756,10 +1775,29 @@ class NativeHomeActivity : AppCompatActivity() {
                 list.forEach { n ->
                     val titleText = n.optString("title").ifBlank { "알림" }
                     val url = n.optString("url")
-                    val row = cardView(
-                        (if (n.isNull("read_at") || n.optString("read_at").isBlank()) "N  " else "") + titleText,
-                        n.optString("body").take(90) + if (n.optString("body").length > 90) "…" else ""
-                    ) { openNativeUrl(url) }
+                    val unread = n.optString("id") in fresh
+                    val row = LinearLayout(this@NativeHomeActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(if (unread) card else surface2) }
+                        clipToOutline = true
+                        setOnClickListener { openNativeUrl(url) }
+                        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
+                    }
+                    if (unread) row.addView(View(this@NativeHomeActivity).apply { setBackgroundColor(danger) }, LinearLayout.LayoutParams(dp(4), -1))
+                    val words = LinearLayout(this@NativeHomeActivity).apply {
+                        orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(12), dp(13), dp(12))
+                    }
+                    words.addView(TextView(this@NativeHomeActivity).apply {
+                        text = if (unread) android.text.SpannableString("N  $titleText").apply {
+                            setSpan(android.text.style.ForegroundColorSpan(danger), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else titleText
+                        textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (unread) ink else dim)
+                    })
+                    words.addView(TextView(this@NativeHomeActivity).apply {
+                        text = n.optString("body").take(90) + if (n.optString("body").length > 90) "…" else ""
+                        textSize = 13f; setTextColor(dim); setPadding(0, dp(5), 0, 0)
+                    })
+                    row.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
                     if (url.isBlank()) row.isClickable = false
                     page.addView(row)
                 }
@@ -1780,7 +1818,52 @@ class NativeHomeActivity : AppCompatActivity() {
             path == "/polls" -> showTab("polls")
             path == "/board" -> showTab("board")
             path == "/chat" -> showTab("chat")
+            path == "/alerts" -> showAlerts()
+            path == "/settle" -> showSettlements()
+            path == "/members" -> showMembers()
+            path == "/me" -> showMe()
+            path == "/help" -> showHelp()
         }
+    }
+
+    private fun showHelp() {
+        prepareScreen("/help") { showHelp() }
+        detail = true
+        val page = detailPage("앱 사용자 가이드")
+        fun paragraph(value: String) {
+            if (value.isBlank()) return
+            val styled = android.text.SpannableStringBuilder()
+            val marks = Regex("\\*\\*(.*?)\\*\\*|\\(\\((.*?)\\)\\)")
+            var end = 0
+            marks.findAll(value).forEach { match ->
+                styled.append(value.substring(end, match.range.first))
+                val start = styled.length
+                val bold = match.groups[1] != null
+                styled.append(if (bold) match.groupValues[1] else match.groupValues[2])
+                styled.setSpan(if (bold) android.text.style.StyleSpan(Typeface.BOLD) else android.text.style.ForegroundColorSpan(dim), start, styled.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                end = match.range.last + 1
+            }
+            styled.append(value.substring(end))
+            page.addView(TextView(this).apply {
+                this.text = styled; textSize = 15f; setTextColor(ink); setLineSpacing(0f, 1.35f)
+                setPadding(0, dp(6), 0, dp(6))
+            })
+        }
+        try {
+            val guide = JSONObject(assets.open("guide.json").bufferedReader().use { it.readText() })
+            paragraph(guide.optString("intro"))
+            jsonObjects(guide.optJSONArray("parts")).forEach { part ->
+                section(page, "${part.optString("icon")} ${part.optString("title")}")
+                paragraph(part.optString("lead"))
+                val items = part.optJSONArray("items") ?: org.json.JSONArray()
+                for (i in 0 until items.length()) paragraph("• ${items.optString(i)}")
+                jsonObjects(part.optJSONArray("steps")).filterNot { it.optBoolean("webOnly") }
+                    .forEachIndexed { i, step -> paragraph("${i + 1}. ${step.optString("text")}") }
+                paragraph(part.optString("tip"))
+            }
+            paragraph(guide.optString("foot"))
+        } catch (_: Exception) { error(page, "가이드를 불러오지 못했습니다.") }
+        mount(page)
     }
 
     private fun settlementForm(roundId: String, joined: List<String>, people: List<JSONObject>) {
@@ -1793,8 +1876,9 @@ class NativeHomeActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
         }
         fun f(h: String, numeric: Boolean = false): EditText {
+            body(box, h)
             val e = EditText(this).apply {
-                hint = h
+                contentDescription = h
                 if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
             }
             box.addView(e); return e
@@ -1843,8 +1927,10 @@ class NativeHomeActivity : AppCompatActivity() {
                 ids.forEachIndexed { i, uid ->
                     val who = candidates.firstOrNull { it.optString("id") == uid }
                     val value = preview.getValue(uid)
+                    val name = personLabel(who).ifBlank { who?.optString("name").orEmpty() }
+                    body(editBox, name)
                     val e = EditText(this@NativeHomeActivity).apply {
-                        hint = personLabel(who).ifBlank { who?.optString("name").orEmpty() }
+                        contentDescription = name
                         setText(value.toString()); inputType = InputType.TYPE_CLASS_NUMBER
                     }
                     fields[uid] = e; editBox.addView(e)
