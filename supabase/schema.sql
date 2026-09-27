@@ -718,6 +718,95 @@ end;
 $$;
 
 
+-- ── 회원 자격을 잃으면 앞으로의 라운드 자리를 비운다 ──────────────
+--
+-- 사용자 제보 — `회원1명을 추방하고 승인거절했는데 … 라운드에도 대기로
+-- 돌린 사람이 그대로 참석으로 되어있는데`. 추방(`banned`)·대기로 되돌리기
+-- (`pending`)는 **등급만** 바꿨고 신청 기록은 그대로 남아, 자격이 없는
+-- 사람이 확정 자리를 차지한 채 대기자는 영영 대기였다.
+--
+-- - **앞으로의 라운드만** 뺀다(`tee_at > now()`). 지난 라운드 기록은
+--   참석 횟수(`attendance_counts`)의 원본이라 남긴다.
+-- - **확정 자리가 비면 곧바로 메운다** — `leave_round`·`kick_signup`·
+--   `delete_me`와 같은 `promote_waitlist`다(올라간 사람에게는 알림이 간다).
+-- - **화면이 아니라 DB가 한다.** 운영진이 SQL로 직접 바꾸든 앱의 어느
+--   판이 바꾸든 똑같이 걸려야 한다(`stamp_joined_at`과 같은 까닭).
+-- - **거절(행 지우기)도 같은 길로 간다** — 신청은 `on delete cascade`로
+--   딸려 가지만 그러면 대기자가 안 올라온다. 지우기 **전에** 비운다.
+create or replace function drop_future_seats(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_round uuid;
+begin
+    for v_round in
+        delete from signups s
+         using rounds r
+         where s.user_id = p_user
+           and r.id = s.round_id
+           and r.tee_at > now()
+        returning s.round_id
+    loop
+        perform promote_waitlist(v_round);
+    end loop;
+end;
+$$;
+
+-- **회원이 부를 수 없게 막는다** — 남의 신청을 지우는 함수다. 트리거와
+-- 아래 한 번 정리만 부른다(둘 다 이 함수의 주인 자격으로 돈다).
+revoke all on function drop_future_seats(uuid) from public;
+revoke all on function drop_future_seats(uuid) from anon;
+revoke all on function drop_future_seats(uuid) from authenticated;
+
+create or replace function profiles_lost_seat()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    if tg_op = 'DELETE' then
+        perform drop_future_seats(old.id);
+        return old;
+    end if;
+    if new.role in ('pending', 'banned')
+       and old.role not in ('pending', 'banned') then
+        perform drop_future_seats(new.id);
+    end if;
+    return new;
+end;
+$$;
+
+drop trigger if exists profiles_lost_seat_upd on profiles;
+create trigger profiles_lost_seat_upd after update of role on profiles
+    for each row execute function profiles_lost_seat();
+drop trigger if exists profiles_lost_seat_del on profiles;
+create trigger profiles_lost_seat_del before delete on profiles
+    for each row execute function profiles_lost_seat();
+
+-- **이미 어긋나 있는 것을 한 번 정리한다** — 트리거는 앞으로 바뀌는 것만
+-- 보므로, 이 규칙이 생기기 전에 추방·대기로 돌린 사람의 자리는 그대로다.
+-- 여러 번 돌려도 안전하다(비울 것이 없으면 아무 일도 안 한다).
+do $$
+declare
+    v_user uuid;
+begin
+    for v_user in
+        select distinct s.user_id
+          from signups s
+          join profiles p on p.id = s.user_id
+          join rounds r on r.id = s.round_id
+         where p.role in ('pending', 'banned')
+           and r.tee_at > now()
+    loop
+        perform drop_future_seats(v_user);
+    end loop;
+end $$;
+
+
 -- ── 조 편성 ───────────────────────────────────────────────────
 --
 -- **한 번에 다 쓴다.** 열여섯 명을 한 줄씩 고치면 쓰기가 열여섯 번이고,

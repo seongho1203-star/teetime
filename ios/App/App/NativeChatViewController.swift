@@ -826,6 +826,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                         tail = add.last ?? tail
                     }
                 }
+                /* **회원 명단도 다시 받는다.** 이 화면은 한 번 만들면 다시 쓰므로
+                   처음 받은 명단이 앱을 끌 때까지 남아, 그사이 추방·대기로 돌린
+                   사람이 ☰ 참여자와 `@` 목록에 그대로 있었다(사용자 제보). 이 자리는
+                   들어올 때와 다시 이어질 때만 도므로 100명분 한 번이 전부다. */
+                if let fresh = try? await self.service.people(), !fresh.isEmpty {
+                    try Task.checkCancellation()
+                    self.people = fresh; self.refreshMentionPaint()
+                }
                 self.reads = try await self.service.reads(self.room)
                 self.reactions = try await self.service.reactions(self.realIDs)
                 try Task.checkCancellation(); self.render(); self.markRead()
