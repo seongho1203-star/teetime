@@ -168,6 +168,29 @@ jobs:
       # `applicationIdSuffix`가 없다) `google-services.json`도 그대로 먹어
       # **알림과 까꿍 소리까지 여기서 확인된다.**
       # 50초쯤 더 걸리는 것이 전부이고, Play에 올리는 것은 여전히 AAB다.
+      - name: 빈 로그인 설정으로 release가 막히는지
+        run: |
+          cd android
+          chmod +x gradlew
+          expect_guard() {
+            local missing="$1"
+            shift
+            if "$@" ./gradlew :app:generateReleaseBuildConfig --no-daemon > "$RUNNER_TEMP/supabase-guard.log" 2>&1; then
+              echo "::error::빈 $missing 설정으로 release BuildConfig가 만들어졌습니다."
+              exit 1
+            fi
+            # 다른 빌드 오류를 가드 성공으로 오인하지 않는다. 설정값은 출력하지 않는다.
+            grep -q "RELEASE_SUPABASE_ENV_MISSING:.*$missing" "$RUNNER_TEMP/supabase-guard.log" || {
+              echo "::error::Supabase 가드가 아닌 다른 이유로 빌드가 실패했습니다."
+              cat "$RUNNER_TEMP/supabase-guard.log"
+              exit 1
+            }
+          }
+          expect_guard VITE_SUPABASE_URL env -u VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY=test-only
+          expect_guard VITE_SUPABASE_ANON_KEY env -u VITE_SUPABASE_ANON_KEY VITE_SUPABASE_URL=https://example.invalid
+          expect_guard VITE_SUPABASE_URL env VITE_SUPABASE_URL='   ' VITE_SUPABASE_ANON_KEY='   '
+          env -u VITE_SUPABASE_URL -u VITE_SUPABASE_ANON_KEY ./gradlew :app:generateDebugBuildConfig --no-daemon
+
       - name: 앱 만들기 (AAB · 폰에 넣어 볼 APK)
         # **Supabase 주소·anon 키를 여기에도 줘야 한다** — 네이티브 로그인
         # (`NativeAuth`)이 `BuildConfig.SUPABASE_URL`로 읽는데 gradle이 이

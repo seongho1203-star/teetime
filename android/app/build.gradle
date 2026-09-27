@@ -1,6 +1,26 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+// Use the same values for validation and BuildConfig, including local Gradle builds.
+def nativeSupabaseEnv = [
+    VITE_SUPABASE_URL: System.getenv('VITE_SUPABASE_URL') ?: '',
+    VITE_SUPABASE_ANON_KEY: System.getenv('VITE_SUPABASE_ANON_KEY') ?: ''
+]
+def validateReleaseSupabase = tasks.register('validateReleaseSupabase') {
+    doLast {
+        def missing = nativeSupabaseEnv.findAll { name, value -> value.trim().isEmpty() }.keySet()
+        if (!missing.isEmpty()) {
+            throw new GradleException('RELEASE_SUPABASE_ENV_MISSING: ' + missing.join(', ') +
+                '\n위 환경 변수를 설정한 뒤 release 빌드를 다시 실행해 주세요. 빈 로그인 설정으로는 배포할 수 없습니다.')
+        }
+    }
+}
+tasks.configureEach {
+    if (name == 'preReleaseBuild' || name == 'generateReleaseBuildConfig') {
+        dependsOn(validateReleaseSupabase)
+    }
+}
+
 def nativeGuideDir = layout.buildDirectory.dir('generated/nativeGuide')
 android.sourceSets.main.assets.srcDir(nativeGuideDir)
 tasks.register('generateNativeGuide', Exec) {
@@ -26,8 +46,8 @@ android {
         versionCode project.hasProperty('appVersionCode') ? appVersionCode.toInteger() : 1
         versionName project.hasProperty('appVersionName') ? appVersionName : "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField "String", "SUPABASE_URL", '"' + (System.getenv('VITE_SUPABASE_URL') ?: '') + '"'
-        buildConfigField "String", "SUPABASE_ANON_KEY", '"' + (System.getenv('VITE_SUPABASE_ANON_KEY') ?: '') + '"'
+        buildConfigField "String", "SUPABASE_URL", '"' + nativeSupabaseEnv.VITE_SUPABASE_URL + '"'
+        buildConfigField "String", "SUPABASE_ANON_KEY", '"' + nativeSupabaseEnv.VITE_SUPABASE_ANON_KEY + '"'
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
