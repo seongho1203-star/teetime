@@ -584,7 +584,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         val peopleScroll = ScrollView(activity).apply { addView(peopleCol) }
         if (active.size > 12) {
             val find = EditText(activity).apply {
-                hint = "참여자 찾기"; textSize = 14f; singleLine = true
+                hint = "참여자 찾기"; textSize = 14f; setSingleLine(true)
                 setPadding(dp(12f), 0, dp(12f), 0)
                 background = GradientDrawable().apply {
                     cornerRadius = dp(12f).toFloat(); setColor(0xFFF5F7F1.toInt())
