@@ -1478,13 +1478,13 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun showChat() {
         content.removeAllViews()
-        val config = JSONObject()
+        val config = NativeChatShared.applyTo(JSONObject()
             .put("user", session.userId)
             .put("token", session.accessToken)
             .put("url", session.supabaseUrl)
             .put("key", session.anonKey)
             .put("seen", "1970-01-01T00:00:00Z")
-            .put("back", true)
+            .put("back", true))
         val c = chat ?: ChatScreen(this, ChatService(ChatConfig(config))).also { chat = it }
         c.service.config = ChatConfig(config)
         c.updateToken(session.accessToken)
