@@ -352,7 +352,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             }
         }
         list.onHold = { row, anchor -> if (stage2) showHold(row, anchor) }
-        list.onPhoto = { url -> openOutside(url) }
+        list.onPhoto = { url -> showPhoto(url) }
         list.onTop = { loadMore() }
         list.onBottom = { bottom -> if (bottom) markRead() }
     }
@@ -690,7 +690,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                         scaleType = ImageView.ScaleType.CENTER_CROP
                         background = android.graphics.drawable.ColorDrawable(0xFFE5E5E5.toInt())
                         load(url) { crossfade(false) }
-                        setOnClickListener { openOutside(url) }
+                        setOnClickListener { showPhoto(url) }
                     }
                     shots.addView(thumb, LinearLayout.LayoutParams(dp(64f), dp(64f)).apply {
                         marginEnd = dp(4f)
@@ -1273,6 +1273,17 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         navigating = true
         hideKeyboard()
         event?.invoke("navigate", JSONObject().put("path", path).put("shot", ""))
+    }
+
+    private fun showPhoto(url: String) {
+        val source = httpsUrl(url) ?: return
+        val path = android.net.Uri.parse(source).path.orEmpty().lowercase()
+        if (!stage2 || listOf(".mp4", ".mov", ".m4v").any { path.endsWith(it) }) {
+            openOutside(source)
+            return
+        }
+        hideKeyboard()
+        ChatPhotoDialog.show(activity, source)
     }
 
     private fun openOutside(url: String) {
