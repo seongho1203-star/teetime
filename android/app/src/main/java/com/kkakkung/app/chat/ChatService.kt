@@ -165,6 +165,7 @@ class ChatService(@Volatile var config: ChatConfig) {
     suspend fun people(): List<JSONObject> = try {
         rows("profiles", listOf("select" to "id,name,avatar_url,role,gender,birth_year,region", "order" to "name", "limit" to "1000"))
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         rows("profiles", listOf("select" to "id,name,avatar_url,role", "order" to "name", "limit" to "1000"))
     }
 

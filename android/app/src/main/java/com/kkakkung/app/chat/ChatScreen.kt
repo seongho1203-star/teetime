@@ -125,7 +125,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var loadJob: Job? = null
     private var readJob: Job? = null
     private var metaJob: Job? = null
-    private var syncJob: Job? = null
+    private val syncRunner by lazy { ChatRefreshRunner(scope) { syncNow() } }
     private var searchJob: Job? = null
     private var cheerJob: Job? = null
     private var softInputBefore: Int? = null
@@ -403,6 +403,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     fun detach() {
+        syncRunner.cancel()
+        metaJob?.cancel(); readJob?.cancel()
+        drawerOverlay?.let { removeView(it) }
         profileDialog?.dismiss(); profileDialog = null
         gallery?.dismiss(); gallery = null
         visible = false
@@ -644,6 +647,16 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         gallery = ChatGalleryDialog(activity, service, room, ::showPhoto).also { it.show() }
     }
 
+    private var drawerOverlay: View? = null
+    private var refreshDrawerPeople: (() -> Unit)? = null
+
+    private fun activeParticipants() = people.filter { it.optString("role") !in setOf("pending", "banned") }
+        .sortedWith(compareBy<JSONObject>(
+            { p -> when { p.optString("role") in setOf("staff", "admin", "superadmin") -> 0; p.optString("role") == "treasurer" -> 1; else -> 2 } },
+            { p -> p.optInt("birth_year", 9999).let { if (it <= 0) 9999 else it } },
+            { p -> p.optString("name") }
+        ))
+
     private fun showDrawer() {
         hideKeyboard()
         val overlay = FrameLayout(activity).apply {
@@ -679,41 +692,52 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             LinearLayout.LayoutParams.MATCH_PARENT, dp(72f)
         ).apply { bottomMargin = dp(14f) })
 
-        val active = people.filter { it.optString("role") !in setOf("pending", "banned") }
-            .sortedWith(compareBy<JSONObject>(
-                { p -> when { p.optString("role") in setOf("staff","admin","superadmin") -> 0; p.optString("role")=="treasurer" -> 1; else -> 2 } },
-                { p -> p.optInt("birth_year", 9999).let { if (it <= 0) 9999 else it } },
-                { p -> p.optString("name") }
-            ))
-        panel.addView(drawerHead("▣", "참여자 ${active.size}명"))
+        var active = activeParticipants()
+        val peopleHeading = drawerHead("▣", "참여자 ${active.size}명") as LinearLayout
+        panel.addView(peopleHeading)
+        var peopleQuery = ""
 
         val peopleCol = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val peopleScroll = ScrollView(activity).apply { addView(peopleCol) }
-        if (active.size > 12) {
-            val find = EditText(activity).apply {
-                hint = "참여자 찾기"; textSize = 14f; setSingleLine(true)
-                setPadding(dp(12f), 0, dp(12f), 0)
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(12f).toFloat(); setColor(0xFFF5F7F1.toInt())
-                    setStroke(dp(1f), 0xFFDDE3D1.toInt())
-                }
+        val find = EditText(activity).apply {
+            visibility = if (active.size > 12) View.VISIBLE else View.GONE
+            hint = "참여자 찾기"; textSize = 14f; setSingleLine(true)
+            setPadding(dp(12f), 0, dp(12f), 0)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12f).toFloat(); setColor(0xFFF5F7F1.toInt())
+                setStroke(dp(1f), 0xFFDDE3D1.toInt())
             }
-            panel.addView(find, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
-            ).apply { bottomMargin = dp(8f) })
-            find.addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun onTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {
-                    renderDrawerPeople(peopleCol, active, x?.toString().orEmpty(), overlay)
-                }
-                override fun afterTextChanged(x: Editable?) {}
-            })
         }
+        panel.addView(find, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
+        ).apply { bottomMargin = dp(8f) })
+        find.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {
+                peopleQuery = x?.toString().orEmpty()
+                renderDrawerPeople(peopleCol, active, peopleQuery, overlay)
+            }
+            override fun afterTextChanged(x: Editable?) {}
+        })
         panel.addView(peopleScroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         renderDrawerPeople(peopleCol, active, "", overlay)
 
+        drawerOverlay?.let { removeView(it) }
+        drawerOverlay = overlay
+        refreshDrawerPeople = {
+            active = activeParticipants()
+            (peopleHeading.getChildAt(1) as TextView).text = "참여자 ${active.size}명"
+            find.visibility = if (active.size > 12 || peopleQuery.isNotEmpty()) View.VISIBLE else View.GONE
+            renderDrawerPeople(peopleCol, active, peopleQuery, overlay)
+        }
+        overlay.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewDetachedFromWindow(v: View) {
+                if (drawerOverlay === v) { drawerOverlay = null; refreshDrawerPeople = null }
+            }
+        })
         addView(overlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         overlay.bringToFront()
 
@@ -1448,27 +1472,39 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
     }
 
-    /** 다시 이었을 때 — 떠나 있던 동안 온 글을 마지막 글 뒤로 받아 온다. */
+    /** Re-entry and reconnect both refresh membership, including already visible candidates. */
     private fun sync() {
-        if (!visible || !loaded || syncJob != null) return
-        val tail = messages.lastOrNull { !it.id.startsWith("tmp:") }
-        syncJob = scope.launch {
-            try {
-                var more = true
-                var from = tail
-                while (more) {
-                    val filters = if (from != null)
-                        listOf("or" to "(created_at.gt.${from.at},and(created_at.eq.${from.at},id.gt.${from.id}))")
-                    else emptyList()
-                    val add = service.messages(room, filters, ascending = true, limit = 100)
-                    merge(add); more = add.size == 100; from = add.lastOrNull() ?: from
-                    if (add.isEmpty()) break
-                }
-                reads = service.reads(room)
-                reactions = service.reactions(realIDs())
-                render(keepBottom = true); markRead()
-            } catch (e: Exception) { /* 다음 이음에 다시 */ } finally { syncJob = null }
-        }
+        if (visible && loaded) syncRunner.request()
+    }
+
+    private suspend fun syncNow() {
+        if (!visible || !loaded) return
+        try {
+            val latestPeople = service.people()
+            if (!visible) return
+            people = latestPeople
+            refreshDrawerPeople?.invoke()
+            paintMentionText(input.text)
+            updateMentionCard()
+            render(keepBottom = true)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
+        } catch (_: Exception) { /* Keep the last valid roster when offline. */ }
+        try {
+            var from = messages.lastOrNull { !it.id.startsWith("tmp:") }
+            while (visible) {
+                val filters = if (from != null)
+                    listOf("or" to "(created_at.gt.${from.at},and(created_at.eq.${from.at},id.gt.${from.id}))")
+                else emptyList()
+                val add = service.messages(room, filters, ascending = true, limit = 100)
+                merge(add)
+                from = add.lastOrNull() ?: from
+                if (add.size < 100) break
+            }
+            reads = service.reads(room)
+            reactions = service.reactions(realIDs())
+            if (visible) { render(keepBottom = true); markRead() }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
+        } catch (_: Exception) { /* The next reconnect retries without clearing existing content. */ }
     }
 
     private fun isCheer(body: String): Boolean {
