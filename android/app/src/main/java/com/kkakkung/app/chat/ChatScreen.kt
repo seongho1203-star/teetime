@@ -85,6 +85,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val list = ChatListView(activity)
     private val status = TextView(activity)
     private val mentionPanel = LinearLayout(activity)
+    private val suggestPanel = HorizontalScrollView(activity)
+    private val suggestRow = LinearLayout(activity)
     private val replyPanel = LinearLayout(activity)
     private val cheerBar = ChatCheerBar(activity)
     private val stickerPreview = FrameLayout(activity)
@@ -174,6 +176,18 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         column.addView(mentionPanel, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { leftMargin = dp(10f); rightMargin = dp(10f); bottomMargin = dp(4f) })
+
+        suggestPanel.visibility = View.GONE
+        suggestPanel.isHorizontalScrollBarEnabled = false
+        suggestPanel.setPadding(dp(10f),0,dp(10f),0)
+        suggestPanel.background = GradientDrawable().apply {
+            cornerRadius=dp(25f).toFloat(); setColor(Color.WHITE)
+        }
+        suggestRow.orientation=LinearLayout.HORIZONTAL; suggestRow.gravity=Gravity.CENTER_VERTICAL
+        suggestPanel.addView(suggestRow)
+        column.addView(suggestPanel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(68f)
+        ).apply { leftMargin=dp(10f); rightMargin=dp(10f); bottomMargin=dp(4f) })
 
         /* 2-2 답장 카드 — Swift ReplyBox 값 그대로:
            #b0a5e5, 좌우 10, radius 18, 닫기 24. */
@@ -269,6 +283,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 if (BaseInputConnection.getComposingSpanStart(e) >= 0) return
                 paintMentionText(e)
                 updateMentionCard()
+                updateSuggest(e.toString())
             }
         })
 
@@ -1047,6 +1062,48 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 render(keepBottom = true)
             } catch (e: Exception) { notice(e.message ?: "처리하지 못했습니다.") }
         }
+    }
+
+    private fun suggestNorm(raw: String): String =
+        raw.replace('？','?').replace(Regex("[\\s!~.,…'\"“”()·:;\\-_/]"), "").lowercase()
+
+    private fun updateSuggest(raw: String) {
+        if (!stage2 || raw.contains('@')) { suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return }
+        val q=suggestNorm(raw)
+        if (q.length < 2 || service.config.suggest.length()==0) {
+            suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return
+        }
+        val ids=LinkedHashSet<String>()
+        val rules=service.config.suggest
+        for(i in 0 until rules.length()) {
+            val rule=rules.optJSONObject(i) ?: continue
+            val words=rule.optJSONArray("words") ?: continue
+            var hit=false
+            for(j in 0 until words.length()) if(q.contains(words.optString(j))) { hit=true; break }
+            if(!hit) continue
+            val arr=rule.optJSONArray("ids") ?: continue
+            for(j in 0 until arr.length()) {
+                val id=arr.optString(j); if(id.isNotBlank()) ids.add(id)
+                if(ids.size>=service.config.suggestMax) break
+            }
+            if(ids.size>=service.config.suggestMax) break
+        }
+        if(ids.isEmpty()){ suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return }
+        suggestRow.removeAllViews()
+        ids.take(service.config.suggestMax).forEachIndexed { index,id ->
+            val iv=ImageView(activity).apply {
+                scaleType=ImageView.ScaleType.CENTER_INSIDE
+                contentDescription="추천 이모티콘"
+                val source = if(id.startsWith("mv") && index >= service.config.suggestAnim)
+                    "file:///android_asset/public/stickers/$id.png" else stickerAsset(id)
+                load(source){crossfade(false)}
+                setOnClickListener { pickSticker(id) }
+            }
+            suggestRow.addView(iv,LinearLayout.LayoutParams(dp(58f),dp(58f)).apply{marginEnd=dp(4f)})
+        }
+        suggestPanel.visibility=View.VISIBLE
+        /* 추천이 떠 있는 동안 일반 글은 파랑. @언급은 위에서 접으므로 충돌하지 않는다. */
+        input.setTextColor(0xFF2C7BD4.toInt())
     }
 
     private fun stickerAsset(id: String): String =
