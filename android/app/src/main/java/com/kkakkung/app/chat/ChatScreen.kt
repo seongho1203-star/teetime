@@ -582,48 +582,30 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
         val peopleCol = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val peopleScroll = ScrollView(activity).apply { addView(peopleCol) }
+        if (active.size > 12) {
+            val find = EditText(activity).apply {
+                hint = "참여자 찾기"; textSize = 14f; singleLine = true
+                setPadding(dp(12f), 0, dp(12f), 0)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12f).toFloat(); setColor(0xFFF5F7F1.toInt())
+                    setStroke(dp(1f), 0xFFDDE3D1.toInt())
+                }
+            }
+            panel.addView(find, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
+            ).apply { bottomMargin = dp(8f) })
+            find.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(x: CharSequence?, a: Int, b: Int, c: Int) {
+                    renderDrawerPeople(peopleCol, active, x?.toString().orEmpty(), overlay)
+                }
+                override fun afterTextChanged(x: Editable?) {}
+            })
+        }
         panel.addView(peopleScroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
-
-        active.forEach { p ->
-            val row = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(7f), 0, dp(7f)); isClickable = true
-            }
-            val face = TextView(activity).apply {
-                val n = p.optString("name"); text = if (n.length >= 2) n.takeLast(2) else n
-                textSize = 11f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(12f).toFloat(); setColor(0xFFDDE3D1.toInt())
-                }
-            }
-            row.addView(face, LinearLayout.LayoutParams(dp(36f), dp(36f)))
-            row.addView(TextView(activity).apply {
-                val mine = p.optString("id") == me
-                text = (if (mine) "나  " else "") + ChatRows.label(p)
-                textSize = 15f; setTextColor(ChatSkin.text)
-                setPadding(dp(13f), 0, 0, 0)
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            val role = p.optString("role")
-            val roleText = when (role) {
-                "superadmin" -> "♛"; "admin" -> "♛"; "staff" -> "♛"; "treasurer" -> "₩"; else -> ""
-            }
-            if (roleText.isNotEmpty()) row.addView(TextView(activity).apply {
-                text = roleText; textSize = 13f; typeface = Typeface.DEFAULT_BOLD
-                setTextColor(when(role) {
-                    "superadmin" -> 0xFFB41F72.toInt(); "admin" -> 0xFFE84A7F.toInt()
-                    "staff" -> 0xFF2C7BD4.toInt(); else -> 0xFFB97C00.toInt()
-                })
-            })
-            row.setOnClickListener {
-                removeView(overlay)
-                showProfile(p)
-            }
-            peopleCol.addView(row, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
-            ))
-        }
+        renderDrawerPeople(peopleCol, active, "", overlay)
 
         addView(overlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         overlay.bringToFront()
@@ -651,6 +633,67 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             } catch (_: Exception) {
                 /* 네트워크 실패는 사진 묶음을 '지워진 사진'으로 판정하지 않는다. */
             }
+        }
+    }
+
+    private fun renderDrawerPeople(
+        parent: LinearLayout, source: List<JSONObject>, query: String, drawer: View
+    ) {
+        parent.removeAllViews()
+        val q = query.trim()
+        source.filter { q.isBlank() || ChatRows.label(it).contains(q, ignoreCase = true) }.forEach { p ->
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16f), dp(7f), dp(16f), dp(7f)); isClickable = true
+            }
+            val face = FrameLayout(activity)
+            val avatar = ImageView(activity).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12f).toFloat(); setColor(0xFFDDE3D1.toInt())
+                    val edge = when(p.optString("gender")) {
+                        "f" -> 0xFFEF6BA8.toInt(); "m" -> 0xFF2F8FD6.toInt(); else -> Color.TRANSPARENT
+                    }
+                    if (edge != Color.TRANSPARENT) setStroke(dp(1f), edge)
+                }
+                clipToOutline = true
+            }
+            val url = httpsUrl(p.optString("avatar_url"))
+            if (!url.isNullOrBlank()) avatar.load(url) { crossfade(false) }
+            else avatar.setImageDrawable(null)
+            face.addView(avatar, FrameLayout.LayoutParams(dp(36f), dp(36f)))
+            if (url.isNullOrBlank()) face.addView(TextView(activity).apply {
+                val n=p.optString("name"); text=if(n.length>=2)n.takeLast(2) else n
+                textSize=11f; gravity=Gravity.CENTER; setTextColor(ChatSkin.text)
+            }, FrameLayout.LayoutParams(dp(36f),dp(36f)))
+
+            val role = p.optString("role")
+            val markText = if (role == "treasurer") "₩" else if (role in setOf("staff","admin","superadmin")) "♛" else ""
+            if (markText.isNotBlank()) face.addView(TextView(activity).apply {
+                text=markText; textSize=9f; gravity=Gravity.CENTER; setTextColor(Color.WHITE)
+                background=GradientDrawable().apply {
+                    shape=GradientDrawable.OVAL; setColor(when(role) {
+                        "superadmin"->0xFFB41F72.toInt(); "admin"->0xFFE84A7F.toInt()
+                        "staff"->0xFF2C7BD4.toInt(); else->0xFFB97C00.toInt()
+                    })
+                }
+            }, FrameLayout.LayoutParams(dp(16f),dp(16f),Gravity.END or Gravity.BOTTOM))
+            row.addView(face, LinearLayout.LayoutParams(dp(38f),dp(38f)))
+
+            if (p.optString("id") == me) row.addView(TextView(activity).apply {
+                text="나"; textSize=11f; typeface=Typeface.DEFAULT_BOLD; gravity=Gravity.CENTER
+                setTextColor(Color.WHITE); setPadding(dp(6f),dp(2f),dp(6f),dp(2f))
+                background=GradientDrawable().apply { cornerRadius=dp(8f).toFloat(); setColor(0x59000000) }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,dp(18f)).apply { marginStart=dp(11f) })
+
+            row.addView(TextView(activity).apply {
+                text=ChatRows.label(p); textSize=16f; setTextColor(ChatSkin.text)
+                setPadding(dp(8f),0,0,0)
+            }, LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f))
+            row.setOnClickListener { removeView(drawer); showProfile(p) }
+            parent.addView(row, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
+            ))
         }
     }
 
