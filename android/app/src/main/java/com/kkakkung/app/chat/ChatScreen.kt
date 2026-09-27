@@ -85,6 +85,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val status = TextView(activity)
     private val mentionPanel = LinearLayout(activity)
     private val replyPanel = LinearLayout(activity)
+    private val cheerBar = ChatCheerBar(activity)
     private val composer = LinearLayout(activity)
     private val input = EditText(activity)
     private val sendBtn = ImageView(activity)
@@ -108,6 +109,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var metaJob: Job? = null
     private var syncJob: Job? = null
     private var searchJob: Job? = null
+    private var cheerJob: Job? = null
     private var softInputBefore: Int? = null
     private val stage2 get() = ChatCatchup.stage2(activity)
     private var pullY = 0f
@@ -177,6 +179,16 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         column.addView(replyPanel, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { leftMargin = dp(10f); rightMargin = dp(10f); bottomMargin = dp(4f) })
+
+        cheerBar.visibility = View.GONE
+        cheerBar.onTap = {
+            cheerBar.visibility = View.GONE
+            cheerBar.stopMotion()
+            notice("축하합니다!")
+        }
+        column.addView(cheerBar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
+        ).apply { leftMargin=dp(10f); rightMargin=dp(10f) })
 
         findBar.orientation = LinearLayout.HORIZONTAL
         findBar.gravity = Gravity.CENTER_VERTICAL
@@ -322,7 +334,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     fun destroy() {
-        detach(); loadJob?.cancel(); searchJob?.cancel(); scope.cancel()
+        detach(); loadJob?.cancel(); searchJob?.cancel(); cheerJob?.cancel(); scope.cancel()
     }
 
     fun updateToken(token: String) {
@@ -1144,7 +1156,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             if (d.optString("type") == "DELETE") {
                 val gone = old.optString("id"); messages.removeAll { it.id == gone }
             } else if (raw.optString("room_id") == room && raw.optString("id").isNotEmpty()) {
-                merge(listOf(ChatMessage(raw)))
+                val incoming = ChatMessage(raw)
+                merge(listOf(incoming))
+                if (isCheer(incoming.body)) showCheer()
             }
             render(keepBottom = true); markRead()
         }
@@ -1179,6 +1193,21 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 reactions = service.reactions(realIDs())
                 render(keepBottom = true); markRead()
             } catch (e: Exception) { /* 다음 이음에 다시 */ } finally { syncJob = null }
+        }
+    }
+
+    private fun isCheer(body: String): Boolean {
+        val t = body.filterNot { it.isWhitespace() }
+        return t.contains("축하") || t.contains("추카") || t.contains("ㅊㅋ")
+    }
+
+    private fun showCheer() {
+        cheerJob?.cancel()
+        cheerBar.visibility = View.VISIBLE
+        cheerBar.play()
+        cheerJob = scope.launch {
+            delay(10_000)
+            cheerBar.stopMotion(); cheerBar.visibility = View.GONE
         }
     }
 
