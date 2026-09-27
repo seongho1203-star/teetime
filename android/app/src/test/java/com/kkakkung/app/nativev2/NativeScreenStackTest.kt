@@ -72,4 +72,33 @@ class NativeScreenStackTest {
         assertFalse(requested)
         activity.finish()
     }
+
+    @Test fun tabSwipeFollowsFingerAndCancelledPreviewDoesNotChangeSelection() {
+        val (activity, stack) = fixture()
+        val home = FrameLayout(activity)
+        val board = FrameLayout(activity)
+        var selected: String? = null
+        stack.show("/", home, true); settle()
+        stack.tabNeighbor = { if (it == 1) NativeScreenStack.Screen("/board", board, null) else null }
+        stack.tabSelected = { selected = it }
+        val width = stack.width.toFloat()
+        fun begin() {
+            stack.onInterceptTouchEvent(event(MotionEvent.ACTION_DOWN, width * .9f))
+            assertTrue(stack.onInterceptTouchEvent(event(MotionEvent.ACTION_MOVE, width * .7f)))
+            assertEquals(width, board.translationX, .001f)
+            stack.onTouchEvent(event(MotionEvent.ACTION_MOVE, width * .7f))
+            assertEquals(-width * .2f, home.translationX, .01f)
+            assertEquals(width * .8f, board.translationX, .01f)
+        }
+        begin()
+        stack.onTouchEvent(event(MotionEvent.ACTION_CANCEL, width * .7f)); settle()
+        assertSame(home, stack.current?.view); assertNull(selected)
+        assertNull(board.parent)
+        begin()
+        stack.onTouchEvent(event(MotionEvent.ACTION_MOVE, width * .3f))
+        stack.onTouchEvent(event(MotionEvent.ACTION_UP, width * .3f, time = 2000)); settle()
+        assertSame(board, stack.current?.view); assertEquals("/board", selected)
+        assertNull(home.parent); assertEquals(0f, board.translationX, .001f)
+        activity.finish()
+    }
 }

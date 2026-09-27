@@ -1276,12 +1276,11 @@ class NativeHomeActivity : AppCompatActivity() {
                 val comments = api.roundComments(id)
                 val people = api.people()
                 val myProfile = api.profile()
-                page.removeView(loading)
-                if (r == null) { error(page, "라운드를 찾지 못했습니다."); return@launch }
-                renderRound(page, r, comments, people, myProfile)
+                if (r == null) { page.removeView(loading); error(page, "라운드를 찾지 못했습니다."); return@launch }
                 val tees = try { api.groupTees(id) } catch (_: Exception) { JSONObject() }
-                renderGroups(page, r, people, tees)
-                try { renderRoundSettlements(page, api.roundSettlements(id), id) } catch (_: Exception) { }
+                val settlements = try { api.roundSettlements(id) } catch (_: Exception) { emptyList() }
+                page.removeView(loading)
+                renderRound(page, r, comments, people, myProfile, tees, settlements)
 
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
@@ -1291,7 +1290,7 @@ class NativeHomeActivity : AppCompatActivity() {
 
     private fun renderRound(
         page: LinearLayout, r: JSONObject, comments: List<JSONObject>,
-        people: List<JSONObject>, myProfile: JSONObject?
+        people: List<JSONObject>, myProfile: JSONObject?, tees: JSONObject, settlements: List<JSONObject>
     ) {
         val id = r.optString("id")
         val names = people.associateBy { it.optString("id") }
@@ -1417,19 +1416,13 @@ class NativeHomeActivity : AppCompatActivity() {
 
         section(page, "참가자 ${confirmed.size}/${r.optInt("capacity")}")
         if (confirmed.isEmpty()) empty(page, "아직 참가자가 없습니다.")
-        confirmed.forEach { signup ->
-            val uid = signup.optString("user_id")
-            val row = personRow(personLabel(names[uid]).ifBlank { "알 수 없음" }, "확정")
-            if ((admin || owner) && uid != session.userId) {
-                row.setOnLongClickListener {
+        renderGroups(page, r, people, tees, if (admin || owner) { uid ->
+            if (uid != session.userId) {
                     confirm("명단에서 뺄까요?", "대기자가 있으면 맨 앞 사람이 자동으로 올라갑니다.") {
                         mutate { api.kickSignup(id, uid); showRound(id) }
                     }
-                    true
-                }
             }
-            page.addView(row)
-        }
+        } else null)
         if (waiting.isNotEmpty()) {
             section(page, "대기 ${waiting.size}명")
             waiting.forEachIndexed { i, signup ->
@@ -1440,23 +1433,28 @@ class NativeHomeActivity : AppCompatActivity() {
             }
         }
 
+        renderRoundSettlements(page, settlements, id)
         commentsBlock(page, comments, names) { text ->
             mutate { api.addComment("round_comments", "round_id", id, text); showRound(id) }
         }
     }
 
-    private fun renderGroups(page: LinearLayout, round: JSONObject, people: List<JSONObject>, tees: JSONObject) {
+    private fun renderGroups(page: LinearLayout, round: JSONObject, people: List<JSONObject>, tees: JSONObject, removeMember: ((String) -> Unit)?) {
         val confirmed = jsonObjects(round.optJSONArray("signups")).filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
         val names = people.associateBy { it.optString("id") }
         val groups = confirmed.groupBy { it.optInt("grp", 0) }.toSortedMap()
         if (groups.isEmpty()) return
-        section(page, "조별 명단")
         groups.forEach { (number, members) ->
             val mine = members.any { it.optString("user_id") == session.userId }
             val label = if (number > 0) "${number}조" else "미배정"
-            section(page, label + if (mine) " · 내 조" else "")
+            section(page, label + if (mine && number > 0) " · 내 조" else "")
             tees.optString(number.toString()).takeIf { it.isNotBlank() }?.let { body(page, "티오프 ${timeOnly(it)}") }
-            members.forEach { page.addView(personRow(personLabel(names[it.optString("user_id")]), if (it.optString("user_id") == session.userId) "나" else "")) }
+            members.forEach { member ->
+                val uid = member.optString("user_id")
+                val row = personRow(personLabel(names[uid]).ifBlank { "알 수 없음" }, if (uid == session.userId) "나" else "확정")
+                if (removeMember != null && uid != session.userId) row.setOnLongClickListener { removeMember(uid); true }
+                page.addView(row)
+            }
         }
     }
 
@@ -1478,6 +1476,7 @@ class NativeHomeActivity : AppCompatActivity() {
         page.addView(sizes)
         var assignments: Map<String, Int> = members.associate { it.optString("user_id") to it.optInt("grp", 0) }
         var tees = JSONObject()
+        val editedTees = mutableSetOf<String>()
         val roster = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun paint() {
             roster.removeAllViews()
@@ -1486,10 +1485,11 @@ class NativeHomeActivity : AppCompatActivity() {
                 roster.addView(action(tees.optString(group.toString()).takeIf { it.isNotBlank() }?.let { "티오프 ${timeOnly(it)}" } ?: "조별 티오프") {
                     val base = OffsetDateTime.parse(round.optString("tee_at")).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
                     TimePickerDialog(this, { _, h, minute ->
+                        editedTees.add(group.toString())
                         tees.put(group.toString(), base.withHour(h).withMinute(minute).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)); paint()
                     }, base.hour, base.minute, true).show()
                 })
-                roster.addView(action("시각 지우기") { tees.remove(group.toString()); paint() })
+                roster.addView(action("시각 지우기") { editedTees.add(group.toString()); tees.remove(group.toString()); paint() })
                 assignments.filterValues { it == group }.keys.forEach { uid -> body(roster, personLabel(names[uid])) }
             }
             val unassigned = assignments.filterValues { it <= 0 }.keys
@@ -1509,7 +1509,11 @@ class NativeHomeActivity : AppCompatActivity() {
             mutate { api.setRoundGroups(id, result, kept); toast("조 편성을 저장했습니다."); content.invalidatePrevious(); navigateBack() }
         })
         mount(page); paint()
-        scope.launch { try { tees = api.groupTees(id); paint() } catch (_: Exception) { } }
+        scope.launch { try {
+            val loaded = api.groupTees(id)
+            loaded.keys().forEach { key -> if (key !in editedTees) tees.put(key, loaded.get(key)) }
+            paint()
+        } catch (_: Exception) { } }
     }
 
     private fun renderRoundSettlements(page: LinearLayout, settlements: List<JSONObject>, roundId: String) {

@@ -119,11 +119,13 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
             if (abs(dx) > slop && abs(dx) > abs(dy) * 1.2f) {
                 if (canPop && dx > 0) {
                     val behind = screens[screens.lastIndex - 1]
+                    behind.view.translationX = if (animationsEnabled()) -width * .25f else 0f
                     attach(behind); current!!.view.bringToFront()
                 } else if (!canPop) {
                     direction = if (dx < 0) 1 else -1
                     preview = tabNeighbor?.invoke(direction)
                     if (preview == null) { rejected = true; return false }
+                    preview!!.view.translationX = direction * width.toFloat()
                     attach(preview!!); current!!.view.bringToFront()
                 } else { rejected = true; return false }
                 dragging = true; stopScroll(current!!.view)
