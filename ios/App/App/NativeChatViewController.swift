@@ -621,7 +621,15 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
 
     private func navigate(_ path: String) {
-        guard !navigating else { return }; navigating = true
+        guard !navigating else { return }
+        /* **앱이 그리는 화면(라운드·투표·공지)은 이 대화방 위에 바로 얹는다**(사용자
+           제보 — `대화에서 투표나 라운드링크를 눌러서 들어갔다 뒤로나오면 대화가 바로
+           보여야하는데 투표나 라운드가 보이고 대화가 보여`). 웹에 맡기면 이 화면을
+           걷고 그 화면을 연 뒤, 돌아올 때 대화방을 **새로 밀어 넣어** 두 번 움직였다.
+           위에 얹으면 대화방은 틀에 그대로 남고 뒤로 오면 곧바로 보인다(웹 주소도
+           `/chat` 그대로다). 껍데기가 없는 판(스위치를 끈 앱)은 예전 길이다. */
+        if NativeAppPlugin.shellPush(path, over: self) { return }
+        navigating = true
         if searching { setSearch(false) }
         /* **나가기 전에 이 화면을 그림 한 장으로 떠서 함께 넘긴다.**
            라운드·투표에서 손가락으로 끌어 뒤로 올 때 **뒤에 깔 것**이다 —
@@ -765,6 +773,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     private func showCheer() {
         guard isViewLoaded else { return }
         cheer.isHidden = false
+        cheer.play()
         cheerHide?.cancel()
         let job = DispatchWorkItem { [weak self] in self?.cheer.isHidden = true }
         cheerHide = job
@@ -817,6 +826,14 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                         try Task.checkCancellation(); self.merge(add); more = add.count == 100
                         tail = add.last ?? tail
                     }
+                }
+                /* **회원 명단도 다시 받는다.** 이 화면은 한 번 만들면 다시 쓰므로
+                   처음 받은 명단이 앱을 끌 때까지 남아, 그사이 추방·대기로 돌린
+                   사람이 ☰ 참여자와 `@` 목록에 그대로 있었다(사용자 제보). 이 자리는
+                   들어올 때와 다시 이어질 때만 도므로 100명분 한 번이 전부다. */
+                if let fresh = try? await self.service.people(), !fresh.isEmpty {
+                    try Task.checkCancellation()
+                    self.people = fresh; self.refreshMentionPaint()
                 }
                 self.reads = try await self.service.reads(self.room)
                 self.reactions = try await self.service.reactions(self.realIDs)

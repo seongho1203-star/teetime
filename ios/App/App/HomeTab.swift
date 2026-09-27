@@ -84,6 +84,36 @@ final class HomeTabController: ShellTabController {
         ])
     }
 
+    override var liveTables: Set<String> {
+        ["rounds", "signups", "polls", "poll_votes", "profiles", "round_groups", "messages", "notifications"]
+    }
+
+    /**
+     * **대화·알림만 바뀌었으면 숫자만 고친다**(웹 `Home.tsx`의 `reloadUnread`·`reloadAlerts`).
+     * 대화는 하루 백 마디라 그때마다 라운드·투표까지 다시 받으면 헛조회다.
+     * `내가 할 일`의 대화 줄이 새로 생기거나 사라질 때만 통째로 다시 받는다.
+     */
+    override func liveReload(_ tables: Set<String>) {
+        guard tables.isSubset(of: ["messages", "notifications"]) else { load(); return }
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            if tables.contains("notifications") {
+                let alerts = await self.service.unreadAlertCount()
+                self.bellDot.text = alerts > 99 ? "99+" : String(alerts)
+                self.bellDot.isHidden = alerts == 0
+            }
+            guard tables.contains("messages") else { return }
+            let chat = await self.service.unreadChatCount()
+            let at = self.rows.firstIndex { if case .chat = $0 { return true }; return false }
+            if let i = at, chat > 0 {
+                self.rows[i] = .chat(chat)
+                self.table.reloadRows(at: [IndexPath(row: i, section: 0)], with: .none)
+            } else if at != nil || chat > 0 {
+                self.load()
+            }
+        }
+    }
+
     @objc private func faceTapped() { go("/me") }
     @objc private func bellTapped() { go("/alerts") }
 

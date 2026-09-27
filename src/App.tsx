@@ -15,19 +15,14 @@ import { Pending } from './screens/Pending';
 import { FillProfile } from './screens/FillProfile';
 import { Home } from './screens/Home';
 import { Rounds } from './screens/Rounds';
-import { RoundEdit } from './screens/RoundEdit';
-import { RoundGroups } from './screens/RoundGroups';
 import { Polls } from './screens/Polls';
-import { PollEdit } from './screens/PollEdit';
 import { Board } from './screens/Board';
-import { PostEdit } from './screens/PostEdit';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
-import { Me } from './screens/Me';
-import { AlertsRoute, MembersRoute, NativeShellSync, PollRoute, PostRoute, RoundRoute } from './screens/NativeScreen';
+import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollEditRoute, PollRoute, PostEditRoute, PostRoute, RoundEditRoute, RoundGroupsRoute, RoundRoute, SettleRoute, MeRoute } from './screens/NativeScreen';
 import { hasNativeApp, hasAndroidNativeV2, openAndroidNativeV2 } from './lib/native-app';
-import { Settle } from './screens/Settle';
-import { Help } from './screens/Help';
+import { autoEnablePush } from './lib/push';
+import { IS_NATIVE } from './lib/native';
 
 /**
  * 라우팅은 **해시 방식**(`/#/rounds`)을 쓴다.
@@ -40,6 +35,16 @@ import { Help } from './screens/Help';
  *
  * 지금 편하자고 BrowserRouter로 바꾸면 그때 전부 다시 손봐야 한다.
  */
+
+/** 앱에 처음 들어오면 알림 허락 창을 저절로 띄운다(`autoEnablePush` — 기기마다 한 번). */
+function AutoPush({ userId }: { userId: string }) {
+    useEffect(() => {
+        /* 첫 화면이 먼저 서고 나서 묻는다 — 들어오자마자 창이 덮으면 무엇을 허락하는지 모른다. */
+        const t = window.setTimeout(() => { void autoEnablePush(userId); }, 1500);
+        return () => window.clearTimeout(t);
+    }, [userId]);
+    return null;
+}
 
 function Gate() {
     const { session, profile, contact, isMember, loading } = useAuth();
@@ -108,28 +113,29 @@ function Gate() {
             {/* **앱 껍데기(홈·탭바)** — 켠 아이폰 앱에서만. 로그인이 끝난 여기서
                 세우고, 로그아웃으로 이 칸이 사라지면 내린다(`NativeShellSync`). */}
             {hasNativeApp() && <NativeShellSync />}
+            {IS_NATIVE && session && <AutoPush userId={session.user.id} />}
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rounds" element={<Rounds />} />
-                <Route path="/rounds/new" element={<RoundEdit />} />
+                <Route path="/rounds/new" element={<RoundEditRoute />} />
                 <Route path="/rounds/:id" element={<RoundRoute />} />
-                <Route path="/rounds/:id/edit" element={<RoundEdit />} />
-                <Route path="/rounds/:id/groups" element={<RoundGroups />} />
+                <Route path="/rounds/:id/edit" element={<RoundEditRoute />} />
+                <Route path="/rounds/:id/groups" element={<RoundGroupsRoute />} />
                 <Route path="/polls" element={<Polls />} />
-                <Route path="/polls/new" element={<PollEdit />} />
+                <Route path="/polls/new" element={<PollEditRoute />} />
                 <Route path="/polls/:id" element={<PollRoute />} />
-                <Route path="/polls/:id/edit" element={<PollEdit />} />
+                <Route path="/polls/:id/edit" element={<PollEditRoute />} />
                 <Route path="/board" element={<Board />} />
-                <Route path="/board/new" element={<PostEdit />} />
+                <Route path="/board/new" element={<PostEditRoute />} />
                 <Route path="/board/:id" element={<PostRoute />} />
-                <Route path="/board/:id/edit" element={<PostEdit />} />
+                <Route path="/board/:id/edit" element={<PostEditRoute />} />
                 <Route path="/chat" element={<ChatRoute />} />
-                <Route path="/me" element={<Me />} />
+                <Route path="/me" element={<MeRoute />} />
                 {/* 아이폰 앱에서 스위치가 켜져 있으면 앱이 그린다(`docs/아이폰-네이티브.md`). */}
                 <Route path="/members" element={<MembersRoute />} />
-                <Route path="/settle" element={<Settle />} />
+                <Route path="/settle" element={<SettleRoute />} />
                 <Route path="/alerts" element={<AlertsRoute />} />
-                <Route path="/help" element={<Help />} />
+                <Route path="/help" element={<HelpRoute />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             <TabBar />

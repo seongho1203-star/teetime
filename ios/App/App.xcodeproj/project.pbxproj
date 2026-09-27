@@ -38,6 +38,15 @@
 		CB3000000000000000000000E /* HomeTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000E /* HomeTab.swift */; };
 		CB3000000000000000000000F /* RoundViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000000F /* RoundViewController.swift */; };
 		CB3000000000000000000010 /* PollViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000010 /* PollViewController.swift */; };
+		CB3000000000000000000011 /* HelpViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000011 /* HelpViewController.swift */; };
+		CB3000000000000000000012 /* FormScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000012 /* FormScreen.swift */; };
+		CB3000000000000000000013 /* PostEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000013 /* PostEditViewController.swift */; };
+		CB3000000000000000000014 /* PollEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000014 /* PollEditViewController.swift */; };
+		CB3000000000000000000015 /* RoundEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000015 /* RoundEditViewController.swift */; };
+		CB3000000000000000000016 /* SettlementEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000016 /* SettlementEditViewController.swift */; };
+		CB3000000000000000000017 /* RoundGroupsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000017 /* RoundGroupsViewController.swift */; };
+		CB3000000000000000000018 /* SettleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000018 /* SettleViewController.swift */; };
+		CB3000000000000000000019 /* MeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000019 /* MeViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +85,15 @@
 		CB2000000000000000000000E /* HomeTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTab.swift; sourceTree = "<group>"; };
 		CB2000000000000000000000F /* RoundViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000010 /* PollViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000011 /* HelpViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000012 /* FormScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormScreen.swift; sourceTree = "<group>"; };
+		CB2000000000000000000013 /* PostEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostEditViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000014 /* PollEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollEditViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000015 /* RoundEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundEditViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000016 /* SettlementEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementEditViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000017 /* RoundGroupsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundGroupsViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000018 /* SettleViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettleViewController.swift; sourceTree = "<group>"; };
+		CB2000000000000000000019 /* MeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -143,6 +161,15 @@
 				CB2000000000000000000000E /* HomeTab.swift */,
 				CB2000000000000000000000F /* RoundViewController.swift */,
 				CB2000000000000000000010 /* PollViewController.swift */,
+				CB2000000000000000000011 /* HelpViewController.swift */,
+				CB2000000000000000000012 /* FormScreen.swift */,
+				CB2000000000000000000013 /* PostEditViewController.swift */,
+				CB2000000000000000000014 /* PollEditViewController.swift */,
+				CB2000000000000000000015 /* RoundEditViewController.swift */,
+				CB2000000000000000000016 /* SettlementEditViewController.swift */,
+				CB2000000000000000000017 /* RoundGroupsViewController.swift */,
+				CB2000000000000000000018 /* SettleViewController.swift */,
+				CB2000000000000000000019 /* MeViewController.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -302,6 +329,15 @@
 				CB3000000000000000000000E /* HomeTab.swift in Sources */,
 				CB3000000000000000000000F /* RoundViewController.swift in Sources */,
 				CB3000000000000000000010 /* PollViewController.swift in Sources */,
+				CB3000000000000000000011 /* HelpViewController.swift in Sources */,
+				CB3000000000000000000012 /* FormScreen.swift in Sources */,
+				CB3000000000000000000013 /* PostEditViewController.swift in Sources */,
+				CB3000000000000000000014 /* PollEditViewController.swift in Sources */,
+				CB3000000000000000000015 /* RoundEditViewController.swift in Sources */,
+				CB3000000000000000000016 /* SettlementEditViewController.swift in Sources */,
+				CB3000000000000000000017 /* RoundGroupsViewController.swift in Sources */,
+				CB3000000000000000000018 /* SettleViewController.swift in Sources */,
+				CB3000000000000000000019 /* MeViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -264,7 +264,11 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         stickerTray.orientation = LinearLayout.VERTICAL
         stickerTray.setBackgroundColor(Color.WHITE); stickerTray.visibility = View.GONE
         stickerTabs.orientation = LinearLayout.HORIZONTAL
-        stickerTray.addView(stickerTabs, LinearLayout.LayoutParams(
+        val tabScroll = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(stickerTabs)
+        }
+        stickerTray.addView(tabScroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)))
         stickerGrid.columnCount = 5
         val stickerScroll = ScrollView(activity).apply { addView(stickerGrid) }
@@ -274,6 +278,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         column.addView(stickerTray, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, trayH))
 
+        input.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) stickerTray.visibility = View.GONE
+            false
+        }
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(x: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(x: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -1073,33 +1081,54 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         if (q.length < 2 || service.config.suggest.length()==0) {
             suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return
         }
-        val ids=LinkedHashSet<String>()
-        val rules=service.config.suggest
-        for(i in 0 until rules.length()) {
-            val rule=rules.optJSONObject(i) ?: continue
-            val words=rule.optJSONArray("words") ?: continue
-            var hit=false
-            for(j in 0 until words.length()) if(q.contains(words.optString(j))) { hit=true; break }
-            if(!hit) continue
-            val arr=rule.optJSONArray("ids") ?: continue
-            for(j in 0 until arr.length()) {
-                val id=arr.optString(j); if(id.isNotBlank()) ids.add(id)
-                if(ids.size>=service.config.suggestMax) break
+        // Collect every match first, then follow the shared catalog order (suggestFor).
+        val hits = HashSet<String>()
+        val rules = service.config.suggest
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val words = rule.optJSONArray("words") ?: continue
+            val hit = (0 until words.length()).any {
+                val word = words.optString(it)
+                word.isNotEmpty() && q.contains(word)
             }
-            if(ids.size>=service.config.suggestMax) break
+            if (!hit) continue
+            val ids = rule.optJSONArray("ids") ?: continue
+            for (j in 0 until ids.length()) hits.add(ids.optString(j))
         }
-        if(ids.isEmpty()){ suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return }
+        val selected = LinkedHashMap<String, String>()
+        val max = service.config.suggestMax.coerceAtLeast(0)
+        val maxAnimated = service.config.suggestAnim.coerceAtLeast(0)
+        var animated = 0
+        val groups = service.config.stickers
+        for (i in 0 until groups.length()) {
+            val stickers = groups.optJSONObject(i)?.optJSONArray("stickers") ?: continue
+            for (j in 0 until stickers.length()) {
+                if (selected.size >= max) break
+                val sticker = stickers.optJSONObject(j) ?: continue
+                val id = sticker.optString("id")
+                if (id !in hits || id in selected) continue
+                if (id.startsWith("mv")) {
+                    if (animated >= maxAnimated) continue
+                    animated++
+                }
+                selected[id] = sticker.optString("label", "추천 이모티콘")
+            }
+            if (selected.size >= max) break
+        }
+        if (selected.isEmpty()) {
+            suggestPanel.visibility = View.GONE
+            input.setTextColor(ChatSkin.text)
+            return
+        }
         suggestRow.removeAllViews()
-        ids.take(service.config.suggestMax).forEachIndexed { index,id ->
-            val iv=ImageView(activity).apply {
-                scaleType=ImageView.ScaleType.CENTER_INSIDE
-                contentDescription="추천 이모티콘"
-                val source = if(id.startsWith("mv") && index >= service.config.suggestAnim)
-                    "file:///android_asset/public/stickers/$id.png" else stickerAsset(id)
-                load(source){crossfade(false)}
+        selected.forEach { (id, label) ->
+            val iv = ImageView(activity).apply {
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                contentDescription = label
+                load(stickerAsset(id)) { crossfade(false) }
                 setOnClickListener { pickSticker(id) }
             }
-            suggestRow.addView(iv,LinearLayout.LayoutParams(dp(58f),dp(58f)).apply{marginEnd=dp(4f)})
+            suggestRow.addView(iv, LinearLayout.LayoutParams(dp(58f), dp(58f)).apply { marginEnd = dp(4f) })
         }
         suggestPanel.visibility=View.VISIBLE
         /* 추천이 떠 있는 동안 일반 글은 파랑. @언급은 위에서 접으므로 충돌하지 않는다. */
@@ -1114,7 +1143,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         hideKeyboard()
         val open = stickerTray.visibility != View.VISIBLE
         stickerTray.visibility = if (open) View.VISIBLE else View.GONE
-        if (open) renderStickerTray()
+        if (open) stickerTray.post {
+            if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
+        }
     }
 
     private fun renderStickerTray() {
@@ -1134,7 +1165,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
         stickerGrid.removeAllViews()
         val stickers = groups.optJSONObject(stickerGroup)?.optJSONArray("stickers") ?: JSONArray()
-        val cell = resources.displayMetrics.widthPixels / 5
+        val cell = (stickerTray.width - stickerTray.paddingLeft - stickerTray.paddingRight) / 5
+        if (cell <= 0) return
         for (i in 0 until stickers.length()) {
             val st = stickers.optJSONObject(i) ?: continue
             val id = st.optString("id"); if (id.isBlank()) continue
@@ -1175,7 +1207,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun sendPickedStickerOnly() {
         if (pickedSticker == null || busy) return
-        send()
+        send(stickerOnly = true)
     }
 
     private fun setReply(id: String) {
@@ -1403,8 +1435,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     // ── 보내기 ─────────────────────────────────────────────────
 
-    private fun send() {
-        val text = input.text.toString().trim()
+    private fun send(stickerOnly: Boolean = false) {
+        val text = if (stickerOnly) "" else input.text.toString().trim()
         val sticker = pickedSticker
         if (busy || !loaded || (text.isEmpty() && sticker == null)) return
         if (text.length > 1000) { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
@@ -1428,7 +1460,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 .put("id", tempId)
                 .put("created_at", java.time.Instant.now().toString())
             merge(listOf(ChatMessage(raw)))
-            input.setText("")
+            if (!stickerOnly) input.setText("")
             clearReply(); clearSticker()
             render(keepBottom = false)
             list.scrollToBottom(false)
@@ -1438,17 +1470,18 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             try {
                 val sent = service.send(row)
                 tempId?.let { id -> messages.removeAll { it.id == id } }
-                if (!stage2 && input.text.toString().trim() == text) input.setText("")
+                if (!stage2 && !stickerOnly && input.text.toString().trim() == text) input.setText("")
                 if (!stage2) clearReply()
                 merge(listOf(sent)); render(keepBottom = false)
                 list.scrollToBottom(false); markRead()
             } catch (e: Exception) {
                 tempId?.let { id -> messages.removeAll { it.id == id } }
-                if (stage2 && input.text.isEmpty()) {
-                    /* 실패한 글·답장을 함께 돌려놓는다. */
-                    input.setText(text); input.setSelection(input.text.length)
-                    reply?.let { setReply(it.id) }
-                    sticker?.let { pickSticker(it) }
+                if (stage2) {
+                    if (!stickerOnly && input.text.isEmpty()) {
+                        input.setText(text); input.setSelection(input.text.length)
+                    }
+                    if (quoted == null) reply?.let { setReply(it.id) }
+                    if (pickedSticker == null) sticker?.let { pickSticker(it) }
                 }
                 render(keepBottom = true)
                 notice((e.message ?: "보내지 못했습니다.") + "\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")

@@ -48,15 +48,34 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
         pollsTab = PollsTabController(service: service)
         super.init(nibName: nil, bundle: nil)
         for t in [homeTab, boardTab, roundsTab, pollsTab] { t.shell = self }
-        homeTab.tabBarItem = UITabBarItem(title: "홈", image: UIImage(systemName: "house"), tag: 0)
-        boardTab.tabBarItem = UITabBarItem(title: "공지", image: UIImage(systemName: "megaphone"), tag: 1)
-        roundsTab.tabBarItem = UITabBarItem(title: "라운드", image: UIImage(systemName: "flag"), tag: 2)
-        pollsTab.tabBarItem = UITabBarItem(title: "투표", image: UIImage(systemName: "chart.bar"), tag: 3)
-        chatTab.tabBarItem = UITabBarItem(title: "대화", image: UIImage(systemName: "bubble.left"), tag: 4)
+        /* 탭 아이콘은 SF Symbol이 아니라 **우리가 넣은 선 그림**이다(사용자가 고른 것 —
+           Lucide의 house·megaphone·flag·chart-column·message-circle, 선 1.75).
+           원본 SVG는 `docs/탭-아이콘/`에 있고 `Assets.xcassets/tab-*`는 거기서 뽑은
+           템플릿 PNG라 탭바 색(흐림·분홍)을 그대로 받는다. 못 찾으면 옛 SF Symbol로. */
+        func icon(_ name: String, _ fallback: String) -> UIImage? {
+            UIImage(named: "tab-\(name)")?.withRenderingMode(.alwaysTemplate) ?? UIImage(systemName: fallback)
+        }
+        homeTab.tabBarItem = UITabBarItem(title: "홈", image: icon("house", "house"), tag: 0)
+        boardTab.tabBarItem = UITabBarItem(title: "공지", image: icon("megaphone", "megaphone"), tag: 1)
+        roundsTab.tabBarItem = UITabBarItem(title: "라운드", image: icon("flag", "flag"), tag: 2)
+        pollsTab.tabBarItem = UITabBarItem(title: "투표", image: icon("chart-column", "chart.bar"), tag: 3)
+        chatTab.tabBarItem = UITabBarItem(title: "대화", image: icon("message-circle", "bubble.left"), tag: 4)
         viewControllers = [homeTab, boardTab, roundsTab, pollsTab, chatTab]
         delegate = self
         Self.current = self
+        let c = NotificationCenter.default
+        c.addObserver(self, selector: #selector(liveChanged(_:)), name: AppLive.changed, object: nil)
+        c.addObserver(self, selector: #selector(cameBack), name: UIApplication.willEnterForegroundNotification, object: nil)
     }
+
+    /* **실시간(5단계)** — 탭의 숫자를 따라 맞춘다. 화면 자체는 저마다 다시 받는다. */
+    @objc private func liveChanged(_ n: Notification) {
+        guard let t = n.userInfo?["tables"] as? Set<String>,
+              !t.isDisjoint(with: ["messages", "posts", "profiles"]) else { return }
+        refreshBadges()
+    }
+    /// 접어 둔 앱으로 돌아왔다 — 끊겼던 동안의 것을 한 번에 다시 받는다.
+    @objc private func cameBack() { AppLive.post(AppLive.all) }
     required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
@@ -111,6 +130,13 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
             nav.popViewController(animated: false)
         }
         if Self.tabPaths.contains(path) { select(path); return }
+        /* 대화방 위에 얹힌 화면에서 대화로 가라면 **아래 있는 대화방으로 돌아간다** —
+           웹은 아직 `/chat`에 있어 다시 열라고 하면 두 겹이 된다. */
+        if path == "/chat", let nav = navigationController,
+           let chat = nav.viewControllers.last(where: { $0 is NativeChatViewController }) {
+            if nav.topViewController !== chat { nav.popToViewController(chat, animated: true) }
+            return
+        }
         if path == "/chat" { onWeb?(path); return }
         if let vc = NativeAppPlugin.make(path, service: service) {
             vc.path = path
@@ -178,7 +204,7 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
 /**
  * 탭 하나의 뼈대 — 머리말(제목 + 오른쪽 단추)과 표. 화면이 보일 때마다
  * 다시 받는다(1초 안에 두 번은 안 받는다). 당겨서도 새로고침된다.
- * 실시간은 5단계에서 붙인다.
+ * 실시간은 `liveTables`에 적은 표가 바뀌면 보일 때만 다시 받는다(5단계).
  */
 class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     let service: NativeChatService
@@ -192,6 +218,10 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
     let emptyLabel = UILabel()
     private var lastLoad = Date.distantPast
     private(set) var loadedOnce = false
+    /// 이 탭이 다시 받는 표(5단계 — 실시간). 보일 때만 받는다.
+    var liveTables: Set<String> { [] }
+    private var livePending: Set<String> = []
+    private var liveWork: DispatchWorkItem?
 
     init(service: NativeChatService, title: String) {
         self.service = service
@@ -236,6 +266,7 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
         emptyLabel.isHidden = true
         view.addSubview(header); header.addSubview(titleLabel); header.addSubview(rightButton)
         view.addSubview(table); view.addSubview(emptyLabel); view.addSubview(spinner)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveChanged(_:)), name: AppLive.changed, object: nil)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -281,6 +312,31 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
         }
     }
     @objc func rightTapped() {}
+
+    // ── 실시간(5단계) ────────────────────────────────────────────
+    @objc private func liveChanged(_ n: Notification) {
+        guard let t = n.userInfo?["tables"] as? Set<String> else { return }
+        let hit = t.intersection(liveTables)
+        guard !hit.isEmpty else { return }
+        livePending.formUnion(hit)
+        liveSoon(0.4)
+    }
+    private func liveSoon(_ delay: Double) {
+        liveWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.liveFire() }
+        liveWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
+    }
+    /// 안 보이는 탭은 버린다 — 보일 때 어차피 다시 받는다. 찾는 칸을 치는 중이면 조금 뒤에.
+    private func liveFire() {
+        guard viewIfLoaded?.window != nil, presentedViewController == nil else { livePending = []; return }
+        if view.appHoldsFocus { liveSoon(2); return }
+        let t = livePending
+        livePending = []
+        liveReload(t)
+    }
+    /// 무엇이 바뀌었는지 보고 다시 받는다 — 기본은 통째로(`load`). 홈은 대화·알림만이면 숫자만 고친다.
+    func liveReload(_ tables: Set<String>) { load() }
 
     func go(_ path: String) { shell?.go(path) }
 

@@ -36,16 +36,24 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "shell", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shellOff", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "go", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reply", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deep", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "changed", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 4
+    static let version = 12
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
-    /// `:id`는 uuid 한 조각이다 — `/board/new`·`/board/<id>/edit`·`/rounds/<id>/groups`(쓰는 화면)는 아직 웹이다.
-    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id"]
+    /// `:id`는 uuid 한 조각이다.
+    static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
+                                    "/board/new", "/board/:id/edit", "/polls/new", "/polls/:id/edit",
+                                    "/rounds/new", "/rounds/:id/edit", "/rounds/:id/groups", "/settle", "/me"]
 
     private var screen: NativeScreenController?
     private var id = ""
+    /// 웹이 `shell()`에 실어 보낸 공용 목록 — `courses`(골프장) · `banks`(은행) · `guide`(가이드 글).
+    /// 글과 목록의 원본은 웹 한 곳이다(`lib/courses.ts`·`types.ts BANKS`·`lib/guide.ts`) — **Swift에 또 적지 말 것.**
+    @MainActor static var shared: ChatJSON = [:]
     /// 앱 껍데기(홈·탭바) — 로그인이 끝나면 웹이 세우고, 로그아웃하면 내린다.
     private var shell: ShellController?
 
@@ -65,18 +73,57 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// 주소 → 화면. 새 화면을 만들면 여기와 `screens`에 함께 더한다.
-    @MainActor static func make(_ path: String, service: NativeChatService) -> NativeScreenController? {
+    /// `options`는 웹이 `open`에 실어 보낸 것 — 글을 함께 받는 화면(가이드)이 본다.
+    @MainActor static func make(_ path: String, service: NativeChatService, options given: ChatJSON = [:]) -> NativeScreenController? {
+        /* 웹이 껍데기를 세울 때 실어 보낸 목록(골프장·은행·가이드 글)을 바탕에 깐다 —
+           껍데기가 직접 여는 화면(`shell.go`)에는 웹의 `open`이 없기 때문이다. */
+        let options = shared.merging(given) { $1 }
         switch path {
         case "/members": return MembersViewController(service: service)
         case "/alerts": return AlertsViewController(service: service)
+        case "/settle": return SettleViewController(service: service)
+        case "/me":
+            /* 알림 상태·시험 스위치는 웹이 쥐고 있어 **웹이 열 때만** 뜬다 — 껍데기가 직접 부르면 웹에 맡긴다. */
+            guard given["push"] is String else { return nil }
+            return MeViewController(service: service, info: given)
+        case "/help":
+            /* 글은 웹이 실어 보낸다(`lib/guide.ts`) — 없으면(껍데기가 직접 부른 판) 웹에 맡긴다. */
+            guard let g = options["guide"] as? ChatJSON else { return nil }
+            return HelpViewController(service: service, guide: g)
+        case "/board/new": return PostEditViewController(service: service, id: nil)
+        case "/polls/new": return PollEditViewController(service: service, id: nil)
+        case "/rounds/new":
+            /* 골프장 목록은 웹이 실어 보낸다(`lib/courses.ts`) — 없으면(껍데기가 직접 부른 판) 웹에 맡긴다. */
+            guard let c = options["courses"] as? [ChatJSON] else { return nil }
+            return RoundEditViewController(service: service, id: nil, from: options["from"] as? String, courses: c)
         default:
+            if path.hasPrefix("/rounds/"), path.hasSuffix("/edit"),
+               let id = UUID(uuidString: String(path.dropFirst("/rounds/".count).dropLast("/edit".count))) {
+                guard let c = options["courses"] as? [ChatJSON] else { return nil }
+                return RoundEditViewController(service: service, id: id.uuidString.lowercased(), from: nil, courses: c)
+            }
+            /* `/rounds/<uuid>/groups` — 조 편성(3단계). */
+            if path.hasPrefix("/rounds/"), path.hasSuffix("/groups"),
+               let id = UUID(uuidString: String(path.dropFirst("/rounds/".count).dropLast("/groups".count))) {
+                return RoundGroupsViewController(service: service, id: id.uuidString.lowercased())
+            }
+            if path.hasPrefix("/polls/"), path.hasSuffix("/edit"),
+               let id = UUID(uuidString: String(path.dropFirst("/polls/".count).dropLast("/edit".count))) {
+                return PollEditViewController(service: service, id: id.uuidString.lowercased())
+            }
+            /* `/board/<uuid>/edit` — 공지 고치기(3단계). */
+            if path.hasPrefix("/board/"), path.hasSuffix("/edit"),
+               let id = UUID(uuidString: String(path.dropFirst("/board/".count).dropLast("/edit".count))) {
+                return PostEditViewController(service: service, id: id.uuidString.lowercased())
+            }
             /* `/board/<uuid>` — 그 뒤에 무엇이 더 붙으면(`/edit`) uuid가 아니라 걸러진다. */
             if path.hasPrefix("/board/"), let id = UUID(uuidString: String(path.dropFirst("/board/".count))) {
                 return PostViewController(service: service, id: id.uuidString.lowercased())
             }
             /* `/rounds/<uuid>` — `/rounds/new`·`/rounds/<id>/edit`·`/groups`는 uuid가 아니라 걸러진다. */
             if path.hasPrefix("/rounds/"), let id = UUID(uuidString: String(path.dropFirst("/rounds/".count))) {
-                return RoundViewController(service: service, id: id.uuidString.lowercased())
+                return RoundViewController(service: service, id: id.uuidString.lowercased(),
+                                           banks: options["banks"] as? [String] ?? [])
             }
             if path.hasPrefix("/polls/"), let id = UUID(uuidString: String(path.dropFirst("/polls/".count))) {
                 return PollViewController(service: service, id: id.uuidString.lowercased())
@@ -114,7 +161,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                 old.loadScreen()
                 call.resolve(["ok": true]); return
             }
-            guard let vc = Self.make(path, service: NativeChatService(config)) else {
+            guard let vc = Self.make(path, service: NativeChatService(config), options: call.options as? ChatJSON ?? [:]) else {
                 call.reject("앱이 아직 모르는 화면입니다: \(path)"); return
             }
             vc.path = path
@@ -131,10 +178,17 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             let go = { [weak nav] in
                 guard let nav = nav else { call.resolve(["ok": true]); return }
                 let deadOnTop = nav.topViewController is NativeScreenController
+                /* **껍데기(홈·탭) 위에 세우는 것은 늘 밀어 넣는다**(사용자 요청 — `프로필
+                   눌렀을때 우측에서 밀려들어오록해주고`). 홈의 얼굴 → `내 정보`는 껍데기가
+                   웹에 맡겨(알림 상태를 웹이 쥐고 있다) 웹이 그것을 물어보고 여는 동안
+                   `slide`의 남은 시간이 다 지나가, 40ms 잣대에 걸려 **툭 섰다.** 껍데기 위에
+                   서는 것은 늘 앞으로 가는 길이라(뒤로 오면 껍데기로 내려오지 이 위에
+                   무엇을 세우지 않는다) 시간과 상관없이 민다. */
+                let overShell = nav.topViewController is ShellController
                 var stack = nav.viewControllers.filter { !(($0 as? NativeScreenController)?.isDead ?? false) }
                 stack.append(vc)
-                AppLog.add("세움 \(path) deadOnTop=\(deadOnTop) 개수=\(stack.count)")
-                nav.setViewControllers(stack, animated: ms > 40 && !deadOnTop)
+                AppLog.add("세움 \(path) deadOnTop=\(deadOnTop) overShell=\(overShell) 개수=\(stack.count)")
+                nav.setViewControllers(stack, animated: (ms > 40 || overShell) && !deadOnTop)
                 if let co = nav.transitionCoordinator,
                    co.animate(alongsideTransition: nil, completion: { _ in call.resolve(["ok": true]) }) { return }
                 call.resolve(["ok": true])
@@ -148,8 +202,19 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
     /// 화면과 웹 사이의 줄을 잇는다 — 새로 세울 때와 되살릴 때 같이 쓴다.
     @MainActor private func bind(_ vc: NativeScreenController, id: String) {
         screen = vc; self.id = id
-        vc.event = { [weak self] type, data in
+        vc.event = { [weak self, weak vc] type, data in
             guard let self = self else { return }
+            /* **앱 화면에서 앱 화면으로는 웹을 거치지 않는다**(사용자 제보 — `내정보에서
+               가이드·회원정보 들어갔다 나오면 홈이 보였다가 내정보화면이 보임`).
+               웹에 맡기면 웹이 이 화면을 닫고(`close` → 틀에서 내림) 다음 화면을 열었다가,
+               돌아올 때 이 화면을 **새로 밀어 올려** 그 사이 껍데기(홈)가 비쳤다.
+               껍데기가 있으면 그 틀에 바로 얹는다 — 웹 주소는 이 화면 그대로 남고,
+               뒤로 오면 이 화면이 아래에 그대로 있다. */
+            if type == "navigate", let vc = vc, let path = data["path"] as? String,
+               !((data["replace"] as? Bool) ?? false), self.shellPush(path, over: vc) {
+                vc.revive()
+                return
+            }
             self.notifyListeners("event", data: ["screen": self.id, "type": type, "data": data])
         }
         vc.service.authNeeded = { [weak self] in
@@ -169,6 +234,8 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                   let root = self.bridge?.viewController, let nav = root.navigationController
             else { call.reject("껍데기를 세울 수 없습니다."); return }
             let path = call.getString("path") ?? "/"
+            let o = call.options as? ChatJSON ?? [:]
+            for k in ["courses", "banks", "guide"] where o[k] != nil { Self.shared[k] = o[k] }
             if let sh = self.shell, sh.service.config.user == config.user,
                nav.viewControllers.contains(where: { $0 === sh }) {
                 sh.service.config = config
@@ -205,6 +272,22 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// 앱이 그릴 줄 아는 주소면 껍데기 틀에 바로 얹는다(`over`가 맨 위일 때만) — 얹었으면 `true`.
+    @MainActor static func shellPush(_ path: String, over: UIViewController) -> Bool {
+        guard let sh = ShellController.current, let nav = sh.navigationController,
+              over.navigationController === nav, nav.topViewController === over,
+              nav.transitionCoordinator == nil,
+              let next = make(path, service: sh.service) else { return false }
+        AppLog.add("앱→앱 \(path)")
+        next.path = path
+        over.view.endEditing(true)
+        sh.push(next)
+        return true
+    }
+    @MainActor private func shellPush(_ path: String, over: UIViewController) -> Bool {
+        Self.shellPush(path, over: over)
+    }
+
     /// 껍데기를 내린다(로그아웃) — 틀에 뿌리만 남아 웹 로그인 화면이 보인다.
     @objc func shellOff(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -224,10 +307,56 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    /// 앱 화면이 웹에 부탁한 일(`action`)의 답 — 그 화면에 넘긴다(`내 정보`의 알림 켜기·탈퇴 따위).
+    @objc func reply(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if call.getString("screen") == self.id, let vc = self.screen {
+                vc.onReply(call.options as? ChatJSON ?? [:])
+            }
+            call.resolve()
+        }
+    }
+
     /// 웹이 어디로 가라고 — 알림을 눌러 온 길·탭 주소 동기(`NativeShellSync`).
     @objc func go(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             if let path = call.getString("path") { self.shell?.go(path) }
+            call.resolve()
+        }
+    }
+
+    /**
+     * **알림을 눌러 온 주소**(5단계 · 웹 `nativeDeepLink`). 껍데기나 껍데기가 세운
+     * 화면이 맨 위에 있으면 틀을 껍데기까지 되돌리고 그 주소로 간다 — 그러면
+     * 뒤로 가기가 늘 탭으로 돌아온다. 대화방·웹이 연 화면이 위에 있으면
+     * 맡지 않는다(`handled: false`) — 웹이 예전처럼 해시로 간다.
+     */
+    @objc func deep(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let path = call.getString("path"), let sh = self.shell,
+                  let nav = sh.navigationController, nav.transitionCoordinator == nil
+            else { call.resolve(["handled": false]); return }
+            /* 껍데기 위가 **전부** 껍데기가 세운 화면일 때만 맡는다 — 대화방이나 웹이 연
+               화면(`내 정보`)이 사이에 끼어 있으면 틀을 되돌리다 그것까지 내린다. */
+            let above = nav.viewControllers.drop(while: { $0 !== sh }).dropFirst()
+            let ours = above.allSatisfy { ($0 as? NativeScreenController)?.shellOwned ?? false }
+            AppLog.add("알림 딥링크 \(path) 맡음=\(ours)")
+            guard ours else { call.resolve(["handled": false]); return }
+            /* 떠 있는 창(프로필 수정 시트·확인창)은 걷는다 — 알림을 누른 것이 곧 그리로 가겠다는 뜻이다. */
+            let go = {
+                if nav.topViewController !== sh { nav.popToViewController(sh, animated: false) }
+                sh.go(path)
+                call.resolve(["handled": true])
+            }
+            if nav.presentedViewController != nil { nav.dismiss(animated: false, completion: go) } else { go() }
+        }
+    }
+
+    /// 실시간으로 바뀐 표(웹 `NativeShellSync`가 모아 보낸다) — 보이는 앱 화면이 다시 받는다.
+    @objc func changed(_ call: CAPPluginCall) {
+        let tables = Set((call.getArray("tables") as? [String]) ?? [])
+        DispatchQueue.main.async {
+            if !tables.isEmpty { AppLive.post(tables) }
             call.resolve()
         }
     }
@@ -363,6 +492,7 @@ class NativeScreenController: UIViewController {
         rightButton.isHidden = true
         view.addSubview(header); view.addSubview(body)
         header.addSubview(backButton); header.addSubview(titleLabel); header.addSubview(rightButton)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveChanged(_:)), name: AppLive.changed, object: nil)
         NSLayoutConstraint.activate([
             rightButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -8),
             rightButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
@@ -395,6 +525,30 @@ class NativeScreenController: UIViewController {
 
     /// 화면이 처음 보일 때 한 번 — 화면마다 여기서 받아 온다.
     func loadScreen() {}
+
+    // ── 실시간(5단계) ────────────────────────────────────────────
+    /// 이 화면이 다시 받는 표. 비어 있으면(쓰는 화면) 실시간으로 안 받는다.
+    var liveTables: Set<String> { [] }
+    private var liveWork: DispatchWorkItem?
+    @objc private func liveChanged(_ n: Notification) {
+        guard let t = n.userInfo?["tables"] as? Set<String>, !t.isDisjoint(with: liveTables) else { return }
+        liveSoon(0.4)
+    }
+    private func liveSoon(_ delay: Double) {
+        liveWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.liveFire() }
+        liveWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
+    }
+    /// 보이는 화면만 · 떠나는 중이 아니고 · 창이 안 떠 있을 때. 글을 치는 중이면 조금 뒤에 다시 본다.
+    private func liveFire() {
+        guard viewIfLoaded?.window != nil, !navigating, !isDead, presentedViewController == nil else { return }
+        if view.appHoldsFocus { liveSoon(2); return }
+        AppLog.add("다시 받음 \(path)")
+        loadScreen()
+    }
+    /// 웹에 부탁한 일(`action` 이벤트)의 답 — `NativeApp.reply`. 부탁하는 화면(`내 정보`)만 덮는다.
+    func onReply(_ data: ChatJSON) {}
 
     @objc private func backTapped() { goBack() }
 
@@ -484,6 +638,35 @@ class NativeScreenController: UIViewController {
         a.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in then(false) })
         a.addAction(UIAlertAction(title: ok, style: danger ? .destructive : .default) { _ in then(true) })
         present(a, animated: true)
+    }
+}
+
+/**
+ * **실시간 — 바뀐 표를 앱 화면들에 알린다**(5단계).
+ *
+ * 연결은 웹이 들고 있다(`NativeShellSync` — 토큰·다시 잇기를 두 벌로 두지
+ * 않으려는 것). 웹이 표 이름만 모아 보내면(`NativeApp.changed`) 여기서
+ * 뿌리고, **보이는 화면만** 제 표가 있으면 다시 받는다 — 안 보이는 화면은
+ * 보일 때 어차피 다시 받는다. 앱으로 돌아올 때(`willEnterForeground`)도
+ * 전부를 한 번 뿌린다: 접어 둔 동안 끊겼던 연결은 그 사이 것을 안 준다
+ * (웹 `useRefreshOnShow`와 같은 자리다).
+ */
+enum AppLive {
+    static let changed = Notification.Name("AppLiveChanged")
+    static let all: Set<String> = ["rounds", "signups", "polls", "poll_options", "poll_votes",
+                                   "posts", "post_comments", "poll_comments", "round_comments", "profiles",
+                                   "settlements", "settlement_shares", "round_groups", "notifications", "messages"]
+    static func post(_ tables: Set<String>) {
+        AppLog.add("실시간 " + tables.sorted().joined(separator: ","))
+        NotificationCenter.default.post(name: changed, object: nil, userInfo: ["tables": tables])
+    }
+}
+
+extension UIView {
+    /// 이 안에서 누가 글을 치고 있나 — 치는 동안에는 다시 받지 않는다(글칸이 흔들린다).
+    var appHoldsFocus: Bool {
+        if isFirstResponder { return true }
+        return subviews.contains { $0.appHoldsFocus }
     }
 }
 

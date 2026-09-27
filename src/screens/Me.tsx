@@ -16,12 +16,11 @@ import {
 import { GenderAge } from '../components/GenderAge';
 import { Hinted } from '../components/Hinted';
 import { saveMyProfile } from '../lib/db';
+import { leaveAccount } from '../lib/account';
 import { canInstall, onInstallChange, promptInstall } from '../lib/install';
 import { IS_NATIVE } from '../lib/native';
 import { Capacitor } from '@capacitor/core';
 import { androidChatOn, setAndroidChat } from '../lib/native-chat';
-import { nativeNavOff, setNativeNavOff } from '../lib/native-nav';
-import { NativeApp, nativeAppOn, setNativeAppOn } from '../lib/native-app';
 import { shrinkImage } from '../lib/image';
 import { lunarToSolar } from '../lib/lunar';
 import { kstDate } from '../lib/format';
@@ -180,10 +179,6 @@ export function Me() {
     const [chat, setChat] = useState(true);
     /* 안드로이드 코틀린 대화 화면 스위치(시험 중 — 아래 참고). */
     const [androidChat, setAndroidChatState] = useState(() => androidChatOn());
-    /* 앱이 화면 전환·뒤로 끌기를 맡는 층 스위치(아래 참고). */
-    const [navOn, setNavOnState] = useState(() => !nativeNavOff());
-    /* 아이폰 앱이 화면을 통째로 그리는 스위치(시험 중 — 아래 참고). */
-    const [nativeApp, setNativeAppState] = useState(() => nativeAppOn());
     const [pushBusy, setPushBusy] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
 
@@ -246,7 +241,7 @@ export function Me() {
     /** 알림 칸의 첫 줄. 켤 수 없는 상태면 왜인지와 무엇을 하면 되는지를 적는다. */
     const pushLine = (): { hint: string; can: boolean } => {
         switch (push) {
-            case 'on':   return { hint: '새 모집 · 공지 · 투표를 폰으로 받습니다', can: true };
+            case 'on':   return { hint: '라운드 모집, 투표, 공지 알림을 받습니다.', can: true };
             case 'off':  return { hint: '앱을 안 보고 있어도 소식이 옵니다', can: true };
             case 'denied': return {
                 hint: '폰 설정 → 알림에서 까꿍을 켜 주세요', can: false };
@@ -276,15 +271,8 @@ export function Me() {
      * 지울 수 있어야 한다**(애플 심사 규정 5.1.1(v)). 없으면 그것만으로
      * 반려된다(`docs/출시-전-할일.md` 0-7번).
      *
-     * **지우는 일은 DB가 한다**(`delete_me`) — 화면이 표를 하나씩 지우면
-     * 중간에 끊겼을 때 반쯤 지워진 사람이 남고, 대기자를 올리는 규칙도
-     * 두 벌이 된다. 여기서 하는 것은 **DB가 못 하는 둘**뿐이다:
-     * 이 기기의 알림 등록을 끊는 것과 저장소의 사진 파일을 지우는 것.
-     *
-     * **순서가 있다.** 알림 → 사진 → 계정이다. 계정을 먼저 지우면 그다음
-     * 두 줄이 권한을 잃어 **사진이 저장소에 영영 남는다.**
-     * 앞의 둘은 실패해도 그냥 넘어간다 — 알림 한 줄 때문에 나갈 길이
-     * 막히면 안 된다(행 자체는 계정과 함께 딸려 지워진다).
+     * **지우는 일은 DB가 한다**(`delete_me`). 순서(알림 → 사진 → 계정)와
+     * 까닭은 `lib/account.ts`의 `leaveAccount`에 있다 — 앱 화면도 같이 쓴다.
      */
     const leaveClub = async () => {
         const ok = await confirm({
@@ -309,30 +297,8 @@ export function Me() {
 
         setLeaving(true);
         try {
-            const uid = session!.user.id;
-
-            /* 이 기기의 알림 등록을 먼저 끊는다. 행만 사라지면 폰은 계속
-               등록돼 있어, 발송기가 미처 못 지운 옛 토큰으로 한 번 더
-               울릴 수 있다(`disablePush`가 있는 까닭이다). */
-            await disablePush().catch(() => { /* 안 돼도 나가는 것을 막지 않는다 */ });
-
-            /* 저장소 파일은 행을 지운다고 같이 사라지지 않는다 — 손으로
-               치운다. 자기 폴더만 지울 수 있게 정책이 막고 있어 남의 것은
-               건드릴 수 없다(`avatars_del`). */
-            try {
-                const { data: files } = await supabase.storage.from('avatars').list(uid);
-                if (files?.length) {
-                    await supabase.storage.from('avatars')
-                        .remove(files.map(f => `${uid}/${f.name}`));
-                }
-            } catch { /* 사진이 남는 것뿐이다 */ }
-
-            const { error } = await supabase.rpc('delete_me');
-            if (error) throw error;
-
-            /* 계정이 이미 없어 로그아웃이 거절될 수 있다 — 그래도 화면은
-               로그인으로 돌아가야 하므로 실패를 삼킨다. */
-            await signOut().catch(() => { /* 세션은 어차피 죽었다 */ });
+            /* 알림 → 사진 → 계정 순서는 `lib/account.ts`에 있다 — 앱 화면(`MeRoute`)도 같이 쓴다. */
+            await leaveAccount(session!.user.id);
             toast('탈퇴했습니다. 그동안 함께해 주셔서 고맙습니다.', 'ok');
         } catch (err) {
             toast(readableError(err), 'error');
@@ -519,7 +485,7 @@ export function Me() {
                                     된다. */}
                                 <div className="switch-desc">
                                     {chat
-                                        ? '새 메시지가 올 때마다 옵니다'
+                                        ? '새 메시지가 올 때마다 알림을 받습니다.'
                                         : '꺼짐 — @언급과 내 글에 온 답장은 그래도 옵니다'}
                                 </div>
                             </div>
@@ -553,50 +519,9 @@ export function Me() {
                 </div>
             )}
 
-            {/* **아이폰 앱이 화면을 통째로 그린다 — 시험 중**(`docs/아이폰-네이티브.md`).
-                대화 다음으로 회원 명단부터 옮겼다. 켠 폰에서만 그 화면들이
-                Swift 화면으로 가고, 끄면 지금까지의 웹 화면이다. 화면이 다
-                옮겨지면 이 줄과 `nativeAppOn()`을 걷어내고 기본으로 한다.
-                플러그인이 실린 앱에서만 뜬다. */}
-            {Capacitor.getPlatform() === 'ios' && Capacitor.isPluginAvailable('NativeApp') && (
-                <div className="card">
-                    <div className="switch-row">
-                        <div className="grow">
-                            <div className="switch-label">🧪 시험 중: 앱 화면 (홈·탭바)</div>
-                            <div className="switch-desc">
-                                {nativeApp ? '홈·탭바·공지·라운드·투표 목록·알림함·회원 명단이 앱 화면입니다 (만드는 중). 바꾸면 앱을 다시 여세요.' : '꺼짐 — 지금까지의 화면'}
-                            </div>
-                        </div>
-                        <Switch label="앱 화면" on={nativeApp}
-                                onChange={next => { setNativeAppOn(next); setNativeAppState(next); }} />
-                    </div>
-                    {/* **앱 화면 쪽 기록** — 폰에서만 갈리는 자리(화면 틀에 무엇이
-                        쌓였나 · 되살렸나 · 누가 내렸나)를 사람이 읽어 주는 줄이다.
-                        까닭이 가려지면 걷어낸다(`ncStatus`·`kb-probe`와 같은 자리). */}
-                    {nativeApp && <AppLogLines />}
-                </div>
-            )}
-
-            {/* **앱이 화면 전환과 뒤로 끌기를 맡는 층**(`lib/native-nav.ts` —
-                사용자 요청 `Native Navigation Layer`). 켜져 있는 것이 기본이고,
-                끄면 예전처럼 웹이 민다 — 폰에서 두 길을 견줄 때와, 어긋나는
-                판이 나왔을 때 되돌리는 문이다. **바꾸면 새로고침해야 먹는다**
-                (`hasNativeNav()`가 한 번 정하면 그대로다). 플러그인이 실린
-                앱에서만 뜬다. */}
-            {Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('NativeNav') && (
-                <div className="card">
-                    <div className="switch-row">
-                        <div className="grow">
-                            <div className="switch-label">앱이 화면을 밀고 끌기</div>
-                            <div className="switch-desc">
-                                {navOn ? '화면 전환과 뒤로 끌기를 앱이 맡습니다' : '꺼짐 — 웹이 밉니다 (앱을 다시 열면 적용)'}
-                            </div>
-                        </div>
-                        <Switch label="앱이 화면을 밀고 끌기" on={navOn}
-                                onChange={next => { setNativeNavOff(!next); setNavOnState(next); }} />
-                    </div>
-                </div>
-            )}
+            {/* 아이폰의 `🧪 시험 중: 앱 화면` · `앱이 화면을 밀고 끌기` 스위치와
+                앱 쪽 기록 줄은 걷어냈다 — 아이폰 앱이 다 됐다(사용자 요청 —
+                `프로필에 필요없는거 이제 지워줘`). 앱 화면·앱 전환이 늘 기본이다. */}
 
             <button className="btn ghost block" onClick={logout}>로그아웃</button>
 
@@ -638,19 +563,4 @@ export function Me() {
             </p>
         </div>
     );
-}
-
-
-/** `NativeApp.debug()`가 준 기록을 그대로 적는다 — 없는 판이면 아무것도 안 적는다. */
-function AppLogLines() {
-    const [lines, setLines] = useState<string[]>([]);
-    useEffect(() => {
-        let dead = false;
-        const pull = () => { void NativeApp.debug().then(r => { if (!dead) setLines(r.lines ?? []); }).catch(() => {}); };
-        pull();
-        const t = window.setInterval(pull, 2000);
-        return () => { dead = true; window.clearInterval(t); };
-    }, []);
-    if (!lines.length) return null;
-    return <pre className="xs faint" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 8, fontSize: 10, lineHeight: 1.4 }}>{lines.join('\n')}</pre>;
 }

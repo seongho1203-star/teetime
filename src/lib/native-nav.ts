@@ -49,8 +49,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
  *
  * **없으면 저절로 웹 길이다** — 플러그인이 안 실린 옛 앱과 브라우저에서는
  * `hasNativeNav()`가 거짓이라 `lib/tabs.ts`가 예전 그대로 돈다.
- * 스위치도 있다: `localStorage`의 `teetime:nav`가 `off`면 앱에서도 웹 길로
- * 간다(폰에서 두 길을 견줄 때 쓴다).
+ * (예전에는 `내 정보`에 끄는 스위치가 있었는데 걷어냈다.)
  */
 export type NativeNavEvent = { type: 'back'; phase: 'commit' | 'cancel' | 'plain' };
 export const NativeNav = registerPlugin<{
@@ -64,13 +63,8 @@ export const NativeNav = registerPlugin<{
     addListener(name: 'nav', cb: (e: NativeNavEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeNav');
 
-export const NATIVE_NAV_KEY = 'teetime:nav';
-export function nativeNavOff(): boolean {
-    try { return localStorage.getItem(NATIVE_NAV_KEY) === 'off'; } catch { return false; }
-}
-export function setNativeNavOff(off: boolean): void {
-    try { if (off) localStorage.setItem(NATIVE_NAV_KEY, 'off'); else localStorage.removeItem(NATIVE_NAV_KEY); } catch { /* 못 적으면 그대로 */ }
-}
+/** 끄는 스위치(`teetime:nav`)는 걷어냈다(아이폰 앱 완성 — 사용자 요청) — 늘 앱이 맡는다. */
+export function nativeNavOff(): boolean { return false; }
 
 let known: boolean | undefined;
 /** 앱이 화면 전환을 맡는가. 한 번 정해지면 그대로다(판이 바뀌면 앱을 새로 깐다). */

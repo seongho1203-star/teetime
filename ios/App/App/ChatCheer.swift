@@ -77,6 +77,17 @@ final class CheerBar: UIView {
     private let pill = UIControl()
     private let mark = UIImageView()
     private let label = UILabel()
+    /// 알약을 가로질러 지나가는 빛 한 줄기 — 알약 안에서만 보인다(`masksToBounds`).
+    private let shine = CAGradientLayer()
+    /// 알약 둘레에서 톡톡 반짝이는 작은 별 넷.
+    private var sparks: [UIImageView] = []
+    /// 다음 배치 때 움직임을 시작하라는 표 — 알약 크기가 정해진 뒤에 걸어야 한다.
+    private var wantsPlay = false
+
+    /* **숨기면 움직임을 함께 걷는다** — 남겨 두면 다음에 뜰 때 도중부터 돈다. */
+    override var isHidden: Bool {
+        didSet { if isHidden { stopMotion() } }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -98,7 +109,115 @@ final class CheerBar: UIView {
         pill.accessibilityLabel = "축하 폭죽 터뜨리기"
         pill.accessibilityIdentifier = "native-chat-cheer"
         pill.isAccessibilityElement = true
+        pill.layer.masksToBounds = true
+        shine.colors = [UIColor(white: 1, alpha: 0).cgColor,
+                        UIColor(white: 1, alpha: 0.38).cgColor,
+                        UIColor(white: 1, alpha: 0).cgColor]
+        shine.startPoint = CGPoint(x: 0, y: 0.5)
+        shine.endPoint = CGPoint(x: 1, y: 0.5)
+        shine.opacity = 0
+        pill.layer.addSublayer(shine)
         addSubview(pill); pill.addSubview(mark); pill.addSubview(label)
+        /* 별 색은 폭죽 불꽃과 같은 값이다(`CheerBurst.colors`) — 누르면 터질
+           그것이 먼저 살짝 보이는 셈이다. 뜻이 있는 색 규칙에는 안 걸린다
+           (불꽃과 같은 까닭 — 몇 초 반짝이고 사라지는 장식이다). */
+        for i in 0..<4 {
+            let v = UIImageView(image: UIImage(systemName: "sparkle", withConfiguration:
+                UIImage.SymbolConfiguration(pointSize: i % 2 == 0 ? 11 : 8, weight: .bold)))
+            v.tintColor = CheerBurst.colors[[1, 0, 5, 2][i]]
+            v.contentMode = .center
+            v.isUserInteractionEnabled = false
+            v.alpha = 0
+            sparks.append(v); addSubview(v)
+        }
+    }
+
+    /**
+     * 단추가 뜰 때 한 번 도는 움직임(사용자 요청 — `폭죽 버튼이 너무
+     * 단순한데 움직이는 모션이있었으면 좋겠어`). 넷이 겹친다:
+     *
+     * 1. **통통 튀며 나타난다** — 작게 시작해 스프링으로 제 크기가 된다.
+     * 2. **그림(✨)이 흔들리며 커졌다 작아진다** — 1.6초마다.
+     * 3. **빛 한 줄기가 알약을 가로질러 지나간다** — 2.4초마다.
+     * 4. **둘레에서 작은 별 넷이 차례로 톡톡 반짝인다.**
+     *
+     * **무한 반복은 쓰지 않는다** — 단추가 떠 있는 10초(`ChatCheer.window`)
+     * 안에서 횟수를 정해 끝난다(늘 켜져 있는 그리기 비용 규칙). 움직이는
+     * 것은 `transform`·`opacity`·자리뿐이다(`filter`·blur 없음).
+     * 움직임을 줄여 달라고 해 둔 기기에서는 서서히 나타나기만 한다.
+     */
+    func play() {
+        wantsPlay = true
+        setNeedsLayout()
+    }
+
+    private func stopMotion() {
+        wantsPlay = false
+        pill.layer.removeAllAnimations(); mark.layer.removeAllAnimations()
+        shine.removeAllAnimations(); shine.opacity = 0
+        for v in sparks { v.layer.removeAllAnimations(); v.alpha = 0 }
+    }
+
+    private func startMotion() {
+        stopMotion()
+        let now = CACurrentMediaTime()
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0; fade.toValue = 1; fade.duration = 0.25
+        pill.layer.add(fade, forKey: "fade")
+        if UIAccessibility.isReduceMotionEnabled { return }
+
+        // 1. 통통 튀며 나타난다.
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.55; pop.toValue = 1
+        pop.damping = 11; pop.stiffness = 220; pop.mass = 1
+        pop.duration = pop.settlingDuration
+        pill.layer.add(pop, forKey: "pop")
+
+        // 2. 그림이 흔들리며 커졌다 작아진다.
+        let wig = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        wig.values = [0, -0.38, 0.34, -0.2, 0.1, 0]
+        wig.duration = 0.7
+        let grow = CAKeyframeAnimation(keyPath: "transform.scale")
+        grow.values = [1, 1.4, 0.95, 1.08, 1]
+        grow.duration = 0.7
+        let icon = CAAnimationGroup()
+        icon.animations = [wig, grow]
+        icon.duration = 1.6; icon.repeatCount = 5
+        icon.beginTime = now + 0.35
+        mark.layer.add(icon, forKey: "wiggle")
+
+        // 3. 빛 한 줄기가 지나간다.
+        let w = pill.bounds.width, bandW: CGFloat = 56
+        shine.frame = CGRect(x: -bandW, y: 0, width: bandW, height: pill.bounds.height)
+        shine.opacity = 1
+        let move = CABasicAnimation(keyPath: "position.x")
+        move.fromValue = -bandW / 2; move.toValue = w + bandW / 2
+        move.duration = 0.85
+        move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        let sweep = CAAnimationGroup()
+        sweep.animations = [move]
+        sweep.duration = 2.4; sweep.repeatCount = 3
+        sweep.beginTime = now + 0.6
+        shine.add(sweep, forKey: "sweep")
+
+        // 4. 별 넷이 차례로 반짝인다.
+        for (i, v) in sparks.enumerated() {
+            let a = CAKeyframeAnimation(keyPath: "opacity")
+            a.values = [0, 1, 0]; a.keyTimes = [0, 0.35, 1]; a.duration = 0.7
+            let b = CAKeyframeAnimation(keyPath: "transform.scale")
+            b.values = [0.2, 1.25, 0.4]; b.keyTimes = [0, 0.35, 1]; b.duration = 0.7
+            let c = CABasicAnimation(keyPath: "transform.rotation.z")
+            c.fromValue = 0; c.toValue = i % 2 == 0 ? 1.2 : -1.2; c.duration = 0.7
+            let g = CAAnimationGroup()
+            g.animations = [a, b, c]
+            g.duration = 1.8; g.repeatCount = 4
+            g.beginTime = now + 0.3 + Double(i) * 0.22
+            g.fillMode = .backwards
+            /* 모델 값은 0으로 두어 돌지 않는 사이·끝난 뒤에는 안 보인다 —
+               그림자만 켜 두면 네 번 돈 뒤 별이 제자리에 남는다. */
+            v.layer.opacity = 0
+            v.layer.add(g, forKey: "spark")
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -130,6 +249,18 @@ final class CheerBar: UIView {
         let left = (pill.bounds.width - total) / 2
         mark.frame = CGRect(x: left, y: (CheerBar.barH - icon) / 2, width: icon, height: icon)
         label.frame = CGRect(x: left + icon + gap, y: 0, width: textW, height: CheerBar.barH)
+        /* 별 넷은 알약 네 귀퉁이에 걸친다(왼위·오른위·왼아래·오른아래).
+           줄 밖으로 조금 나가도 된다 — 스택이 자르지 않는다. */
+        let p = pill.frame, sz: CGFloat = 16
+        let spots = [CGPoint(x: p.minX + 6, y: p.minY + 2), CGPoint(x: p.maxX - 8, y: p.minY + 4),
+                     CGPoint(x: p.minX + 14, y: p.maxY - 3), CGPoint(x: p.maxX - 2, y: p.maxY - 10)]
+        for (v, c) in zip(sparks, spots) {
+            v.bounds = CGRect(x: 0, y: 0, width: sz, height: sz); v.center = c
+        }
+        if wantsPlay && !isHidden && pill.bounds.width > 1 {
+            wantsPlay = false
+            startMotion()
+        }
     }
 }
 
@@ -152,7 +283,7 @@ final class CheerBurst: UIView {
     private static let bursts = 5
     private static let gap: TimeInterval = 0.28
     private static let life: TimeInterval = 1.5
-    private static let colors: [UIColor] = [
+    static let colors: [UIColor] = [
         UIColor(red: 1, green: 0x4e / 255, blue: 0x8a / 255, alpha: 1),
         UIColor(red: 1, green: 0xd2 / 255, blue: 0x3f / 255, alpha: 1),
         UIColor(red: 0x4a / 255, green: 0xd6 / 255, blue: 0x6d / 255, alpha: 1),
