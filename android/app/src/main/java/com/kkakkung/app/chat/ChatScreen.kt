@@ -95,6 +95,15 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val stickerTray = LinearLayout(activity)
     private val stickerTabs = LinearLayout(activity)
     private val stickerGrid = GridLayout(activity)
+    private val mediaBtn = ImageView(activity)
+    private val mediaResultKey get() = "chat-media-${me}"
+    private var selectedMedia = emptyList<android.net.Uri>()
+    private val uploads by lazy {
+        ChatUploads(activity.applicationContext, service, { added, removed ->
+            removed?.let { id -> messages.removeAll { it.id == id } }
+            added?.let { merge(listOf(it)) }
+            render(keepBottom = true)
+        }, { states -> list.setUploads(states) })
     private val input = EditText(activity)
     private val sendBtn = ImageView(activity)
 
@@ -241,6 +250,11 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         /* 문서 2-2: 뒤에 흰 판/위 선 없이 보라가 그대로 보인다.
            한 줄 글칸은 정확히 48dp, radius 24. */
         composer.setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
+        mediaBtn.setImageResource(R.drawable.ic_chat_plus)
+        mediaBtn.contentDescription = "사진·동영상 보내기"
+        mediaBtn.scaleType = ImageView.ScaleType.CENTER
+        mediaBtn.setOnClickListener { if (stage2) showMediaMenu() }
+        composer.addView(mediaBtn, LinearLayout.LayoutParams(dp(36f), dp(48f)))
         stickerBtn.text = "☺"; stickerBtn.textSize = 23f; stickerBtn.gravity = Gravity.CENTER
         stickerBtn.setTextColor(ChatSkin.on); stickerBtn.contentDescription = "이모티콘"
         stickerBtn.setOnClickListener { if (stage2) toggleStickerTray() }
@@ -353,6 +367,16 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
         list.onHold = { row, anchor -> if (stage2) showHold(row, anchor) }
         list.onPhoto = { url -> showPhoto(url) }
+        list.onUploadRetry = { uploads.retry(it) }
+        list.onUploadCancel = { uploads.cancel(it) }
+        activity.supportFragmentManager.setFragmentResultListener(mediaResultKey, activity) { _, result ->
+            val uris = result.getStringArrayList("uris").orEmpty().map(android.net.Uri::parse)
+            if (uris.size > 10) notice("한 번에 10개까지 선택해 주세요.")
+            else if (uris.isNotEmpty()) {
+                selectedMedia = uris
+                sendSelectedMedia()
+            }
+        }
         list.onTop = { loadMore() }
         list.onBottom = { bottom -> if (bottom) markRead() }
     }
@@ -388,6 +412,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     fun destroy() {
+        activity.supportFragmentManager.clearFragmentResultListener(mediaResultKey)
+        uploads.destroy()
         detach(); loadJob?.cancel(); searchJob?.cancel(); cheerJob?.cancel(); scope.cancel()
     }
 
@@ -1275,6 +1301,38 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         event?.invoke("navigate", JSONObject().put("path", path).put("shot", ""))
     }
 
+    private fun showMediaMenu() {
+        if (!loaded) { notice("대화를 불러온 뒤 다시 눌러 주세요."); return }
+        if (uploads.pending) { notice("전송 중인 파일을 마치거나 취소해 주세요."); return }
+        val row = TextView(activity).apply {
+            text = "사진·동영상 보내기\n최대 10개 · 한 파일 50MB"
+            textSize = 15f; setTextColor(ChatSkin.text); gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+            background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(14f).toFloat() }
+        }
+        val popup = PopupWindow(row, dp(240f), dp(76f), true).apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(6f).toFloat(); isOutsideTouchable = true
+        }
+        row.setOnClickListener {
+            popup.dismiss(); hideKeyboard()
+            val manager = activity.supportFragmentManager
+            if (!manager.isStateSaved && manager.findFragmentByTag("chat-media-picker") == null) {
+                manager.beginTransaction().add(ChatMediaPicker().apply {
+                    arguments = android.os.Bundle().apply { putString("result", mediaResultKey) }
+                }, "chat-media-picker").commit()
+            }
+        }
+        popup.showAsDropDown(mediaBtn, 0, -mediaBtn.height - dp(84f))
+    }
+
+    private fun sendSelectedMedia() {
+        if (!loaded || selectedMedia.isEmpty()) return
+        val picked = selectedMedia; selectedMedia = emptyList()
+        uploads.enqueue(picked, room)
+        list.scrollToBottom(false)
+    }
+
     private fun showPhoto(url: String) {
         val source = httpsUrl(url) ?: return
         val path = android.net.Uri.parse(source).path.orEmpty().lowercase()
@@ -1325,7 +1383,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 render(keepBottom = false)
                 val u = unread
                 if (u != null) list.scrollTo(u) else list.scrollToBottom(false)
-                installRealtime(); markRead()
+                installRealtime(); markRead(); sendSelectedMedia()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
                 status.visibility = View.VISIBLE
@@ -1364,6 +1422,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val gone = old.optString("id"); messages.removeAll { it.id == gone }
             } else if (raw.optString("room_id") == room && raw.optString("id").isNotEmpty()) {
                 val incoming = ChatMessage(raw)
+                messages.removeAll { it.id == "tmp:${incoming.id}" }
                 merge(listOf(incoming))
                 if (isCheer(incoming.body)) showCheer()
             }

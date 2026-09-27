@@ -147,7 +147,7 @@ object ChatRows {
                     val id = img.substring(8)
                     image = STICKERS + id + (if (id.startsWith("mv")) ".webp" else ".png")
                 } else {
-                    kind = "photo"; image = img; video = ChatMedia.isVideo(img)
+                    kind = "photo"; image = img; video = ChatMedia.isVideo(img) || (m.id.startsWith("tmp:") && m.raw.optBoolean("_local_video"))
                 }
                 cap = m.body.ifEmpty { null }
             }

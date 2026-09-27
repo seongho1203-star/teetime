@@ -92,6 +92,16 @@ class ChatListView(context: Context) : RecyclerView(context) {
     var onTop: (() -> Unit)? = null
     var onBottom: ((Boolean) -> Unit)? = null
 
+    var onUploadRetry: ((String) -> Unit)? = null
+    var onUploadCancel: ((String) -> Unit)? = null
+    private var uploads = emptyMap<String, ChatUploadState>()
+
+    fun setUploads(states: Map<String, ChatUploadState>) {
+        uploads = states
+        // 바이트가 바뀔 때 사진이나 목록을 다시 그리지 않고 보이는 진행 표시만 바꾼다.
+        for (i in 0 until childCount) (getChildViewHolder(getChildAt(i)) as? RowHolder)?.bindUpload()
+    }
+
     private val rows = ArrayList<ChatRow>()
     private var findQuery = ""
     private val lm = LinearLayoutManager(context).apply { stackFromEnd = true }
@@ -110,6 +120,9 @@ class ChatListView(context: Context) : RecyclerView(context) {
            놓으면 줄은 제자리로 돌아오고 답장 상태만 남는다. */
         ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
             override fun onMove(rv: RecyclerView, a: ViewHolder, b: ViewHolder) = false
+            override fun getSwipeDirs(rv: RecyclerView, holder: ViewHolder): Int =
+                if (rows.getOrNull(holder.bindingAdapterPosition)?.id?.startsWith("tmp:") == true) 0
+                else super.getSwipeDirs(rv, holder)
             override fun getSwipeThreshold(viewHolder: ViewHolder) = 0.28f
             override fun onSwiped(viewHolder: ViewHolder, direction: Int) {
                 val pos = viewHolder.bindingAdapterPosition
@@ -202,6 +215,12 @@ class ChatListView(context: Context) : RecyclerView(context) {
         private val contentRow = LinearLayout(ctx)
         private val content = LinearLayout(ctx)
         private val picture = ImageView(ctx)
+        private val mediaBox = FrameLayout(ctx)
+        private val uploadBox = LinearLayout(ctx)
+        private val uploadRing = android.widget.ProgressBar(ctx)
+        private val uploadLabel = TextView(ctx)
+        private val uploadCancel = TextView(ctx)
+        private val uploadRetry = TextView(ctx)
         private val videoMark = TextView(ctx)
         private val bubble = LinearLayout(ctx)
         private val quoteWho = TextView(ctx)
@@ -270,8 +289,23 @@ class ChatListView(context: Context) : RecyclerView(context) {
             content.orientation = LinearLayout.VERTICAL
             picture.scaleType = ImageView.ScaleType.FIT_CENTER
             picture.adjustViewBounds = true
-            picture.setOnClickListener { current?.image?.let { if (current?.kind == "photo") onPhoto?.invoke(it) } }
-            content.addView(picture)
+            picture.setOnClickListener { current?.image?.let { if (current?.kind == "photo" && current?.id?.startsWith("tmp:") != true) onPhoto?.invoke(it) } }
+            mediaBox.addView(picture, FrameLayout.LayoutParams(-2, -2))
+            uploadBox.orientation = LinearLayout.VERTICAL; uploadBox.gravity = Gravity.CENTER
+            uploadBox.setBackgroundColor(0xAA000000.toInt())
+            uploadBox.addView(uploadRing, LinearLayout.LayoutParams(ctx.dp(28f), ctx.dp(28f)))
+            uploadLabel.setTextColor(Color.WHITE); uploadLabel.textSize = 12f; uploadLabel.gravity = Gravity.CENTER
+            uploadLabel.setPadding(ctx.dp(4f), ctx.dp(4f), ctx.dp(4f), 0)
+            uploadBox.addView(uploadLabel)
+            uploadRetry.text = "다시 시도"; uploadCancel.text = "취소"
+            for (button in listOf(uploadRetry, uploadCancel)) {
+                button.setTextColor(Color.WHITE); button.gravity = Gravity.CENTER; button.textSize = 13f
+                uploadBox.addView(button, LinearLayout.LayoutParams(-1, ctx.dp(44f)))
+            }
+            uploadRetry.setOnClickListener { current?.id?.let { onUploadRetry?.invoke(it) } }
+            uploadCancel.setOnClickListener { current?.id?.let { onUploadCancel?.invoke(it) } }
+            mediaBox.addView(uploadBox, FrameLayout.LayoutParams(-1, -1))
+            content.addView(mediaBox)
             videoMark.text = "▶ 동영상"; videoMark.setTextColor(ChatSkin.on); videoMark.textSize = 13f
             videoMark.gravity = Gravity.CENTER
             content.addView(videoMark)
@@ -332,8 +366,22 @@ class ChatListView(context: Context) : RecyclerView(context) {
             gravity = Gravity.CENTER_HORIZONTAL; topMargin = ctx.dp(8f); bottomMargin = ctx.dp(4f)
         }
 
+        fun bindUpload() {
+            val state = uploads[current?.id]
+            uploadBox.visibility = if (state != null) View.VISIBLE else View.GONE
+            if (state == null) return
+            uploadRing.visibility = if (state.failed) View.GONE else View.VISIBLE
+            uploadLabel.text = if (!state.failed && state.total > 0) state.label + "\n" +
+                String.format(java.util.Locale.KOREA, "%.2f / %.2fMB", state.sent / 1048576.0, state.total / 1048576.0)
+                else state.label
+            uploadRetry.visibility = if (state.failed) View.VISIBLE else View.GONE
+            uploadCancel.visibility = if (state.cancellable) View.VISIBLE else View.GONE
+        }
+
         fun bind(r: ChatRow, listWidth: Int) {
             current = r
+            mediaBox.visibility = if (r.kind == "photo" || r.kind == "sticker") View.VISIBLE else View.GONE
+            bindUpload()
             val ctx = itemView.context
             root.setPadding(root.paddingLeft, ctx.dp(r.top.toFloat()), root.paddingRight, 0)
             dateChip.visibility = if (r.date != null) View.VISIBLE else View.GONE
@@ -418,7 +466,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
                 "photo" -> {
                     picture.visibility = View.VISIBLE
                     picture.maxWidth = ctx.dp(ChatSkin.photoW); picture.maxHeight = ctx.dp(ChatSkin.photoH)
-                    picture.minimumWidth = ctx.dp(120f); picture.minimumHeight = ctx.dp(120f)
+                    picture.minimumWidth = ctx.dp(120f); picture.minimumHeight = ctx.dp(if (uploads.containsKey(r.id)) 220f else 120f)
                     picture.setBackgroundColor(0x33000000)
                     videoMark.visibility = if (r.video) View.VISIBLE else View.GONE
                     if (r.video) { picture.dispose(); picture.setImageDrawable(null) }
