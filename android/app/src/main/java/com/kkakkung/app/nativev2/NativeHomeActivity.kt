@@ -74,7 +74,11 @@ class NativeHomeActivity : AppCompatActivity() {
     private var builtPreview: NativeScreenStack.Screen? = null
     private var resumedOnce = false
     private fun prepareScreen(key: String, refresh: () -> Unit) { pendingKey = key; pendingRefresh = refresh }
-    private fun navigateBack() { if (!content.pop()) showTab("home") }
+    private fun navigateBack() {
+        (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)?.hideSoftInputFromWindow(content.windowToken, 0)
+        currentFocus?.clearFocus()
+        if (!content.pop()) showTab("home")
+    }
 
     private var currentTab = "home"
     private val tabs = linkedMapOf<String, Button>()
@@ -395,7 +399,9 @@ class NativeHomeActivity : AppCompatActivity() {
                 detail = content.canPop
                 val top = content.current
                 if (!detail) (top?.view?.tag as? LinearLayout)?.let { bar -> bindBottomBar(bar) }
-                if (top?.key == "/chat" && chat?.parent == null) chat?.attach(top.view as ViewGroup)
+                if (top?.key == "/chat") {
+                    if (chat?.parent == null) chat?.attach(top.view as ViewGroup)
+                } else chat?.let { if (it.parent != null) it.detach() }
                 refreshBadges()
             }
             tabSelected = { key ->
@@ -488,7 +494,6 @@ class NativeHomeActivity : AppCompatActivity() {
             b.compoundDrawableTintList = ColorStateList.valueOf(c)
             b.typeface = Typeface.DEFAULT_BOLD
         }
-        chat?.let { if (it.parent != null && id != "chat") it.detach() }
         when (id) {
             "home" -> showHome()
             "board" -> showBoard()
@@ -512,7 +517,6 @@ class NativeHomeActivity : AppCompatActivity() {
         currentTab = "home"
         selectTabCompat("home")
         bottom.visibility = View.VISIBLE
-        chat?.let { if (it.parent != null) it.detach() }
 
         /* 웹 Home.tsx와 같은 구조: 머리말 → 다음 라운드 → 내가 할 일 → 모집중.
            임시 '알림/내정보/정산' 버튼 줄은 제거했다. */
@@ -1086,7 +1090,6 @@ class NativeHomeActivity : AppCompatActivity() {
         if (!buildingTabPreview) getSharedPreferences("native-seen", MODE_PRIVATE).edit().putString("board:${session.userId}", java.time.Instant.now().toString()).apply()
         detail = false
         currentTab = "board"; selectTabCompat("board")
-        chat?.let { if (it.parent != null) it.detach() }
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
         }
@@ -1265,7 +1268,6 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun showRound(id: String) {
         prepareScreen("/rounds/$id") { showRound(id) }
         detail = true
-        chat?.let { if (it.parent != null) it.detach() }
         val page = detailPage("라운드")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
@@ -1393,7 +1395,10 @@ class NativeHomeActivity : AppCompatActivity() {
             page.addView(action("라운드 수정") { roundForm(r) })
             val operations = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             fun op(label: String, destructive: Boolean = false, work: () -> Unit) {
-                operations.addView(action(label, danger = destructive, click = work), LinearLayout.LayoutParams(0, -2, 1f))
+                val button = action(label, danger = destructive, click = work)
+                button.maxLines = 1
+                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(button, 10, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+                operations.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
             }
             op(if (status == "open") "마감" else "다시 열기") {
                 mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
@@ -1545,7 +1550,6 @@ class NativeHomeActivity : AppCompatActivity() {
     private fun showPoll(id: String) {
         prepareScreen("/polls/$id") { showPoll(id) }
         detail = true
-        chat?.let { if (it.parent != null) it.detach() }
         val page = detailPage("투표")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
         scope.launch {
@@ -2449,7 +2453,7 @@ class NativeHomeActivity : AppCompatActivity() {
         val view: View = if (root) FrameLayout(this).apply {
             setBackgroundColor(bg)
             addView(scroll, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) })
-            val bar = if (buildingTabPreview) makeBottomBar() else bottom
+            val bar = if (buildingTabPreview) makeBottomBar() else this@NativeHomeActivity.bottom
             (bar.parent as? ViewGroup)?.removeView(bar)
             bar.visibility = View.VISIBLE
             addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM)); tag = bar
