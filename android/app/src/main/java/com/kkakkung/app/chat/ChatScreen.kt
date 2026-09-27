@@ -21,6 +21,7 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.ImageView
@@ -86,7 +87,12 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val mentionPanel = LinearLayout(activity)
     private val replyPanel = LinearLayout(activity)
     private val cheerBar = ChatCheerBar(activity)
+    private val stickerPreview = FrameLayout(activity)
     private val composer = LinearLayout(activity)
+    private val stickerBtn = TextView(activity)
+    private val stickerTray = LinearLayout(activity)
+    private val stickerTabs = LinearLayout(activity)
+    private val stickerGrid = GridLayout(activity)
     private val input = EditText(activity)
     private val sendBtn = ImageView(activity)
 
@@ -116,6 +122,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var lastIme = false
     private var navColorBefore: Int? = null
     private var quoted: ChatMessage? = null
+    private var pickedSticker: String? = null
+    private var stickerGroup = 0
     private var searching = false
     private var searchHits: List<ChatMessage> = emptyList()
     private var searchIndex = -1
@@ -206,6 +214,11 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         column.addView(findBar, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
+        stickerPreview.visibility = View.GONE
+        column.addView(stickerPreview, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin=dp(10f); rightMargin=dp(10f); bottomMargin=dp(4f) })
+
         /* 글칸 줄 — 카톡처럼 뒤에 판을 안 깔고(보라 그대로) 흰 알약 하나가 뜬다.
            한 줄 48 · 둥글기 24 (CLAUDE.md `글칸 한 줄은 48px`). */
         composer.orientation = LinearLayout.HORIZONTAL
@@ -214,6 +227,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         /* 문서 2-2: 뒤에 흰 판/위 선 없이 보라가 그대로 보인다.
            한 줄 글칸은 정확히 48dp, radius 24. */
         composer.setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
+        stickerBtn.text = "☺"; stickerBtn.textSize = 23f; stickerBtn.gravity = Gravity.CENTER
+        stickerBtn.setTextColor(ChatSkin.on); stickerBtn.contentDescription = "이모티콘"
+        stickerBtn.setOnClickListener { if (stage2) toggleStickerTray() }
+        composer.addView(stickerBtn, LinearLayout.LayoutParams(dp(42f), dp(48f)))
         input.background = GradientDrawable().apply { cornerRadius = dp(24f).toFloat(); setColor(ChatSkin.bubble) }
         input.setTextColor(ChatSkin.text); input.textSize = 16f
         input.setHintTextColor(0xFF9AA090.toInt()); input.hint = "메시지"
@@ -228,6 +245,20 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         sendBtn.setOnClickListener { send() }
         composer.addView(sendBtn, LinearLayout.LayoutParams(dp(34f), dp(34f)).apply { bottomMargin = dp(7f) })
         column.addView(composer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        /* 웹에서 받은 stickers만 그린다. 높이 min(38%,300), 탭 위 + 5칸 격자. */
+        stickerTray.orientation = LinearLayout.VERTICAL
+        stickerTray.setBackgroundColor(Color.WHITE); stickerTray.visibility = View.GONE
+        stickerTabs.orientation = LinearLayout.HORIZONTAL
+        stickerTray.addView(stickerTabs, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)))
+        stickerGrid.columnCount = 5
+        val stickerScroll = ScrollView(activity).apply { addView(stickerGrid) }
+        stickerTray.addView(stickerScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        val trayH = minOf((resources.displayMetrics.heightPixels * .38f).toInt(), dp(300f))
+        column.addView(stickerTray, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, trayH))
 
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(x: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -1018,6 +1049,78 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
     }
 
+    private fun stickerAsset(id: String): String =
+        "file:///android_asset/public/stickers/" + id + if (id.startsWith("mv")) ".webp" else ".png"
+
+    private fun toggleStickerTray() {
+        if (service.config.stickers.length() == 0) return
+        hideKeyboard()
+        val open = stickerTray.visibility != View.VISIBLE
+        stickerTray.visibility = if (open) View.VISIBLE else View.GONE
+        if (open) renderStickerTray()
+    }
+
+    private fun renderStickerTray() {
+        stickerTabs.removeAllViews()
+        val groups = service.config.stickers
+        if (groups.length() == 0) { stickerTray.visibility = View.GONE; return }
+        stickerGroup = stickerGroup.coerceIn(0, groups.length()-1)
+        for (i in 0 until groups.length()) {
+            val g = groups.optJSONObject(i) ?: continue
+            stickerTabs.addView(TextView(activity).apply {
+                text = g.optString("tab") + " " + g.optString("name")
+                textSize = 12f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
+                alpha = if (i == stickerGroup) 1f else .55f
+                setPadding(dp(10f),0,dp(10f),0)
+                setOnClickListener { stickerGroup=i; renderStickerTray() }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f)))
+        }
+        stickerGrid.removeAllViews()
+        val stickers = groups.optJSONObject(stickerGroup)?.optJSONArray("stickers") ?: JSONArray()
+        val cell = resources.displayMetrics.widthPixels / 5
+        for (i in 0 until stickers.length()) {
+            val st = stickers.optJSONObject(i) ?: continue
+            val id = st.optString("id"); if (id.isBlank()) continue
+            val image = ImageView(activity).apply {
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                contentDescription = st.optString("label")
+                /* mv도 웹 src를 쓰지 않는다. asset의 id.webp만 연다. */
+                load(stickerAsset(id)) { crossfade(false) }
+                setOnClickListener { pickSticker(id) }
+            }
+            stickerGrid.addView(image, GridLayout.LayoutParams().apply {
+                width=cell; height=cell
+                columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1)
+            })
+        }
+    }
+
+    private fun pickSticker(id: String) {
+        pickedSticker=id
+        stickerPreview.removeAllViews()
+        stickerPreview.setBackgroundColor(0xCC1B1F19.toInt())
+        val image=ImageView(activity).apply {
+            scaleType=ImageView.ScaleType.CENTER_INSIDE
+            load(stickerAsset(id)) { crossfade(false) }
+            setOnClickListener { sendPickedStickerOnly() }
+        }
+        stickerPreview.addView(image, FrameLayout.LayoutParams(dp(182f),dp(135f),Gravity.CENTER))
+        stickerPreview.addView(TextView(activity).apply {
+            text="✕"; textSize=16f; gravity=Gravity.CENTER; setTextColor(Color.WHITE)
+            setOnClickListener { clearSticker() }
+        }, FrameLayout.LayoutParams(dp(36f),dp(36f),Gravity.TOP or Gravity.END))
+        stickerPreview.visibility=View.VISIBLE
+    }
+
+    private fun clearSticker() {
+        pickedSticker=null; stickerPreview.visibility=View.GONE; stickerPreview.removeAllViews()
+    }
+
+    private fun sendPickedStickerOnly() {
+        if (pickedSticker == null || busy) return
+        send()
+    }
+
     private fun setReply(id: String) {
         val m = messages.firstOrNull { it.id == id } ?: return
         if (m.hidden || m.system) return
@@ -1245,7 +1348,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun send() {
         val text = input.text.toString().trim()
-        if (busy || !loaded || text.isEmpty()) return
+        val sticker = pickedSticker
+        if (busy || !loaded || (text.isEmpty() && sticker == null)) return
         if (text.length > 1000) { notice("메시지는 1,000자까지 보낼 수 있습니다."); return }
         busy = true
         /* 단추는 Swift처럼 늘 그 자리에 둔다. 비활성일 때 alpha만 낮춘다. */
@@ -1255,6 +1359,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         val reply = quoted
         val row = JSONObject().put("id", stableId)
             .put("room_id", room).put("user_id", me).put("body", text)
+        if (sticker != null) row.put("image_url", "sticker:$sticker")
         if (reply != null) row.put("reply_to", reply.id)
 
         var tempId: String? = null
@@ -1267,7 +1372,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 .put("created_at", java.time.Instant.now().toString())
             merge(listOf(ChatMessage(raw)))
             input.setText("")
-            clearReply()
+            clearReply(); clearSticker()
             render(keepBottom = false)
             list.scrollToBottom(false)
         }
@@ -1286,6 +1391,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                     /* 실패한 글·답장을 함께 돌려놓는다. */
                     input.setText(text); input.setSelection(input.text.length)
                     reply?.let { setReply(it.id) }
+                    sticker?.let { pickSticker(it) }
                 }
                 render(keepBottom = true)
                 notice((e.message ?: "보내지 못했습니다.") + "\n내용은 보관했습니다. 보내기를 눌러 다시 시도하세요.")
