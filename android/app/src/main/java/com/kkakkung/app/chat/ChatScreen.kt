@@ -382,7 +382,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             }
         }
         list.onTop = { loadMore() }
-        list.onBottom = { bottom -> if (bottom) markRead() }
+        list.onBottom = { bottom -> if (bottom) markRead() else readJob?.cancel() }
     }
 
     val me: String get() = service.config.user
@@ -401,11 +401,12 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             navColorBefore = activity.window.navigationBarColor
             activity.window.navigationBarColor = ChatSkin.bg
         }
-        if (!loaded) startLoad() else { realtime?.start(); sync(); markRead() }
+        if (!loaded) startLoad() else { list.resumeSession(); realtime?.start(); sync(); markRead() }
         ViewCompat.requestApplyInsets(this)
     }
 
     fun detach() {
+        if (visible) list.pauseSession()
         syncRunner.cancel()
         metaJob?.cancel(); readJob?.cancel()
         drawerOverlay?.let { removeView(it) }
@@ -1552,13 +1553,13 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     private fun markRead() {
-        if (!visible || !list.atBottom) return
+        if (!visible || !list.canMarkRead) return
         val newest = messages.lastOrNull { !it.id.startsWith("tmp:") }?.at ?: return
         if (newest == lastRead) return
         readJob?.cancel()
         readJob = scope.launch {
             delay(700)
-            if (!visible || !list.atBottom) return@launch
+            if (!visible || !list.canMarkRead) return@launch
             try {
                 service.markRead(room); lastRead = newest
                 event?.invoke("read", JSONObject().put("at", newest))

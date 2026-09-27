@@ -108,6 +108,17 @@ class ChatListView(context: Context) : RecyclerView(context) {
     private val rowAdapter = RowAdapter()
     var atBottom = true
         private set
+    private var pausedViewport: ChatViewport? = null
+    private var pendingViewport: ChatViewport? = null
+    val canMarkRead: Boolean
+        get() = rows.isNotEmpty() && isAttachedToWindow && pendingViewport == null &&
+            !isLayoutRequested && !isComputingLayout && atBottom && !canScrollVertically(1)
+    private val reportViewport = Runnable {
+        if (isAttachedToWindow && pendingViewport == null && !isLayoutRequested && !isComputingLayout) {
+            atBottom = !canScrollVertically(1)
+            onBottom?.invoke(atBottom)
+        }
+    }
 
     init {
         setBackgroundColor(ChatSkin.bg)
@@ -136,8 +147,10 @@ class ChatListView(context: Context) : RecyclerView(context) {
 
         addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                val bottom = !rv.canScrollVertically(1)
-                if (bottom != atBottom) { atBottom = bottom; onBottom?.invoke(bottom) }
+                if (pendingViewport == null && !isComputingLayout && !isLayoutRequested) {
+                    val bottom = !rv.canScrollVertically(1)
+                    if (bottom != atBottom) { atBottom = bottom; onBottom?.invoke(bottom) }
+                }
                 if (dy < 0 && lm.findFirstVisibleItemPosition() <= 1) onTop?.invoke()
             }
         })
@@ -150,39 +163,69 @@ class ChatListView(context: Context) : RecyclerView(context) {
 
     val rowCount: Int get() = rows.size
 
-    /** 줄을 통째로 갈아 끼운다. 맨 아래를 보고 있었으면 그대로 붙인다. */
+    /** Preserve the pending session anchor even if a sync arrives before the first layout. */
     fun submit(next: List<ChatRow>, keepBottom: Boolean) {
-        val anchor = if (!keepBottom) anchorSpot() else null
+        val anchor = pendingViewport ?: if (!keepBottom) captureViewport(false) else null
         rows.clear(); rows.addAll(next)
         rowAdapter.notifyDataSetChanged()
-        if (keepBottom) scrollToBottom(false)
-        else if (anchor != null) restore(anchor)
+        if (anchor != null) restore(anchor)
+        else if (keepBottom) scrollToBottom(false)
     }
 
-    private class Spot(val id: String, val offset: Int)
-
-    /** 화면 맨 위에 걸린 줄과 그 줄이 위로 지나간 만큼 — 위에 줄을 더 붙여도 같은 자리다. */
-    private fun anchorSpot(): Spot? {
-        val i = lm.findFirstVisibleItemPosition()
-        if (i < 0 || i >= rows.size) return null
-        val v = lm.findViewByPosition(i) ?: return null
-        return Spot(rows[i].id, v.top)
+    private fun captureViewport(followBottom: Boolean): ChatViewport? {
+        val first = lm.findFirstVisibleItemPosition()
+        if (first < 0 || first >= rows.size) return null
+        val last = lm.findLastVisibleItemPosition().coerceAtMost(rows.lastIndex)
+        val anchors = (first..last).mapNotNull { index ->
+            lm.findViewByPosition(index)?.let { rows[index].id to (lm.getDecoratedTop(it) - paddingTop) }
+        }
+        return ChatViewport(followBottom && atBottom, anchors, first)
     }
 
-    private fun restore(spot: Spot) {
-        val i = rows.indexOfFirst { it.id == spot.id }
-        if (i >= 0) lm.scrollToPositionWithOffset(i, spot.offset)
+    fun pauseSession() {
+        stopScroll()
+        if (pausedViewport == null) pausedViewport = pendingViewport ?: captureViewport(true)
+    }
+
+    fun resumeSession() {
+        val saved = pausedViewport ?: return
+        pausedViewport = null
+        pendingViewport = saved
+        atBottom = false
+        restore(saved)
+    }
+
+    private fun restore(spot: ChatViewport) {
+        if (spot.bottom) { scrollToBottom(false); return }
+        val target = spot.resolve(rows.map { it.id }) ?: return
+        lm.scrollToPositionWithOffset(target.first, target.second)
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        pendingViewport = null
+        removeCallbacks(reportViewport)
+        post(reportViewport)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(reportViewport)
+        super.onDetachedFromWindow()
     }
 
     fun scrollToBottom(animated: Boolean) {
         if (rows.isEmpty()) return
         if (animated) smoothScrollToPosition(rows.size - 1) else lm.scrollToPositionWithOffset(rows.size - 1, 0)
-        post { atBottom = !canScrollVertically(1); onBottom?.invoke(atBottom) }
+        removeCallbacks(reportViewport)
+        post(reportViewport)
     }
 
     fun scrollTo(id: String) {
         val i = rows.indexOfFirst { it.id == id }
-        if (i >= 0) lm.scrollToPositionWithOffset(i, context.dp(40f))
+        if (i >= 0) {
+            atBottom = false
+            lm.scrollToPositionWithOffset(i, context.dp(40f))
+        }
     }
 
     private inner class RowAdapter : RecyclerView.Adapter<RowHolder>() {
