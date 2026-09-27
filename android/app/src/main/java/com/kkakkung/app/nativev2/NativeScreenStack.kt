@@ -17,6 +17,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
     private val screens = mutableListOf<Screen>()
     val current: Screen? get() = screens.lastOrNull()
     val canPop get() = screens.size > 1
+    fun contains(key: String) = screens.any { it.key == key }
     var changed: (() -> Unit)? = null
     var rootMotion: ((Float, Boolean) -> Unit)? = null
     var tabNeighbor: ((Int) -> Screen?)? = null

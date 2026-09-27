@@ -412,7 +412,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         list.refreshScrollInfo()
     }
 
-    fun detach() {
+    fun detach(keepView: Boolean = false) {
         if (visible) list.pauseSession()
         scrollHints.reset()
         syncRunner.cancel()
@@ -428,7 +428,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         navColorBefore?.let { activity.window.navigationBarColor = it; navColorBefore = null }
         realtime?.stop()
         softInputBefore?.let { activity.window.setSoftInputMode(it); softInputBefore = null }
-        (parent as? ViewGroup)?.removeView(this)
+        // Native navigation retains the actual chat view behind a pushed detail.
+        // Pause its subscriptions while keeping the pixels/draft available for an interactive pop.
+        if (!keepView) (parent as? ViewGroup)?.removeView(this)
     }
 
     fun destroy() {

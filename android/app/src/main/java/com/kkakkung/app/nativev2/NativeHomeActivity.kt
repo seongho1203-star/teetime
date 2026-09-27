@@ -400,8 +400,8 @@ class NativeHomeActivity : AppCompatActivity() {
                 val top = content.current
                 if (!detail) (top?.view?.tag as? LinearLayout)?.let { bar -> bindBottomBar(bar) }
                 if (top?.key == "/chat") {
-                    if (chat?.parent == null) chat?.attach(top.view as ViewGroup)
-                } else chat?.let { if (it.parent != null) it.detach() }
+                    chat?.attach(top.view as ViewGroup)
+                } else chat?.let { if (it.parent != null) it.detach(keepView = content.contains("/chat")) }
                 refreshBadges()
             }
             tabSelected = { key ->
