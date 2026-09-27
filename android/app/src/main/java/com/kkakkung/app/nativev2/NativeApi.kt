@@ -12,7 +12,7 @@ import org.json.JSONTokener
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-class NativeApiError(message: String) : Exception(message)
+class NativeApiError(message: String, val code: String = "") : Exception(message)
 
 /** Android Native V2 공통 Supabase 클라이언트.
  *
@@ -60,7 +60,7 @@ class NativeApi(private val session: NativeSession) {
                 val message = try {
                     JSONObject(raw).optString("message").ifBlank { "서버 오류(${res.code})" }
                 } catch (_: Exception) { "서버 오류(${res.code})" }
-                throw NativeApiError(message)
+                throw NativeApiError(message, try { JSONObject(raw).optString("code") } catch (_: Exception) { "" })
             }
             if (raw.isBlank()) JSONArray() else JSONTokener(raw).nextValue()
         }
@@ -80,6 +80,48 @@ class NativeApi(private val session: NativeSession) {
         is JSONObject -> value
         is JSONArray -> value.optJSONObject(0)
         else -> null
+    }
+
+    suspend fun groupTees(round: String): JSONObject =
+        rows("round_groups", listOf("select" to "tees", "round_id" to "eq.$round", "limit" to "1"))
+            .firstOrNull()?.optJSONObject("tees") ?: JSONObject()
+
+    suspend fun roundSettlements(round: String): List<JSONObject> = rows("settlements", listOf(
+        "select" to "*,settlement_shares(*)", "round_id" to "eq.$round", "order" to "created_at.desc", "limit" to "100"))
+
+    suspend fun shareRound(round: JSONObject) {
+        val room = rows("rooms", listOf("select" to "id", "round_id" to "is.null", "order" to "created_at.asc", "limit" to "1"))
+            .firstOrNull()?.optString("id") ?: throw NativeApiError("전체 대화방이 없습니다.")
+        val row = JSONObject().put("room_id", room).put("user_id", session.userId).put("system", true)
+            .put("body", "라운드 안내: ${round.optString("course")} · ${round.optString("tee_at")}")
+            .put("round_id", round.optString("id")).put("notify", true)
+        val drops = listOf("notify", "round_id")
+        for (i in 0..drops.size) {
+            try { request("rest/v1/messages", method = "POST", body = row); return }
+            catch (e: NativeApiError) {
+                if (e.code !in setOf("42703", "PGRST204") || i == drops.size) throw e
+                row.remove(drops[i])
+            }
+        }
+    }
+
+    private val announcing = mutableSetOf<String>()
+    suspend fun announceClosedPolls(polls: List<JSONObject>) {
+        for (p in polls) {
+            val expired = try { java.time.OffsetDateTime.parse(p.optString("closes_at")).toInstant().isBefore(java.time.Instant.now()) } catch (_: Exception) { false }
+            val id = p.optString("id")
+            if (!p.has("result_at") || !p.isNull("result_at") || (!p.optBoolean("closed") && !expired) || !announcing.add(id)) continue
+            try { request("rest/v1/rpc/post_poll_result", method = "POST", body = JSONObject().put("p_poll", id)) }
+            catch (_: Exception) { announcing.remove(id) }
+        }
+    }
+
+    suspend fun unreadChatCount(): Int {
+        val room = rows("rooms", listOf("select" to "id", "round_id" to "is.null", "order" to "created_at.asc", "limit" to "1"))
+            .firstOrNull()?.optString("id") ?: return 0
+        val read = rows("room_reads", listOf("select" to "last_read_at", "room_id" to "eq.$room", "user_id" to "eq.${session.userId}", "limit" to "1"))
+            .firstOrNull()?.optString("last_read_at") ?: "1970-01-01T00:00:00Z"
+        return rows("messages", listOf("select" to "id", "room_id" to "eq.$room", "created_at" to "gt.$read", "user_id" to "neq.${session.userId}", "limit" to "100")).size
     }
 
     suspend fun profile(): JSONObject? =
@@ -150,7 +192,7 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun upcomingRounds(limit: Int = 30): List<JSONObject> =
         rows("rounds", listOf(
-            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart,signups(user_id,state,seq,grp)",
+            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart,lat,lon,signups(user_id,state,seq,grp)",
             "status" to "neq.cancelled",
             /* 홈의 '다가오는 라운드'에 이미 지난 라운드(실기기에서 9/23)가
                다시 보이던 오류. 현재 시각 이후만 받는다. */
@@ -160,21 +202,21 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun rounds(limit: Int = 60): List<JSONObject> =
         rows("rounds", listOf(
-            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart,signups(user_id,state,seq,grp)",
+            "select" to "id,title,course,tee_at,capacity,fee,status,kind,caddie,cart,lat,lon,signups(user_id,state,seq,grp)",
             "order" to "tee_at.desc", "limit" to limit.toString()
         ))
 
     suspend fun openPolls(limit: Int = 30): List<JSONObject> =
         rows("polls", listOf(
-            "select" to "id,title,body,multi,anonymous,closes_at,closed,created_at,poll_options(id,label,sort),poll_votes(option_id,user_id)",
+            "select" to "*,poll_options(id,label,sort),poll_votes(option_id,user_id)",
             "closed" to "eq.false", "order" to "created_at.desc", "limit" to limit.toString()
-        ))
+        )).also { announceClosedPolls(it) }
 
     suspend fun polls(limit: Int = 60): List<JSONObject> =
         rows("polls", listOf(
-            "select" to "id,title,body,multi,anonymous,closes_at,closed,created_at,poll_options(id,label,sort),poll_votes(option_id,user_id)",
+            "select" to "*,poll_options(id,label,sort),poll_votes(option_id,user_id)",
             "order" to "created_at.desc", "limit" to limit.toString()
-        ))
+        )).also { announceClosedPolls(it) }
 
     /** 라운드 상세 — 신청을 딸려 받아 정원/내 상태를 한 응답으로 맞춘다. */
     suspend fun round(id: String): JSONObject? =
@@ -454,6 +496,23 @@ class NativeApi(private val session: NativeSession) {
 
     suspend fun disablePush(token: String) {
         request("rest/v1/push_subscriptions", listOf("endpoint" to "eq.fcm:$token"), "DELETE")
+    }
+
+    /** Same order as lib/account.ts. Optional cleanup cannot trap a member here. */
+    suspend fun deleteMe(pushToken: suspend () -> String = { NativePush.token() }) {
+        try { disablePush(pushToken()) } catch (_: Exception) { }
+        try {
+            val files = request("storage/v1/object/list/avatars", method = "POST",
+                body = JSONObject().put("prefix", session.userId).put("limit", 1000).put("offset", 0)) as? JSONArray
+            val paths = JSONArray()
+            if (files != null) for (i in 0 until files.length()) {
+                val name = files.optJSONObject(i)?.optString("name").orEmpty()
+                if (name.isNotBlank() && !name.contains('/')) paths.put("${session.userId}/$name")
+            }
+            if (paths.length() > 0) request("storage/v1/object/avatars", method = "DELETE",
+                body = JSONObject().put("prefixes", paths))
+        } catch (_: Exception) { }
+        request("rest/v1/rpc/delete_me", method = "POST", body = JSONObject())
     }
 
     suspend fun unreadAlertCount(): Int = try {

@@ -402,6 +402,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
         visible = true; navigating = false
+        com.kkakkung.app.nativev2.NativePushForeground.chatVisible = true
         if (stage2 && navColorBefore == null) {
             navColorBefore = activity.window.navigationBarColor
             activity.window.navigationBarColor = ChatSkin.bg
@@ -420,6 +421,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         profileDialog?.dismiss(); profileDialog = null
         gallery?.dismiss(); gallery = null
         visible = false
+        com.kkakkung.app.nativev2.NativePushForeground.chatVisible = false
         if (searching) leaveSearch()
         hideMentionCard()
         hideKeyboard()
@@ -848,9 +850,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             }, FrameLayout.LayoutParams(dp(36f),dp(36f)))
 
             val role = p.optString("role")
-            val markText = if (role == "treasurer") "₩" else if (role in setOf("staff","admin","superadmin")) "♛" else ""
-            if (markText.isNotBlank()) face.addView(TextView(activity).apply {
-                text=markText; textSize=9f; gravity=Gravity.CENTER; setTextColor(Color.WHITE)
+            if (role in setOf("treasurer", "staff", "admin", "superadmin")) face.addView(ImageView(activity).apply {
+                setImageResource(if (role == "treasurer") com.kkakkung.app.R.drawable.ic_rank_won else com.kkakkung.app.R.drawable.ic_rank_crown)
+                setPadding(dp(3f), dp(3f), dp(3f), dp(3f)); contentDescription = role
+                imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
                 background=GradientDrawable().apply {
                     shape=GradientDrawable.OVAL; setColor(when(role) {
                         "superadmin"->0xFFB41F72.toInt(); "admin"->0xFFE84A7F.toInt()

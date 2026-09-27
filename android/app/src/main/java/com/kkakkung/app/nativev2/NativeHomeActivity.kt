@@ -62,14 +62,43 @@ import java.util.TimeZone
  */
 class NativeHomeActivity : AppCompatActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private lateinit var content: FrameLayout
+    private lateinit var content: NativeScreenStack
     private lateinit var bottom: LinearLayout
     private lateinit var api: NativeApi
     private lateinit var session: NativeSession
     private var chat: ChatScreen? = null
     private var detail = false
+    private var pendingKey = "/"
+    private var pendingRefresh: (() -> Unit)? = null
+    private var buildingTabPreview = false
+    private var builtPreview: NativeScreenStack.Screen? = null
+    private var resumedOnce = false
+    private fun prepareScreen(key: String, refresh: () -> Unit) { pendingKey = key; pendingRefresh = refresh }
+    private fun navigateBack() { if (!content.pop()) showTab("home") }
+
     private var currentTab = "home"
     private val tabs = linkedMapOf<String, Button>()
+    private val tabBadges = linkedMapOf<String, TextView>()
+    private var badgeJob: Job? = null
+    private var bellBadge: TextView? = null
+    private fun refreshBadges() {
+        if (!::api.isInitialized || badgeJob?.isActive == true) return
+        badgeJob = scope.launch {
+            suspend fun safe(block: suspend () -> Int) = try { block() } catch (_: Exception) { 0 }
+            val since = getSharedPreferences("native-seen", MODE_PRIVATE).getString("board:${session.userId}", "1970-01-01T00:00:00Z")!!
+            val values = mapOf(
+                "home" to safe { if (api.profile()?.optString("role") in setOf("staff", "admin", "superadmin")) api.pendingCount() else 0 },
+                "board" to safe { api.rows("posts", listOf("select" to "id", "created_at" to "gt.$since", "limit" to "100")).size },
+                "chat" to safe { api.unreadChatCount() },
+                "rounds" to safe { api.upcomingRounds(200).count { it.optString("status") == "open" } },
+                "polls" to safe { api.openPolls(200).count { !it.optBoolean("closed") && !pollExpired(it.optString("closes_at")) } }
+            )
+            values.forEach { (id, n) -> tabBadges[id]?.let { badge -> badge.text = if (n > 99) "99+" else "$n"; badge.visibility = if (n > 0) View.VISIBLE else View.GONE } }
+            val alerts = safe { api.unreadAlertCount() }
+            bellBadge?.let { it.text = if (alerts > 99) "99+" else "$alerts"; it.visibility = if (alerts > 0) View.VISIBLE else View.GONE }
+        }
+    }
+
 
     /* src/styles/tokens.css와 숫자까지 같은 까꿍 디자인 토큰.
        Native V2에서 새 색을 만들지 않는다. */
@@ -158,7 +187,7 @@ class NativeHomeActivity : AppCompatActivity() {
                     return
                 }
                 when {
-                    detail -> { detail = false; showTab(currentTab) }
+                    content.canPop -> navigateBack()
                     currentTab != "home" -> showHome()
                     else -> {
                         isEnabled = false
@@ -182,18 +211,32 @@ class NativeHomeActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    @Deprecated("Native V2 detail stack")
-    override fun onBackPressed() {
-        if (detail) {
-            detail = false
-            showTab(currentTab)
-            return
+    override fun onResume() {
+        super.onResume()
+        if (!::api.isInitialized || !::content.isInitialized) return
+        if (resumedOnce && currentFocus !is EditText) content.current?.refresh?.invoke()
+        resumedOnce = true
+        NativePushForeground.active = true
+        refreshBadges()
+        val pushPrefs = getSharedPreferences("native-push", MODE_PRIVATE)
+        if (pushPrefs.getBoolean("asked", false) && !pushPrefs.getBoolean("disabled", false) && NativePush.permissionGranted(this)) {
+            scope.launch { try { api.enablePush(NativePush.token()) } catch (_: Exception) { } }
         }
-        if (currentTab != "home") {
-            showHome()
-            return
-        }
-        super.onBackPressed()
+        content.postDelayed({
+            if (!isFinishing && NativePushForeground.active) {
+                val prefs = getSharedPreferences("native-push", MODE_PRIVATE)
+                if (!prefs.getBoolean("asked", false) && !prefs.getBoolean("disabled", false)) {
+                    prefs.edit().putBoolean("asked", true).apply()
+                    if (NativePush.requestIfNeeded(this, notificationPermission)) enableNativePush()
+                }
+            }
+        }, 1500)
+
+    }
+
+    override fun onPause() {
+        NativePushForeground.active = false
+        super.onPause()
     }
 
     private fun routeAfterLogin() {
@@ -345,23 +388,41 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun buildShell() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val root = FrameLayout(this).apply { setBackgroundColor(bg) }
+        content = NativeScreenStack(this).apply {
             setBackgroundColor(bg)
+            changed = {
+                detail = content.canPop
+                bottom.translationX = 0f
+                bottom.visibility = if (detail) View.GONE else View.VISIBLE
+                val top = content.current
+                if (top?.key == "/chat") chat?.attach(top.view as ViewGroup)
+            }
+            rootMotion = { x, rootVisible ->
+                if (rootVisible) { bottom.visibility = View.VISIBLE; bottom.animate().cancel(); bottom.translationX = x }
+            }
+            tabSelected = { key -> currentTab = key.removePrefix("/").ifEmpty { "home" }; selectTabCompat(currentTab) }
+            tabNeighbor = { direction ->
+                val order = listOf("home", "board", "rounds", "polls")
+                val index = order.indexOf(currentTab) + direction
+                if (index !in order.indices) null else {
+                    val before = currentTab
+                    buildingTabPreview = true; builtPreview = null
+                    showTab(order[index])
+                    buildingTabPreview = false
+                    currentTab = before; selectTabCompat(before)
+                    builtPreview
+                }
+            }
         }
-        content = FrameLayout(this).apply { setBackgroundColor(bg) }
         bottom = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(card)
             elevation = 0f
         }
-        root.addView(content, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-        ))
-        root.addView(bottom, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(58)
-        ))
+        root.addView(content, FrameLayout.LayoutParams(-1, -1))
+        root.addView(bottom, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM))
 
         /* Android 15(target 35)의 edge-to-edge 보정.
            - 평소: 기존 까꿍 디자인/64dp 탭바는 그대로 두고 system bar만 피한다.
@@ -377,7 +438,7 @@ class NativeHomeActivity : AppCompatActivity() {
                숨긴다. ChatScreen/댓글칸이 따로 IME 높이를 더하지 않으므로
                '키보드는 떴는데 입력창은 아래에 남음'과 이중 여백을 함께 막는다. */
             v.setPadding(0, bars.top, 0, if (imeVisible) ime.bottom else bars.bottom)
-            bottom.visibility = if (imeVisible) View.GONE else View.VISIBLE
+            bottom.visibility = if (imeVisible || content.canPop) View.GONE else View.VISIBLE
             ins
         }
 
@@ -408,11 +469,21 @@ class NativeHomeActivity : AppCompatActivity() {
                 setOnClickListener { showTab(id) }
             }
             tabs[id] = b
-            bottom.addView(b, LinearLayout.LayoutParams(0, dp(58), 1f))
+            val cell = FrameLayout(this)
+            cell.addView(b, FrameLayout.LayoutParams(-1, -1))
+            val number = TextView(this).apply {
+                textSize = 10f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                setPadding(dp(4), 0, dp(4), 0); minWidth = dp(16); visibility = View.GONE
+                background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(if (id in setOf("rounds", "polls")) grassDeep else danger) }
+            }
+            cell.addView(number, FrameLayout.LayoutParams(-2, dp(16), Gravity.TOP or Gravity.END).apply { rightMargin = dp(9); topMargin = dp(2) })
+            tabBadges[id] = number
+            bottom.addView(cell, LinearLayout.LayoutParams(0, dp(58), 1f))
         }
     }
 
     private fun showTab(id: String) {
+        if (id == "chat") { showChat(); return }
         detail = false
         currentTab = id
         tabs.forEach { (key, b) ->
@@ -441,6 +512,7 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showHome() {
+        prepareScreen("/") { showHome() }
         currentTab = "home"
         selectTabCompat("home")
         bottom.visibility = View.VISIBLE
@@ -529,8 +601,9 @@ class NativeHomeActivity : AppCompatActivity() {
         bellBox.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_bell)
         }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
-        if (alerts > 0) {
+        run {
             bellBox.addView(TextView(this).apply {
+                bellBadge = this; visibility = if (alerts > 0) View.VISIBLE else View.GONE
                 text = if (alerts > 99) "99+" else alerts.toString()
                 textSize = 10f; typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE); gravity = Gravity.CENTER
@@ -628,6 +701,21 @@ class NativeHomeActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(11) })
+        scope.launch {
+            val weather = NativeWeather.forecast(r)
+            if (weather != null) cardView.addView(TextView(this@NativeHomeActivity).apply { text = weather; textSize = 13f; setTextColor(Color.WHITE) }, 3)
+            val group = mine?.optInt("grp", 0) ?: 0
+            if (group > 0) try {
+                val tees = api.groupTees(r.optString("id"))
+                val names = api.people().associateBy { it.optString("id") }
+                val partners = signups.filter { it.optInt("grp", 0) == group && it.optString("state") == "confirmed" }
+                    .joinToString(" · ") { names[it.optString("user_id")]?.optString("name").orEmpty() }
+                cardView.addView(TextView(this@NativeHomeActivity).apply {
+                    text = "${group}조 · " + (tees.optString(group.toString()).takeIf { it.isNotBlank() }?.let { timeOnly(it) + " · " } ?: "") + partners
+                    textSize = 13f; setTextColor(Color.WHITE)
+                }, 4)
+            } catch (_: Exception) { }
+        }
         return cardView
     }
 
@@ -692,6 +780,7 @@ class NativeHomeActivity : AppCompatActivity() {
     } catch (_: Exception) { "" }
 
     private fun showRoundsList() {
+        prepareScreen("/rounds") { showRoundsList() }
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
         }
@@ -801,6 +890,7 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showPollsList() {
+        prepareScreen("/polls") { showPollsList() }
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
         }
@@ -996,6 +1086,8 @@ class NativeHomeActivity : AppCompatActivity() {
     // ── 공지 ───────────────────────────────────────────────────
 
     private fun showBoard() {
+        prepareScreen("/board") { showBoard() }
+        if (!buildingTabPreview) getSharedPreferences("native-seen", MODE_PRIVATE).edit().putString("board:${session.userId}", java.time.Instant.now().toString()).apply()
         detail = false
         currentTab = "board"; selectTabCompat("board")
         chat?.let { if (it.parent != null) it.detach() }
@@ -1081,6 +1173,7 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showPost(id: String) {
+        prepareScreen("/board/$id") { showPost(id) }
         detail = true
         val page = detailPage("공지")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
@@ -1174,6 +1267,7 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showRound(id: String) {
+        prepareScreen("/rounds/$id") { showRound(id) }
         detail = true
         chat?.let { if (it.parent != null) it.detach() }
         val page = detailPage("라운드")
@@ -1187,6 +1281,10 @@ class NativeHomeActivity : AppCompatActivity() {
                 page.removeView(loading)
                 if (r == null) { error(page, "라운드를 찾지 못했습니다."); return@launch }
                 renderRound(page, r, comments, people, myProfile)
+                val tees = try { api.groupTees(id) } catch (_: Exception) { JSONObject() }
+                renderGroups(page, r, people, tees)
+                try { renderRoundSettlements(page, api.roundSettlements(id), id) } catch (_: Exception) { }
+
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
             }
@@ -1297,21 +1395,20 @@ class NativeHomeActivity : AppCompatActivity() {
         if (admin || owner) {
             val status = r.optString("status")
             page.addView(action("라운드 수정") { roundForm(r) })
-            page.addView(action(if (status == "open") "모집 마감" else "다시 열기") {
-                mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
-            })
-            if (confirmed.isNotEmpty()) {
-                page.addView(action("조 편성 · 신청순") {
-                    confirm("신청 순서로 조를 짤까요?", "4명씩 1조부터 자동으로 나눕니다.") {
-                        val groups = JSONObject()
-                        confirmed.forEachIndexed { i, signup ->
-                            groups.put(signup.optString("user_id"), i / 4 + 1)
-                        }
-                        mutate { api.setRoundGroups(id, groups); toast("조 편성을 저장했습니다."); showRound(id) }
-                    }
-                })
+            val operations = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            fun op(label: String, destructive: Boolean = false, work: () -> Unit) {
+                operations.addView(action(label, danger = destructive, click = work), LinearLayout.LayoutParams(0, -2, 1f))
             }
+            op(if (status == "open") "마감" else "다시 열기") {
+                mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
+            }
+            op("취소", true) { confirm("라운드 취소", "모집을 취소할까요?") { mutate { api.setRoundStatus(id, "cancelled"); showRound(id) } } }
+            op("지우기", true) { confirm("라운드 삭제", "신청과 댓글도 함께 삭제됩니다.") { mutate { api.deleteRow("rounds", id); navigateBack() } } }
+            page.addView(operations)
+            if (confirmed.isNotEmpty()) page.addView(action("조 편성") { showGroups(r, people) })
+            page.addView(action("대화방에 공유") { mutate { api.shareRound(r); toast("대화방에 공유했습니다.") } })
         }
+        if (screen) page.addView(action("같은 조건으로 새로 열기") { roundForm(r, copy = true) })
 
         page.addView(action("＋ 정산 만들기") {
             settlementForm(id, confirmed.map { it.optString("user_id") }, people)
@@ -1347,7 +1444,107 @@ class NativeHomeActivity : AppCompatActivity() {
         }
     }
 
+    private fun renderGroups(page: LinearLayout, round: JSONObject, people: List<JSONObject>, tees: JSONObject) {
+        val confirmed = jsonObjects(round.optJSONArray("signups")).filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
+        val names = people.associateBy { it.optString("id") }
+        val groups = confirmed.groupBy { it.optInt("grp", 0) }.toSortedMap()
+        if (groups.isEmpty()) return
+        section(page, "조별 명단")
+        groups.forEach { (number, members) ->
+            val mine = members.any { it.optString("user_id") == session.userId }
+            val label = if (number > 0) "${number}조" else "미배정"
+            section(page, label + if (mine) " · 내 조" else "")
+            tees.optString(number.toString()).takeIf { it.isNotBlank() }?.let { body(page, "티오프 ${timeOnly(it)}") }
+            members.forEach { page.addView(personRow(personLabel(names[it.optString("user_id")]), if (it.optString("user_id") == session.userId) "나" else "")) }
+        }
+    }
+
+    private fun showGroups(round: JSONObject, people: List<JSONObject>) {
+        val id = round.optString("id")
+        prepareScreen("/rounds/$id/groups") { } // Editing screens are never rebuilt on resume.
+        detail = true
+        val page = detailPage("조 편성")
+        val members = jsonObjects(round.optJSONArray("signups")).filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
+        val names = people.associateBy { it.optString("id") }
+        val persons = members.map { m ->
+            val uid = m.optString("user_id"); val p = names[uid]
+            GroupPerson(uid, p?.optString("gender"), p?.optInt("birth_year", 0)?.takeIf { it > 0 })
+        }
+        val sizes = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@NativeHomeActivity, android.R.layout.simple_spinner_dropdown_item, listOf("최대 2명", "최대 3명", "최대 4명"))
+            setSelection(2)
+        }
+        page.addView(sizes)
+        var assignments: Map<String, Int> = members.associate { it.optString("user_id") to it.optInt("grp", 0) }
+        var tees = JSONObject()
+        val roster = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun paint() {
+            roster.removeAllViews()
+            assignments.values.filter { it > 0 }.distinct().sorted().forEach { group ->
+                section(roster, "${group}조")
+                roster.addView(action(tees.optString(group.toString()).takeIf { it.isNotBlank() }?.let { "티오프 ${timeOnly(it)}" } ?: "조별 티오프") {
+                    val base = OffsetDateTime.parse(round.optString("tee_at")).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
+                    TimePickerDialog(this, { _, h, minute ->
+                        tees.put(group.toString(), base.withHour(h).withMinute(minute).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)); paint()
+                    }, base.hour, base.minute, true).show()
+                })
+                roster.addView(action("시각 지우기") { tees.remove(group.toString()); paint() })
+                assignments.filterValues { it == group }.keys.forEach { uid -> body(roster, personLabel(names[uid])) }
+            }
+            val unassigned = assignments.filterValues { it <= 0 }.keys
+            if (unassigned.isNotEmpty()) { section(roster, "미배정"); unassigned.forEach { body(roster, personLabel(names[it])) } }
+        }
+        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("seq" to "신청순", "random" to "랜덤", "gender" to "성별", "age" to "나이").forEach { (mode, label) ->
+            modes.addView(action(label) { assignments = GroupRules.splitGroups(persons, sizes.selectedItemPosition + 2, mode); paint() }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        page.addView(modes); page.addView(roster)
+        page.addView(action("조 편성 저장", primary = true) {
+            if (assignments.size != persons.size || assignments.values.any { it <= 0 }) { toast("확정자 모두를 편성해 주세요."); return@action }
+            val result = JSONObject(); assignments.forEach { (uid, group) -> result.put(uid, group) }
+            val kept = JSONObject(); assignments.values.distinct().forEach { group ->
+                if (tees.has(group.toString())) kept.put(group.toString(), tees.get(group.toString()))
+            }
+            mutate { api.setRoundGroups(id, result, kept); toast("조 편성을 저장했습니다."); navigateBack() }
+        })
+        mount(page); paint()
+        scope.launch { try { tees = api.groupTees(id); paint() } catch (_: Exception) { } }
+    }
+
+    private fun renderRoundSettlements(page: LinearLayout, settlements: List<JSONObject>, roundId: String) {
+        if (settlements.isEmpty()) return
+        section(page, "정산")
+        settlements.forEach { settlement ->
+            val mine = jsonObjects(settlement.optJSONArray("settlement_shares")).firstOrNull { it.optString("user_id") == session.userId }
+            section(page, settlement.optString("title"))
+            if (mine != null) {
+                body(page, "내 몫 ${money(mine.optInt("amount"))}")
+                page.addView(action(if (mine.optBoolean("paid")) "입금완료" else "입금완료로 표시", primary = !mine.optBoolean("paid")) {
+                    if (!mine.optBoolean("paid")) confirm("입금완료", "입금을 마치셨나요?") {
+                        mutate { api.markSharePaid(mine.optString("id")); showRound(roundId) }
+                    }
+                })
+            }
+            val bank = settlement.optString("bank"); val account = settlement.optString("account")
+            if (account.isNotBlank()) {
+                page.addView(action("계좌 복사 · $bank $account") {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("계좌", "$bank $account")); toast("계좌를 복사했습니다.")
+                })
+                page.addView(action("토스로 보내기") {
+                    val uri = android.net.Uri.Builder().scheme("supertoss").authority("send")
+                        .appendQueryParameter("bank", bank.trim().removeSuffix("은행"))
+                        .appendQueryParameter("accountNo", account.replace(Regex("[^0-9]"), ""))
+                    if (mine != null && mine.optInt("amount") > 0) uri.appendQueryParameter("amount", mine.optInt("amount").toString())
+                    try { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri.build())) }
+                    catch (_: android.content.ActivityNotFoundException) { toast("토스 앱을 설치해 주세요.") }
+                })
+            }
+        }
+    }
+
     private fun showPoll(id: String) {
+        prepareScreen("/polls/$id") { showPoll(id) }
         detail = true
         chat?.let { if (it.parent != null) it.detach() }
         val page = detailPage("투표")
@@ -1360,6 +1557,7 @@ class NativeHomeActivity : AppCompatActivity() {
                 val myProfile = api.profile()
                 page.removeView(loading)
                 if (p == null) { error(page, "투표를 찾지 못했습니다."); return@launch }
+                api.announceClosedPolls(listOf(p))
                 renderPoll(page, p, comments, people, myProfile)
             } catch (e: Exception) {
                 page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
@@ -1465,10 +1663,32 @@ class NativeHomeActivity : AppCompatActivity() {
         }
         if (options.isEmpty()) empty(page, "선택지가 없습니다.")
 
-        val participants = votes.map { it.optString("user_id") }.distinct()
-        if (participants.isNotEmpty()) {
+        if (!p.optBoolean("anonymous")) {
+            val members = people.filter { it.optString("role") !in setOf("pending", "banned") }
+            val participants = votes.map { it.optString("user_id") }.toSet()
+            val absent = members.filter { it.optString("id") !in participants }
             section(page, "투표 현황")
-            body(page, "참여 ${participants.size}명")
+            val switches = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun render(mode: Int) {
+                results.removeAllViews()
+                when (mode) {
+                    0 -> options.forEach { o ->
+                        section(results, o.optString("label"))
+                        val selected = votes.filter { it.optString("option_id") == o.optString("id") }
+                        body(results, selected.joinToString(" · ") { personLabel(names[it.optString("user_id")]) }.ifEmpty { "없음" })
+                    }
+                    1 -> members.filter { it.optString("id") in participants }.forEach { member ->
+                        val picks = votes.filter { it.optString("user_id") == member.optString("id") }.map { it.optString("option_id") }.toSet()
+                        body(results, personLabel(member) + " · " + options.filter { it.optString("id") in picks }.joinToString { it.optString("label") })
+                    }
+                    else -> absent.forEach { body(results, personLabel(it)) }
+                }
+            }
+            listOf("항목별", "멤버별", "미참여 ${absent.size}").forEachIndexed { index, label ->
+                switches.addView(action(label) { render(index) }, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            page.addView(switches); page.addView(results); render(0)
         }
 
         commentsBlock(page, comments, names) { text ->
@@ -1477,7 +1697,10 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showChat() {
-        content.removeAllViews()
+        if (content.current?.key == "/chat") return
+        prepareScreen("/chat") { chat?.let { c -> (c.parent as? ViewGroup)?.let { c.attach(it) } } }
+        detail = true
+        val holder = FrameLayout(this)
         val config = NativeChatShared.applyTo(JSONObject()
             .put("user", session.userId)
             .put("token", session.accessToken)
@@ -1499,16 +1722,18 @@ class NativeHomeActivity : AppCompatActivity() {
                             path.startsWith("/board/") -> showPost(path.substringAfter("/board/").substringBefore('/'))
                         }
                     }
-                    "back" -> showHome()
+                    "back" -> navigateBack()
                 }
             }
         }
-        c.attach(content)
+        content.show("/chat", holder, false, pendingRefresh)
+        c.attach(holder)
     }
 
     // ── 알림함 ─────────────────────────────────────────────────
 
     private fun showAlerts() {
+        prepareScreen("/alerts") { showAlerts() }
         detail = true
         val page = detailPage("알림")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
@@ -1601,15 +1826,16 @@ class NativeHomeActivity : AppCompatActivity() {
                     toast("총금액과 정산할 사람을 먼저 정해 주세요.")
                     return@setOnClickListener
                 }
-                val each = (total / ids.size / 10) * 10
-                val left = total - each * ids.size
+                val preview = try { SettlementRules.split(total, ids, custom) } catch (_: IllegalArgumentException) {
+                    toast("고정 금액 합계를 확인해 주세요."); return@setOnClickListener
+                }
                 val editBox = LinearLayout(this@NativeHomeActivity).apply {
                     orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
                 }
                 val fields = linkedMapOf<String, EditText>()
                 ids.forEachIndexed { i, uid ->
                     val who = candidates.firstOrNull { it.optString("id") == uid }
-                    val value = custom[uid] ?: each + if (i == 0) left else 0
+                    val value = preview.getValue(uid)
                     val e = EditText(this@NativeHomeActivity).apply {
                         hint = personLabel(who).ifBlank { who?.optString("name").orEmpty() }
                         setText(value.toString()); inputType = InputType.TYPE_CLASS_NUMBER
@@ -1622,11 +1848,12 @@ class NativeHomeActivity : AppCompatActivity() {
                 amountDialog.setOnShowListener {
                     amountDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val next = fields.mapValues { it.value.text.toString().toIntOrNull() ?: 0 }
-                        if (next.values.any { it < 0 } || next.values.sum() != total) {
-                            toast("사람별 금액 합계가 총금액 ${money(total)}과 같아야 합니다.")
-                            return@setOnClickListener
+                        val fixed = custom.filterKeys { it in ids }.toMutableMap()
+                        next.forEach { (uid, value) -> if (value != preview[uid]) fixed[uid] = value }
+                        try { SettlementRules.split(total, ids, fixed) } catch (_: IllegalArgumentException) {
+                            toast("고정 금액 합계를 확인해 주세요."); return@setOnClickListener
                         }
-                        custom.clear(); custom.putAll(next)
+                        custom.clear(); custom.putAll(fixed)
                         amountBtn.text = "사람별 금액 조정 ✓"
                         amountDialog.dismiss()
                     }
@@ -1646,14 +1873,8 @@ class NativeHomeActivity : AppCompatActivity() {
                 if (picked.isEmpty()) { toast("정산할 사람을 골라 주세요."); return@setOnClickListener }
                 if (total <= 0) { toast("총금액을 적어 주세요."); return@setOnClickListener }
                 val ids = picked.toList()
-                val amounts = if (custom.keys.containsAll(ids) && custom.size == ids.size) {
-                    LinkedHashMap(custom)
-                } else {
-                    val each = (total / ids.size / 10) * 10
-                    val left = total - each * ids.size
-                    linkedMapOf<String, Int>().apply {
-                        ids.forEachIndexed { i, uid -> put(uid, each + if (i == 0) left else 0) }
-                    }
+                val amounts = try { SettlementRules.split(total, ids, custom) } catch (_: IllegalArgumentException) {
+                    toast("고정 금액과 총금액을 확인해 주세요."); return@setOnClickListener
                 }
                 dialog.dismiss()
                 mutate {
@@ -1672,6 +1893,7 @@ class NativeHomeActivity : AppCompatActivity() {
     // ── 정산 현황 ───────────────────────────────────────────────
 
     private fun showSettlements() {
+        prepareScreen("/settle") { showSettlements() }
         detail = true
         val page = detailPage("정산 현황")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
@@ -1787,6 +2009,7 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showMe() {
+        prepareScreen("/me") { showMe() }
         detail = true
         val page = detailPage("내 정보")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
@@ -1860,6 +2083,7 @@ class NativeHomeActivity : AppCompatActivity() {
                     if (pushOn && pushToken.isNotBlank()) {
                         mutate {
                             api.disablePush(pushToken)
+                            getSharedPreferences("native-push", MODE_PRIVATE).edit().putBoolean("disabled", true).putBoolean("asked", true).apply()
                             toast("이 기기의 알림을 껐습니다.")
                             showMe()
                         }
@@ -1881,6 +2105,11 @@ class NativeHomeActivity : AppCompatActivity() {
                     menu.addView(menuLink("회원 명단") { showMembers() })
                 }
                 menu.addView(menuLink("로그아웃", danger = true) { logoutNative() })
+                if (p.optString("role") != "superadmin") menu.addView(menuLink("회원 탈퇴", danger = true) {
+                    confirm("회원 탈퇴", "프로필과 계정이 삭제됩니다. 탈퇴하시겠습니까?") {
+                        mutate { api.deleteMe(); logoutNative() }
+                    }
+                })
                 page.addView(menu)
                 page.addView(TextView(this@NativeHomeActivity).apply {
                     text = "앱제작: 악마제리\n버전 " + com.kkakkung.app.BuildConfig.VERSION_NAME
@@ -2009,6 +2238,7 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showMembers() {
+        prepareScreen("/members") { showMembers() }
         detail = true
         val page = detailPage("회원 명단")
         val loading = ProgressBar(this); page.addView(loading); mount(page)
@@ -2197,11 +2427,12 @@ class NativeHomeActivity : AppCompatActivity() {
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         }
-        top.addView(TextView(this).apply {
-            text = "‹"; textSize = 34f; setTextColor(dim); gravity = Gravity.CENTER
+        top.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_nav_back); imageTintList = ColorStateList.valueOf(dim)
+            contentDescription = "뒤로"; scaleType = ImageView.ScaleType.CENTER
             isClickable = true
             background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(Color.TRANSPARENT) }
-            setOnClickListener { detail = false; showTab(currentTab) }
+            setOnClickListener { navigateBack() }
         }, LinearLayout.LayoutParams(dp(36), dp(40)))
         top.addView(TextView(this).apply {
             text = label; textSize = 16.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
@@ -2212,14 +2443,16 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun mount(page: LinearLayout) {
-        content.removeAllViews()
-        val scroll = ScrollView(this)
-        scroll.addView(page, ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-        content.addView(scroll, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ))
+        val key = pendingKey
+        val root = key in setOf("/", "/board", "/rounds", "/polls")
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(bg)
+            if (root) { setPadding(0, 0, 0, dp(58)); clipToPadding = false }
+        }
+        scroll.addView(page, ViewGroup.LayoutParams(-1, -2))
+        if (buildingTabPreview) {
+            builtPreview = NativeScreenStack.Screen(key, scroll, pendingRefresh)
+        } else content.show(key, scroll, root, pendingRefresh)
     }
 
     private fun title(parent: LinearLayout, value: String) {
@@ -2287,7 +2520,7 @@ class NativeHomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun roundForm(existing: JSONObject?) {
+    private fun roundForm(existing: JSONObject?, copy: Boolean = false) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
         }
@@ -2309,7 +2542,7 @@ class NativeHomeActivity : AppCompatActivity() {
             text = "스크린"; isChecked = existing?.optString("kind") == "screen"
         }
         box.addView(screen)
-        var tee = existing?.optString("tee_at").orEmpty()
+        var tee = if (copy) "" else existing?.optString("tee_at").orEmpty()
         val whenBtn = Button(this).apply {
             text = if (tee.isBlank()) "날짜·시간 고르기" else date(tee)
             isAllCaps = false
@@ -2318,7 +2551,7 @@ class NativeHomeActivity : AppCompatActivity() {
         box.addView(whenBtn)
 
         val dialog = AlertDialog.Builder(this)
-            .setTitle(if (existing == null) "모집 열기" else "라운드 수정")
+            .setTitle(if (existing == null || copy) "모집 열기" else "라운드 수정")
             .setView(box).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -2327,7 +2560,7 @@ class NativeHomeActivity : AppCompatActivity() {
                 if (place.isBlank()) { toast("장소를 적어 주세요."); return@setOnClickListener }
                 if (tee.isBlank()) { toast("날짜와 시간을 골라 주세요."); return@setOnClickListener }
                 if (capacity < 1) { toast("정원은 1명 이상이어야 합니다."); return@setOnClickListener }
-                val payload = JSONObject()
+                val payload = JSONObject().put("title", existing?.optString("title").orEmpty())
                     .put("kind", if (screen.isChecked) "screen" else "field")
                     .put("course", place).put("tee_at", tee).put("capacity", capacity)
                     .put("fee", fee.text.toString().toIntOrNull() ?: 0)
@@ -2336,9 +2569,9 @@ class NativeHomeActivity : AppCompatActivity() {
                     .put("lat", JSONObject.NULL).put("lon", JSONObject.NULL)
                 dialog.dismiss()
                 mutate {
-                    val id = if (existing == null) api.createRound(payload)
+                    val id = if (existing == null || copy) api.createRound(payload)
                     else { api.updateRound(existing.optString("id"), payload); existing.optString("id") }
-                    toast(if (existing == null) "모집을 열었습니다." else "수정했습니다.")
+                    toast(if (existing == null || copy) "모집을 열었습니다." else "수정했습니다.")
                     showRound(id)
                 }
             }
@@ -2414,12 +2647,19 @@ class NativeHomeActivity : AppCompatActivity() {
         }
         val multi = CheckBox(this).apply { text = "복수 선택" }; box.addView(multi)
         val anonymous = CheckBox(this).apply { text = "익명" }; box.addView(anonymous)
-        var closes = ""
+        fun deadline(days: Int) = ZonedDateTime.now(ZoneId.of("Asia/Seoul")).plusDays(days.toLong())
+            .withHour(21).withMinute(0).withSecond(0).withNano(0).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        var closes = deadline(7)
         val closeBtn = Button(this).apply {
-            text = "마감 날짜·시간 고르기"; isAllCaps = false
+            text = date(closes); isAllCaps = false
             setOnClickListener { pickDateTime(7) { iso -> closes = iso; text = date(iso) } }
         }
         box.addView(closeBtn)
+        val quick = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf(3, 7, 14).forEach { days -> quick.addView(action(if (days == 14) "2주 후" else "${days}일 후") {
+            closes = deadline(days); closeBtn.text = date(closes)
+        }, LinearLayout.LayoutParams(0, -2, 1f)) }
+        box.addView(quick)
 
         val dialog = AlertDialog.Builder(this).setTitle("투표 만들기").setView(box)
             .setNegativeButton("취소", null).setPositiveButton("올리기", null).create()
@@ -2610,8 +2850,9 @@ class NativeHomeActivity : AppCompatActivity() {
         mutate {
             val token = NativePush.token()
             api.enablePush(token)
+            getSharedPreferences("native-push", MODE_PRIVATE).edit().putBoolean("disabled", false).putBoolean("asked", true).apply()
             toast("이 기기로 알림을 받습니다.")
-            if (detail) showMe()
+            if (content.current?.key == "/me") showMe()
         }
     }
 
