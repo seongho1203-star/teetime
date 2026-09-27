@@ -104,6 +104,21 @@ jobs:
         if: steps.keys.outputs.ready == 'yes'
         run: npx cap sync ios
 
+      - name: 네이티브 Supabase 설정 넣기
+        if: steps.keys.outputs.ready == 'yes'
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ] || {
+            echo "::error::Native V2에 필요한 Supabase 공개 설정이 없습니다."; exit 1;
+          }
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :KKSupabaseURL" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :KKSupabaseAnonKey" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :KKSupabaseURL string $SUPABASE_URL" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :KKSupabaseAnonKey string $SUPABASE_ANON_KEY" "$PLIST"
+
       - name: 네이티브 채팅 회귀 검사
         if: steps.keys.outputs.ready == 'yes'
         timeout-minutes: 20
