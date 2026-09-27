@@ -98,12 +98,13 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val mediaBtn = ImageView(activity)
     private val mediaResultKey get() = "chat-media-${me}"
     private var selectedMedia = emptyList<android.net.Uri>()
-    private val uploads by lazy {
+    private val uploads: ChatUploads by lazy {
         ChatUploads(activity.applicationContext, service, { added, removed ->
             removed?.let { id -> messages.removeAll { it.id == id } }
             added?.let { merge(listOf(it)) }
             render(keepBottom = true)
         }, { states -> list.setUploads(states) })
+    }
     private val input = EditText(activity)
     private val sendBtn = ImageView(activity)
 
