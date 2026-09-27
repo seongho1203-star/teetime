@@ -191,6 +191,17 @@ jobs:
           expect_guard VITE_SUPABASE_URL env VITE_SUPABASE_URL='   ' VITE_SUPABASE_ANON_KEY='   '
           env -u VITE_SUPABASE_URL -u VITE_SUPABASE_ANON_KEY ./gradlew :app:generateDebugBuildConfig --no-daemon
 
+      - name: 안드로이드 단위 시험 (Robolectric · MockWebServer)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --no-daemon \
+            -PappVersionCode=${{ github.run_number }} \
+            -PappVersionName=1.${{ github.run_number }}
+
       - name: 앱 만들기 (AAB · 폰에 넣어 볼 APK)
         # **Supabase 주소·anon 키를 여기에도 줘야 한다** — 네이티브 로그인
         # (`NativeAuth`)이 `BuildConfig.SUPABASE_URL`로 읽는데 gradle이 이
