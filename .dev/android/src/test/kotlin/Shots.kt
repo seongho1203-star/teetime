@@ -34,6 +34,8 @@ class Shots {
         dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.requestUrl!!.encodedPath.removePrefix("/rest/v1/").replace('/', '_')
+                /* 여러 쪽을 넘겨 받는 조회(livePolls)가 끝나게 — 두 번째 쪽부터는 빈손이다. */
+                if ((request.requestUrl!!.queryParameter("offset")?.toIntOrNull() ?: 0) > 0) return MockResponse().setBody("[]")
                 val f = File(fixtures, "$path.json")
                 return MockResponse().setBody(if (f.exists()) f.readText() else "[]")
             }
@@ -126,4 +128,40 @@ class Shots {
 
     @Test fun round() = shoot("round") { RoundScreen(RuntimeEnvironment.getApplication(), it, "r1") }
     @Test fun poll() = shoot("poll") { PollScreen(RuntimeEnvironment.getApplication(), it, "p1") }
+
+    /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */
+    private fun shootTab(name: String, make: (TabPages) -> TabPages.Page) {
+        val srv = server()
+        val api = NativeApi(NativeSession("me", "t", "", 0, srv.url("/").toString(), "anon"))
+        val ctx = RuntimeEnvironment.getApplication()
+        val nav = object : TabNav {
+            override fun openRound(id: String) {}; override fun openPoll(id: String) {}; override fun openPost(id: String) {}
+            override fun openMe() {}; override fun openAlerts() {}; override fun openMembers() {}; override fun openChat() {}
+            override fun newRound() {}; override fun newPoll() {}; override fun newPost() {}
+            override fun toast(msg: String) {}; override fun ask(title: String, msg: String, ok: () -> Unit) {}
+        }
+        val pages = TabPages(ctx, api, CoroutineScope(SupervisorJob() + Dispatchers.Main), "me", nav)
+        val pg = make(pages)
+        val col = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(AppSkin.bg)
+            addView(pg.head)
+            addView(android.widget.ScrollView(ctx).apply { addView(pg.body) }, android.widget.LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        pg.load()
+        repeat(60) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(50) }
+        val w = ctx.resources.displayMetrics.widthPixels
+        val h = if (System.getProperty("shots.full") == "1") 4000 else ctx.resources.displayMetrics.heightPixels
+        col.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+        col.layout(0, 0, w, h)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        col.draw(Canvas(bmp))
+        File(System.getProperty("shots.dir"), "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        srv.shutdown()
+    }
+
+    @Test fun tabHome() = shootTab("tab-home") { it.home() }
+    @Test fun tabBoard() = shootTab("tab-board") { it.board() }
+    @Test fun tabRounds() = shootTab("tab-rounds") { it.rounds() }
+    @Test fun tabPolls() = shootTab("tab-polls") { it.polls() }
 }

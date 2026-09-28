@@ -375,6 +375,8 @@ class AppRound(val raw: JSONObject) {
     val confirmed get() = signups.filter { it.state == "confirmed" }.sortedBy { it.seq }
     val waiting get() = signups.filter { it.state == "waitlist" }.sortedBy { it.seq }
     fun mine(me: String) = signups.firstOrNull { it.userId == me }
+    /** 대기 줄에서 몇 번째인가(1부터 · 아이폰 `waitRank`). 대기가 아니면 0. */
+    fun waitRank(me: String): Int = waiting.indexOfFirst { it.userId == me } + 1
     val isPast get() = AppDate.daysUntil(teeAt) < 0
 
     data class Slot(val course: String, val h: Int, val m: Int) { val time get() = "%02d:%02d".format(h, m) }
@@ -453,4 +455,10 @@ class AppPoll(val raw: JSONObject) {
     /** 웹 `pollClosed()`와 같은 잣대 — 손으로 닫았거나 마감 시각이 지났거나. */
     val closed: Boolean get() = closedFlag || AppDate.isBeforeNow(closesAt)
     fun count(optionId: String) = votes.count { it.optionId == optionId }
+    /** 1위 — 동점이면 다 적는다(웹 `topOptions` · 대화방 결과 카드와 같은 규칙). 표가 없으면 null. */
+    fun top(): Pair<List<String>, Int>? {
+        val best = options.maxOfOrNull { count(it.id) } ?: 0
+        if (best == 0) return null
+        return options.filter { count(it.id) == best }.map { it.label } to best
+    }
 }

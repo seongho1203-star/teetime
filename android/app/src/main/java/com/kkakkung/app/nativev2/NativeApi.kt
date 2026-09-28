@@ -211,6 +211,30 @@ class NativeApi(private val session: NativeSession) {
             "order" to "tee_at.asc", "limit" to limit.toString()
         ))
 
+    /**
+     * 탭·홈의 라운드(아이폰 `roundsUpcoming`) — **하루 여유를 두고** 자른다. 오늘 라운드가
+     * 시각이 지났다고 빠지면 안 되므로, 지났는지는 화면이 한국 날짜(`daysUntil`)로 가른다.
+     */
+    private fun since(): String = java.time.Instant.now().minusSeconds(86_400).toString()
+
+    suspend fun roundsUpcoming(): List<JSONObject> =
+        rows("rounds", listOf(
+            "select" to "*,signups(user_id,state,seq,grp)",
+            "tee_at" to "gte.${since()}", "order" to "tee_at.asc", "limit" to "200"
+        ))
+
+    /** 지난 라운드 — 한도만큼(웹 `PAST_ROUNDS`). `지난 라운드 더 보기`가 한도를 늘린다. */
+    suspend fun roundsPast(limit: Int): List<JSONObject> =
+        rows("rounds", listOf(
+            "select" to "*,signups(user_id,state,seq,grp)",
+            "tee_at" to "lt.${since()}", "order" to "tee_at.desc", "limit" to limit.toString()
+        ))
+
+    /** 내가 표를 던진 투표 id — 홈 `내가 할 일`에서 뺀다(아이폰 `myVotedPolls`). */
+    suspend fun myVotedPolls(): Set<String> =
+        rows("poll_votes", listOf("select" to "poll_id", "user_id" to "eq.${session.userId}", "limit" to "1000"))
+            .map { it.optString("poll_id") }.toSet()
+
     suspend fun rounds(limit: Int = 60): List<JSONObject> =
         rows("rounds", listOf(
             "select" to "*,signups(user_id,state,seq,grp)",

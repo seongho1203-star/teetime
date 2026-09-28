@@ -538,493 +538,51 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         }
     }
 
+    /* 탭 넷은 TabPages가 그린다(아이폰 HomeTab.swift·ShellTabs.swift). 여기서는 여는 것만 한다. */
+    private val tabPages by lazy {
+        TabPages(this, api, scope, session.userId, object : TabNav {
+            override fun openRound(id: String) = showRound(id)
+            override fun openPoll(id: String) = showPoll(id)
+            override fun openPost(id: String) = showPost(id)
+            override fun openMe() = showMe()
+            override fun openAlerts() = showAlerts()
+            override fun openMembers() = showMembers()
+            override fun openChat() = showChat()
+            override fun newRound() = roundForm(null)
+            override fun newPoll() = pollForm()
+            override fun newPost() = postForm(null)
+            override fun toast(msg: String) = this@NativeHomeActivity.toast(msg)
+            override fun ask(title: String, msg: String, ok: () -> Unit) = confirm(title, msg, ok)
+        })
+    }
+
+    private fun showTabPage(key: String, make: () -> TabPages.Page) {
+        val pg = make()
+        mount(pg.body, pg.head)
+        pg.load()
+    }
+
     private fun showHome() {
         prepareScreen("/") { showHome() }
         currentTab = "home"
         selectTabCompat("home")
         bottom.visibility = View.VISIBLE
-
-        /* 웹 Home.tsx와 같은 구조: 머리말 → 다음 라운드 → 내가 할 일 → 모집중.
-           임시 '알림/내정보/정산' 버튼 줄은 제거했다. */
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(16))
-        }
-        val loading = ProgressBar(this)
-        page.addView(loading)
-        mount(page)
-
-        scope.launch {
-            try {
-                val profile = api.profile()
-                val rounds = api.upcomingRounds(20)
-                val polls = api.openPolls(20)
-                val alerts = api.unreadAlertCount()
-                val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
-                val pending = if (admin) api.pendingCount() else 0
-                page.removeAllViews()
-
-                page.addView(homeHeader(profile, alerts))
-
-                if (rounds.isNotEmpty()) {
-                    page.addView(nextRoundCard(rounds.first()))
-                } else {
-                    page.addView(homeEmptyRound())
-                }
-
-                val todoCount = polls.size + pending
-                if (todoCount > 0) {
-                    section(page, "내가 할 일")
-                    polls.forEach { p ->
-                        page.addView(homeRow("투표", p.optString("title")) { showPoll(p.optString("id")) })
-                    }
-                    if (pending > 0) {
-                        page.addView(homeRow("승인", "가입 신청 ${pending}명", warn) { showMembers() })
-                    }
-                }
-
-                if (rounds.size > 1) {
-                    section(page, "모집중")
-                    rounds.drop(1).forEach { r ->
-                        page.addView(homeRoundRow(r))
-                    }
-                }
-            } catch (e: Exception) {
-                page.removeAllViews()
-                error(page, e.message ?: "불러오지 못했습니다.")
-            }
+        showTabPage("/") {
+            tabPages.home().also { if (!buildingTabPreview) bellBadge = tabPages.homeHead?.dot }
         }
     }
 
-    private fun homeHeader(profile: JSONObject?, alerts: Int): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(8))
-        }
-        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        left.addView(TextView(this).apply {
-            text = "안녕하세요"; textSize = 13f; setTextColor(faint)
-        })
-        val nameLine = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        val avatar = nativeAvatar(profile, 38)
-        avatar.setOnClickListener { showMe() }
-        nameLine.addView(avatar)
-        nameLine.addView(TextView(this).apply {
-            text = (profile?.optString("name").orEmpty().ifBlank { session.displayName.ifBlank { "회원" } }) + "님"
-            textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            setPadding(dp(10), 0, 0, 0)
-        })
-        left.addView(nameLine)
-        row.addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-        val bellBox = FrameLayout(this).apply {
-            isClickable = true; isFocusable = true
-            setOnClickListener { showAlerts() }
-        }
-        bellBox.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_bell)
-        }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
-        run {
-            bellBox.addView(TextView(this).apply {
-                bellBadge = this; visibility = if (alerts > 0) View.VISIBLE else View.GONE
-                text = if (alerts > 99) "99+" else alerts.toString()
-                textSize = 10f; typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(9).toFloat(); setColor(danger)
-                }
-                setPadding(dp(4), 0, dp(4), 0)
-            }, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(17), Gravity.TOP or Gravity.END
-            ))
-        }
-        row.addView(bellBox, LinearLayout.LayoutParams(dp(40), dp(40)))
-        return row
-    }
-
-    private fun nativeAvatar(profile: JSONObject?, size: Int): View {
-        val url = profile?.optString("avatar_url").orEmpty()
-        if (url.isNotBlank()) {
-            return ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                load(url)
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(surface2)
-                }
-                clipToOutline = true
-                layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
-            }
-        }
-        val name = profile?.optString("name").orEmpty().ifBlank { session.displayName.ifBlank { "회" } }
-        return TextView(this).apply {
-            text = name.take(2); textSize = 11f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(dim); gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL; setColor(surface2); setStroke(dp(1), line)
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
-        }
-    }
-
-    private fun nextRoundCard(r: JSONObject): View {
-        val signups = jsonObjects(r.optJSONArray("signups"))
-        val confirmed = signups.count { it.optString("state") == "confirmed" }
-        val mine = signups.firstOrNull { it.optString("user_id") == session.userId }
-        val waiting = signups.count { it.optString("state") == "waitlist" }
-        val cardView = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(15), dp(15), dp(15), dp(15))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(143, 201, 58), Color.rgb(111, 170, 34), grassDeep)
-            ).apply {
-                cornerRadius = dp(24).toFloat(); setStroke(dp(1), grassDeep)
-            }
-            elevation = dp(2).toFloat()
-            isClickable = true; setOnClickListener { showRound(r.optString("id")) }
-        }
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        top.addView(TextView(this).apply {
-            text = "다음 라운드"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.argb(210, 255, 255, 255))
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(TextView(this).apply {
-            text = dday(r.optString("tee_at")); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(255, 225, 77))
-        })
-        cardView.addView(top)
-        cardView.addView(TextView(this).apply {
-            text = date(r.optString("tee_at")); textSize = 20.8f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE); setPadding(0, dp(8), 0, 0)
-        })
-        cardView.addView(TextView(this).apply {
-            text = (if (r.optString("kind") == "screen") "🎯 " else "⛳ ") +
-                r.optString("course").ifBlank { r.optString("title") }
-            textSize = 14.7f; setTextColor(Color.argb(230, 255, 255, 255))
-            setPadding(0, dp(2), 0, dp(8))
-        })
-        cardView.addView(TextView(this).apply {
-            val left = (r.optInt("capacity") - confirmed).coerceAtLeast(0)
-            text = "$confirmed / ${r.optInt("capacity")}명 · " + (if (left == 0) "자리 참" else "${left}자리 남음") + (if (waiting > 0) " · 대기 $waiting" else "")
-            textSize = 13f; setTextColor(Color.argb(230, 255, 255, 255))
-        })
-        cardView.addView(TextView(this).apply {
-            text = RoundFormRules.homeState(r, session.userId)
-            textSize = 14.7f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(11).toFloat()
-                setColor(if (mine == null) brand else Color.argb(56, 255, 255, 255))
-            }
-        }, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(11) })
-        scope.launch {
-            val weather = NativeWeather.forecast(r)
-            if (weather != null) cardView.addView(TextView(this@NativeHomeActivity).apply { text = weather; textSize = 13f; setTextColor(Color.WHITE) }, 3)
-            val group = mine?.optInt("grp", 0) ?: 0
-            if (group > 0) try {
-                val tees = RoundFormRules.groupTees(r, api.groupTees(r.optString("id")))
-                val names = api.people().associateBy { it.optString("id") }
-                val partners = signups.filter { it.optInt("grp", 0) == group && it.optString("state") == "confirmed" }
-                    .joinToString(" · ") { names[it.optString("user_id")]?.optString("name").orEmpty() }
-                cardView.addView(TextView(this@NativeHomeActivity).apply {
-                    text = "${group}조 · " + (tees.optString(group.toString()).takeIf { it.isNotBlank() }?.let { timeOnly(it) + " · " } ?: "") + partners
-                    textSize = 13f; setTextColor(Color.WHITE)
-                }, 4)
-            } catch (_: Exception) { }
-        }
-        return cardView
-    }
-
-    private fun homeEmptyRound(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-        setPadding(dp(16), dp(24), dp(16), dp(24))
-        background = GradientDrawable().apply {
-            cornerRadius = dp(24).toFloat(); setColor(card); setStroke(dp(1), line)
-        }
-        addView(TextView(this@NativeHomeActivity).apply {
-            text = "열린 라운드가 없습니다"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-        })
-        addView(TextView(this@NativeHomeActivity).apply {
-            text = "먼저 모집을 열어 보세요"; textSize = 13f; setTextColor(faint)
-        })
-        addView(TextView(this@NativeHomeActivity).apply {
-            text = "+ 모집 열기"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(brand)
-            setPadding(0, dp(6), 0, 0)
-        })
-        isClickable = true; setOnClickListener { roundForm(null) }
-    }
-
-    private fun homeRow(badge: String, label: String, badgeColor: Int = dim, click: () -> Unit): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(13), dp(11), dp(13), dp(11))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-            }
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = badge; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD
-                setTextColor(badgeColor)
-                setPadding(dp(7), dp(3), dp(7), dp(3))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(999).toFloat(); setColor(surface2)
-                }
-            })
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = label; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-                setPadding(dp(10), 0, 0, 0)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = "›"; textSize = 20f; setTextColor(faint)
-            })
-            isClickable = true; setOnClickListener { click() }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
-        }
-
-    private fun homeRoundRow(r: JSONObject): View =
-        homeRow(if (r.optString("kind") == "screen") "스크린" else "필드",
-            "${r.optString("course")} · ${date(r.optString("tee_at"))}") {
-            showRound(r.optString("id"))
-        }
-
-    private fun dday(raw: String): String = try {
-        val target = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul")).toLocalDate()
-        val today = java.time.LocalDate.now(ZoneId.of("Asia/Seoul"))
-        val n = java.time.temporal.ChronoUnit.DAYS.between(today, target)
-        when (n) { 0L -> "D-DAY"; else -> "D-$n" }
-    } catch (_: Exception) { "" }
+    private fun nativeAvatar(profile: JSONObject?, size: Int): View =
+        Ui(this).avatar(profile?.let(::AppProfile), size)
 
     private fun showRoundsList() {
         prepareScreen("/rounds") { showRoundsList() }
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
-        }
-        page.addView(listHeader("라운드", "+ 모집 열기") { roundForm(null) })
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val rows = api.rounds(80)
-                page.removeView(loading)
-                val now = System.currentTimeMillis()
-                val upcoming = rows.filter { epoch(it.optString("tee_at")) >= now }
-                    .sortedBy { epoch(it.optString("tee_at")) }
-                val past = rows.filter { epoch(it.optString("tee_at")) < now }
-                    .sortedByDescending { epoch(it.optString("tee_at")) }
-
-                if (upcoming.isEmpty()) {
-                    emptyBox(page, "예정된 라운드가 없습니다.\n위의 모집 열기로 새 라운드를 올려 보세요.")
-                }
-                upcoming.forEach { page.addView(roundListCard(it, false)) }
-                if (past.isNotEmpty()) {
-                    section(page, "지난 라운드")
-                    past.take(20).forEach { page.addView(roundListCard(it, true)) }
-                }
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "라운드를 불러오지 못했습니다.")
-            }
-        }
-    }
-
-    private fun roundListCard(r: JSONObject, past: Boolean): View {
-        val signups = jsonObjects(r.optJSONArray("signups"))
-        val confirmed = signups.count { it.optString("state") == "confirmed" }
-        val waiting = signups.count { it.optString("state") == "waitlist" }
-        val mine = signups.firstOrNull { it.optString("user_id") == session.userId }
-        val full = confirmed >= r.optInt("capacity")
-        val shut = past || r.optString("status") in setOf("closed", "cancelled")
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(13), dp(12), dp(13), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
-                setColor(if (shut) surface2 else card); setStroke(dp(1), line)
-            }
-            alpha = if (past) 0.68f else 1f
-            isClickable = true; setOnClickListener { showRound(r.optString("id")) }
-        }
-        val badges = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        badges.addView(badge(if (r.optString("kind") == "screen") "🎯 스크린" else "⛳ 필드", dim))
-        val status = when {
-            r.optString("status") == "cancelled" -> "취소됨" to danger
-            past -> "종료" to faint
-            r.optString("status") == "closed" || full -> "모집 마감" to faint
-            else -> "모집중" to grassDeep
-        }
-        badges.addView(badge(status.first, status.second))
-        if (!past && r.optString("status") != "cancelled") {
-            badges.addView(badge(dday(r.optString("tee_at")), if (daysUntil(r.optString("tee_at")) <= 3) warn else dim))
-        }
-        if (mine != null) {
-            badges.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-            badges.addView(badge(if (mine.optString("state") == "confirmed") "참가 확정" else "대기중",
-                if (mine.optString("state") == "confirmed") dim else warn))
-        }
-        box.addView(badges)
-        box.addView(TextView(this).apply {
-            text = (if (r.optString("kind") == "screen") "🎯 " else "⛳ ") +
-                r.optString("course").ifBlank { r.optString("title") }
-            textSize = 17.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            setPadding(0, dp(7), 0, dp(2))
-        })
-        box.addView(TextView(this).apply {
-            text = date(r.optString("tee_at")); textSize = 13f; setTextColor(dim)
-        })
-        val foot = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, 0)
-        }
-        val cap = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        val track = FrameLayout(this).apply {
-            background = GradientDrawable().apply { cornerRadius = dp(99).toFloat(); setColor(Color.rgb(231,235,224)) }
-            val fill = View(this@NativeHomeActivity).apply {
-                background = GradientDrawable().apply { cornerRadius = dp(99).toFloat(); setColor(grass) }
-            }
-            addView(fill, FrameLayout.LayoutParams(
-                dp((76 * minOf(1f, confirmed.toFloat() / maxOf(1, r.optInt("capacity")))).toInt()), dp(6)
-            ))
-        }
-        cap.addView(track, LinearLayout.LayoutParams(dp(76), dp(6)))
-        cap.addView(TextView(this).apply {
-            text = "${confirmed}/${r.optInt("capacity")}명" + if (waiting > 0) " · 대기 ${waiting}" else ""
-            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (waiting > 0) warn else dim)
-            setPadding(dp(10), 0, 0, 0)
-        })
-        foot.addView(cap, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        if (r.optInt("fee") > 0) foot.addView(TextView(this).apply {
-            text = money(r.optInt("fee")); textSize = 13f; setTextColor(faint)
-        })
-        box.addView(foot)
-        box.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(8) }
-        return box
+        showTabPage("/rounds") { tabPages.rounds() }
     }
 
     private fun showPollsList() {
         prepareScreen("/polls") { showPollsList() }
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
-        }
-        page.addView(listHeader("투표", "+ 투표 만들기") { pollForm() })
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val at = java.time.Instant.now().toString()
-                val live = api.livePolls(at)
-                val done = api.pastPolls(0, at)
-                page.removeView(loading)
-                if (live.isEmpty() && done.isEmpty()) emptyBox(page, "아직 투표가 없습니다.\n날짜 정하기, 골프장 고르기 같은 걸 올려 보세요.")
-                live.forEach { page.addView(pollListCard(it, false)) }
-                if (done.isNotEmpty()) {
-                    section(page, "마감된 투표")
-                    val past = LinearLayout(this@NativeHomeActivity).apply { orientation = LinearLayout.VERTICAL }
-                    page.addView(past)
-                    var offset = 0
-                    lateinit var more: Button
-                    fun append(rows: List<JSONObject>) {
-                        rows.take(10).forEach { past.addView(pollListCard(it, true)) }
-                        offset += minOf(10, rows.size)
-                        more.visibility = if (rows.size > 10) View.VISIBLE else View.GONE
-                    }
-                    more = action("지난 투표 더 보기") {
-                        more.isEnabled = false
-                        scope.launch {
-                            try { append(api.pastPolls(offset, at)) }
-                            catch (e: Exception) { toast(e.message ?: "지난 투표를 불러오지 못했습니다.") }
-                            finally { more.isEnabled = true }
-                        }
-                    }
-                    page.addView(more); append(done)
-                }
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "투표를 불러오지 못했습니다.")
-            }
-        }
-    }
-
-    private fun pollListCard(p: JSONObject, closed: Boolean): View {
-        val options = jsonObjects(p.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
-        val votes = jsonObjects(p.optJSONArray("poll_votes"))
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(12), dp(13), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(if (closed) surface2 else card); setStroke(dp(1), line)
-            }
-            alpha = if (closed) 0.82f else 1f
-        }
-        val head = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            isClickable = true; setOnClickListener { showPoll(p.optString("id")) }
-        }
-        head.addView(TextView(this).apply {
-            text = p.optString("title"); textSize = 16.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(TextView(this).apply { text = "›"; textSize = 20f; setTextColor(faint) })
-        box.addView(head)
-
-        if (closed) {
-            val counts = options.associateWith { o -> votes.count { it.optString("option_id") == o.optString("id") } }
-            val best = counts.values.maxOrNull() ?: 0
-            val winners = if (best > 0) counts.filterValues { it == best }.keys.joinToString(", ") { it.optString("label") } else ""
-            box.addView(TextView(this).apply {
-                text = if (winners.isBlank()) "아직 받은 표가 없습니다" else "결과  ${winners} · ${best}표"
-                textSize = 13f; setTextColor(dim); setPadding(dp(10), dp(8), dp(10), dp(8))
-                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(Color.rgb(239,242,233)) }
-            })
-        } else {
-            options.take(5).forEach { o ->
-                val oid = o.optString("id")
-                val chosen = votes.any { it.optString("option_id") == oid && it.optString("user_id") == session.userId }
-                val n = votes.count { it.optString("option_id") == oid }
-                val row = TextView(this).apply {
-                    text = (if (chosen) "✓  " else "    ") + o.optString("label") + "    ${n}표"
-                    textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-                    setPadding(dp(13), dp(10), dp(13), dp(10))
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(11).toFloat(); setColor(surface2)
-                        if (chosen) setStroke(dp(1), brandDeep)
-                    }
-                    isClickable = true
-                    setOnClickListener {
-                        mutate {
-                            if (chosen) api.retractVote(oid) else api.castVote(oid)
-                            showPollsList()
-                        }
-                    }
-                }
-                box.addView(row, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(6) })
-            }
-            if (options.size > 5) box.addView(TextView(this).apply {
-                text = "+${options.size - 5}개 더 보기"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(dim)
-                setPadding(0, dp(7), 0, 0); isClickable = true; setOnClickListener { showPoll(p.optString("id")) }
-            })
-        }
-        val voters = votes.map { it.optString("user_id") }.distinct().size
-        box.addView(TextView(this).apply {
-            val close = p.optString("closes_at")
-            text = "${voters}명 참여" + if (close.isNotBlank()) " · 마감 ${date(close)}" else ""
-            textSize = 12f; setTextColor(if (!closed && p.optString("closes_at").isNotBlank()) danger else faint)
-            setPadding(0, dp(8), 0, 0)
-        })
-        box.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(8) }
-        return box
+        showTabPage("/polls") { tabPages.polls() }
     }
 
     private fun infoPair(a: Pair<String, String>, b: Pair<String, String>): View =
@@ -1101,29 +659,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(ZoneId.of("Asia/Seoul")), target)
     } catch (_: Exception) { 99L }
 
-    private fun loadList(title: String, loader: suspend () -> List<JSONObject>) {
-        val page = page(title)
-        page.addView(action(if (title == "라운드") "＋ 모집 열기" else "＋ 투표 만들기", primary = true) {
-            if (title == "라운드") roundForm(null) else pollForm()
-        })
-        val loading = ProgressBar(this)
-        page.addView(loading)
-        mount(page)
-        scope.launch {
-            try {
-                val rows = loader()
-                page.removeView(loading)
-                if (rows.isEmpty()) empty(page, "표시할 내용이 없습니다.")
-                rows.forEach { row ->
-                    page.addView(if (title == "라운드") roundCard(row) else pollCard(row))
-                }
-            } catch (e: Exception) {
-                page.removeView(loading)
-                error(page, e.message ?: "불러오지 못했습니다.")
-            }
-        }
-    }
-
     // ── 공지 ───────────────────────────────────────────────────
 
     private fun showBoard() {
@@ -1131,72 +666,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         if (!buildingTabPreview) getSharedPreferences("native-seen", MODE_PRIVATE).edit().putString("board:${session.userId}", java.time.Instant.now().toString()).apply()
         detail = false
         currentTab = "board"; selectTabCompat("board")
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(24))
-        }
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val profile = api.profile()
-                val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
-                val people = api.people().associateBy { it.optString("id") }
-                val posts = api.posts()
-                page.removeAllViews()
-                val head = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                }
-                head.addView(TextView(this@NativeHomeActivity).apply {
-                    text = "공지"; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                if (admin) head.addView(TextView(this@NativeHomeActivity).apply {
-                    text = "+ 글쓰기"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
-                    gravity = Gravity.CENTER; setPadding(dp(12), dp(7), dp(12), dp(7))
-                    background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(brand) }
-                    isClickable = true; setOnClickListener { postForm(null) }
-                })
-                page.addView(head, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(12) })
-
-                if (posts.isEmpty()) {
-                    emptyBox(page, "아직 공지가 없습니다.\n중요한 것만 여기 남기세요. 대화는 대화 탭에서 합니다.")
-                }
-                posts.forEach { p ->
-                    val box = LinearLayout(this@NativeHomeActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(13), dp(12), dp(13), dp(12))
-                        background = GradientDrawable().apply {
-                            cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-                        }
-                        isClickable = true; setOnClickListener { showPost(p.optString("id")) }
-                    }
-                    val titleRow = LinearLayout(this@NativeHomeActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                    }
-                    if (p.optBoolean("pinned")) titleRow.addView(badge("고정", warn))
-                    titleRow.addView(TextView(this@NativeHomeActivity).apply {
-                        text = p.optString("title"); textSize = 16.3f
-                        typeface = Typeface.DEFAULT_BOLD; setTextColor(ink); maxLines = 1
-                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    box.addView(titleRow)
-                    val preview = p.optString("body").replace(Regex("\\s+"), " ").trim()
-                    if (preview.isNotBlank()) box.addView(TextView(this@NativeHomeActivity).apply {
-                        text = preview; textSize = 13f; setTextColor(dim); maxLines = 2
-                        setPadding(0, dp(5), 0, dp(5))
-                    })
-                    box.addView(TextView(this@NativeHomeActivity).apply {
-                        val who = personLabel(people[p.optString("author_id")]).ifBlank { "알 수 없음" }
-                        text = "$who · ${timeAgo(p.optString("created_at"))}"
-                        textSize = 11.5f; setTextColor(faint)
-                    })
-                    page.addView(box, LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { bottomMargin = dp(8) })
-                }
-            } catch (e: Exception) {
-                page.removeAllViews(); error(page, e.message ?: "공지를 불러오지 못했습니다.")
-            }
-        }
+        showTabPage("/board") { tabPages.board() }
     }
 
     private fun timeAgo(raw: String): String {
@@ -2184,19 +1654,27 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     private var replaceNextMount = false
-    private fun mount(page: LinearLayout) {
+    /** `head`가 있으면 위에 붙박고 본문만 굴린다(아이폰 `ShellTabController`의 머리말). */
+    private fun mount(page: LinearLayout, head: View? = null) {
         val key = pendingKey
         val root = key in setOf("/", "/board", "/rounds", "/polls")
         val scroll = ScrollView(this).apply { setBackgroundColor(bg) }
         scroll.addView(page, ViewGroup.LayoutParams(-1, -2))
+        val body: View = if (head == null) scroll else LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(bg)
+            (head.parent as? ViewGroup)?.removeView(head)
+            addView(head)
+            addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
         val view: View = if (root) FrameLayout(this).apply {
             setBackgroundColor(bg)
-            addView(scroll, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) })
+            addView(body, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) })
             val bar = if (buildingTabPreview) makeBottomBar() else this@NativeHomeActivity.bottom
             (bar.parent as? ViewGroup)?.removeView(bar)
             bar.visibility = View.VISIBLE
             addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM)); tag = bar
-        } else scroll
+        } else body
         if (buildingTabPreview) builtPreview = NativeScreenStack.Screen(key, view, pendingRefresh)
         else { content.show(key, view, root, pendingRefresh, replace = replaceNextMount); replaceNextMount = false }
     }
