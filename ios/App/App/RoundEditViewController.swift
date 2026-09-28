@@ -98,7 +98,18 @@ final class RoundEditViewController: FormScreenController {
         caddie = base?.caddie
         cart = base?.cart
         courseField.text = base?.course ?? ""
-        when.date = round.map { NativeChatRows.date($0.teeAt) }
+        /* **새로 열 때도 날짜·시각 칸을 처음부터 편다**(사용자 요청 — `티오프시간을
+           기본으로 나오게해줘. 눌러야지 나오는거말고`). 비워 두면 `📅 날짜·시각 고르기`를
+           한 번 더 눌러야 해서 한 걸음이 늘었다. 기본은 **내일**(지난 날짜가 채워지는
+           일이 없다)이고, 베껴 온 모집이면 그 모집의 시·분을 쓴다. */
+        if let r = round {
+            when.date = NativeChatRows.date(r.teeAt)
+        } else {
+            let cal = WhenPicker.calendar
+            let src = preset.map { cal.dateComponents([.hour, .minute], from: NativeChatRows.date($0.teeAt)) }
+            let day = cal.startOfDay(for: Date(timeIntervalSinceNow: 86400))
+            when.date = cal.date(bySettingHour: src?.hour ?? 7, minute: src?.minute ?? 0, second: 0, of: day)
+        }
         capField.text = String(base?.capacity ?? 4)
         capField.keyboardType = .numberPad
         feeField.setWon(base?.fee ?? 0)
@@ -108,7 +119,7 @@ final class RoundEditViewController: FormScreenController {
         if let p = preset {
             let t = NSMutableAttributedString(string: p.course.isEmpty ? "지난 모집" : p.course,
                                               attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .bold), .foregroundColor: AppSkin.text])
-            t.append(NSAttributedString(string: "의 조건을 그대로 가져왔습니다.\n\(p.teeLabel) 시각만 정하면 새 모집으로 열립니다.",
+            t.append(NSAttributedString(string: "의 조건을 그대로 가져왔습니다.\n날짜를 확인하면 새 모집으로 열립니다.",
                                         attributes: [.font: UIFont.systemFont(ofSize: 14), .foregroundColor: AppSkin.text]))
             let l = UILabel(); l.numberOfLines = 0; l.attributedText = t
             let wrap = UIStackView(arrangedSubviews: [l])
