@@ -14,6 +14,7 @@ dependencies {
   compileOnly(files("libs/coil-base.jar", "libs/coil.jar", "libs/coil-gif.jar", "libs/coil-video.jar"))
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+  testRuntimeOnly(files("libs/coil-base.jar", "libs/coil.jar", "libs/coil-gif.jar", "libs/coil-video.jar"))
   testImplementation("junit:junit:4.13.2")
   testImplementation("org.robolectric:robolectric:4.14.1") { exclude(group = "androidx.test"); exclude(group = "androidx.test.espresso") }
   testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

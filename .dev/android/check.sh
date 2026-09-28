@@ -10,6 +10,7 @@ for a in coil-base coil coil-gif coil-video; do
   [ -s libs/$a.jar ] || { curl -sS -o /tmp/$a.aar https://repo.maven.apache.org/maven2/io/coil-kt/$a/2.7.0/$a-2.7.0.aar && unzip -p /tmp/$a.aar classes.jar > libs/$a.jar; }
 done
 python3 genr.py
+node ../native-guide.mjs build/gen-assets/guide.json >/dev/null 2>&1 || true
 if [ "$1" = "shots" ]; then
   FILTER="--tests shots.Shots"; [ -n "$ALL" ] && FILTER=""   # ALL=1 이면 저장소의 단위 시험도 함께 돈다
   gradle -q --console=plain test $FILTER -Dshots.full="${FULL:-0}" 2>&1 | grep -E "^e: |FAILED|Exception|Caused" | head -40

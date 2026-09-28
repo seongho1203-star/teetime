@@ -92,7 +92,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val cheerBar = ChatCheerBar(activity)
     private val stickerPreview = FrameLayout(activity)
     private val composer = LinearLayout(activity)
-    private val stickerBtn = TextView(activity)
+    private val stickerBtn = ImageView(activity)
     private val stickerTray = LinearLayout(activity)
     private val stickerTabs = LinearLayout(activity)
     private val stickerGrid = GridLayout(activity)
@@ -135,7 +135,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var searchWatcherInstalled = false
     private var cheerJob: Job? = null
     private var softInputBefore: Int? = null
-    private val stage2 get() = ChatCatchup.stage2(activity)
+    /** 예전 시험 스위치 자리 — 아이폰처럼 늘 다 켠다(검색 · 서랍 · 언급 · 답장 · 이모티콘 …). */
+    private val stage2 get() = true
     private var pullY = 0f
     private var lastIme = false
     private var navColorBefore: Int? = null
@@ -223,7 +224,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         cheerBar.onTap = {
             cheerBar.visibility = View.GONE
             cheerBar.stopMotion()
-            notice("축하합니다!")
+            ChatCheerBurst.fire(this)
         }
         column.addView(cheerBar, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
@@ -263,23 +264,27 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         mediaBtn.scaleType = ImageView.ScaleType.CENTER
         mediaBtn.setOnClickListener { if (stage2) showMediaMenu() }
         composer.addView(mediaBtn, LinearLayout.LayoutParams(dp(36f), dp(48f)))
-        stickerBtn.text = "☺"; stickerBtn.textSize = 23f; stickerBtn.gravity = Gravity.CENTER
-        stickerBtn.setTextColor(ChatSkin.on); stickerBtn.contentDescription = "이모티콘"
+        /* 이모티콘 단추는 **글칸 안 오른쪽 끝**에 얹힌다(아이폰 `ComposerBar` · 사용자가 보여 준 카톡 모양).
+           왼쪽 `+` 옆에 나란히 두면 눌러야 할 것이 왼쪽에 둘로 몰린다. 글칸 오른쪽 여백(44)과 한 쌍이다. */
+        stickerBtn.setImageResource(R.drawable.ic_chat_smile); stickerBtn.scaleType = ImageView.ScaleType.CENTER
+        stickerBtn.contentDescription = "이모티콘"
         stickerBtn.setOnClickListener { if (stage2) toggleStickerTray() }
-        composer.addView(stickerBtn, LinearLayout.LayoutParams(dp(42f), dp(48f)))
         input.background = GradientDrawable().apply { cornerRadius = dp(24f).toFloat(); setColor(ChatSkin.bubble) }
         input.setTextColor(ChatSkin.text); input.textSize = 16f
         input.setHintTextColor(0xFF9AA090.toInt()); input.hint = "메시지"
         input.minHeight = dp(48f); input.maxHeight = dp(120f); input.maxLines = 5
         input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        input.setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
-        composer.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6f) })
+        input.setPadding(dp(16f), dp(12f), dp(44f), dp(12f))
+        val pill = FrameLayout(activity)
+        pill.addView(input, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        pill.addView(stickerBtn, LayoutParams(dp(40f), dp(48f), Gravity.END or Gravity.BOTTOM).apply { rightMargin = dp(2f) })
+        composer.addView(pill, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6f) })
         sendBtn.setImageResource(R.drawable.ic_chat_send_up)
         sendBtn.scaleType = ImageView.ScaleType.CENTER
         sendBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ChatSkin.brand) }
         sendBtn.contentDescription = "보내기"
         sendBtn.setOnClickListener { send() }
-        composer.addView(sendBtn, LinearLayout.LayoutParams(dp(34f), dp(34f)).apply { bottomMargin = dp(7f) })
+        composer.addView(sendBtn, LinearLayout.LayoutParams(dp(36f), dp(36f)).apply { bottomMargin = dp(6f) })
         column.addView(composer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         /* 웹에서 받은 stickers만 그린다. 높이 min(38%,300), 탭 위 + 5칸 격자. */

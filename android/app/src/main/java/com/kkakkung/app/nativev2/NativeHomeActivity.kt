@@ -31,7 +31,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import coil.load
 import com.kkakkung.app.R
-import com.kkakkung.app.chat.ChatCatchup
 import com.kkakkung.app.chat.ChatConfig
 import com.kkakkung.app.chat.ChatScreen
 import com.kkakkung.app.chat.ChatService
@@ -181,6 +180,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
             finish(); return
         }
         api = NativeApi(session)
+        NativeChatShared.load(this)
         window.statusBarColor = bg
         window.navigationBarColor = card
         buildShell()
@@ -1840,15 +1840,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
                     } else if (NativePush.requestIfNeeded(this@NativeHomeActivity, notificationPermission)) {
                         enableNativePush()
                     }
-                })
-                menu.addView(menuLink(
-                    "시험 중: 대화 2단계  " + if (ChatCatchup.stage2(this@NativeHomeActivity)) "켜짐" else "꺼짐"
-                ) {
-                    val next = !ChatCatchup.stage2(this@NativeHomeActivity)
-                    ChatCatchup.setStage2(this@NativeHomeActivity, next)
-                    chat?.destroy(); chat = null
-                    toast(if (next) "대화 2단계 시험 기능을 켰습니다." else "대화 2단계 시험 기능을 껐습니다.")
-                    showMe()
                 })
                 menu.addView(menuLink("정산 현황") { showSettlements() })
                 if (p.optString("role") in setOf("staff", "admin", "superadmin")) {

@@ -265,13 +265,7 @@ class ChatListView(context: Context) : RecyclerView(context) {
         private val dateChip = chip(ctx)
         private val markChip = chip(ctx)
         private val noticeChip = chip(ctx)
-        private val card = LinearLayout(ctx)
-        private val cardHead = TextView(ctx)
-        private val cardTitle = TextView(ctx)
-        private val cardNote = TextView(ctx)
-        private val cardRule = View(ctx)
-        private val cardBy = TextView(ctx)
-        private val cardGo = TextView(ctx)
+        private val card = ChatLinkCard(ctx)
         private val msgRow = LinearLayout(ctx)
         private val avatarBox = FrameLayout(ctx)
         private val avatar = ImageView(ctx)
@@ -308,32 +302,9 @@ class ChatListView(context: Context) : RecyclerView(context) {
             root.addView(markChip, centerChip(ctx))
             root.addView(noticeChip, centerChip(ctx))
 
-            /* 눌리는 카드(라운드·투표·공지) — 웹 `LinkCard`의 그것이다. */
-            card.orientation = LinearLayout.VERTICAL
-            val cpad = ctx.dp(ChatSkin.cardPad)
-            card.setPadding(cpad, cpad, cpad, cpad)
-            card.background = GradientDrawable().apply {
-                cornerRadius = ctx.dp(ChatSkin.cardRadius).toFloat()
-                colors = intArrayOf(ChatSkin.cardTint, ChatSkin.card)
-                orientation = GradientDrawable.Orientation.TOP_BOTTOM
-            }
-            cardHead.setTextColor(ChatSkin.cardBadge); cardHead.textSize = 11.5f; cardHead.typeface = Typeface.DEFAULT_BOLD
-            cardTitle.setTextColor(ChatSkin.text); cardTitle.textSize = 16f; cardTitle.typeface = Typeface.DEFAULT_BOLD
-            cardNote.setTextColor(0xFF5B6455.toInt()); cardNote.textSize = 12.5f
-            cardRule.setBackgroundColor(ChatSkin.cardRule)
-            cardBy.setTextColor(0xFF5B6455.toInt()); cardBy.textSize = 12f
-            cardGo.setTextColor(Color.WHITE); cardGo.textSize = 12f; cardGo.typeface = Typeface.DEFAULT_BOLD
-            cardGo.gravity = Gravity.CENTER
-            cardGo.setPadding(ctx.dp(12f), ctx.dp(6f), ctx.dp(12f), ctx.dp(6f))
-            cardGo.background = GradientDrawable().apply { cornerRadius = ctx.dp(20f).toFloat(); setColor(ChatSkin.link) }
-            card.addView(cardHead)
-            card.addView(cardTitle, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = ctx.dp(3f) })
-            card.addView(cardNote, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = ctx.dp(3f) })
-            card.addView(cardRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ctx.dp(1f)).apply { topMargin = ctx.dp(10f); bottomMargin = ctx.dp(8f) })
-            card.addView(cardBy)
-            card.addView(cardGo, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = ctx.dp(8f); gravity = Gravity.END })
+            /* 눌리는 카드(라운드·투표·공지) — 아이폰 `cardBox`와 같은 짜임(`ChatLinkCard`). */
             card.setOnClickListener { current?.to?.let { onCard?.invoke(it) } }
-            root.addView(card, LinearLayout.LayoutParams(ctx.dp(ChatSkin.cardW), LinearLayout.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL })
+            root.addView(card, LinearLayout.LayoutParams(ctx.dp(ChatSkin.cardW), LinearLayout.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = ctx.dp(4f); bottomMargin = ctx.dp(6f) })
 
             /* 말풍선 줄 — [얼굴][이름 / 내용·도장] */
             msgRow.orientation = LinearLayout.HORIZONTAL
@@ -341,8 +312,9 @@ class ChatListView(context: Context) : RecyclerView(context) {
             avatarBox.layoutParams = LinearLayout.LayoutParams(av, av)
             avatar.scaleType = ImageView.ScaleType.CENTER_CROP
             avatarBox.addView(avatar, FrameLayout.LayoutParams(av, av))
-            initials.gravity = Gravity.CENTER; initials.textSize = 11f; initials.setTextColor(ChatSkin.text)
-            initials.background = GradientDrawable().apply { cornerRadius = ctx.dp(10f).toFloat(); setColor(0xFFDDE3D1.toInt()) }
+            initials.gravity = Gravity.CENTER; initials.textSize = 10f; initials.typeface = Typeface.DEFAULT_BOLD; initials.setTextColor(Color.WHITE)
+            /* 아이폰 `AvatarView` — 보라 위에 흰 25% 칠 · 흰 글자(마지막 두 글자). */
+            initials.background = GradientDrawable().apply { cornerRadius = ctx.dp(10f).toFloat(); setColor(Color.argb(64, 255, 255, 255)) }
             avatarBox.addView(initials, FrameLayout.LayoutParams(av, av))
             avatarBox.setOnClickListener { current?.id?.let { onPersonMessage?.invoke(it) } }
             msgRow.addView(avatarBox)
@@ -468,15 +440,8 @@ class ChatListView(context: Context) : RecyclerView(context) {
             val isCard = r.kind == "card"
             card.visibility = if (isCard) View.VISIBLE else View.GONE
             if (isCard) {
-                val lines = r.body.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
-                cardHead.text = when (r.icon) { "round" -> "라운드"; "poll" -> "투표"; "post" -> "공지"; else -> "" }
-                cardTitle.text = if (lines.size >= 2) lines[1] else (lines.firstOrNull() ?: "")
-                val notes = if (lines.size > 2) lines.drop(2).joinToString("\n") else ""
-                cardNote.text = notes; cardNote.visibility = if (notes.isEmpty()) View.GONE else View.VISIBLE
-                cardBy.text = if (lines.size >= 2) lines[0] else ""
-                cardBy.visibility = if (cardBy.text.isEmpty()) View.GONE else View.VISIBLE
-                cardGo.text = r.go ?: "보러 가기 ›"
-                (card.layoutParams as LinearLayout.LayoutParams).width = minOf(ctx.dp(ChatSkin.cardW), listWidth - ctx.dp(36f))
+                card.bind(r.body, r.icon, r.go ?: "보러 가기 ›")
+                (card.layoutParams as LinearLayout.LayoutParams).width = minOf(ctx.dp(ChatSkin.cardW), listWidth - ctx.dp(ChatSkin.pad * 4))
             }
 
             val isMsg = !notice && !isCard

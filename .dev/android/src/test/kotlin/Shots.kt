@@ -73,6 +73,57 @@ class Shots {
         srv.shutdown()
     }
 
+    /** 앱 화면이 아닌 조각 하나를 찍는다(목록 없이). */
+    private fun shootView(name: String, h: Int, make: (android.content.Context) -> View) {
+        val ctx = RuntimeEnvironment.getApplication()
+        val v = make(ctx)
+        val w = ctx.resources.displayMetrics.widthPixels
+        v.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.AT_MOST))
+        v.layout(0, 0, w, v.measuredHeight)
+        val bmp = Bitmap.createBitmap(w, maxOf(1, v.measuredHeight), Bitmap.Config.ARGB_8888)
+        v.draw(Canvas(bmp))
+        File(System.getProperty("shots.dir"), "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    @Test fun chatCards() = shootView("chat-cards", 4000) { ctx ->
+        val col = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(com.kkakkung.app.chat.ChatSkin.bg)
+            setPadding(0, 40, 0, 40)
+        }
+        val w = (320 * ctx.resources.displayMetrics.density).toInt()
+        fun add(body: String, icon: String, go: String) {
+            col.addView(com.kkakkung.app.chat.ChatLinkCard(ctx).apply { bind(body, icon, go) },
+                android.widget.LinearLayout.LayoutParams(w, -2).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL; bottomMargin = 40 })
+        }
+        add("악마제리님이 스크린을 공유했습니다\n골프존파크 상무점\n9월 8일 (화) · 오전 7:30 · 정원 6명 · 6자리 남음", "round", "라운드 보러 가기 ›")
+        add("악마제리님이 라운드 모집을 열었습니다\n무등산CC", "round", "라운드 보러 가기 ›")
+        add("악마제리님이 투표를 올렸습니다\n테스트1", "poll", "투표 보러 가기 ›")
+        add("투표가 끝났습니다\n테스트1\n1위 · 9월 19일 (토) (2표)", "poll", "투표 보러 가기 ›")
+        add("악마제리님이 공지를 공유했습니다\n10월 정기 모임 안내\n이번 달은 무등산에서 모입니다", "post", "공지 보러 가기 ›")
+        col
+    }
+
+    @Test fun chat() {
+        val srv = server()
+        val act = org.robolectric.Robolectric.buildActivity(androidx.appcompat.app.AppCompatActivity::class.java).setup().get()
+        val shared = File(System.getProperty("shots.dir"), "../gen-assets/chat-shared.json").takeIf { it.exists() }?.readText()
+        val cfg = JSONObject(shared ?: "{}").put("user", "me").put("token", "t").put("url", srv.url("/").toString()).put("key", "anon").put("back", true)
+        val chat = com.kkakkung.app.chat.ChatScreen(act, com.kkakkung.app.chat.ChatService(com.kkakkung.app.chat.ChatConfig(cfg)))
+        val frame = FrameLayout(act)
+        act.setContentView(frame)
+        chat.attach(frame)
+        repeat(80) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(40) }
+        val ctx = act
+        val w = ctx.resources.displayMetrics.widthPixels; val h = ctx.resources.displayMetrics.heightPixels
+        frame.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+        frame.layout(0, 0, w, h)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        frame.draw(Canvas(bmp))
+        File(System.getProperty("shots.dir"), "chat.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        srv.shutdown()
+    }
+
     @Test fun round() = shoot("round") { RoundScreen(RuntimeEnvironment.getApplication(), it, "r1") }
     @Test fun poll() = shoot("poll") { PollScreen(RuntimeEnvironment.getApplication(), it, "p1") }
 }
