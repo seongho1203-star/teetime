@@ -1,0 +1,4 @@
+[{"id":"me","name":"악마제리","role":"superadmin","gender":"m","birth_year":1983,"region":"광산구","avatar_url":null},
+ {"id":"u2","name":"박승수","role":"member","gender":"m","birth_year":1975,"region":"북구","avatar_url":null},
+ {"id":"u3","name":"김지명","role":"member","gender":"f","birth_year":1988,"region":"서구","avatar_url":null},
+ {"id":"u4","name":"이관교","role":"staff","gender":"m","birth_year":1979,"region":"남구","avatar_url":null}]

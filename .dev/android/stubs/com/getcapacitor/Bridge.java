@@ -1,0 +1,1 @@
+package com.getcapacitor; public class Bridge { public android.webkit.WebView getWebView() { return null; } public androidx.appcompat.app.AppCompatActivity getActivity() { return null; } public android.content.Context getContext() { return null; } public void eval(String js, android.webkit.ValueCallback<String> cb) {} public void triggerWindowJSEvent(String e) {} }

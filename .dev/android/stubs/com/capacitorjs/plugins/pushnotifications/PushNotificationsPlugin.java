@@ -1,0 +1,1 @@
+package com.capacitorjs.plugins.pushnotifications; public class PushNotificationsPlugin extends com.getcapacitor.Plugin { public static void onNewToken(String t) {} public static void sendRemoteMessage(com.google.firebase.messaging.RemoteMessage m) {} }

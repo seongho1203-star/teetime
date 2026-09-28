@@ -1,0 +1,2 @@
+[{"id":"r1","course":"무등산CC","title":"","kind":"field","tee_at":"2026-09-30T07:10:00+00:00","capacity":4,"fee":140000,"status":"open","caddie":"none","cart":"included","note":"테스트입니다","created_by":"me","tee_slots":null,
+  "signups":[{"user_id":"me","state":"confirmed","seq":1,"grp":null},{"user_id":"u2","state":"confirmed","seq":2,"grp":null}]}]

@@ -89,13 +89,16 @@ class NativeApi(private val session: NativeSession) {
     suspend fun roundSettlements(round: String): List<JSONObject> = rows("settlements", listOf(
         "select" to "*,settlement_shares(*)", "round_id" to "eq.$round", "order" to "created_at.desc", "limit" to "100"))
 
-    suspend fun shareRound(round: JSONObject) {
+    /**
+     * 대화방에 공유 — `system` 글로 넣고(눌리는 카드) `notify`로 폰도 한 번 울린다
+     * (아이폰 `shareToChat`). 칸이 없는 저장소에서는 **덜 아쉬운 것부터 하나씩 빼며**
+     * 다시 넣는다 — Postgres는 `42703`, PostgREST는 `PGRST204`를 준다.
+     */
+    suspend fun shareToChat(body: String, extra: JSONObject, drops: List<String>) {
         val room = rows("rooms", listOf("select" to "id", "round_id" to "is.null", "order" to "created_at.asc", "limit" to "1"))
             .firstOrNull()?.optString("id") ?: throw NativeApiError("전체 대화방이 없습니다.")
-        val row = JSONObject().put("room_id", room).put("user_id", session.userId).put("system", true)
-            .put("body", "라운드 안내: ${round.optString("course")} · ${round.optString("tee_at")}")
-            .put("round_id", round.optString("id")).put("notify", true)
-        val drops = listOf("notify", "round_id")
+        val row = JSONObject().put("room_id", room).put("user_id", session.userId).put("system", true).put("body", body)
+        extra.keys().forEach { row.put(it, extra.get(it)) }
         for (i in 0..drops.size) {
             try { request("rest/v1/messages", method = "POST", body = row); return }
             catch (e: NativeApiError) {
@@ -103,6 +106,14 @@ class NativeApi(private val session: NativeSession) {
                 row.remove(drops[i])
             }
         }
+    }
+
+    /** 투표 닫기·다시 열기 — 다시 열 때 지나간 마감 시각을 함께 지운다(아이폰 `setPollClosed`). */
+    suspend fun setPollClosed(p: AppPoll, closed: Boolean) {
+        val patch = JSONObject().put("closed", closed)
+        if (!closed && AppDate.isBeforeNow(p.closesAt)) patch.put("closes_at", JSONObject.NULL)
+        val v = request("rest/v1/polls", listOf("id" to "eq.${p.id}"), "PATCH", patch)
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("권한이 없습니다.")
     }
 
     private val announcing = mutableSetOf<String>()

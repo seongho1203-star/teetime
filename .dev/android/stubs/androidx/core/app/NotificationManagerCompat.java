@@ -1,0 +1,1 @@
+package androidx.core.app; public final class NotificationManagerCompat { public static NotificationManagerCompat from(android.content.Context c) { return null; } public void notify(int id, android.app.Notification n) {} public void cancelAll() {} public boolean areNotificationsEnabled() { return true; } }

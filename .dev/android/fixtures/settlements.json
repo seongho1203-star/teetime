@@ -1,0 +1,2 @@
+[{"id":"s1","title":"그린피","body":"","bank":"광주은행","account":"123-456-789012","total":280000,"created_by":"me","created_at":"2026-09-27T11:00:00Z",
+ "settlement_shares":[{"id":"sh1","user_id":"me","amount":140000,"paid":false},{"id":"sh2","user_id":"u2","amount":140000,"paid":true}]}]

@@ -1,0 +1,1 @@
+package androidx.appcompat.widget; public class AppCompatButton extends android.widget.Button { public AppCompatButton(android.content.Context c) { super(c); } public AppCompatButton(android.content.Context c, android.util.AttributeSet a) { super(c, a); } }

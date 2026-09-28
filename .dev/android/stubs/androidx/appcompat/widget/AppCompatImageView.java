@@ -1,0 +1,1 @@
+package androidx.appcompat.widget; public class AppCompatImageView extends android.widget.ImageView { public AppCompatImageView(android.content.Context c) { super(c); } public AppCompatImageView(android.content.Context c, android.util.AttributeSet a) { super(c, a); } }

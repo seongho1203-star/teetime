@@ -60,7 +60,7 @@ import java.util.TimeZone
  * 홈·라운드·투표는 Supabase를 Kotlin에서 직접 읽고, 채팅은 이미 완성된
  * ChatScreen을 그대로 붙인다. 세부 기능을 이 shell 안에서 하나씩 네이티브화한다.
  */
-class NativeHomeActivity : AppCompatActivity() {
+class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var content: NativeScreenStack
     private lateinit var bottom: LinearLayout
@@ -78,6 +78,32 @@ class NativeHomeActivity : AppCompatActivity() {
         (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)?.hideSoftInputFromWindow(content.windowToken, 0)
         currentFocus?.clearFocus()
         if (!content.pop()) showTab("home")
+    }
+
+    // ── 앱 화면(`NativeScreen`)이 부탁하는 것들 ─────────────────
+    /** 주소마다 살아 있는 앱 화면 — 다시 받을 때(`refresh`) 그 화면의 `load()`를 부른다. */
+    private val screens = mutableMapOf<String, NativeScreen>()
+    override val hostApi: NativeApi get() = api
+    override val hostScope: CoroutineScope get() = scope
+    override val myId: String get() = session.userId
+    override fun back(refreshBehind: Boolean) {
+        if (refreshBehind) content.invalidatePrevious()
+        navigateBack()
+    }
+    override fun editRound(r: JSONObject) = roundForm(r)
+    override fun copyRound(r: JSONObject) = roundForm(r, copy = true)
+    override fun roundGroups(r: JSONObject, people: List<JSONObject>) = showGroups(r, people)
+    override fun newSettlement(roundId: String, joined: List<String>, people: List<JSONObject>) = settlementForm(roundId, joined, people)
+    override fun editPoll(p: JSONObject) = pollEditForm(p)
+
+    /** 앱 화면을 올린다 — 머리말·본문을 화면이 스스로 그리므로 `mount`처럼 감싸지 않는다. */
+    private fun mountScreen(screen: NativeScreen) {
+        val key = pendingKey
+        screens.keys.retainAll { k -> content.contains(k) }
+        screens[key] = screen
+        content.show(key, screen.root, false, pendingRefresh, replace = replaceNextMount)
+        replaceNextMount = false
+        screen.load()
     }
 
     private var currentTab = "home"
@@ -1281,210 +1307,9 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun showRound(id: String) {
-        prepareScreen("/rounds/$id") { showRound(id) }
+        prepareScreen("/rounds/$id") { screens["/rounds/$id"]?.load() }
         detail = true
-        val page = detailPage("라운드")
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val r = api.round(id)
-                val comments = api.roundComments(id)
-                val people = api.people()
-                val myProfile = api.profile()
-                if (r == null) { page.removeView(loading); error(page, "라운드를 찾지 못했습니다."); return@launch }
-                val tees = RoundFormRules.groupTees(r, try { api.groupTees(id) } catch (_: Exception) { JSONObject() })
-                val settlements = try { api.roundSettlements(id) } catch (_: Exception) { emptyList() }
-                page.removeView(loading)
-                renderRound(page, r, comments, people, myProfile, tees, settlements)
-
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
-            }
-        }
-    }
-
-    private fun renderRound(
-        page: LinearLayout, r: JSONObject, comments: List<JSONObject>,
-        people: List<JSONObject>, myProfile: JSONObject?, tees: JSONObject, settlements: List<JSONObject>
-    ) {
-        val id = r.optString("id")
-        val names = people.associateBy { it.optString("id") }
-        val signups = jsonObjects(r.optJSONArray("signups"))
-        val confirmed = signups.filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
-        val waiting = signups.filter { it.optString("state") == "waitlist" }.sortedBy { it.optInt("seq") }
-        val mine = signups.firstOrNull { it.optString("user_id") == session.userId }
-        val open = r.optString("status") == "open" && !isPast(r.optString("tee_at"))
-        val admin = myProfile?.optString("role") in setOf("staff", "admin", "superadmin")
-        val owner = r.optString("created_by") == session.userId
-        val screen = r.optString("kind") == "screen"
-
-        val heroBadges = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        heroBadges.addView(badge(if (screen) "🎯 스크린" else "⛳ 필드", if (screen) dim else grassDeep))
-        val statusText = when (r.optString("status")) {
-            "cancelled" -> "취소됨"
-            "closed" -> "모집 마감"
-            else -> if (open && confirmed.size < r.optInt("capacity")) "모집중"
-                    else if (open) "모집 마감" else "종료"
-        }
-        heroBadges.addView(badge(statusText, when (statusText) {
-            "모집중" -> grassDeep; "취소됨" -> danger; else -> faint
-        }))
-        if (r.optString("status") != "cancelled" && !isPast(r.optString("tee_at")))
-            heroBadges.addView(badge(dday(r.optString("tee_at")), if (daysUntil(r.optString("tee_at")) <= 3) warn else dim))
-        page.addView(heroBadges)
-
-        title(page, (if (screen) "🎯 " else "⛳ ") +
-            r.optString("course").ifBlank { r.optString("title") })
-        if (r.optString("title").isNotBlank() && r.optString("course").isNotBlank())
-            body(page, r.optString("title"))
-
-        val info = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadius = dp(11).toFloat(); setColor(line)
-            }
-            setPadding(dp(1), dp(1), dp(1), dp(1))
-        }
-        info.addView(infoPair(
-            "날짜" to fullDate(r.optString("tee_at")),
-            (if (screen) "시작" else "티오프") to timeOnly(r.optString("tee_at"))
-        ))
-        info.addView(infoPair(
-            "정원" to "${r.optInt("capacity")}명",
-            (if (screen) "게임비" else "그린피") to money(r.optInt("fee"))
-        ))
-        if (!screen) info.addView(infoPair(
-            "캐디" to r.optString("caddie").ifBlank { "미정" },
-            "카트" to r.optString("cart").ifBlank { "미정" }
-        ))
-        page.addView(info, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(4); bottomMargin = dp(8) })
-
-        val teamSlots = RoundFormRules.slots(r)
-        if (teamSlots.isNotEmpty() && !screen) {
-            val teamCard = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(13), 0, dp(13), dp(12))
-                background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(card) }
-            }
-            section(teamCard, "팀별 티오프 · ${teamSlots.size}팀")
-            teamSlots.groupBy { it.optString("course").ifBlank { "코스 미정" } }.forEach { (course, slots) ->
-                body(teamCard, course + "  " + slots.joinToString(" · ") { it.optString("time") })
-            }
-            page.addView(teamCard)
-        }
-        r.optString("note").takeIf { it.isNotBlank() }?.let { note ->
-            val noteBox = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(11), dp(13), dp(11))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(18).toFloat(); setColor(Color.rgb(255,248,225))
-                    setStroke(dp(1), Color.rgb(239,207,126))
-                }
-            }
-            noteBox.addView(TextView(this).apply {
-                text = "전달 내용"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(warn)
-            })
-            noteBox.addView(TextView(this).apply {
-                text = note; textSize = 14f; setTextColor(ink); setLineSpacing(0f, 1.35f)
-                setPadding(0, dp(5), 0, 0)
-            })
-            page.addView(noteBox, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) })
-        }
-
-        if (mine == null && open) {
-            page.addView(action(if (confirmed.size >= r.optInt("capacity")) "대기 신청" else "참가 신청", primary = true) {
-                confirm("참가 신청", "이 라운드에 신청할까요?") {
-                    mutate {
-                        val state = api.joinRound(id)
-                        toast(if (state == "confirmed") "참가가 확정되었습니다." else "자리가 차서 대기자로 올렸습니다.")
-                        showRound(id)
-                    }
-                }
-            })
-        } else if (mine == null) {
-            page.addView(action("신청 마감") { }.apply { isEnabled = false; alpha = .5f })
-        } else {
-            page.addView(action(if (mine.optString("state") == "confirmed") "신청 취소" else "대기 취소", danger = true) {
-                val msg = if (mine.optString("state") == "confirmed" && waiting.isNotEmpty())
-                    "취소하면 대기 1번인 ${personLabel(names[waiting.first().optString("user_id")])}님이 올라갑니다."
-                else "다시 신청하면 순번은 맨 뒤가 됩니다."
-                confirm("신청을 취소할까요?", msg) {
-                    mutate { api.leaveRound(id); toast("신청을 취소했습니다."); showRound(id) }
-                }
-            })
-        }
-
-        if (admin || owner) {
-            val status = r.optString("status")
-            page.addView(action("라운드 수정") { roundForm(r) })
-            val operations = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            fun op(label: String, destructive: Boolean = false, work: () -> Unit) {
-                val button = action(label, danger = destructive, click = work)
-                button.maxLines = 1
-                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(button, 10, 15, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
-                operations.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
-            }
-            op(if (status == "open") "마감" else "다시 열기") {
-                mutate { api.setRoundStatus(id, if (status == "open") "closed" else "open"); showRound(id) }
-            }
-            op("취소", true) { confirm("라운드 취소", "모집을 취소할까요?") { mutate { api.setRoundStatus(id, "cancelled"); showRound(id) } } }
-            op("지우기", true) { confirm("라운드 삭제", "신청과 댓글도 함께 삭제됩니다.") { mutate { api.deleteRow("rounds", id); content.invalidatePrevious(); navigateBack() } } }
-            page.addView(operations)
-            if (confirmed.isNotEmpty()) page.addView(action("조 편성") { showGroups(r, people) })
-            page.addView(action("대화방에 공유") { mutate { api.shareRound(r); toast("대화방에 공유했습니다.") } })
-        }
-        if (screen) page.addView(action("같은 조건으로 새로 열기") { roundForm(r, copy = true) })
-
-        page.addView(action("＋ 정산 만들기") {
-            settlementForm(id, confirmed.map { it.optString("user_id") }, people)
-        })
-
-        section(page, "참가자 ${confirmed.size}/${r.optInt("capacity")}")
-        if (confirmed.isEmpty()) empty(page, "아직 참가자가 없습니다.")
-        renderGroups(page, r, people, tees, if (admin || owner) { uid ->
-            if (uid != session.userId) {
-                    confirm("명단에서 뺄까요?", "대기자가 있으면 맨 앞 사람이 자동으로 올라갑니다.") {
-                        mutate { api.kickSignup(id, uid); showRound(id) }
-                    }
-            }
-        } else null)
-        if (waiting.isNotEmpty()) {
-            section(page, "대기 ${waiting.size}명")
-            waiting.forEachIndexed { i, signup ->
-                page.addView(personRow(
-                    personLabel(names[signup.optString("user_id")]).ifBlank { "알 수 없음" },
-                    "대기 ${i + 1}"
-                ))
-            }
-        }
-
-        renderRoundSettlements(page, settlements, id)
-        commentsBlock(page, comments, names) { text ->
-            mutate { api.addComment("round_comments", "round_id", id, text); showRound(id) }
-        }
-    }
-
-    private fun renderGroups(page: LinearLayout, round: JSONObject, people: List<JSONObject>, tees: JSONObject, removeMember: ((String) -> Unit)?) {
-        val confirmed = jsonObjects(round.optJSONArray("signups")).filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
-        val names = people.associateBy { it.optString("id") }
-        val groups = confirmed.groupBy { it.optInt("grp", 0) }.toSortedMap()
-        if (groups.isEmpty()) return
-        groups.forEach { (number, members) ->
-            val mine = members.any { it.optString("user_id") == session.userId }
-            val label = RoundFormRules.groupTitle(round, number)
-            section(page, label + if (mine && number > 0) " · 내 조" else "")
-            tees.optString(number.toString()).takeIf { it.isNotBlank() }?.let { body(page, "티오프 ${timeOnly(it)}") }
-            members.forEach { member ->
-                val uid = member.optString("user_id")
-                val row = personRow(personLabel(names[uid]).ifBlank { "알 수 없음" }, if (uid == session.userId) "나" else "확정")
-                if (removeMember != null && uid != session.userId) row.setOnLongClickListener { removeMember(uid); true }
-                page.addView(row)
-            }
-        }
+        mountScreen(RoundScreen(this, this, id))
     }
 
     private fun showGroups(round: JSONObject, people: List<JSONObject>) {
@@ -1546,191 +1371,10 @@ class NativeHomeActivity : AppCompatActivity() {
         } catch (_: Exception) { toast("조별 시각을 받지 못했습니다. 다시 열어 주세요.") } }
     }
 
-    private fun renderRoundSettlements(page: LinearLayout, settlements: List<JSONObject>, roundId: String) {
-        if (settlements.isEmpty()) return
-        section(page, "정산")
-        settlements.forEach { settlement ->
-            val mine = jsonObjects(settlement.optJSONArray("settlement_shares")).firstOrNull { it.optString("user_id") == session.userId }
-            section(page, settlement.optString("title"))
-            if (mine != null) {
-                body(page, "내 몫 ${money(mine.optInt("amount"))}")
-                val paid = mine.optBoolean("paid")
-                val paidButton = action(if (paid) "입금완료 ✓" else "입금완료", primary = true) {
-                    confirm(if (paid) "입금완료 취소" else "입금완료", if (paid) "입금 표시를 취소할까요?" else "입금을 마치셨나요?") {
-                        mutate { api.markSharePaid(mine.optString("id"), !paid); showRound(roundId) }
-                    }
-                }
-                if (paid) paidButton.background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(grass) }
-                page.addView(paidButton)
-            }
-            val bank = settlement.optString("bank"); val account = settlement.optString("account")
-            if (account.isNotBlank()) {
-                page.addView(action("계좌 복사 · $bank $account") {
-                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("계좌", "$bank $account")); toast("계좌를 복사했습니다.")
-                })
-                page.addView(action("토스로 보내기") {
-                    val uri = android.net.Uri.Builder().scheme("supertoss").authority("send")
-                        .appendQueryParameter("bank", bank.trim().removeSuffix("은행"))
-                        .appendQueryParameter("accountNo", account.replace(Regex("[^0-9]"), ""))
-                    if (mine != null && mine.optInt("amount") > 0) uri.appendQueryParameter("amount", mine.optInt("amount").toString())
-                    try { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri.build())) }
-                    catch (_: android.content.ActivityNotFoundException) { toast("토스 앱을 설치해 주세요.") }
-                })
-            }
-        }
-    }
-
     private fun showPoll(id: String) {
-        prepareScreen("/polls/$id") { showPoll(id) }
+        prepareScreen("/polls/$id") { screens["/polls/$id"]?.load() }
         detail = true
-        val page = detailPage("투표")
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val p = api.poll(id)
-                val comments = api.pollComments(id)
-                val people = api.people()
-                val myProfile = api.profile()
-                page.removeView(loading)
-                if (p == null) { error(page, "투표를 찾지 못했습니다."); return@launch }
-                api.announceClosedPolls(listOf(p))
-                renderPoll(page, p, comments, people, myProfile)
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "불러오지 못했습니다.")
-            }
-        }
-    }
-
-    private fun renderPoll(
-        page: LinearLayout, p: JSONObject, comments: List<JSONObject>,
-        people: List<JSONObject>, myProfile: JSONObject?
-    ) {
-        val id = p.optString("id")
-        val names = people.associateBy { it.optString("id") }
-        val options = jsonObjects(p.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
-        val votes = jsonObjects(p.optJSONArray("poll_votes"))
-        val closed = p.optBoolean("closed") || pollExpired(p.optString("closes_at"))
-        val pollHead = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        pollHead.addView(badge(if (closed) "마감" else "진행중", if (closed) faint else grassDeep))
-        if (p.optBoolean("multi")) pollHead.addView(badge("복수 선택", dim))
-        if (p.optBoolean("anonymous")) pollHead.addView(badge("익명", dim))
-        page.addView(pollHead)
-        title(page, p.optString("title"))
-        if (p.optString("body").isNotBlank()) body(page, p.optString("body"))
-        if (p.optString("closes_at").isNotBlank()) {
-            page.addView(TextView(this).apply {
-                text = "마감  ${date(p.optString("closes_at"))}"
-                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(danger)
-                setPadding(0, 0, 0, dp(6))
-            })
-        }
-
-        val mayEdit = p.optString("created_by") == session.userId ||
-            myProfile?.optString("role") in setOf("staff", "admin", "superadmin")
-        if (mayEdit) {
-            page.addView(action("투표 수정") { pollEditForm(p) })
-            page.addView(action(if (closed) "다시 열기" else "투표 마감") {
-                mutate {
-                    api.togglePollClosed(id, closed, p.optString("closes_at"))
-                    toast(if (closed) "다시 열었습니다." else "마감했습니다.")
-                    showPoll(id)
-                }
-            })
-            page.addView(action("투표 삭제", danger = true) {
-                confirm("이 투표를 지울까요?", "${votes.size}표와 댓글 ${comments.size}개가 함께 사라집니다.") {
-                    mutate { api.deletePoll(id); toast("지웠습니다."); showTab("polls") }
-                }
-            })
-        }
-
-        section(page, if (closed) "결과" else "선택")
-        val maxVotes = maxOf(1, options.maxOfOrNull { o ->
-            votes.count { it.optString("option_id") == o.optString("id") }
-        } ?: 1)
-        options.forEach { option ->
-            val oid = option.optString("id")
-            val selected = votes.any {
-                it.optString("option_id") == oid && it.optString("user_id") == session.userId
-            }
-            val count = votes.count { it.optString("option_id") == oid }
-            val optBox = FrameLayout(this).apply {
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(11).toFloat(); setColor(surface2)
-                    if (selected) setStroke(dp(1), brandDeep)
-                }
-                isClickable = !closed
-                if (!closed) setOnClickListener {
-                    mutate {
-                        if (selected) api.retractVote(oid) else api.castVote(oid)
-                        showPoll(id)
-                    }
-                }
-            }
-            val bar = View(this).apply {
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(11).toFloat(); setColor(Color.rgb(252,230,243))
-                }
-            }
-            optBox.addView(bar, FrameLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                width = dp((280f * count / maxVotes).toInt())
-            })
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(13), dp(11), dp(13), dp(11))
-            }
-            row.addView(TextView(this).apply {
-                text = if (selected) "✓" else ""
-                textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(brand)
-            }, LinearLayout.LayoutParams(dp(20), ViewGroup.LayoutParams.WRAP_CONTENT))
-            row.addView(TextView(this).apply {
-                text = option.optString("label"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(TextView(this).apply {
-                text = "${count}표"; textSize = 13f; setTextColor(dim)
-            })
-            optBox.addView(row)
-            page.addView(optBox, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) })
-        }
-        if (options.isEmpty()) empty(page, "선택지가 없습니다.")
-
-        if (!p.optBoolean("anonymous")) {
-            val members = people.filter { it.optString("role") !in setOf("pending", "banned") }
-            val participants = votes.map { it.optString("user_id") }.toSet()
-            val absent = members.filter { it.optString("id") !in participants }
-            section(page, "투표 현황")
-            val switches = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            fun render(mode: Int) {
-                results.removeAllViews()
-                when (mode) {
-                    0 -> options.forEach { o ->
-                        section(results, o.optString("label"))
-                        val selected = votes.filter { it.optString("option_id") == o.optString("id") }
-                        body(results, selected.joinToString(" · ") { personLabel(names[it.optString("user_id")]) }.ifEmpty { "없음" })
-                    }
-                    1 -> members.filter { it.optString("id") in participants }.forEach { member ->
-                        val picks = votes.filter { it.optString("user_id") == member.optString("id") }.map { it.optString("option_id") }.toSet()
-                        body(results, personLabel(member) + " · " + options.filter { it.optString("id") in picks }.joinToString { it.optString("label") })
-                    }
-                    else -> absent.forEach { body(results, personLabel(it)) }
-                }
-            }
-            listOf("항목별", "멤버별", "미참여 ${absent.size}").forEachIndexed { index, label ->
-                switches.addView(action(label) { render(index) }, LinearLayout.LayoutParams(0, -2, 1f))
-            }
-            page.addView(switches); page.addView(results); render(0)
-        }
-
-        commentsBlock(page, comments, names) { text ->
-            mutate { api.addComment("poll_comments", "poll_id", id, text); showPoll(id) }
-        }
+        mountScreen(PollScreen(this, this, id))
     }
 
     private fun showChat() {

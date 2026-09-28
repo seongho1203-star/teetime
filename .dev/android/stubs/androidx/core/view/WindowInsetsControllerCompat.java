@@ -1,0 +1,1 @@
+package androidx.core.view; public final class WindowInsetsControllerCompat { public void show(int t) {} public void hide(int t) {} public void setAppearanceLightStatusBars(boolean b) {} public void setAppearanceLightNavigationBars(boolean b) {} }

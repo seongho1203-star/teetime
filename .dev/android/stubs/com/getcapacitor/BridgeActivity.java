@@ -1,0 +1,1 @@
+package com.getcapacitor; public class BridgeActivity extends androidx.appcompat.app.AppCompatActivity { protected Bridge bridge; public Bridge getBridge() { return bridge; } public void registerPlugin(Class<? extends Plugin> p) {} public void registerPlugins(java.util.List<Class<? extends Plugin>> p) {} }
