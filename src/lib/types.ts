@@ -158,7 +158,11 @@ export const BANKS = [
  * **웹 워크플로의 번호를 대신 넣지 말 것** — 두 워크플로의 번호는 서로
  * 다른 셈이라 같은 자리에 적으면 거짓말이 된다. */
 const MAJOR = '1';
-export const APP_VERSION = `${MAJOR}.${__APP_BUILD__ || '0'}`;
+/* **빌드 번호의 맨 끝자리는 뺀다**(사용자 요청 — `1.249면 1.24까지만 표시해줘`).
+ * 그래서 열 판이 같은 숫자로 보인다(1.240~1.249 → `1.24`) — 새 앱을 받았는지
+ * 끝자리까지 가려야 할 때는 TestFlight의 `(249)`를 볼 것. 한 자리 번호는 `0`이다. */
+const BUILD = String(__APP_BUILD__ || '0');
+export const APP_VERSION = `${MAJOR}.${BUILD.length > 1 ? BUILD.slice(0, -1) : '0'}`;
 
 /**
  * 이름표를 붙이는 곳에서 쓰는 명단 한 줄.
