@@ -307,6 +307,21 @@ object AppDate {
             else -> day(iso)
         }
     }
+    /** 올해 1월 1일 0시(한국) — 참석 횟수를 셀 때 쓴다. */
+    fun yearStart(): String = "${LocalDate.now(seoul).year}-01-01T00:00:00+09:00"
+    /** `MM-DD` → `5월 10일`. 못 읽으면 빈 글자(웹 `mdLabel`). */
+    fun mdLabel(md: String?): String {
+        if (md == null || md.length != 5) return ""
+        val p = md.split("-"); val m = p.getOrNull(0)?.toIntOrNull(); val d = p.getOrNull(1)?.toIntOrNull()
+        return if (m == null || d == null) "" else "${m}월 ${d}일"
+    }
+    /** `양력 1975년 5월 10일` — 조각이 빠졌으면 있는 것만(웹 `birthLabel`). */
+    fun birthLabel(year: Int?, md: String?, cal: String): String {
+        val day = mdLabel(md)
+        if (day.isEmpty() && year == null) return ""
+        return listOfNotNull(if (day.isNotEmpty()) (if (cal == "lunar") "음력" else "양력") else null,
+            year?.let { "${it}년" }, day.ifEmpty { null }).joinToString(" ")
+    }
     fun isBeforeNow(iso: String?): Boolean = parse(iso)?.toInstant()?.isBefore(Instant.now()) ?: false
 }
 

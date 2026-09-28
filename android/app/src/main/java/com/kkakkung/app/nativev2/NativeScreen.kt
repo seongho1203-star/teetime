@@ -38,6 +38,13 @@ interface ScreenHost {
     fun editPost(p: JSONObject)
     /** 주소로 간다(`/rounds/<id>` · `/` 등) — 알림함·가이드가 쓴다(아이폰 `navigate`). */
     fun open(path: String)
+    /** 사진을 골라 400px JPEG로 줄여 준다(못 골랐으면 null) — 고르는 창은 껍데기가 띄운다. */
+    fun pickAvatar(done: (ByteArray?) -> Unit)
+    /** 알림 권한을 묻는다(안드로이드 13+) — 이미 있으면 곧바로 true. */
+    fun askPushPermission(done: (Boolean) -> Unit)
+    fun logout()
+    /** 프로필 수정 — `내 정보` 위에 쓰는 화면을 얹는다. */
+    fun editProfile(profile: JSONObject?, contact: JSONObject?)
 }
 
 /**

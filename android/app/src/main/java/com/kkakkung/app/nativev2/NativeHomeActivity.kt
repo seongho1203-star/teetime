@@ -40,6 +40,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -96,6 +97,14 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     override fun editPoll(p: JSONObject) = pollEditForm(p)
     override fun editPost(p: JSONObject) = postForm(p)
     override fun open(path: String) = if (path == "/" || path.isEmpty()) showTab("home") else openNativeUrl(path)
+    override fun pickAvatar(done: (ByteArray?) -> Unit) { avatarDone = done; avatarPicker.launch("image/*") }
+    override fun askPushPermission(done: (Boolean) -> Unit) {
+        if (NativePush.requestIfNeeded(this, notificationPermission)) done(true) else pushDone = done
+    }
+    override fun logout() = logoutNative()
+    override fun editProfile(profile: JSONObject?, contact: JSONObject?) = showMeEdit(profile, contact)
+    private var avatarDone: ((ByteArray?) -> Unit)? = null
+    private var pushDone: ((Boolean) -> Unit)? = null
 
     /** 앱 화면을 올린다 — 머리말·본문을 화면이 스스로 그리므로 `mount`처럼 감싸지 않는다. */
     private fun mountScreen(screen: NativeScreen) {
@@ -150,28 +159,28 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) enableNativePush() else toast("알림 권한이 꺼져 있습니다.")
+        val done = pushDone
+        pushDone = null
+        if (done != null) done(granted)
+        else if (granted) enableNativePush() else toast("알림 권한이 꺼져 있습니다.")
     }
 
+    /** 얼굴 사진 고르기 — 400px JPEG로 줄여 화면에 넘긴다(올리는 것은 `MeScreen`이 한다). */
     private val avatarPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@registerForActivityResult
+        val done = avatarDone
+        avatarDone = null
+        if (uri == null || done == null) { done?.invoke(null); return@registerForActivityResult }
         scope.launch {
-            try {
-                val raw = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                    ?: throw NativeApiError("사진을 읽지 못했습니다.")
-                val ratio = minOf(1f, 400f / maxOf(raw.width, raw.height).toFloat())
-                val scaled = if (ratio < 1f) Bitmap.createScaledBitmap(
-                    raw, (raw.width * ratio).toInt(), (raw.height * ratio).toInt(), true
-                ) else raw
-                val bytes = ByteArrayOutputStream().use {
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 88, it); it.toByteArray()
-                }
-                api.uploadAvatar(bytes)
-                toast("프로필 사진을 바꿨습니다.")
-                showMe()
-            } catch (e: Exception) {
-                toast(e.message ?: "사진을 바꾸지 못했습니다.")
+            val bytes = withContext(Dispatchers.IO) {
+                try {
+                    val raw = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return@withContext null
+                    val ratio = minOf(1f, 400f / maxOf(raw.width, raw.height).toFloat())
+                    val scaled = if (ratio < 1f) Bitmap.createScaledBitmap(raw, (raw.width * ratio).toInt(), (raw.height * ratio).toInt(), true) else raw
+                    ByteArrayOutputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 82, it); it.toByteArray() }
+                } catch (_: Exception) { null }
             }
+            if (bytes == null) toast("사진을 못 불러왔습니다.")
+            done(bytes)
         }
     }
 
@@ -1101,385 +1110,22 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     private fun showMe() {
-        prepareScreen("/me") { showMe() }
+        prepareScreen("/me") { screens["/me"]?.load() }
         detail = true
-        val page = detailPage("내 정보")
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val p = api.profile()
-                val priv = api.privateProfile()
-                val pushToken = try { NativePush.token() } catch (_: Exception) { "" }
-                val pushOn = pushToken.isNotBlank() && NativePush.permissionGranted(this@NativeHomeActivity) &&
-                    api.pushEnabled(pushToken)
-                page.removeView(loading)
-                if (p == null) { error(page, "프로필을 불러오지 못했습니다."); return@launch }
-
-                /* Home.css .me-head — 얼굴 64px + 이름/직책/지역을 한 줄 머리말로. */
-                val head = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(8), 0, dp(12))
-                }
-                val avatarWrap = FrameLayout(this@NativeHomeActivity).apply {
-                    isClickable = true; setOnClickListener { avatarPicker.launch("image/*") }
-                }
-                val avatar = nativeAvatar(p, 64)
-                avatarWrap.addView(avatar, FrameLayout.LayoutParams(dp(64), dp(64)))
-                avatarWrap.addView(TextView(this@NativeHomeActivity).apply {
-                    text = "+"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL; setColor(brand); setStroke(dp(2), bg)
-                    }
-                }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.END or Gravity.BOTTOM))
-                head.addView(avatarWrap, LinearLayout.LayoutParams(dp(66), dp(66)))
-
-                val who = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, 0, 0)
-                }
-                who.addView(TextView(this@NativeHomeActivity).apply {
-                    text = p.optString("name").ifBlank { session.displayName.ifBlank { "회원" } }
-                    textSize = 20.8f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-                })
-                val meta = listOfNotNull(
-                    roleLabel(p.optString("role")).takeIf { it.isNotBlank() },
-                    p.optString("region").takeIf { it.isNotBlank() }
-                ).joinToString(" · ")
-                who.addView(TextView(this@NativeHomeActivity).apply {
-                    text = meta; textSize = 13f; setTextColor(dim); setPadding(0, dp(3), 0, 0)
-                })
-                head.addView(who, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                page.addView(head)
-
-                val info = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-                    }
-                }
-                info.addView(menuInfoRow("성별", when (p.optString("gender")) { "m" -> "남성"; "f" -> "여성"; else -> "미입력" }))
-                info.addView(menuInfoRow("생년월일", birthDisplay(p, priv)))
-                info.addView(menuInfoRow("전화번호", priv?.optString("phone").orEmpty().ifBlank { "미입력" }))
-                info.addView(menuInfoRow("차량번호", priv?.optString("car").orEmpty().ifBlank { "미입력" }))
-                page.addView(info)
-
-                section(page, "설정")
-                val menu = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-                    }
-                }
-                menu.addView(menuLink("프로필 수정") { profileForm(p, priv) })
-                menu.addView(menuLink(if (pushOn) "이 기기 알림 끄기" else "이 기기로 알림 받기") {
-                    if (pushOn && pushToken.isNotBlank()) {
-                        mutate {
-                            api.disablePush(pushToken)
-                            getSharedPreferences("native-push", MODE_PRIVATE).edit().putBoolean("disabled", true).putBoolean("asked", true).apply()
-                            toast("이 기기의 알림을 껐습니다.")
-                            showMe()
-                        }
-                    } else if (NativePush.requestIfNeeded(this@NativeHomeActivity, notificationPermission)) {
-                        enableNativePush()
-                    }
-                })
-                menu.addView(menuLink("정산 현황") { showSettlements() })
-                if (p.optString("role") in setOf("staff", "admin", "superadmin")) {
-                    menu.addView(menuLink("회원 명단") { showMembers() })
-                }
-                menu.addView(menuLink("로그아웃", danger = true) { logoutNative() })
-                if (p.optString("role") != "superadmin") menu.addView(menuLink("회원 탈퇴", danger = true) {
-                    confirm("회원 탈퇴", "프로필과 계정이 삭제됩니다. 탈퇴하시겠습니까?") {
-                        mutate { api.deleteMe(); logoutNative() }
-                    }
-                })
-                page.addView(menu)
-                page.addView(TextView(this@NativeHomeActivity).apply {
-                    text = "앱제작: 악마제리\n버전 " + RoundFormRules.displayVersion(com.kkakkung.app.BuildConfig.VERSION_NAME)
-                    textSize = 12f; setTextColor(faint); gravity = Gravity.CENTER
-                    setPadding(0, dp(24), 0, dp(8))
-                }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ))
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "프로필을 불러오지 못했습니다.")
-            }
-        }
+        mountScreen(MeScreen(this, this))
     }
 
-    private fun menuInfoRow(label: String, value: String): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = label; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(dim)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = value; textSize = 13f; setTextColor(ink)
-            })
-        }
-
-    private fun menuLink(label: String, danger: Boolean = false, click: () -> Unit): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(15), dp(14), dp(15))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = label; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (danger) this@NativeHomeActivity.danger else ink)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = "›"; textSize = 20f; setTextColor(faint)
-            })
-            isClickable = true; setOnClickListener { click() }
-        }
-
-    private fun birthDisplay(p: JSONObject, priv: JSONObject?): String {
-        val y = p.optInt("birth_year", 0)
-        val md = priv?.optString("birth_md").orEmpty()
-        if (y <= 0 && md.isBlank()) return "미입력"
-        val cal = if (priv?.optString("birth_cal") == "lunar") "음력 " else ""
-        return buildString {
-            if (y > 0) append(y).append("년 ")
-            if (md.isNotBlank()) {
-                val bits = md.split("-")
-                if (bits.size == 2) append(cal).append(bits[0].toIntOrNull() ?: bits[0]).append("월 ")
-                    .append(bits[1].toIntOrNull() ?: bits[1]).append("일")
-            }
-        }.trim()
-    }
-
-    private fun roleLabel(role: String): String = when (role) {
-        "superadmin" -> "앱관리자"; "admin" -> "운영자"; "staff" -> "부운영자"
-        "treasurer" -> "총무"; "pending" -> "승인 대기"; "banned" -> "추방"
-        "member" -> "회원"; else -> role
-    }
-
-    private fun profileForm(profile: JSONObject, priv: JSONObject?) {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-        }
-        fun field(h: String, v: String, numeric: Boolean = false): EditText {
-            val e = EditText(this).apply {
-                hint = h; setText(v); textSize = 14f
-                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(11).toFloat(); setColor(surface2); setStroke(dp(1), line)
-                }
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-            }
-            box.addView(e, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(7) })
-            return e
-        }
-        val name = field("닉네임", profile.optString("name"))
-        val phone = field("전화번호", priv?.optString("phone").orEmpty())
-        val car = field("차량번호", priv?.optString("car").orEmpty())
-        val birthYear = field("태어난 해", profile.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty(), true)
-        val md = priv?.optString("birth_md").orEmpty().split("-")
-        val month = field("생일 월", md.getOrNull(0).orEmpty(), true)
-        val day = field("생일 일", md.getOrNull(1).orEmpty(), true)
-        val region = field("거주지역", profile.optString("region"))
-
-        val male = CheckBox(this).apply {
-            text = "남성 (체크 해제 = 여성)"; isChecked = profile.optString("gender") != "f"
-        }
-        val lunar = CheckBox(this).apply {
-            text = "음력 생일"; isChecked = priv?.optString("birth_cal") == "lunar"
-        }
-        box.addView(male); box.addView(lunar)
-
-        val dialog = AlertDialog.Builder(this).setTitle("프로필 수정").setView(box)
-            .setNegativeButton("취소", null).setPositiveButton("저장", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val n = name.text.toString().trim()
-                val ph = phone.text.toString().trim()
-                val ca = car.text.toString().trim()
-                val y = birthYear.text.toString().toIntOrNull() ?: 0
-                val m = month.text.toString().toIntOrNull() ?: 0
-                val d = day.text.toString().toIntOrNull() ?: 0
-                val reg = region.text.toString().trim()
-                if (n.isBlank()) { toast("닉네임을 적어 주세요."); return@setOnClickListener }
-                if (ph.isBlank()) { toast("전화번호를 적어 주세요."); return@setOnClickListener }
-                if (ca.isBlank()) { toast("차량번호를 적어 주세요."); return@setOnClickListener }
-                if (y !in 1900..2100) { toast("태어난 해를 확인해 주세요."); return@setOnClickListener }
-                if (m !in 1..12 || d !in 1..31) { toast("생일의 월·일을 확인해 주세요."); return@setOnClickListener }
-                if (reg.isBlank()) { toast("거주지역을 적어 주세요."); return@setOnClickListener }
-                val birthMd = "%02d-%02d".format(m, d)
-                dialog.dismiss()
-                mutate {
-                    api.updateMyProfile(
-                        n, if (male.isChecked) "m" else "f", y, reg, ph, ca,
-                        birthMd, if (lunar.isChecked) "lunar" else "solar"
-                    )
-                    toast("저장했습니다."); showMe()
-                }
-            }
-        }
-        dialog.show()
+    private fun showMeEdit(profile: JSONObject?, contact: JSONObject?) {
+        prepareScreen("/me/edit") { }
+        detail = true
+        mountScreen(MeEditScreen(this, this, profile, contact))
     }
 
     private fun showMembers() {
-        prepareScreen("/members") { showMembers() }
+        prepareScreen("/members") { screens["/members"]?.load() }
         detail = true
-        val page = detailPage("회원 명단")
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val me = api.profile()
-                val people = api.people()
-                val contacts = api.contacts().associateBy { it.optString("id") }
-                page.removeView(loading)
-                val myRole = me?.optString("role").orEmpty()
-                val canManage = myRole in setOf("staff", "admin", "superadmin")
-                val pending = people.filter { it.optString("role") == "pending" }
-                val members = people.filter { it.optString("role") !in setOf("pending", "banned") }
-                    .sortedBy { it.optString("name") }
-                val banned = people.filter { it.optString("role") == "banned" }
-
-                if (canManage && pending.isNotEmpty()) {
-                    section(page, "가입 신청 ${pending.size}")
-                    pending.forEach { p ->
-                        val box = memberManageRow(p, contacts[p.optString("id")])
-                        val actions = LinearLayout(this@NativeHomeActivity).apply { orientation = LinearLayout.HORIZONTAL }
-                        actions.addView(action("거절", danger = true) {
-                            confirm("${p.optString("name")}님의 가입을 거절할까요?", "명단에서 사라지고 다시 로그인하면 가입 신청부터 하게 됩니다.") {
-                                mutate { api.rejectMember(p.optString("id")); toast("거절했습니다."); showMembers() }
-                            }
-                        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-                        actions.addView(action("승인", primary = true) {
-                            mutate { api.setMemberRole(p.optString("id"), "member"); toast("승인했습니다."); showMembers() }
-                        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-                        box.addView(actions); page.addView(box)
-                    }
-                }
-
-                section(page, "회원 ${members.size}명")
-                if (members.isEmpty()) empty(page, "아직 회원이 없습니다.")
-                members.forEach { p ->
-                    val box = memberManageRow(p, contacts[p.optString("id")])
-                    val role = p.optString("role")
-                    val above = role == "superadmin" || (role == "admin" && myRole != "superadmin")
-                    val manageable = canManage && p.optString("id") != session.userId && !above
-                    if (manageable) {
-                        val actions = LinearLayout(this@NativeHomeActivity).apply { orientation = LinearLayout.VERTICAL }
-                        if (myRole == "superadmin") {
-                            actions.addView(action(if (role == "admin") "운영자 해제" else "운영자로 임명") {
-                                mutate {
-                                    api.setMemberRole(p.optString("id"), if (role == "admin") "member" else "admin")
-                                    showMembers()
-                                }
-                            })
-                        }
-                        if (myRole in setOf("admin", "superadmin") && role != "admin") {
-                            actions.addView(action(if (role == "staff") "부운영자 해제" else "부운영자로 임명") {
-                                mutate {
-                                    api.setMemberRole(p.optString("id"), if (role == "staff") "member" else "staff")
-                                    showMembers()
-                                }
-                            })
-                            actions.addView(action(if (role == "treasurer") "총무 해제" else "총무로 임명") {
-                                mutate {
-                                    api.setMemberRole(p.optString("id"), if (role == "treasurer") "member" else "treasurer")
-                                    showMembers()
-                                }
-                            })
-                        }
-                        actions.addView(action("승인 대기로 내보내기", danger = true) {
-                            confirm("${p.optString("name")}님을 내보낼까요?", "승인 대기 상태가 되어 앱을 볼 수 없게 됩니다.") {
-                                mutate { api.setMemberRole(p.optString("id"), "pending"); showMembers() }
-                            }
-                        })
-                        actions.addView(action("추방", danger = true) {
-                            confirm("${p.optString("name")}님을 추방할까요?", "다시 로그인해도 가입 신청이 되지 않습니다.") {
-                                mutate { api.setMemberRole(p.optString("id"), "banned"); showMembers() }
-                            }
-                        })
-                        actions.visibility = View.GONE
-                        val manage = TextView(this@NativeHomeActivity).apply {
-                            text = "관리"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD
-                            setTextColor(dim); gravity = Gravity.CENTER
-                            setPadding(dp(10), dp(7), dp(10), dp(7))
-                            background = GradientDrawable().apply {
-                                cornerRadius = dp(11).toFloat(); setColor(surface2); setStroke(dp(1), line)
-                            }
-                            setOnClickListener {
-                                actions.visibility = if (actions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                                text = if (actions.visibility == View.VISIBLE) "닫기" else "관리"
-                            }
-                        }
-                        box.addView(manage, LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply { gravity = Gravity.END; topMargin = dp(5) })
-                        box.addView(actions)
-                    }
-                    page.addView(box)
-                }
-
-                if (canManage && banned.isNotEmpty()) {
-                    section(page, "추방 ${banned.size}명")
-                    banned.forEach { p ->
-                        val box = memberManageRow(p, contacts[p.optString("id")])
-                        box.addView(action("추방 해제 · 승인 대기로") {
-                            mutate { api.setMemberRole(p.optString("id"), "pending"); showMembers() }
-                        })
-                        page.addView(box)
-                    }
-                }
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "회원 명단을 불러오지 못했습니다.")
-            }
-        }
+        mountScreen(MembersScreen(this, this))
     }
-
-    private fun memberManageRow(p: JSONObject, contact: JSONObject?): LinearLayout =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(11), dp(14), dp(11))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-            }
-
-            val main = LinearLayout(this@NativeHomeActivity).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            }
-            main.addView(nativeAvatar(p, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
-            val textCol = LinearLayout(this@NativeHomeActivity).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, 0, 0)
-            }
-            val nameRow = LinearLayout(this@NativeHomeActivity).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            }
-            nameRow.addView(TextView(this@NativeHomeActivity).apply {
-                text = personLabel(p).ifBlank { p.optString("name") }
-                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink); maxLines = 1
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            val role = p.optString("role")
-            if (role != "member" && role.isNotBlank()) {
-                nameRow.addView(TextView(this@NativeHomeActivity).apply {
-                    text = roleLabel(role); textSize = 10.5f; typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(when (role) {
-                        "superadmin" -> brandDeep; "admin" -> brand; "staff" -> Color.rgb(46,111,178)
-                        "treasurer" -> warn; "pending" -> warn; "banned" -> danger; else -> dim
-                    })
-                    setPadding(dp(7), 0, 0, 0)
-                })
-            }
-            textCol.addView(nameRow)
-            val details = listOfNotNull(
-                contact?.optString("car")?.takeIf { it.isNotBlank() }?.let { "🚗 $it" },
-                contact?.optString("phone")?.takeIf { it.isNotBlank() }?.let { "☎ $it" }
-            ).joinToString(" · ")
-            if (details.isNotBlank()) textCol.addView(TextView(this@NativeHomeActivity).apply {
-                text = details; textSize = 11.5f; setTextColor(faint); setPadding(0, dp(3), 0, 0)
-            })
-            main.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(main)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(7) }
-        }
 
     private fun roundCard(r: JSONObject): View = cardView(
         (if (r.optString("kind") == "screen") "🎯 " else "⛳ ") +
@@ -1907,7 +1553,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
             api.enablePush(token)
             getSharedPreferences("native-push", MODE_PRIVATE).edit().putBoolean("disabled", false).putBoolean("asked", true).apply()
             toast("이 기기로 알림을 받습니다.")
-            if (content.current?.key == "/me") showMe()
+            if (content.current?.key == "/me") screens["/me"]?.load()
         }
     }
 

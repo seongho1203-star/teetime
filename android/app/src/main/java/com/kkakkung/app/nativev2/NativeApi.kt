@@ -550,6 +550,18 @@ class NativeApi(private val session: NativeSession) {
         }
     }
 
+    /** 이 기기가 대화 알림도 받는가(`push_subscriptions.chat`) — 모르면 켜짐으로 기운다(웹 `chatPush`). */
+    suspend fun chatPush(token: String): Boolean = try {
+        rows("push_subscriptions", listOf("select" to "chat", "endpoint" to "eq.fcm:$token", "limit" to "1"))
+            .firstOrNull()?.let { if (it.isNull("chat")) true else it.optBoolean("chat", true) } ?: true
+    } catch (_: Exception) { true }
+
+    /** 대화 알림만 끄고 켠다 — 기기 단위다(웹 `setChatPush`). */
+    suspend fun setChatPush(token: String, on: Boolean) {
+        val v = request("rest/v1/push_subscriptions", listOf("endpoint" to "eq.fcm:$token"), "PATCH", JSONObject().put("chat", on))
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("대화 알림 설정을 저장하지 못했습니다.")
+    }
+
     suspend fun disablePush(token: String) {
         request("rest/v1/push_subscriptions", listOf("endpoint" to "eq.fcm:$token"), "DELETE")
     }
@@ -600,6 +612,20 @@ class NativeApi(private val session: NativeSession) {
     suspend fun contacts(): List<JSONObject> = try {
         rows("profile_private", listOf("select" to "*", "limit" to "1000"))
     } catch (_: Exception) { emptyList() }
+
+    /** 명단 전체를 모든 칸까지 — 회원 명단 화면만 쓴다(웹 `fetchProfiles` · 아이폰 `profiles()`). */
+    suspend fun profiles(): List<JSONObject> =
+        rows("profiles", listOf("select" to "*", "order" to "name", "limit" to "1000"))
+
+    /**
+     * 올해 참석 횟수 — **운영진만**. DB 함수가 그 밖의 사람을 막으므로(42501)
+     * 못 받으면 `null`이다 — **빈 표로 넘기지 말 것**: 모두가 `올해 0회`가 되어 거짓말이 된다.
+     */
+    suspend fun attendance(): Map<String, Int>? = try {
+        val arr = request("rest/v1/rpc/attendance_counts", method = "POST",
+            body = JSONObject().put("p_since", AppDate.yearStart())) as? JSONArray
+        arr?.let { buildMap { for (i in 0 until it.length()) it.optJSONObject(i)?.let { r -> put(r.optString("user_id"), r.optInt("n")) } } }
+    } catch (_: Exception) { null }
 
     suspend fun setMemberRole(id: String, role: String) {
         val v = request("rest/v1/profiles", listOf("id" to "eq.$id"), "PATCH", JSONObject().put("role", role))

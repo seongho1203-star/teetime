@@ -37,8 +37,8 @@ class Shots {
                 /* 여러 쪽을 넘겨 받는 조회(livePolls)가 끝나게 — 두 번째 쪽부터는 빈손이다. */
                 if ((request.requestUrl!!.queryParameter("offset")?.toIntOrNull() ?: 0) > 0) return MockResponse().setBody("[]")
                 /* 고치기·넣기에는 빈손 — 알림함의 읽음 찍기가 고정 자료를 통째로 '방금 읽음'으로 만들지 않게. */
-                if (request.method != "GET") return MockResponse().setBody("[]")
                 val f = File(fixtures, "$path.json")
+                if (request.method != "GET" && !(path.startsWith("rpc_") && f.exists())) return MockResponse().setBody("[]")
                 return MockResponse().setBody(if (f.exists()) f.readText() else "[]")
             }
         }
@@ -57,6 +57,10 @@ class Shots {
         override fun editPoll(p: JSONObject) {}
         override fun editPost(p: JSONObject) {}
         override fun open(path: String) {}
+        override fun pickAvatar(done: (ByteArray?) -> Unit) {}
+        override fun askPushPermission(done: (Boolean) -> Unit) {}
+        override fun logout() {}
+        override fun editProfile(profile: JSONObject?, contact: JSONObject?) {}
     }
 
     private fun shoot(name: String, make: (ScreenHost) -> NativeScreen) {
@@ -134,6 +138,13 @@ class Shots {
     @Test fun poll() = shoot("poll") { PollScreen(RuntimeEnvironment.getApplication(), it, "p1") }
     @Test fun post() = shoot("post") { PostScreen(RuntimeEnvironment.getApplication(), it, "n1") }
     @Test fun alerts() = shoot("alerts") { AlertsScreen(RuntimeEnvironment.getApplication(), it) }
+    @Test fun members() = shoot("members") { MembersScreen(RuntimeEnvironment.getApplication(), it) }
+    @Test fun me() = shoot("me") { MeScreen(RuntimeEnvironment.getApplication(), it) }
+    @Test fun meEdit() = shoot("me-edit") {
+        MeEditScreen(RuntimeEnvironment.getApplication(), it,
+            JSONObject("""{"id":"me","name":"악마제리","role":"superadmin","gender":"m","birth_year":1983,"region":"광산구"}"""),
+            JSONObject("""{"id":"me","phone":"010-1234-5678","car":"12가3456","birth_md":"05-10","birth_cal":"lunar"}"""))
+    }
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */
