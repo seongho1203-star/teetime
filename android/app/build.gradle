@@ -25,8 +25,9 @@ def nativeGuideDir = layout.buildDirectory.dir('generated/nativeGuide')
 android.sourceSets.main.assets.srcDir(nativeGuideDir)
 tasks.register('generateNativeGuide', Exec) {
     workingDir rootProject.projectDir.parentFile
-    inputs.files('../../src/lib/guide.ts', '../../.dev/native-guide.mjs')
+    inputs.files('../../src/lib/guide.ts', '../../src/lib/courses.ts', '../../.dev/native-guide.mjs')
     outputs.file(nativeGuideDir.map { it.file('guide.json') })
+    outputs.file(nativeGuideDir.map { it.file('courses.json') })
     commandLine 'node', '.dev/native-guide.mjs', nativeGuideDir.get().file('guide.json').asFile.absolutePath
 }
 tasks.named('preBuild').configure { dependsOn('generateNativeGuide') }

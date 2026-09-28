@@ -16,7 +16,7 @@ object NativeChatShared {
             .put("stickers", open.optJSONArray("stickers") ?: JSONArray())
             .put("suggest", open.optJSONArray("suggest") ?: JSONArray())
             .put("suggestMax", open.optInt("suggestMax", 8))
-            .put("suggestAnim", open.optInt("suggestAnim", 2))
+            .put("suggestAnim", open.optInt("suggestAnim", 4))
     }
 
     fun applyTo(config: JSONObject): JSONObject {

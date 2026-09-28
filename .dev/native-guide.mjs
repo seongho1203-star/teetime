@@ -10,3 +10,8 @@ const output = process.argv[2];
 if (!output) throw new Error('Expected output JSON path');
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, JSON.stringify({ intro: guide.GUIDE_INTRO, parts: guide.GUIDE_PARTS, foot: guide.GUIDE_FOOT }));
+
+const courseSource = fs.readFileSync(new URL('../src/lib/courses.ts', import.meta.url), 'utf8');
+const courseCode = ts.transpileModule(courseSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+const courses = await import(`data:text/javascript;base64,${Buffer.from(courseCode).toString('base64')}`);
+fs.writeFileSync(path.join(path.dirname(output), 'courses.json'), JSON.stringify(courses.COURSES));

@@ -49,11 +49,11 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         if (view is ViewGroup) for (i in 0 until view.childCount) scrollView(view.getChildAt(i))?.let { return it }
         return null
     }
-    fun show(key: String, view: View, root: Boolean, refresh: (() -> Unit)? = null) {
+    fun show(key: String, view: View, root: Boolean, refresh: (() -> Unit)? = null, replace: Boolean = false) {
         if (busy || dragging) return
         val entry = Screen(key, view, refresh)
         val old = current
-        if (root || old == null || old.key == key) {
+        if (root || old == null || old.key == key || replace) {
             if (root) screens.clear() else if (old != null) screens.removeAt(screens.lastIndex)
             val oldY = if (old?.key == key) scrollView(old.view)?.scrollY ?: old.view.scrollY else 0
             removeAllViews(); screens.add(entry); attach(entry)

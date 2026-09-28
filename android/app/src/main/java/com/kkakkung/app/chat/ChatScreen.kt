@@ -124,6 +124,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var navigating = false
     private var realtime: ChatRealtime? = null
     private var loadJob: Job? = null
+    private var wordsJob: Job? = null
+    private var stickerWords: Map<String, List<String>> = emptyMap()
     private var readJob: Job? = null
     private var metaJob: Job? = null
     private val syncRunner by lazy { ChatRefreshRunner(scope) { syncNow() } }
@@ -407,7 +409,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             navColorBefore = activity.window.navigationBarColor
             activity.window.navigationBarColor = ChatSkin.bg
         }
-        if (!loaded) startLoad() else { list.resumeSession(); realtime?.start(); sync(); markRead() }
+        if (!loaded) { startLoad(); loadWords() } else { list.resumeSession(); realtime?.start(); sync(); markRead() }
         ViewCompat.requestApplyInsets(this)
         list.refreshScrollInfo()
     }
@@ -416,6 +418,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         if (visible) list.pauseSession()
         scrollHints.reset()
         syncRunner.cancel()
+        wordsJob?.cancel()
         metaJob?.cancel(); readJob?.cancel()
         drawerOverlay?.let { removeView(it) }
         profileDialog?.dismiss(); profileDialog = null
@@ -1171,29 +1174,73 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
     }
 
-    private fun suggestNorm(raw: String): String =
-        raw.replace('？','?').replace(Regex("[\\s!~.,…'\"“”()·:;\\-_/]"), "").lowercase()
+    private fun suggestNorm(raw: String): String = StickerWords.normalize(raw)
+
+    private class SuggestPaint : ForegroundColorSpan(0xFF2C7BD4.toInt())
+    private fun paintSuggest(raw: String, words: Collection<String>) {
+        val editable = input.text
+        paintingMentions = true
+        try {
+            editable.getSpans(0, editable.length, SuggestPaint::class.java).forEach { editable.removeSpan(it) }
+            StickerWords.ranges(raw, words).forEach { editable.setSpan(SuggestPaint(), it.first, it.last + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        } finally { paintingMentions = false }
+    }
+
+    private fun isSuper() = people.firstOrNull { it.optString("id") == me }?.optString("role") == "superadmin"
+    private fun applyWords(rows: List<JSONObject>) {
+        stickerWords = rows.filter { it.optString("sticker_id").isNotBlank() && suggestNorm(it.optString("word")).let { w -> w.codePointCount(0, w.length) >= 2 } }
+            .groupBy { it.optString("sticker_id") }.mapValues { (_, rows) -> rows.map { it.optString("word") }.distinct() }
+        if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
+        if (BaseInputConnection.getComposingSpanStart(input.text) < 0) updateSuggest(input.text.toString())
+    }
+    private fun loadWords() {
+        if (!stage2 || !visible) return
+        wordsJob?.cancel()
+        wordsJob = scope.launch {
+            try { val rows = service.stickerWords(); if (visible) applyWords(rows) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { if (visible) applyWords(emptyList()) }
+        }
+    }
+    private fun editWords(sticker: JSONObject) {
+        if (!isSuper()) { notice("추천 말은 앱관리자만 정할 수 있습니다"); return }
+        val id = sticker.optString("id")
+        val before = stickerWords[id].orEmpty().toList()
+        val field = EditText(activity).apply {
+            setText(before.joinToString(", ")); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            contentDescription = "추천 말"; setPadding(dp(18f), dp(8f), dp(18f), dp(8f))
+        }
+        val dialog = AlertDialog.Builder(activity).setTitle("추천 말 · ${sticker.optString("label", "이모티콘")}")
+            .setMessage("쉼표로 여럿 적을 수 있고, 비우면 추천에서 빠집니다. 짱! · 응? · ^^처럼 기호도 그대로 됩니다.")
+            .setView(field).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val next = StickerWords.split(field.text.toString())
+                val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE); button.isEnabled = false
+                wordsJob?.cancel()
+                scope.launch {
+                    try {
+                        service.setStickerWords(id, before, next)
+                        applyWords(service.stickerWords())
+                        dialog.dismiss(); notice(if (next.isEmpty()) "추천에서 뺐습니다" else "추천 말을 저장했습니다")
+                    } catch (e: Exception) { button.isEnabled = true; notice(e.message ?: "저장하지 못했습니다.") }
+                }
+            }
+        }
+        dialog.show()
+    }
 
     private fun updateSuggest(raw: String) {
+        if (BaseInputConnection.getComposingSpanStart(input.text) >= 0) return
+        paintSuggest(raw, emptyList())
         if (!stage2 || raw.contains('@')) { suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return }
         val q=suggestNorm(raw)
-        if (q.length < 2 || service.config.suggest.length()==0) {
+        if (q.codePointCount(0, q.length) < 2 || stickerWords.isEmpty()) {
             suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return
         }
         // Collect every match first, then follow the shared catalog order (suggestFor).
         val hits = HashSet<String>()
-        val rules = service.config.suggest
-        for (i in 0 until rules.length()) {
-            val rule = rules.optJSONObject(i) ?: continue
-            val words = rule.optJSONArray("words") ?: continue
-            val hit = (0 until words.length()).any {
-                val word = words.optString(it)
-                word.isNotEmpty() && q.contains(word)
-            }
-            if (!hit) continue
-            val ids = rule.optJSONArray("ids") ?: continue
-            for (j in 0 until ids.length()) hits.add(ids.optString(j))
-        }
+        stickerWords.forEach { (id, words) -> if (words.any { q.contains(suggestNorm(it)) }) hits.add(id) }
         val selected = LinkedHashMap<String, String>()
         val max = service.config.suggestMax.coerceAtLeast(0)
         val maxAnimated = service.config.suggestAnim.coerceAtLeast(0)
@@ -1230,8 +1277,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             suggestRow.addView(iv, LinearLayout.LayoutParams(dp(58f), dp(58f)).apply { marginEnd = dp(4f) })
         }
         suggestPanel.visibility=View.VISIBLE
-        /* 추천이 떠 있는 동안 일반 글은 파랑. @언급은 위에서 접으므로 충돌하지 않는다. */
-        input.setTextColor(0xFF2C7BD4.toInt())
+        input.setTextColor(ChatSkin.text)
+        paintSuggest(raw, selected.keys.flatMap { stickerWords[it].orEmpty() }.map(::suggestNorm))
     }
 
     private fun stickerAsset(id: String): String =
@@ -1276,7 +1323,14 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 load(stickerAsset(id)) { crossfade(false) }
                 setOnClickListener { pickSticker(id) }
             }
-            stickerGrid.addView(image, GridLayout.LayoutParams().apply {
+            image.setOnLongClickListener { it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS); editWords(st); true }
+            val tile = FrameLayout(activity)
+            tile.addView(image, FrameLayout.LayoutParams(-1, -1))
+            if (isSuper() && stickerWords[id]?.isNotEmpty() == true) tile.addView(View(activity).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xFF66A83B.toInt()) }
+                contentDescription = "추천 말 있음"
+            }, FrameLayout.LayoutParams(dp(8f), dp(8f), Gravity.TOP or Gravity.END).apply { topMargin = dp(5f); rightMargin = dp(5f) })
+            stickerGrid.addView(tile, GridLayout.LayoutParams().apply {
                 width=cell; height=cell
                 columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1)
             })
@@ -1443,6 +1497,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 val r = async { service.room() }
                 val p = async { service.people() }
                 val roomRow = r.await(); people = p.await()
+                if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
                 room = roomRow.optString("id")
                 val latest = service.messages(room, limit = 100)
                 messages = ArrayList(latest.reversed()); hasMore = latest.size == 100
@@ -1516,7 +1571,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     /** Re-entry and reconnect both refresh membership, including already visible candidates. */
     private fun sync() {
-        if (visible && loaded) syncRunner.request()
+        if (visible && loaded) { loadWords(); syncRunner.request() }
     }
 
     private suspend fun syncNow() {
@@ -1526,6 +1581,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             if (!visible) return
             people = latestPeople
             refreshDrawerPeople?.invoke()
+            if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
             if (stage2 && BaseInputConnection.getComposingSpanStart(input.text) < 0) {
                 paintMentionText(input.text)
                 updateMentionCard()

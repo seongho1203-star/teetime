@@ -647,6 +647,7 @@ class NativeHomeActivity : AppCompatActivity() {
         val signups = jsonObjects(r.optJSONArray("signups"))
         val confirmed = signups.count { it.optString("state") == "confirmed" }
         val mine = signups.firstOrNull { it.optString("user_id") == session.userId }
+        val waiting = signups.count { it.optString("state") == "waitlist" }
         val cardView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(15), dp(15), dp(15), dp(15))
@@ -682,15 +683,12 @@ class NativeHomeActivity : AppCompatActivity() {
             setPadding(0, dp(2), 0, dp(8))
         })
         cardView.addView(TextView(this).apply {
-            text = "참가 ${confirmed}/${r.optInt("capacity")}명"
+            val left = (r.optInt("capacity") - confirmed).coerceAtLeast(0)
+            text = "$confirmed / ${r.optInt("capacity")}명 · " + (if (left == 0) "자리 참" else "${left}자리 남음") + (if (waiting > 0) " · 대기 $waiting" else "")
             textSize = 13f; setTextColor(Color.argb(230, 255, 255, 255))
         })
         cardView.addView(TextView(this).apply {
-            text = when (mine?.optString("state")) {
-                "confirmed" -> "참가 확정"
-                "waitlist" -> "대기중"
-                else -> "라운드 보기"
-            }
+            text = RoundFormRules.homeState(r, session.userId)
             textSize = 14.7f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setPadding(dp(10), dp(10), dp(10), dp(10))
@@ -706,7 +704,7 @@ class NativeHomeActivity : AppCompatActivity() {
             if (weather != null) cardView.addView(TextView(this@NativeHomeActivity).apply { text = weather; textSize = 13f; setTextColor(Color.WHITE) }, 3)
             val group = mine?.optInt("grp", 0) ?: 0
             if (group > 0) try {
-                val tees = api.groupTees(r.optString("id"))
+                val tees = RoundFormRules.groupTees(r, api.groupTees(r.optString("id")))
                 val names = api.people().associateBy { it.optString("id") }
                 val partners = signups.filter { it.optInt("grp", 0) == group && it.optString("state") == "confirmed" }
                     .joinToString(" · ") { names[it.optString("user_id")]?.optString("name").orEmpty() }
@@ -1294,7 +1292,7 @@ class NativeHomeActivity : AppCompatActivity() {
                 val people = api.people()
                 val myProfile = api.profile()
                 if (r == null) { page.removeView(loading); error(page, "라운드를 찾지 못했습니다."); return@launch }
-                val tees = try { api.groupTees(id) } catch (_: Exception) { JSONObject() }
+                val tees = RoundFormRules.groupTees(r, try { api.groupTees(id) } catch (_: Exception) { JSONObject() })
                 val settlements = try { api.roundSettlements(id) } catch (_: Exception) { emptyList() }
                 page.removeView(loading)
                 renderRound(page, r, comments, people, myProfile, tees, settlements)
@@ -1365,6 +1363,18 @@ class NativeHomeActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(4); bottomMargin = dp(8) })
 
+        val teamSlots = RoundFormRules.slots(r)
+        if (teamSlots.isNotEmpty() && !screen) {
+            val teamCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(13), 0, dp(13), dp(12))
+                background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(card) }
+            }
+            section(teamCard, "팀별 티오프 · ${teamSlots.size}팀")
+            teamSlots.groupBy { it.optString("course").ifBlank { "코스 미정" } }.forEach { (course, slots) ->
+                body(teamCard, course + "  " + slots.joinToString(" · ") { it.optString("time") })
+            }
+            page.addView(teamCard)
+        }
         r.optString("note").takeIf { it.isNotBlank() }?.let { note ->
             val noteBox = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(11), dp(13), dp(11))
@@ -1386,7 +1396,7 @@ class NativeHomeActivity : AppCompatActivity() {
         }
 
         if (mine == null && open) {
-            page.addView(action("참가 신청", primary = true) {
+            page.addView(action(if (confirmed.size >= r.optInt("capacity")) "대기 신청" else "참가 신청", primary = true) {
                 confirm("참가 신청", "이 라운드에 신청할까요?") {
                     mutate {
                         val state = api.joinRound(id)
@@ -1395,7 +1405,9 @@ class NativeHomeActivity : AppCompatActivity() {
                     }
                 }
             })
-        } else if (mine != null) {
+        } else if (mine == null) {
+            page.addView(action("신청 마감") { }.apply { isEnabled = false; alpha = .5f })
+        } else {
             page.addView(action(if (mine.optString("state") == "confirmed") "신청 취소" else "대기 취소", danger = true) {
                 val msg = if (mine.optString("state") == "confirmed" && waiting.isNotEmpty())
                     "취소하면 대기 1번인 ${personLabel(names[waiting.first().optString("user_id")])}님이 올라갑니다."
@@ -1463,7 +1475,7 @@ class NativeHomeActivity : AppCompatActivity() {
         if (groups.isEmpty()) return
         groups.forEach { (number, members) ->
             val mine = members.any { it.optString("user_id") == session.userId }
-            val label = if (number > 0) "${number}조" else "미배정"
+            val label = RoundFormRules.groupTitle(round, number)
             section(page, label + if (mine && number > 0) " · 내 조" else "")
             tees.optString(number.toString()).takeIf { it.isNotBlank() }?.let { body(page, "티오프 ${timeOnly(it)}") }
             members.forEach { member ->
@@ -1498,9 +1510,9 @@ class NativeHomeActivity : AppCompatActivity() {
         fun paint() {
             roster.removeAllViews()
             assignments.values.filter { it > 0 }.distinct().sorted().forEach { group ->
-                section(roster, "${group}조")
+                section(roster, RoundFormRules.groupTitle(round, group))
                 roster.addView(action(tees.optString(group.toString()).takeIf { it.isNotBlank() }?.let { "티오프 ${timeOnly(it)}" } ?: "조별 티오프") {
-                    val base = OffsetDateTime.parse(round.optString("tee_at")).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
+                    val base = OffsetDateTime.parse(tees.optString(group.toString()).takeIf { it.isNotBlank() } ?: round.optString("tee_at")).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
                     TimePickerDialog(this, { _, h, minute ->
                         editedTees.add(group.toString())
                         tees.put(group.toString(), base.withHour(h).withMinute(minute).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)); paint()
@@ -1517,20 +1529,21 @@ class NativeHomeActivity : AppCompatActivity() {
             modes.addView(action(label) { assignments = GroupRules.splitGroups(persons, sizes.selectedItemPosition + 2, mode); paint() }, LinearLayout.LayoutParams(0, -2, 1f))
         }
         page.addView(modes); page.addView(roster)
-        page.addView(action("조 편성 저장", primary = true) {
+        val saveGroups = action("조 편성 저장", primary = true) {
             if (assignments.size != persons.size || assignments.values.any { it <= 0 }) { toast("확정자 모두를 편성해 주세요."); return@action }
             val result = JSONObject(); assignments.forEach { (uid, group) -> result.put(uid, group) }
             val kept = JSONObject(); assignments.values.distinct().forEach { group ->
                 if (tees.has(group.toString())) kept.put(group.toString(), tees.get(group.toString()))
             }
             mutate { api.setRoundGroups(id, result, kept); toast("조 편성을 저장했습니다."); content.invalidatePrevious(); navigateBack() }
-        })
+        }.apply { isEnabled = false }
+        page.addView(saveGroups)
         mount(page); paint()
         scope.launch { try {
-            val loaded = api.groupTees(id)
+            val loaded = RoundFormRules.groupTees(round, api.groupTees(id))
             loaded.keys().forEach { key -> if (key !in editedTees) tees.put(key, loaded.get(key)) }
-            paint()
-        } catch (_: Exception) { } }
+            paint(); saveGroups.isEnabled = true
+        } catch (_: Exception) { toast("조별 시각을 받지 못했습니다. 다시 열어 주세요.") } }
     }
 
     private fun renderRoundSettlements(page: LinearLayout, settlements: List<JSONObject>, roundId: String) {
@@ -2205,7 +2218,7 @@ class NativeHomeActivity : AppCompatActivity() {
                 })
                 page.addView(menu)
                 page.addView(TextView(this@NativeHomeActivity).apply {
-                    text = "앱제작: 악마제리\n버전 " + com.kkakkung.app.BuildConfig.VERSION_NAME
+                    text = "앱제작: 악마제리\n버전 " + RoundFormRules.displayVersion(com.kkakkung.app.BuildConfig.VERSION_NAME)
                     textSize = 12f; setTextColor(faint); gravity = Gravity.CENTER
                     setPadding(0, dp(24), 0, dp(8))
                 }, LinearLayout.LayoutParams(
@@ -2535,6 +2548,7 @@ class NativeHomeActivity : AppCompatActivity() {
         return col
     }
 
+    private var replaceNextMount = false
     private fun mount(page: LinearLayout) {
         val key = pendingKey
         val root = key in setOf("/", "/board", "/rounds", "/polls")
@@ -2549,7 +2563,7 @@ class NativeHomeActivity : AppCompatActivity() {
             addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM)); tag = bar
         } else scroll
         if (buildingTabPreview) builtPreview = NativeScreenStack.Screen(key, view, pendingRefresh)
-        else content.show(key, view, root, pendingRefresh)
+        else { content.show(key, view, root, pendingRefresh, replace = replaceNextMount); replaceNextMount = false }
     }
 
     private fun title(parent: LinearLayout, value: String) {
@@ -2618,64 +2632,23 @@ class NativeHomeActivity : AppCompatActivity() {
     }
 
     private fun roundForm(existing: JSONObject?, copy: Boolean = false) {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-        }
-        fun field(hintText: String, value: String = "", numeric: Boolean = false): EditText {
-            val e = EditText(this).apply {
-                hint = hintText; setText(value); textSize = 15f
-                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
-            }
-            box.addView(e, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-            return e
-        }
-        val course = field("골프장/매장", existing?.optString("course").orEmpty())
-        val cap = field("정원", existing?.optInt("capacity", 4)?.toString() ?: "4", true)
-        val fee = field("1인 비용", existing?.optInt("fee", 0)?.toString() ?: "0", true)
-        val note = field("전달 내용", existing?.optString("note").orEmpty())
-        val screen = CheckBox(this).apply {
-            text = "스크린"; isChecked = existing?.optString("kind") == "screen"
-        }
-        box.addView(screen)
-        var tee = if (copy) "" else existing?.optString("tee_at").orEmpty()
-        val whenBtn = Button(this).apply {
-            text = if (tee.isBlank()) "날짜·시간 고르기" else date(tee)
-            isAllCaps = false
-            setOnClickListener { pickDateTime { iso -> tee = iso; text = date(iso) } }
-        }
-        box.addView(whenBtn)
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(if (existing == null || copy) "모집 열기" else "라운드 수정")
-            .setView(box).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val place = course.text.toString().trim()
-                val capacity = cap.text.toString().toIntOrNull() ?: 0
-                if (place.isBlank()) { toast("장소를 적어 주세요."); return@setOnClickListener }
-                if (tee.isBlank()) { toast("날짜와 시간을 골라 주세요."); return@setOnClickListener }
-                if (capacity < 1) { toast("정원은 1명 이상이어야 합니다."); return@setOnClickListener }
-                val payload = JSONObject().put("title", existing?.optString("title").orEmpty())
-                    .put("kind", if (screen.isChecked) "screen" else "field")
-                    .put("course", place).put("tee_at", tee).put("capacity", capacity)
-                    .put("fee", fee.text.toString().toIntOrNull() ?: 0)
-                    .put("note", note.text.toString().trim())
-                    .put("caddie", JSONObject.NULL).put("cart", JSONObject.NULL)
-                    .put("lat", JSONObject.NULL).put("lon", JSONObject.NULL)
-                dialog.dismiss()
-                mutate {
+        prepareScreen(if (existing == null || copy) "/rounds/new" else "/rounds/${existing.optString("id")}/edit") { }
+        detail = true
+        val page = detailPage(if (existing == null || copy) "모집 열기" else "라운드 수정")
+        page.addView(NativeRoundEditor(this, existing, copy) { payload, button ->
+            button.isEnabled = false
+            scope.launch {
+                try {
                     val id = if (existing == null || copy) api.createRound(payload)
                     else { api.updateRound(existing.optString("id"), payload); existing.optString("id") }
                     toast(if (existing == null || copy) "모집을 열었습니다." else "수정했습니다.")
-                    showRound(id)
-                }
+                    if (existing != null && !copy) { content.invalidatePrevious(); navigateBack() }
+                    else { replaceNextMount = true; showRound(id) }
+                } catch (e: Exception) { button.isEnabled = true; toast(e.message ?: "저장하지 못했습니다.") }
             }
-        }
-        dialog.show()
+        })
+        mount(page)
     }
-
     private fun pollEditForm(existing: JSONObject) {
         val options = jsonObjects(existing.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
         val votes = jsonObjects(existing.optJSONArray("poll_votes"))

@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  * (`src/screens/NativeChat.tsx`의 `openNativeChat`).
  *
  * **규칙은 웹에서 온다** — 반응 다섯(`reactions`)·이모티콘 목록(`stickers`)·
- * 추천 표(`suggest`). 앱에 또 적으면 한쪽만 고치게 된다.
+ * 추천 말은 회원 권한으로 sticker_words에서 읽는다. 목록을 앱에 복제하지 않는다.
  */
 class ChatConfig(d: JSONObject) {
     val user: String = d.optString("user")
@@ -33,7 +33,7 @@ class ChatConfig(d: JSONObject) {
     val stickers: JSONArray = d.optJSONArray("stickers") ?: JSONArray()
     val suggest: JSONArray = d.optJSONArray("suggest") ?: JSONArray()
     val suggestMax: Int = d.optInt("suggestMax", 8)
-    val suggestAnim: Int = d.optInt("suggestAnim", 2)
+    val suggestAnim: Int = d.optInt("suggestAnim", 4)
 
     init {
         val five = d.optJSONArray("reactions")
@@ -147,6 +147,20 @@ class ChatService(@Volatile var config: ChatConfig) {
         val r = request("rest/v1/$table", query)
         if (r is JSONArray) for (i in 0 until r.length()) r.optJSONObject(i)?.let { out.add(it) }
         return out
+    }
+
+    suspend fun stickerWords(): List<JSONObject> = rows("sticker_words", listOf("select" to "sticker_id,word", "limit" to "5000"))
+
+    suspend fun setStickerWords(id: String, before: List<String>, next: List<String>) {
+        val removed = before.distinct().filterNot { it in next }
+        val added = next.distinct().filterNot { it in before }
+        if (removed.isNotEmpty()) {
+            val result = request("rest/v1/sticker_words", listOf("sticker_id" to "eq.$id",
+                "word" to "in.(${removed.joinToString(",") { JSONObject.quote(it) }})"), method = "DELETE") as? JSONArray
+            if (result == null || result.length() == 0) throw ChatError("앱관리자만 고칠 수 있습니다.")
+        }
+        if (added.isNotEmpty()) request("rest/v1/sticker_words", method = "POST",
+            body = JSONArray(added.map { JSONObject().put("sticker_id", id).put("word", it) }))
     }
 
     suspend fun room(): JSONObject =
