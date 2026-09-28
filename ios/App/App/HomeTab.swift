@@ -303,7 +303,12 @@ final class NextRoundCell: UITableViewCell {
         }
         let left = Swift.max(0, r.capacity - confirmed.count)
         let who = hrow(confirmed.isEmpty ? [] : [faces], spacing: 8)
-        who.insertArrangedSubview(white("\(confirmed.count) / \(r.capacity)명" + (left > 0 ? " · \(left)자리 남음" : " · 자리 참"), 13, .semibold, alpha: 0.95), at: confirmed.isEmpty ? 0 : 1)
+        /* 자리가 다 찼으면 대기 인원도 적는다 — 라운드 탭 카드의 `4/4명 · 대기 1`과 같은 값이다
+           (사용자 요청 — `홈에도 대기 1 붙여줘`). 정원을 늘릴지 가늠하는 숫자라 홈에서도 보여야 한다. */
+        let waitN = r.waiting.count
+        var seat = "\(confirmed.count) / \(r.capacity)명" + (left > 0 ? " · \(left)자리 남음" : " · 자리 참")
+        if waitN > 0 { seat += " · 대기 \(waitN)" }
+        who.insertArrangedSubview(white(seat, 13, .semibold, alpha: 0.95), at: confirmed.isEmpty ? 0 : 1)
         stack.addArrangedSubview(who)
 
         /* 내 상태가 곧 단추 자리다 — 잔디 위의 분홍(`신청하기`) · 흰 반투명(`신청 완료`) · 흰 바탕 보라(`대기 N번`). */
@@ -322,6 +327,12 @@ final class NextRoundCell: UITableViewCell {
                 state.backgroundColor = UIColor(white: 1, alpha: 0.22)
                 state.textColor = .white
             }
+        } else if r.status != "open" {
+            /* 손으로 마감한 모집은 대기 신청도 안 받는다(`join_round`가 `open`만 받는다) —
+               `대기 신청`이라고 세워 두면 눌러 들어가서야 막힌 줄 안다. 상세의 `신청 마감`과 같은 말이다. */
+            state.text = "신청 마감"
+            state.backgroundColor = UIColor(white: 1, alpha: 0.22)
+            state.textColor = .white
         } else {
             state.text = left > 0 ? "신청하기" : "대기 신청"
             state.backgroundColor = AppSkin.brand
