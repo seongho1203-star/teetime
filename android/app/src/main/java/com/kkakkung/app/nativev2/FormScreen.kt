@@ -15,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import org.json.JSONObject
 
 /*
  * **쓰는 화면의 뼈대** — 아이폰 `FormScreen.swift`(`FormScreenController`)를 코틀린으로 옮긴 것.
@@ -245,4 +246,94 @@ class WonField(ui: Ui) : FrameLayout(ui.ctx) {
     fun setWon(n: Int) { edit.setText(group(n)) }
 
     companion object { fun group(n: Int): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.KOREA).format(n) }
+}
+
+/** 이름 + 칸 한 벌(웹 `.field`) — 폼 밖에서도 쓴다(승인 대기 화면). */
+fun formField(ui: Ui, name: String, input: View, note: String? = null): View = ui.vstack(6).apply {
+    addView(ui.label(name, 13f, bold = true, color = AppSkin.dim))
+    addView(input)
+    if (note != null) addView(ui.label(note, 12f, color = AppSkin.faint, lines = 0))
+}
+
+/**
+ * **생년월일 + 성별** 칸 한 벌 — 웹 `components/GenderAge.tsx`와 같다. 가입(승인 대기) ·
+ * 로그인 뒤 한 번(`FillProfile`) · `프로필 수정` 셋이 같이 쓴다 — 두 벌로 만들지 말 것.
+ *  - **양력/음력은 끌 수 없다** — 어느 달력인지 모르면 생일이 언제인지 알 길이 없다.
+ *  - 성별은 누른 것을 다시 누르면 '안 정함'(저장할 때 막는다).
+ *  - 값 검사는 웹 `birthValue`·`birthMd`와 같은 잣대(1930~2020 · 달 1~12 · 날 1~31).
+ */
+class GenderAgeFields(private val ui: Ui) {
+    val yearField = formText(ui, "1975", 4, InputType.TYPE_CLASS_NUMBER).apply { contentDescription = "태어난 해" }
+    val monthField = formText(ui, "5", 2, InputType.TYPE_CLASS_NUMBER).apply { contentDescription = "태어난 달" }
+    val dayField = formText(ui, "10", 2, InputType.TYPE_CLASS_NUMBER).apply { contentDescription = "태어난 날" }
+    private val solarBtn = OptButton(ui, "양력")
+    private val lunarBtn = OptButton(ui, "음력")
+    private val maleBtn = OptButton(ui, "남")
+    private val femaleBtn = OptButton(ui, "여")
+    var cal = "solar"; private set
+    var gender: String? = null; private set
+
+    init {
+        solarBtn.setOnClickListener { cal = "solar"; paint() }
+        lunarBtn.setOnClickListener { cal = "lunar"; paint() }
+        maleBtn.setOnClickListener { gender = if (gender == "m") null else "m"; paint() }
+        femaleBtn.setOnClickListener { gender = if (gender == "f") null else "f"; paint() }
+        paint()
+    }
+
+    /** 받아 둔 값으로 채운다 — 공개 표(성별·태어난 해)와 가린 표(달·날·달력). */
+    fun fill(profile: JSONObject?, contact: JSONObject?) {
+        val p = profile?.let(::AppProfile)
+        yearField.setText(p?.birthYear?.toString().orEmpty())
+        contact?.strOrNull("birth_md")?.takeIf { it.length >= 5 }?.let { md ->
+            monthField.setText((md.take(2).toIntOrNull() ?: 0).toString())
+            dayField.setText((md.takeLast(2).toIntOrNull() ?: 0).toString())
+        }
+        cal = if (contact?.strOrNull("birth_cal") == "lunar") "lunar" else "solar"
+        gender = p?.gender?.takeIf { it == "m" || it == "f" }
+        paint()
+    }
+
+    private fun paint() {
+        solarBtn.on = cal == "solar"; lunarBtn.on = cal == "lunar"
+        maleBtn.on = gender == "m"; femaleBtn.on = gender == "f"
+    }
+
+    /** `생년월일` · `성별` 두 칸. */
+    fun views(): List<View> {
+        fun unit(t: String) = ui.label(t, 15f, color = AppSkin.dim)
+        val birthRow = LinearLayout(ui.ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(yearField, LinearLayout.LayoutParams(0, -2, 1.6f))
+            addView(unit("년"), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6); marginEnd = ui.dp(6) })
+            addView(monthField, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(unit("월"), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6); marginEnd = ui.dp(6) })
+            addView(dayField, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(unit("일"), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6) })
+        }
+        val birth = ui.vstack(8).apply {
+            addView(equalRow(ui, listOf(solarBtn, lunarBtn)))
+            addView(birthRow)
+        }
+        return listOf(formField(ui, "생년월일", birth), formField(ui, "성별", equalRow(ui, listOf(maleBtn, femaleBtn))))
+    }
+
+    class Value(val gender: String, val year: Int, val md: String, val cal: String)
+
+    /** 다 맞으면 값, 아니면 까닭을 `say`로 알리고 null — 웹과 같은 말·같은 차례. */
+    fun value(say: (String) -> Unit): Value? {
+        val g = gender ?: run { say("성별을 골라 주세요."); return null }
+        val yText = yearField.text.toString().trim()
+        if (yText.isEmpty()) { say("태어난 해를 적어 주세요."); return null }
+        val year = yText.toIntOrNull()?.takeIf { it in BIRTH_MIN..BIRTH_MAX }
+            ?: run { say("태어난 해는 $BIRTH_MIN~$BIRTH_MAX 사이로 적어 주세요."); return null }
+        val mText = monthField.text.toString().trim(); val dText = dayField.text.toString().trim()
+        if (mText.isEmpty() && dText.isEmpty()) { say("생일의 달과 날을 적어 주세요."); return null }
+        val m = mText.toIntOrNull()?.takeIf { it in 1..12 }; val d = dText.toIntOrNull()?.takeIf { it in 1..31 }
+        if (m == null || d == null) { say("생일을 다시 확인해 주세요."); return null }
+        return Value(g, year, "%02d-%02d".format(m, d), cal)
+    }
+
+    companion object { const val BIRTH_MIN = 1930; const val BIRTH_MAX = 2020; const val REGION_MAX = 8 }
 }

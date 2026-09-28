@@ -274,17 +274,9 @@ class MeEditScreen(ctx: Context, host: ScreenHost, private val profile: JSONObje
     FormScreen(ctx, host, "프로필 수정") {
     private val nameField = textField(max = 20)
     private val phoneField = textField("010-0000-0000", 20, InputType.TYPE_CLASS_PHONE)
-    private val yearField = textField("1975", 4, InputType.TYPE_CLASS_NUMBER)
-    private val monthField = textField("5", 2, InputType.TYPE_CLASS_NUMBER)
-    private val dayField = textField("10", 2, InputType.TYPE_CLASS_NUMBER)
+    private val birth = GenderAgeFields(ui)
     private val carField = textField("12가 3456", 20)
-    private val regionField = textField("광산구", REGION_MAX)
-    private val solarBtn = OptButton(ui, "양력")
-    private val lunarBtn = OptButton(ui, "음력")
-    private val maleBtn = OptButton(ui, "남")
-    private val femaleBtn = OptButton(ui, "여")
-    private var cal = "solar"
-    private var gender: String? = null
+    private val regionField = textField("광산구", GenderAgeFields.REGION_MAX)
 
     override fun load() {
         if (built) return
@@ -292,53 +284,12 @@ class MeEditScreen(ctx: Context, host: ScreenHost, private val profile: JSONObje
         val p = profile?.let(::AppProfile)
         nameField.setText(p?.name.orEmpty())
         phoneField.setText(contact?.strOrNull("phone").orEmpty())
-        yearField.setText(p?.birthYear?.toString().orEmpty())
-        contact?.strOrNull("birth_md")?.takeIf { it.length >= 5 }?.let { md ->
-            monthField.setText((md.take(2).toIntOrNull() ?: 0).toString())
-            dayField.setText((md.takeLast(2).toIntOrNull() ?: 0).toString())
-        }
-        cal = contact?.strOrNull("birth_cal") ?: "solar"
-        gender = p?.gender?.takeIf { it == "m" || it == "f" }
+        birth.fill(profile, contact)
         carField.setText(contact?.strOrNull("car").orEmpty())
         regionField.setText(p?.region.orEmpty())
-
-        /* **양력/음력은 끌 수 없다** — 어느 달력인지 모르면 생일이 언제인지 알 길이 없다.
-           성별은 누른 것을 다시 누르면 '안 정함'으로 돌아간다(저장할 때 막는다). */
-        solarBtn.setOnClickListener { cal = "solar"; paint() }
-        lunarBtn.setOnClickListener { cal = "lunar"; paint() }
-        maleBtn.setOnClickListener { gender = if (gender == "m") null else "m"; paint() }
-        femaleBtn.setOnClickListener { gender = if (gender == "f") null else "f"; paint() }
-        paint()
-
-        fun unit(t: String) = ui.label(t, 15f, color = AppSkin.dim)
-        val birthRow = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(yearField, LinearLayout.LayoutParams(0, -2, 1.6f))
-            addView(unit("년"), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6); marginEnd = ui.dp(6) })
-            addView(monthField, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(unit("월"), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6); marginEnd = ui.dp(6) })
-            addView(dayField, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(unit("일"), LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6) })
-        }
-        val birth = ui.vstack(8).apply {
-            addView(equalRow(ui, listOf(solarBtn, lunarBtn)))
-            addView(birthRow)
-        }
-        card(listOf(
-            field("닉네임", nameField),
-            field("전화번호", phoneField),
-            field("생년월일", birth),
-            field("성별", equalRow(ui, listOf(maleBtn, femaleBtn))),
-            field("차량번호", carField),
-            field("거주지역", regionField),
-        ))
+        card(listOf(field("닉네임", nameField), field("전화번호", phoneField)) + birth.views() +
+            listOf(field("차량번호", carField), field("거주지역", regionField)))
         showForm("저장")
-    }
-
-    private fun paint() {
-        solarBtn.on = cal == "solar"; lunarBtn.on = cal == "lunar"
-        maleBtn.on = gender == "m"; femaleBtn.on = gender == "f"
     }
 
     override fun save() {
@@ -347,22 +298,13 @@ class MeEditScreen(ctx: Context, host: ScreenHost, private val profile: JSONObje
         if (name.isEmpty()) { flash("닉네임을 적어 주세요.", error = true); return }
         if (phone.isEmpty()) { flash("전화번호를 적어 주세요.", error = true); return }
         if (car.isEmpty()) { flash("차량번호를 적어 주세요.", error = true); return }
-        val g = gender ?: run { flash("성별을 골라 주세요.", error = true); return }
-        /* 웹 `birthValue`·`birthMd`와 같은 잣대다. */
-        val yText = text(yearField)
-        if (yText.isEmpty()) { flash("태어난 해를 적어 주세요.", error = true); return }
-        val year = yText.toIntOrNull()?.takeIf { it in BIRTH_MIN..BIRTH_MAX }
-            ?: run { flash("태어난 해는 $BIRTH_MIN~$BIRTH_MAX 사이로 적어 주세요.", error = true); return }
-        val mText = text(monthField); val dText = text(dayField)
-        if (mText.isEmpty() && dText.isEmpty()) { flash("생일의 달과 날을 적어 주세요.", error = true); return }
-        val m = mText.toIntOrNull()?.takeIf { it in 1..12 }; val d = dText.toIntOrNull()?.takeIf { it in 1..31 }
-        if (m == null || d == null) { flash("생일을 다시 확인해 주세요.", error = true); return }
+        val b = birth.value { flash(it, error = true) } ?: return
         if (region.isEmpty()) { flash("거주지역을 적어 주세요.", error = true); return }
         hideKeyboard()
         setSave("저장", true)
         launch {
             try {
-                api.updateMyProfile(name, g, year, region.take(REGION_MAX), phone, car, "%02d-%02d".format(m, d), cal)
+                api.updateMyProfile(name, b.gender, b.year, region.take(GenderAgeFields.REGION_MAX), phone, car, b.md, b.cal)
                 setSave("저장", false)
                 host.back(refreshBehind = true)
             } catch (e: Exception) {
@@ -371,6 +313,4 @@ class MeEditScreen(ctx: Context, host: ScreenHost, private val profile: JSONObje
             }
         }
     }
-
-    companion object { const val BIRTH_MIN = 1930; const val BIRTH_MAX = 2020; const val REGION_MAX = 8 }
 }

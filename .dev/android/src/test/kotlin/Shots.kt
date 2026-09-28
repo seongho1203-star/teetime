@@ -168,6 +168,12 @@ class Shots {
         val people = JSONArray(File(fixtures, "profiles.json").readText()).let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
         RoundGroupsScreen(RuntimeEnvironment.getApplication(), it, r, people)
     }
+    private fun gate(mode: AccountGateScreen.Mode, profile: String, contact: String?) = { h: ScreenHost ->
+        AccountGateScreen(RuntimeEnvironment.getApplication(), h, mode, JSONObject(profile), contact?.let(::JSONObject), {}, {}, {})
+    }
+    @Test fun gatePending() = shoot("gate-pending", gate(AccountGateScreen.Mode.PENDING, """{"id":"u9","name":"골프왕","role":"pending"}""", null))
+    @Test fun gateFill() = shoot("gate-fill", gate(AccountGateScreen.Mode.FILL, """{"id":"u9","name":"김지명","role":"member","gender":"f"}""", """{"id":"u9","phone":"010","car":"12가"}"""))
+    @Test fun gateBanned() = shoot("gate-banned", gate(AccountGateScreen.Mode.BANNED, """{"id":"u9","name":"정추방","role":"banned"}""", null))
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */

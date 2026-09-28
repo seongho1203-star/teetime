@@ -14,7 +14,6 @@ import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -97,7 +96,8 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     override fun editPoll(p: JSONObject) = showPollEdit(p)
     override fun editPost(p: JSONObject) = showPostEdit(p)
     override fun replaceWith(path: String) { content.invalidatePrevious(); replaceNextMount = true; open(path) }
-    override fun open(path: String) = if (path == "/" || path.isEmpty()) showTab("home") else openNativeUrl(path)
+    /* 승인 전에는 가이드의 `홈으로 가기`가 막는 화면으로 돌아간다(홈이 아직 없다). */
+    override fun open(path: String) = if (gated) navigateBack() else if (path == "/" || path.isEmpty()) showTab("home") else openNativeUrl(path)
     override fun pickAvatar(done: (ByteArray?) -> Unit) { avatarDone = done; avatarPicker.launch("image/*") }
     override fun askPushPermission(done: (Boolean) -> Unit) {
         if (NativePush.requestIfNeeded(this, notificationPermission)) done(true) else pushDone = done
@@ -305,11 +305,12 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
                 val profile = api.ensurePendingProfile(session.displayName)
                 val contact = api.privateProfile()
                 when (profile.optString("role")) {
-                    "banned" -> showAccountGate(profile, contact, banned = true)
-                    "pending", "" -> showAccountGate(profile, contact, banned = false)
+                    "banned" -> showGate(AccountGateScreen.Mode.BANNED, profile, contact)
+                    "pending", "" -> showGate(AccountGateScreen.Mode.PENDING, profile, contact)
                     else -> {
-                        if (nativeNeedsProfile(profile, contact)) showRequiredProfile(profile, contact)
+                        if (nativeNeedsProfile(profile, contact)) showGate(AccountGateScreen.Mode.FILL, profile, contact)
                         else {
+                            gated = false
                             showHome()
                             intent.getStringExtra("native_url")?.takeIf { it.isNotBlank() }?.let { target ->
                                 content.post { openNativeUrl(target) }
@@ -328,114 +329,25 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         val publicMissing = p.has("gender") && p.has("birth_year") && p.has("region") &&
             (p.optString("gender").isBlank() || p.optInt("birth_year", 0) <= 0 || p.optString("region").isBlank())
         val birthdayMissing = c != null && c.has("birth_md") && c.optString("birth_md").isBlank()
-        return publicMissing || birthdayMissing
+        /* 애플로 들어오면 이름이 없다 — 이름이 빈 사람은 명단에서 누군지 알 수 없다(웹 `needsProfile`). */
+        val nameMissing = p.optString("name").isBlank()
+        return publicMissing || birthdayMissing || nameMissing
     }
 
-    private fun showAccountGate(profile: JSONObject, contact: JSONObject?, banned: Boolean) {
+    /** 들어가기 전에 막는 화면(승인 대기·추방·빠진 정보) — 뿌리에 세워 끌어서 뒤로 못 가게 한다. */
+    private var gated = false
+    private fun showGate(mode: AccountGateScreen.Mode, profile: JSONObject, contact: JSONObject?) {
         detail = true
+        gated = true
         bottom.visibility = View.GONE
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(16), dp(24), dp(16), dp(24))
-        }
-        page.addView(TextView(this).apply {
-            text = if (banned) "이용 제한" else "가입 승인 대기중"
-            textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink); gravity = Gravity.CENTER
-        })
-        page.addView(TextView(this).apply {
-            text = if (banned)
-                "이 계정은 이용이 제한되었습니다.\n궁금한 점은 운영진에게 물어봐 주세요."
-            else "운영진이 명단에서 승인하면 바로 들어갈 수 있습니다.\n알아볼 수 있게 아래 정보를 적어 주세요."
-            textSize = 13f; setTextColor(dim); gravity = Gravity.CENTER; setLineSpacing(0f, 1.5f)
-            setPadding(0, dp(8), 0, dp(14))
-        })
-        if (banned) {
-            page.addView(action("로그아웃", danger = true) { logoutNative() })
-            mount(page); return
-        }
-        val cardBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-            }
-        }
-        profileGateForm(cardBox, profile, contact, pending = true)
-        page.addView(cardBox, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-        page.addView(action("승인 여부 다시 확인") { routeAfterLogin() })
-        page.addView(action("로그아웃", danger = true) { logoutNative() })
-        mount(page)
-    }
-
-    private fun showRequiredProfile(profile: JSONObject, contact: JSONObject?) {
-        detail = true
-        bottom.visibility = View.GONE
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(24), dp(16), dp(24))
-        }
-        title(page, "몇 가지만 더 알려 주세요")
-        body(page, "생년월일 · 성별 · 거주지역이 빠져 있습니다.\n조 편성과 생일 축하에 사용합니다.")
-        val cardBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-            }
-        }
-        profileGateForm(cardBox, profile, contact, pending = false)
-        page.addView(cardBox)
-        page.addView(action("로그아웃", danger = true) { logoutNative() })
-        mount(page)
-    }
-
-    private fun profileGateForm(
-        page: LinearLayout, profile: JSONObject, contact: JSONObject?, pending: Boolean
-    ) {
-        fun field(hintText: String, value: String = "", numeric: Boolean = false): EditText {
-            val e = EditText(this).apply {
-                hint = hintText; setText(value); textSize = 15f
-                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
-            }
-            page.addView(e); return e
-        }
-        val name = field("닉네임", profile.optString("name"))
-        val phone = field("전화번호", contact?.optString("phone").orEmpty())
-        val year = field("태어난 해 (예: 1984)", profile.optInt("birth_year", 0).takeIf { it > 0 }?.toString().orEmpty(), true)
-        val month = field("생일 월", contact?.optString("birth_md")?.substringBefore('-')?.takeIf { it.isNotBlank() }.orEmpty(), true)
-        val day = field("생일 일", contact?.optString("birth_md")?.substringAfter('-', "")?.takeIf { it.isNotBlank() }.orEmpty(), true)
-        val male = CheckBox(this).apply {
-            text = "남성 (체크 해제 = 여성)"; isChecked = profile.optString("gender") != "f"
-        }
-        page.addView(male)
-        val car = field("차량번호", contact?.optString("car").orEmpty())
-        val region = field("거주지역", profile.optString("region"))
-        val lunar = CheckBox(this).apply {
-            text = "음력 생일"; isChecked = contact?.optString("birth_cal") == "lunar"
-        }
-        page.addView(lunar)
-        page.addView(action(if (pending) "저장" else "저장하고 시작하기", primary = true) {
-            val y = year.text.toString().toIntOrNull() ?: 0
-            val m = month.text.toString().toIntOrNull() ?: 0
-            val d = day.text.toString().toIntOrNull() ?: 0
-            val n = name.text.toString().trim()
-            val r = region.text.toString().trim()
-            if (n.isBlank()) { toast("닉네임을 적어 주세요."); return@action }
-            if (pending && phone.text.toString().trim().isBlank()) { toast("전화번호를 적어 주세요."); return@action }
-            if (pending && car.text.toString().trim().isBlank()) { toast("차량번호를 적어 주세요."); return@action }
-            if (y !in 1900..2100) { toast("태어난 해를 확인해 주세요."); return@action }
-            if (m !in 1..12 || d !in 1..31) { toast("생일의 월·일을 확인해 주세요."); return@action }
-            if (r.isBlank()) { toast("거주지역을 적어 주세요."); return@action }
-            val md = "%02d-%02d".format(m, d)
-            mutate {
-                api.updateMyProfile(
-                    n, if (male.isChecked) "m" else "f", y, r,
-                    phone.text.toString().trim(), car.text.toString().trim(),
-                    md, if (lunar.isChecked) "lunar" else "solar"
-                )
-                toast(if (pending) "저장했습니다. 운영진이 승인하면 들어갈 수 있습니다." else "저장했습니다.")
-                routeAfterLogin()
-            }
-        })
+        val screen = AccountGateScreen(this, this, mode, profile, contact,
+            enter = { gated = false; routeAfterLogin() },
+            showHelp = { showHelp() },
+            logout = { logoutNative() })
+        screens.keys.retainAll { k -> content.contains(k) }
+        screens["/gate"] = screen
+        content.show("/gate", screen.root, true, { screens["/gate"]?.load() })
+        screen.load()
     }
 
     private fun logoutNative() {
@@ -834,22 +746,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         detail = true
         mountScreen(RoundEditScreen(this, this, existing, copy))
     }
-    private fun action(
-        label: String, primary: Boolean = false, danger: Boolean = false, click: () -> Unit
-    ): Button = Button(this).apply {
-        text = label; textSize = 15f; isAllCaps = false
-        setTextColor(if (primary) Color.WHITE else if (danger) this@NativeHomeActivity.danger else ink)
-        background = GradientDrawable().apply {
-            cornerRadius = dp(11).toFloat()
-            setColor(if (primary) brand else card)
-            if (!primary) setStroke(dp(1), if (danger) this@NativeHomeActivity.danger else line)
-        }
-        setOnClickListener { click() }
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
-        ).apply { topMargin = dp(8); bottomMargin = dp(4) }
-    }
-
     private fun pollExpired(raw: String): Boolean {
         if (raw.isBlank() || raw == "null") return false
         return try { OffsetDateTime.parse(raw).toInstant().toEpochMilli() < System.currentTimeMillis() }

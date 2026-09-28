@@ -185,6 +185,18 @@ class NativeApi(private val session: NativeSession) {
         }
     }
 
+    /**
+     * **보낸 칸만 고친다** — 로그인 뒤 한 번 받는 화면(`FillProfile`)처럼 전화번호·차량번호를 안
+     * 물어본 곳에서 쓴다(안 물어본 칸을 빈 값으로 지우면 안 된다). `profiles`를 먼저 쓴다.
+     */
+    suspend fun updateProfileParts(pub: JSONObject, priv: JSONObject) {
+        val v = request("rest/v1/profiles", listOf("id" to "eq.${session.userId}"), "PATCH", pub)
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("프로필을 저장하지 못했습니다.")
+        if (priv.length() == 0) return
+        val patched = request("rest/v1/profile_private", listOf("id" to "eq.${session.userId}"), "PATCH", priv)
+        if ((patched as? JSONArray)?.length() == 0) request("rest/v1/profile_private", method = "POST", body = JSONObject(priv.toString()).put("id", session.userId))
+    }
+
     suspend fun ensurePendingProfile(name: String = ""): JSONObject {
         profile()?.let { return it }
         val made = request("rest/v1/profiles", method = "POST", body = JSONObject()
