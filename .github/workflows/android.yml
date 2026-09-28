@@ -345,3 +345,55 @@ jobs:
           name: kkakkung-apk-1.${{ github.run_number }}
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # **브라우저에서 안드로이드 앱을 띄워 보는 자리다**(Appetize · 사용자 요청 —
+      # `안드로이드폰을 구하기힘든상황인데 어플확인할수있는 방법없을까`).
+      # 위 APK를 Appetize에 올려 **아이폰 사파리에서도** 가상 안드로이드 폰으로
+      # 눌러 볼 수 있게 한다. **링크는 늘 같다** — `note`가 `kkakkung-android`인
+      # 앱을 찾아 그 자리에 새 판을 덮어 올린다(없을 때만 새로 만든다).
+      # - 푸시 알림·`까꿍` 소리·키보드 느낌은 여기서 확인이 안 된다 — 진짜 폰 몫이다.
+      # - 토큰(`APPETIZE_API_TOKEN`)이 없으면 조용히 건너뛴다.
+      # - **여기서 실패해도 앱 만들기는 초록으로 둔다**(`continue-on-error`) —
+      #   남의 서비스 때문에 AAB·APK까지 빨개지면 안 된다. 링크는 이 실행의
+      #   요약(Summary)과 로그에 적힌다.
+      - name: 브라우저에서 띄워 볼 판 올리기 (Appetize)
+        continue-on-error: true
+        env:
+          APPETIZE_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+        run: |
+          if [ -z "$APPETIZE_TOKEN" ]; then
+            echo "::notice::APPETIZE_API_TOKEN이 없어 Appetize에 올리지 않습니다."
+            exit 0
+          fi
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk 2>/dev/null | head -1 || true)
+          if [ -z "$APK" ]; then echo "::error::올릴 APK가 없습니다."; exit 1; fi
+          API=https://api.appetize.io/v1/apps
+          NOTE=kkakkung-android
+
+          # 같은 앱이 이미 있는가 — 있으면 그 자리에 덮어 올려 링크를 그대로 둔다.
+          CODE=$(curl -sS -o list.json -w '%{http_code}' -H "X-API-KEY: $APPETIZE_TOKEN" "$API" || true)
+          KEY=""
+          if [ "$CODE" = "200" ]; then
+            KEY=$(jq -r --arg n "$NOTE" '[(.data // .)[]? | select(.note == $n) | .publicKey][0] // empty' list.json || true)
+          else
+            echo "::warning::앱 목록을 못 받았습니다(HTTP $CODE) — 새로 만듭니다."
+            head -c 400 list.json || true; echo
+          fi
+
+          if [ -n "$KEY" ]; then URL="$API/$KEY"; else URL="$API"; fi
+          CODE=$(curl -sS -o up.json -w '%{http_code}' -H "X-API-KEY: $APPETIZE_TOKEN" \
+            -F "file=@$APK" -F "platform=android" -F "note=$NOTE" "$URL" || true)
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            echo "::error::Appetize에 못 올렸습니다(HTTP $CODE)."
+            head -c 600 up.json || true; echo
+            exit 1
+          fi
+          KEY=$(jq -r '.publicKey // empty' up.json || true)
+          if [ -z "$KEY" ]; then echo "::error::답에 publicKey가 없습니다."; head -c 600 up.json; echo; exit 1; fi
+          LINK="https://appetize.io/app/$KEY"
+          echo "::notice::안드로이드 앱 1.${{ github.run_number }}을 브라우저에서 보기 → $LINK"
+          {
+            echo "### 📱 브라우저에서 안드로이드 앱 보기"
+            echo ""
+            echo "1.${{ github.run_number }} → $LINK"
+          } >> "$GITHUB_STEP_SUMMARY"
