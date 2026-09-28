@@ -148,6 +148,12 @@ class Shots {
     }
     @Test fun postEdit() = shoot("post-edit") { PostEditScreen(RuntimeEnvironment.getApplication(), it, null) }
     @Test fun pollEdit() = shoot("poll-edit") { PollEditScreen(RuntimeEnvironment.getApplication(), it, null) }
+    private fun courses() = org.json.JSONArray(File(System.getProperty("shots.dir"), "../gen-assets/courses.json").readText()).let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+    @Test fun roundEdit() = shoot("round-edit") {
+        val r = JSONObject("""{"id":"r1","course":"무등산CC","kind":"field","tee_at":"2026-09-30T07:10:00+00:00","capacity":8,"fee":140000,"caddie":"none","cart":"included","note":"테스트입니다","created_by":"me","tee_slots":[{"course":"스카이","time":"07:21"},{"course":"베르힐","time":"07:14"}]}""")
+        RoundEditScreen(RuntimeEnvironment.getApplication(), it, r, false, courses())
+    }
+    @Test fun roundNew() = shoot("round-new") { RoundEditScreen(RuntimeEnvironment.getApplication(), it, null, false, courses()) }
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */

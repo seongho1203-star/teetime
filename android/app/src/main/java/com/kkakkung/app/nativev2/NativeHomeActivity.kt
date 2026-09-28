@@ -1240,20 +1240,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     private fun roundForm(existing: JSONObject?, copy: Boolean = false) {
         prepareScreen(if (existing == null || copy) "/rounds/new" else "/rounds/${existing.optString("id")}/edit") { }
         detail = true
-        val page = detailPage(if (existing == null || copy) "모집 열기" else "라운드 수정")
-        page.addView(NativeRoundEditor(this, existing, copy) { payload, button ->
-            button.isEnabled = false
-            scope.launch {
-                try {
-                    val id = if (existing == null || copy) api.createRound(payload)
-                    else { api.updateRound(existing.optString("id"), payload); existing.optString("id") }
-                    toast(if (existing == null || copy) "모집을 열었습니다." else "수정했습니다.")
-                    if (existing != null && !copy) { content.invalidatePrevious(); navigateBack() }
-                    else { replaceNextMount = true; showRound(id) }
-                } catch (e: Exception) { button.isEnabled = true; toast(e.message ?: "저장하지 못했습니다.") }
-            }
-        })
-        mount(page)
+        mountScreen(RoundEditScreen(this, this, existing, copy))
     }
     private fun pickDateTime(days: Int = 1, done: (String) -> Unit) {
         val zone = ZoneId.of("Asia/Seoul")

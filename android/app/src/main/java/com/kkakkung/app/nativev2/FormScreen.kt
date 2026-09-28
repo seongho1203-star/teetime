@@ -197,3 +197,52 @@ fun equalRow(ui: Ui, views: List<View>, spacing: Int = 8): LinearLayout = Linear
     views.forEachIndexed { i, v -> addView(v, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = ui.dp(spacing) }) }
 }
 
+
+/**
+ * 금액 칸(아이폰 `WonTextField` · 웹 `WonField`) — 치는 대로 `100,000`으로 보이고 오른쪽에 `원`.
+ * 값은 숫자뿐이다(`won`). 커서는 **앞에 숫자가 몇 개였나**로 되돌린다 — 글자 수로 세면 쉼표가
+ * 하나 늘 때마다 한 칸씩 밀린다.
+ */
+class WonField(ui: Ui) : FrameLayout(ui.ctx) {
+    val edit = EditText(ui.ctx).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextColor(AppSkin.text)
+        background = ui.rounded(AppSkin.surface, AppSkin.radiusSm, AppSkin.line)
+        gravity = Gravity.CENTER_VERTICAL or Gravity.END
+        setPadding(ui.dp(13), 0, ui.dp(32), 0)
+        inputType = InputType.TYPE_CLASS_NUMBER
+        /* `isSingleLine`은 가로로 굴리는 칸이라 오른쪽 맞춤이 처음에 안 보이는 기기가 있다. */
+        maxLines = 1; setHorizontallyScrolling(false)
+        minHeight = ui.dp(44)
+    }
+    val won: Int get() = edit.text.filter { it.isDigit() }.toString().toIntOrNull() ?: 0
+    private var busy = false
+
+    init {
+        addView(edit, LayoutParams(-1, ui.dp(44)))
+        addView(ui.label("원", 16f, color = AppSkin.dim), LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = ui.dp(13) })
+        edit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable) {
+                if (busy) return
+                val raw = s.toString()
+                val caret = edit.selectionEnd.coerceIn(0, raw.length)
+                val before = raw.take(caret).count { it.isDigit() }
+                val digits = raw.filter { it.isDigit() }.dropWhile { it == '0' }.take(9)
+                val out = if (digits.isEmpty()) (if (raw.contains('0')) "0" else "") else group(digits.toInt())
+                if (out == raw) return
+                busy = true
+                edit.setText(out)
+                var seen = 0; var pos = 0
+                for (ch in out) { if (seen >= before) break; pos++; if (ch.isDigit()) seen++ }
+                edit.setSelection(pos.coerceAtMost(out.length))
+                busy = false
+            }
+        })
+    }
+
+    fun setWon(n: Int) { edit.setText(group(n)) }
+
+    companion object { fun group(n: Int): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.KOREA).format(n) }
+}
