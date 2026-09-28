@@ -943,8 +943,22 @@ Deno.serve(async req => {
             : q.eq('chat', true);
     }
 
-    const { data: subs, error } = await q;
+    const { data: found, error } = await q;
     if (error) return new Response(error.message, { status: 500 });
+
+    /* ── 회원에게만 간다 ─────────────────────────────────────────
+     *
+     * **구독 행은 등급이 바뀌어도 그대로 남는다.** 대기로 되돌리거나
+     * 추방한 사람의 폰에도 새 모집 알림이 계속 갔다(사용자 제보 —
+     * `대기로 빠진사람인데 라운드를 열면 알림이가`). 그 사람은 앱을 열어도
+     * 아무것도 못 보는데 알림만 오는 셈이다.
+     *
+     * **받는 사람을 고르는 곳마다 거르지 않고 여기 한 곳에서 거른다** —
+     * 갈래가 열 가지가 넘어 하나씩 챙기면 반드시 빠뜨린다. 대기·추방은
+     * 받을 알림이 하나도 없다(가입 신청 알림은 운영진에게 간다). */
+    const members = new Set(((await db.from('profiles')
+        .select('id').in('role', MEMBERS)).data ?? []).map(p => p.id as string));
+    const subs = (found ?? []).filter(s => members.has(s.user_id as string));
 
     /* ── 아이콘 위 빨간 숫자 ─────────────────────────────────────
      *
@@ -974,10 +988,9 @@ Deno.serve(async req => {
      *
      * **넣는 것이 먼저다** — 아래 뱃지 셈이 이 표를 세기 때문이다. */
     if (note.channel !== 'chat') {
-        const people = note.only ?? (await db.from('profiles')
-            .select('id').in('role', MEMBERS)).data?.map(p => p.id as string) ?? [];
+        const people = note.only ?? [...members];
         const rows = people
-            .filter(id => id && id !== note.except)
+            .filter(id => id && id !== note.except && members.has(id))
             .map(id => ({
                 user_id: id,
                 kind: hook.table,
