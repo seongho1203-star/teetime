@@ -11,9 +11,10 @@ for a in coil-base coil coil-gif coil-video; do
 done
 python3 genr.py
 if [ "$1" = "shots" ]; then
-  gradle -q --console=plain test -Dshots.full="${FULL:-0}" 2>&1 | grep -E "^e: |FAILED|Exception|Caused" | head -40
+  FILTER="--tests shots.Shots"; [ -n "$ALL" ] && FILTER=""   # ALL=1 이면 저장소의 단위 시험도 함께 돈다
+  gradle -q --console=plain test $FILTER -Dshots.full="${FULL:-0}" 2>&1 | grep -E "^e: |FAILED|Exception|Caused" | head -40
   ls build/shots
 else
-  gradle -q --console=plain compileKotlin compileJava 2>&1 | grep -E "^e: |error:" | sed 's#file://.*/app/src/main/java/com/kkakkung/app/##' | head -${2:-60}
+  gradle -q --console=plain compileKotlin compileJava compileTestKotlin compileTestJava 2>&1 | grep -E "^e: |error:" | sed 's#file://.*/app/src/main/java/com/kkakkung/app/##' | head -${2:-60}
 fi
 echo "exit=${PIPESTATUS[0]}"

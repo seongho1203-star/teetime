@@ -1,7 +1,9 @@
 plugins { kotlin("jvm") version "1.9.25" }
 repositories { mavenCentral() }
 val app = file("../../android/app/src/main/java").absolutePath
+val appTest = file("../../android/app/src/test/java").absolutePath
 sourceSets {
+  test { kotlin.srcDirs("src/test/kotlin", appTest); java.srcDirs("src/test/java", appTest) }
   main {
     kotlin.srcDirs(app, "stubs", "build/gen")
     java.srcDirs(app, "stubs", "build/gen")
@@ -15,6 +17,7 @@ dependencies {
   testImplementation("junit:junit:4.13.2")
   testImplementation("org.robolectric:robolectric:4.14.1") { exclude(group = "androidx.test"); exclude(group = "androidx.test.espresso") }
   testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+  testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
   testImplementation("org.robolectric:android-all:15-robolectric-12650502")
 }
 tasks.withType<Test>().configureEach {

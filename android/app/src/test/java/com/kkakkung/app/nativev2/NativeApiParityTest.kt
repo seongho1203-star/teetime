@@ -53,7 +53,7 @@ class NativeApiParityTest {
             server.enqueue(MockResponse().setResponseCode(400).setBody("{\"code\":\"PGRST204\",\"message\":\"missing notify\"}"))
             server.enqueue(MockResponse().setResponseCode(400).setBody("{\"code\":\"42703\",\"message\":\"missing round_id\"}"))
             server.enqueue(MockResponse().setBody("[]"))
-            api(server).shareRound(JSONObject().put("id", "round").put("course", "Test"))
+            api(server).shareToChat("공유", JSONObject().put("round_id", "round").put("notify", true), listOf("notify", "round_id"))
             server.takeRequest()
             val attempts = (1..3).map { JSONObject(server.takeRequest().body.readUtf8()) }
             assertTrue(attempts[0].has("notify")); assertFalse(attempts[1].has("notify"))
@@ -65,7 +65,7 @@ class NativeApiParityTest {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody("[{\"id\":\"room\"}]"))
             server.enqueue(MockResponse().setResponseCode(403))
-            try { api(server).shareRound(JSONObject()); fail("Expected permission failure") } catch (_: NativeApiError) { }
+            try { api(server).shareToChat("공유", JSONObject().put("notify", true), listOf("notify")); fail("Expected permission failure") } catch (_: NativeApiError) { }
             assertEquals(2, server.requestCount)
         }
     }
