@@ -374,6 +374,10 @@ create table if not exists rounds (
     caddie      text        check (caddie in ('caddie', 'none')),
     cart        text        check (cart in ('included', 'excluded')),
     opens_at    timestamptz,                        -- 신청 시작 시각 (null이면 바로)
+    -- 팀별 코스·시각 — `[{"course":"스카이","time":"07:21"}, …]` (한국 시각 HH:MM).
+    -- 한 골프장에서 코스를 나눠 여러 팀이 나갈 때 모집을 열며 미리 적어 둔다.
+    -- **팀 n = 조 n**이라 조 편성이 이 차례대로 시각을 채운다. 비어 있으면 예전 그대로.
+    tee_slots   jsonb       not null default '[]'::jsonb,
     created_by  uuid        references profiles on delete set null,
     created_at  timestamptz not null default now()
 );
@@ -384,6 +388,7 @@ alter table rounds add column if not exists caddie text;
 alter table rounds add column if not exists cart   text;
 -- 기본값을 함께 준 덕에 이미 쌓인 행이 전부 'field'로 채워진다.
 alter table rounds add column if not exists kind   text not null default 'field';
+alter table rounds add column if not exists tee_slots jsonb not null default '[]'::jsonb;
 alter table rounds drop constraint if exists rounds_caddie_check;
 alter table rounds add  constraint rounds_caddie_check check (caddie in ('caddie', 'none'));
 alter table rounds drop constraint if exists rounds_cart_check;

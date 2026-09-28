@@ -423,9 +423,17 @@ export type Round = {
     /** 카트비가 참가비에 들어 있는가. 안 정했으면 null. */
     cart: 'included' | 'excluded' | null;
     opens_at: string | null;
+    /**
+     * 팀별 코스·시각(한국 시각 `HH:MM`) — 모집을 열며 미리 적어 둔 것.
+     * **팀 n = 조 n**. 적고 그리는 것은 앱(Swift)이 하고 웹은 안 건드린다.
+     * 칸이 없는 저장소에서는 안 실려 오므로 선택이다.
+     */
+    tee_slots?: TeeSlot[];
     created_by: string | null;
     created_at: string;
 };
+
+export type TeeSlot = { course: string; time: string };
 
 /**
  * 목록 카드가 그리는 데 필요한 라운드의 칸들.

@@ -243,6 +243,18 @@ final class RoundViewController: NativeScreenController {
         }
         stack.addArrangedSubview(grid)
 
+        /* 팀별 코스·시각 — 모집을 열며 적어 둔 것(`tee_slots`). 코스별로 한 줄씩
+           `스카이 07:21 · 07:28`. 조를 짜기 전에도 몇 시에 나가는지가 보여야 한다. */
+        let slotLines = r.slotLines
+        if !slotLines.isEmpty {
+            let card = CardView()
+            card.content.spacing = 6
+            card.content.addArrangedSubview(hrow([sectionTitle("팀별 \(r.teeLabel)"),
+                                                  mkLabel("\(r.teeSlots.count)팀", size: 13, color: AppSkin.faint)]))
+            for line in slotLines { card.content.addArrangedSubview(mkLabel(line, size: 15, weight: .semibold, lines: 0)) }
+            stack.addArrangedSubview(card)
+        }
+
         // 공유 · 베끼기 — 오른쪽 정렬
         let canShare = !isPast && r.status != "cancelled"
         if canShare || r.isScreen {
@@ -287,7 +299,12 @@ final class RoundViewController: NativeScreenController {
         if !grouped.isEmpty {
             for g in grouped {
                 let block = UIStackView(); block.axis = .vertical; block.spacing = 2
-                let gh = hrow([mkLabel(g.no.map { "\($0)조" } ?? "미배정", size: 14, weight: .bold)], spacing: 8)
+                /* 팀별 코스를 적어 둔 라운드면 조 이름에 코스를 붙인다(팀 n = 조 n). */
+                let slots = r.teeSlots
+                let gName = g.no.map { n in
+                    slots.indices.contains(n - 1) && !slots[n - 1].course.isEmpty ? "\(n)조 · \(slots[n - 1].course)" : "\(n)조"
+                } ?? "미배정"
+                let gh = hrow([mkLabel(gName, size: 14, weight: .bold)], spacing: 8)
                 if g.list.contains(where: { $0.userId == myId }) { gh.addArrangedSubview(BadgeLabel("내 조", .brand)) }
                 if let no = g.no, let t = tees[String(no)] {
                     gh.addArrangedSubview(mkLabel("\(r.teeLabel) \(AppDate.time(t))", size: 12, color: AppSkin.faint))

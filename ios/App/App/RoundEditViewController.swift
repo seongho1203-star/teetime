@@ -48,6 +48,14 @@ final class RoundEditViewController: FormScreenController {
     private let feeField = WonTextField()
     private let noteField = FormTextView(minHeight: 90, max: 1000)
 
+    /* 팀별 코스·시각(`tee_slots`) — 필드에만. 줄 하나가 한 팀 = 한 조다. */
+    private struct SlotRow { let course: FormTextField; let time: UIDatePicker; let view: UIView }
+    private var slotRows: [SlotRow] = []
+    private let slotsWrap = UIStackView()
+    private let slotsBox = UIStackView()
+    private let slotsHint = UILabel()
+    private var hadSlots = false
+
     private var screen: Bool { kind == "screen" }
 
     init(service: NativeChatService, id: String?, from: String?, courses: [ChatJSON]) {
@@ -150,7 +158,10 @@ final class RoundEditViewController: FormScreenController {
         let numRow = UIStackView(arrangedSubviews: [capBox, feeBox])
         numRow.axis = .horizontal; numRow.spacing = 10; numRow.distribution = .fillEqually
 
-        card([field("종류", kindRow), placeBox, condBox, teeBox, numRow, field("전달 내용 (선택)", noteField)])
+        buildSlots(base?.teeSlots ?? [])
+        hadSlots = base?.raw["tee_slots"] != nil
+
+        card([field("종류", kindRow), placeBox, condBox, teeBox, slotsWrap, numRow, field("전달 내용 (선택)", noteField)])
         noteField.onChange = { [weak self] in
             guard let self = self, let end = self.noteField.selectedTextRange?.end else { return }
             self.reveal(self.noteField, rect: self.noteField.caretRect(for: end))
@@ -174,9 +185,114 @@ final class RoundEditViewController: FormScreenController {
         teeName.text = "\(screen ? "시작" : "티오프") (한국 시각)"
         feeName.text = "1인 \(screen ? "게임비" : "그린피")"
         condBox.isHidden = screen
+        slotsWrap.isHidden = screen
+        refreshSlots()
         caddieBtn.on = caddie == "caddie"; noCaddieBtn.on = caddie == "none"
         cartInBtn.on = cart == "included"; cartOutBtn.on = cart == "excluded"
         refreshPlace(showHits: false)
+    }
+
+    // ── 팀별 코스·시각 ───────────────────────────────────────────
+
+    /*
+     * 한 골프장에서 코스를 나눠 여러 팀이 나가는 모집(`스카이 07:21 · 07:28 /
+     * 베르힐 07:14 · 07:21 · 07:28`)을 위해 있다. **적은 차례가 곧 조 번호다** —
+     * 조 편성이 1조부터 이 차례대로 시각을 채우고 조 이름 옆에 코스를 적는다.
+     * 정렬하지 않는다: 적는 사람이 정한 차례를 앱이 바꾸면 조 번호가 어긋난다.
+     * 비워 두면 예전과 똑같다(선택 칸).
+     */
+    private func buildSlots(_ slots: [AppRound.Slot]) {
+        slotsWrap.axis = .vertical; slotsWrap.spacing = 8
+        slotsBox.axis = .vertical; slotsBox.spacing = 8
+        let add = UIButton(type: .system)
+        appButton(add, title: "＋ 팀 추가", color: AppSkin.text, filled: false)
+        add.addTarget(self, action: #selector(addSlotTapped), for: .touchUpInside)
+        slotsHint.font = .systemFont(ofSize: 12); slotsHint.textColor = AppSkin.faint; slotsHint.numberOfLines = 0
+        slotsWrap.addArrangedSubview(mkLabel("팀별 코스·시각 (선택)", size: 13, weight: .bold, color: AppSkin.dim))
+        slotsWrap.addArrangedSubview(slotsBox)
+        slotsWrap.addArrangedSubview(UIStackView(arrangedSubviews: [add, UIView()]))
+        slotsWrap.addArrangedSubview(slotsHint)
+        slots.forEach { addSlot(course: $0.course, h: $0.h, m: $0.m) }
+    }
+
+    private func addSlot(course: String, h: Int, m: Int) {
+        let n = slotRows.count + 1
+        let no = mkLabel("\(n)팀", size: 14, weight: .bold)
+        no.setContentHuggingPriority(.required, for: .horizontal)
+        no.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        let c = FormTextField(hint: "코스", max: 20)
+        c.text = course
+        c.autocorrectionType = .no
+        c.accessibilityLabel = "\(n)팀 코스"
+        let p = UIDatePicker()
+        p.datePickerMode = .time
+        p.preferredDatePickerStyle = .compact
+        p.locale = Locale(identifier: "ko_KR")
+        p.timeZone = WhenPicker.seoul
+        p.calendar = WhenPicker.calendar
+        p.tintColor = AppSkin.brand
+        p.minuteInterval = 1
+        if let d = WhenPicker.calendar.date(bySettingHour: h, minute: m, second: 0, of: Date()) { p.date = d }
+        p.accessibilityLabel = "\(n)팀 시각"
+        p.addTarget(self, action: #selector(slotTimeChanged), for: .valueChanged)
+        p.setContentHuggingPriority(.required, for: .horizontal)
+        p.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let x = UIButton(type: .system)
+        x.setImage(smallX(), for: .normal)   // 화면 안의 ✕는 다 같은 작은 표다
+        x.tintColor = AppSkin.faint
+        x.accessibilityLabel = "\(n)팀 지우기"
+        x.addTarget(self, action: #selector(removeSlotTapped(_:)), for: .touchUpInside)
+        x.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        x.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        let row = UIStackView(arrangedSubviews: [no, c, p, x])
+        row.axis = .horizontal; row.alignment = .center; row.spacing = 6
+        slotRows.append(SlotRow(course: c, time: p, view: row))
+        slotsBox.addArrangedSubview(row)
+    }
+
+    /// 새 팀은 **앞 팀의 코스를 그대로 · 7분 뒤**로 시작한다 — 한 코스에 몇 팀이
+    /// 7분 간격으로 붙는 것이 흔하다. 첫 팀은 위 티오프 시각에서 시작한다.
+    @objc private func addSlotTapped() {
+        let cal = WhenPicker.calendar
+        if let last = slotRows.last {
+            let d = last.time.date.addingTimeInterval(7 * 60)
+            let c = cal.dateComponents([.hour, .minute], from: d)
+            addSlot(course: last.course.text ?? "", h: c.hour ?? 7, m: c.minute ?? 0)
+        } else {
+            let c = cal.dateComponents([.hour, .minute], from: when.date ?? cal.date(bySettingHour: 7, minute: 0, second: 0, of: Date()) ?? Date())
+            addSlot(course: "", h: c.hour ?? 7, m: c.minute ?? 0)
+        }
+        refreshSlots()
+    }
+    @objc private func removeSlotTapped(_ b: UIButton) {
+        guard let i = slotRows.firstIndex(where: { $0.view === b.superview }) else { return }
+        slotRows[i].view.removeFromSuperview()
+        slotRows.remove(at: i)
+        /* 번호를 다시 매긴다 — 가운데를 지우면 `1팀 · 3팀`처럼 구멍이 난다. */
+        for (k, r) in slotRows.enumerated() {
+            ((r.view as? UIStackView)?.arrangedSubviews.first as? UILabel)?.text = "\(k + 1)팀"
+            r.course.accessibilityLabel = "\(k + 1)팀 코스"
+            r.time.accessibilityLabel = "\(k + 1)팀 시각"
+        }
+        refreshSlots()
+    }
+    @objc private func slotTimeChanged() { refreshSlots() }
+
+    private func slotTimes() -> [(h: Int, m: Int)] {
+        slotRows.map {
+            let c = WhenPicker.calendar.dateComponents([.hour, .minute], from: $0.time.date)
+            return (c.hour ?? 0, c.minute ?? 0)
+        }
+    }
+
+    private func refreshSlots() {
+        let n = slotRows.count
+        guard n > 0 else {
+            slotsHint.text = "한 골프장에서 코스를 나눠 여러 팀이 나갈 때 적어 두세요. 조 편성 때 1조부터 이 차례대로 시각이 채워집니다."
+            return
+        }
+        let first = slotTimes().min { ($0.h, $0.m) < ($1.h, $1.m) }!
+        slotsHint.text = "\(n)팀 · 한 팀 4명이면 \(n * 4)명 — 가장 이른 \(String(format: "%02d:%02d", first.h, first.m))이 \(screen ? "시작" : "티오프") 시각으로 저장됩니다. 팀 차례가 곧 조 번호입니다."
     }
 
     /// 찾은 곳 목록과 아래 안내 한 줄(웹 `course-hits`·`xs faint`).
@@ -230,14 +346,29 @@ final class RoundEditViewController: FormScreenController {
     override func saveTapped() {
         guard !saving else { return }
         view.endEditing(true)
-        guard let tee = when.date else { flash("\(screen ? "시작" : "티오프") 시각을 골라 주세요.", error: true); return }
+        guard var tee = when.date else { flash("\(screen ? "시작" : "티오프") 시각을 골라 주세요.", error: true); return }
+        /* 팀별 시각을 적었으면 **가장 이른 팀**이 곧 티오프다 — 날짜는 위 칸 그대로.
+           리마인더(`두 시간 전`·`전날 20시`)와 목록의 시각이 이 값을 본다. */
+        var slots: [ChatJSON] = []
+        if !screen {
+            let times = slotTimes()
+            for (i, r) in slotRows.enumerated() {
+                let one: ChatJSON = ["course": (r.course.text ?? "").trimmingCharacters(in: .whitespaces),
+                                     "time": String(format: "%02d:%02d", times[i].h, times[i].m)]
+                slots.append(one)
+            }
+        }
+        if !screen, let first = slotTimes().min(by: { ($0.h, $0.m) < ($1.h, $1.m) }) {
+            let cal = WhenPicker.calendar
+            tee = cal.date(bySettingHour: first.h, minute: first.m, second: 0, of: cal.startOfDay(for: tee)) ?? tee
+        }
         let course = (courseField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !course.isEmpty else { flash("\(screen ? "매장" : "골프장") 이름을 적어 주세요.", error: true); return }
         guard let cap = Int(capField.text ?? ""), cap >= 1 else { flash("정원은 1명 이상이어야 합니다.", error: true); return }
         let geo = screen ? nil : book.geo(course)
         /* 빈 값은 JSON `null`로 보내야 DB가 지운다(스크린으로 바꾼 옛 조건·좌표). */
         func orNull(_ v: Any?) -> Any { v ?? NSNull() }
-        let payload: ChatJSON = [
+        var payload: ChatJSON = [
             "kind": kind,
             "course": course,
             "tee_at": WhenPicker.iso(tee),
@@ -249,6 +380,9 @@ final class RoundEditViewController: FormScreenController {
             "lat": orNull(geo?.lat),
             "lon": orNull(geo?.lon)
         ]
+        /* 팀을 적었거나 원래 칸이 있던 라운드일 때만 싣는다 — 그 칸이 아직 없는
+           저장소에서 **안 쓰는 모집까지 `PGRST204`로 막히면 안 된다.** */
+        if !slots.isEmpty || hadSlots { payload["tee_slots"] = slots }
         let saveTitle = round == nil ? "모집 열기" : "수정 저장"
         setSave(saveTitle, busy: true)
         Task { @MainActor [weak self] in

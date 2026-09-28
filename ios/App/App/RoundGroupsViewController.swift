@@ -60,6 +60,12 @@ final class RoundGroupsViewController: FormScreenController {
                     let c = WhenPicker.calendar.dateComponents([.hour, .minute], from: NativeChatRows.date(v))
                     self.tees[n] = (c.hour ?? 0, c.minute ?? 0)
                 }
+                /* 모집을 열며 팀별 시각을 적어 두었으면 **처음 짤 때만** 그대로 채운다
+                   (팀 n = 조 n). 한 번 저장한 뒤에는 저장한 값이 이긴다 — 손으로 고친
+                   시각이나 지운 칸을 다시 덮으면 안 된다. */
+                if teeIso.isEmpty, let slots = self.round?.teeSlots {
+                    for (i, s) in slots.enumerated() { self.tees[i + 1] = (s.h, s.m) }
+                }
             } catch { self.showNotice(error.localizedDescription); return }
             self.build()
         }
@@ -201,7 +207,10 @@ final class RoundGroupsViewController: FormScreenController {
             head.alignment = .center
             head.spacing = 8
             let t = mkLabel("\(n)조", size: 16, weight: .bold)
-            let cnt = mkLabel(" · \(members.count)명", size: 12, color: AppSkin.faint)
+            /* 팀별 코스를 적어 둔 라운드면 조 이름 옆에 그 코스를 적는다(팀 n = 조 n). */
+            let slots = round?.teeSlots ?? []
+            let courseName = slots.indices.contains(n - 1) ? slots[n - 1].course : ""
+            let cnt = mkLabel((courseName.isEmpty ? "" : " · \(courseName)") + " · \(members.count)명", size: 12, color: AppSkin.faint)
             head.addArrangedSubview(t); head.addArrangedSubview(cnt); head.addArrangedSubview(UIView())
             /* 빈 조에는 시각 칸을 안 띄운다 — 아직 아무도 없는 조의 시각을 정할 일이 없다. */
             if !members.isEmpty { head.addArrangedSubview(teeControl(n, kind: kind)) }
@@ -267,6 +276,10 @@ final class RoundGroupsViewController: FormScreenController {
 
     /// 처음 정할 때는 라운드 시각에서 시작한다 — 조마다 몇 분씩 미는 것이 흔하다.
     @objc private func teeStart(_ b: UIButton) {
+        if let slots = round?.teeSlots, slots.indices.contains(b.tag - 1) {
+            tees[b.tag] = (slots[b.tag - 1].h, slots[b.tag - 1].m)
+            paintGroups(); return
+        }
         let base = round.map { NativeChatRows.date($0.teeAt) } ?? Date()
         let c = WhenPicker.calendar.dateComponents([.hour, .minute], from: base)
         tees[b.tag] = (c.hour ?? 7, c.minute ?? 0)

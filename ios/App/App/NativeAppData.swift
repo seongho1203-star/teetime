@@ -194,6 +194,38 @@ struct AppRound {
     static let caddieShort = ["caddie": "있음", "none": "없음"]
     static let cartShort = ["included": "포함", "excluded": "미포함"]
     var feeLabel: String { isScreen ? "게임비" : "그린피" }
+    /**
+     * 팀별 코스·시각(`rounds.tee_slots`) — 모집을 열며 미리 적어 둔 것.
+     * **팀 n = 조 n**이라 조 편성이 이 차례대로 시각을 채운다.
+     * 칸이 없는 저장소 · 스크린에서는 빈 배열이다.
+     */
+    struct Slot {
+        let course: String
+        let h: Int, m: Int
+        var time: String { String(format: "%02d:%02d", h, m) }
+    }
+    var teeSlots: [Slot] {
+        guard !isScreen else { return [] }
+        return (raw["tee_slots"] as? [ChatJSON] ?? []).compactMap { Self.slot($0) }
+    }
+    static func slot(_ d: ChatJSON) -> Slot? {
+        let t = (d["time"] as? String ?? "").split(separator: ":")
+        guard t.count >= 2, let h = Int(t[0]), let m = Int(t[1]), (0..<24).contains(h), (0..<60).contains(m) else { return nil }
+        return Slot(course: (d["course"] as? String ?? "").trimmingCharacters(in: .whitespaces), h: h, m: m)
+    }
+    /// 코스별로 묶은 줄 — `스카이 07:21 · 07:28`. 코스는 처음 나온 차례 그대로다.
+    var slotLines: [String] {
+        var order: [String] = []
+        var bag: [String: [String]] = [:]
+        for s in teeSlots {
+            if bag[s.course] == nil { bag[s.course] = []; order.append(s.course) }
+            bag[s.course]!.append(s.time)
+        }
+        return order.map { c in
+            let times = (bag[c] ?? []).joined(separator: " · ")
+            return c.isEmpty ? times : "\(c) \(times)"
+        }
+    }
     /// 오늘(한국 날짜)보다 앞이면 지난 라운드다.
     var isPast: Bool { AppDate.daysUntil(teeAt) < 0 }
     /// 조별로 묶은 확정자 — **조가 하나도 없으면 빈 배열**이고 그때는 한 줄로 그린다(웹 `grouped`).
