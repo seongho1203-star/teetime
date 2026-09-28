@@ -94,8 +94,9 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     override fun copyRound(r: JSONObject) = roundForm(r, copy = true)
     override fun roundGroups(r: JSONObject, people: List<JSONObject>) = showGroups(r, people)
     override fun newSettlement(roundId: String, joined: List<String>, people: List<JSONObject>) = settlementForm(roundId, joined, people)
-    override fun editPoll(p: JSONObject) = pollEditForm(p)
-    override fun editPost(p: JSONObject) = postForm(p)
+    override fun editPoll(p: JSONObject) = showPollEdit(p)
+    override fun editPost(p: JSONObject) = showPostEdit(p)
+    override fun replaceWith(path: String) { content.invalidatePrevious(); replaceNextMount = true; open(path) }
     override fun open(path: String) = if (path == "/" || path.isEmpty()) showTab("home") else openNativeUrl(path)
     override fun pickAvatar(done: (ByteArray?) -> Unit) { avatarDone = done; avatarPicker.launch("image/*") }
     override fun askPushPermission(done: (Boolean) -> Unit) {
@@ -560,8 +561,8 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
             override fun openMembers() = showMembers()
             override fun openChat() = showChat()
             override fun newRound() = roundForm(null)
-            override fun newPoll() = pollForm()
-            override fun newPost() = postForm(null)
+            override fun newPoll() = showPollEdit(null)
+            override fun newPost() = showPostEdit(null)
             override fun toast(msg: String) = this@NativeHomeActivity.toast(msg)
             override fun ask(title: String, msg: String, ok: () -> Unit) = confirm(title, msg, ok)
         })
@@ -699,42 +700,16 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         mountScreen(PostScreen(this, this, id))
     }
 
-    private fun postForm(existing: JSONObject?) {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-        }
-        val t = EditText(this).apply {
-            hint = "제목"; setText(existing?.optString("title").orEmpty()); maxLines = 2
-        }
-        val b = EditText(this).apply {
-            hint = "내용"; setText(existing?.optString("body").orEmpty()); minLines = 7
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        }
-        val pin = CheckBox(this).apply {
-            text = "맨 위에 고정"; isChecked = existing?.optBoolean("pinned") == true
-        }
-        box.addView(t); box.addView(b); box.addView(pin)
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(if (existing == null) "공지 쓰기" else "공지 수정")
-            .setView(box).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val title = t.text.toString().trim()
-                if (title.isBlank()) { toast("제목을 적어 주세요."); return@setOnClickListener }
-                dialog.dismiss()
-                mutate {
-                    val id = if (existing == null)
-                        api.createPost(title, b.text.toString().trim(), pin.isChecked)
-                    else {
-                        api.updatePost(existing.optString("id"), title, b.text.toString().trim(), pin.isChecked)
-                        existing.optString("id")
-                    }
-                    toast(if (existing == null) "공지를 올렸습니다." else "수정했습니다.")
-                    showPost(id)
-                }
-            }
-        }
-        dialog.show()
+    private fun showPollEdit(p: JSONObject?) {
+        prepareScreen(if (p == null) "/polls/new" else "/polls/${p.optString("id")}/edit") { }
+        detail = true
+        mountScreen(PollEditScreen(this, this, p))
+    }
+
+    private fun showPostEdit(p: JSONObject?) {
+        prepareScreen(if (p == null) "/board/new" else "/board/${p.optString("id")}/edit") { }
+        detail = true
+        mountScreen(PostEditScreen(this, this, p))
     }
 
     private fun showRound(id: String) {
@@ -1280,111 +1255,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         })
         mount(page)
     }
-    private fun pollEditForm(existing: JSONObject) {
-        val options = jsonObjects(existing.optJSONArray("poll_options")).sortedBy { it.optInt("sort") }
-        val votes = jsonObjects(existing.optJSONArray("poll_votes"))
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-        }
-        fun edit(h: String, value: String): EditText {
-            val e = EditText(this).apply { hint = h; setText(value); textSize = 15f }
-            box.addView(e); return e
-        }
-        val titleField = edit("투표 제목", existing.optString("title"))
-        val desc = edit("설명", existing.optString("body"))
-        val opts = edit("선택지 — 줄마다 하나", options.joinToString("\n") { it.optString("label") }).apply {
-            minLines = 3; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        }
-        val multi = CheckBox(this).apply { text = "복수 선택"; isChecked = existing.optBoolean("multi") }
-        val anonymous = CheckBox(this).apply { text = "익명"; isChecked = existing.optBoolean("anonymous") }
-        if (votes.isNotEmpty()) { multi.isEnabled = false; anonymous.isEnabled = false }
-        box.addView(multi); box.addView(anonymous)
-        if (votes.isNotEmpty()) body(box, "표가 들어온 뒤에는 복수 선택/익명 설정은 바꿀 수 없습니다.")
-        var closes = existing.optString("closes_at")
-        val closeBtn = Button(this).apply {
-            text = if (closes.isBlank()) "마감 날짜·시간 고르기" else date(closes)
-            isAllCaps = false
-            setOnClickListener { pickDateTime { iso -> closes = iso; text = date(iso) } }
-        }
-        box.addView(closeBtn)
-        val dialog = AlertDialog.Builder(this).setTitle("투표 수정").setView(box)
-            .setNegativeButton("취소", null).setPositiveButton("저장", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val title = titleField.text.toString().trim()
-                val labels = opts.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-                if (title.isBlank()) { toast("제목을 적어 주세요."); return@setOnClickListener }
-                if (labels.size < 2) { toast("선택지를 두 개 이상 남겨 주세요."); return@setOnClickListener }
-                if (closes.isBlank()) { toast("마감 시각을 골라 주세요."); return@setOnClickListener }
-                dialog.dismiss()
-                mutate {
-                    api.updatePoll(
-                        existing.optString("id"), title, desc.text.toString().trim(),
-                        multi.isChecked, anonymous.isChecked, closes, labels
-                    )
-                    toast("수정했습니다."); showPoll(existing.optString("id"))
-                }
-            }
-        }
-        dialog.show()
-    }
-
-    private fun pollForm() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-        }
-        fun edit(hintText: String): EditText {
-            val e = EditText(this).apply { hint = hintText; textSize = 15f }
-            box.addView(e, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-            return e
-        }
-        val titleField = edit("투표 제목")
-        val desc = edit("설명 (선택)")
-        val opts = edit("선택지 — 줄마다 하나").apply {
-            minLines = 3
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        }
-        val multi = CheckBox(this).apply { text = "복수 선택" }; box.addView(multi)
-        val anonymous = CheckBox(this).apply { text = "익명" }; box.addView(anonymous)
-        fun deadline(days: Int) = ZonedDateTime.now(ZoneId.of("Asia/Seoul")).plusDays(days.toLong())
-            .withHour(21).withMinute(0).withSecond(0).withNano(0).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        var closes = deadline(7)
-        val closeBtn = Button(this).apply {
-            text = date(closes); isAllCaps = false
-            setOnClickListener { pickDateTime(7) { iso -> closes = iso; text = date(iso) } }
-        }
-        box.addView(closeBtn)
-        val quick = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf(3, 7, 14).forEach { days -> quick.addView(action(if (days == 14) "2주 후" else "${days}일 후") {
-            closes = deadline(days); closeBtn.text = date(closes)
-        }, LinearLayout.LayoutParams(0, -2, 1f)) }
-        box.addView(quick)
-
-        val dialog = AlertDialog.Builder(this).setTitle("투표 만들기").setView(box)
-            .setNegativeButton("취소", null).setPositiveButton("올리기", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val title = titleField.text.toString().trim()
-                val labels = opts.text.toString().lines().map { it.trim() }
-                    .filter { it.isNotEmpty() }.distinct()
-                if (title.isBlank()) { toast("제목을 적어 주세요."); return@setOnClickListener }
-                if (labels.size < 2) { toast("선택지를 두 개 이상 적어 주세요."); return@setOnClickListener }
-                if (closes.isBlank()) { toast("마감 시각을 골라 주세요."); return@setOnClickListener }
-                dialog.dismiss()
-                mutate {
-                    val id = api.createPoll(
-                        title, desc.text.toString().trim(), multi.isChecked,
-                        anonymous.isChecked, closes, labels
-                    )
-                    toast("투표를 올렸습니다."); showPoll(id)
-                }
-            }
-        }
-        dialog.show()
-    }
-
     private fun pickDateTime(days: Int = 1, done: (String) -> Unit) {
         val zone = ZoneId.of("Asia/Seoul")
         val base = ZonedDateTime.now(zone).plusDays(days.toLong()).withSecond(0).withNano(0)

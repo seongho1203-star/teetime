@@ -57,6 +57,7 @@ class Shots {
         override fun editPoll(p: JSONObject) {}
         override fun editPost(p: JSONObject) {}
         override fun open(path: String) {}
+        override fun replaceWith(path: String) {}
         override fun pickAvatar(done: (ByteArray?) -> Unit) {}
         override fun askPushPermission(done: (Boolean) -> Unit) {}
         override fun logout() {}
@@ -145,6 +146,8 @@ class Shots {
             JSONObject("""{"id":"me","name":"악마제리","role":"superadmin","gender":"m","birth_year":1983,"region":"광산구"}"""),
             JSONObject("""{"id":"me","phone":"010-1234-5678","car":"12가3456","birth_md":"05-10","birth_cal":"lunar"}"""))
     }
+    @Test fun postEdit() = shoot("post-edit") { PostEditScreen(RuntimeEnvironment.getApplication(), it, null) }
+    @Test fun pollEdit() = shoot("poll-edit") { PollEditScreen(RuntimeEnvironment.getApplication(), it, null) }
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */

@@ -303,6 +303,23 @@ class NativeApi(private val session: NativeSession) {
             body = JSONObject().put(parentKey, parentId).put("author_id", session.userId).put("body", body))
     }
 
+    /** 한 줄 고치기 — 안 바뀌었으면(권한이 없으면) 알린다(아이폰 `patchRow`). */
+    suspend fun patchRow(table: String, id: String, fields: JSONObject) {
+        val v = request("rest/v1/$table", listOf("id" to "eq.$id"), "PATCH", fields)
+        if ((v as? JSONArray)?.length() == 0) throw NativeApiError("권한이 없거나 이미 지워졌습니다.")
+    }
+
+    /** 여러 줄 넣기 — 넣은 줄들을 돌려준다(아이폰 `insertRows`). */
+    suspend fun insertRows(table: String, rows: JSONArray): List<JSONObject> {
+        val v = request("rest/v1/$table", method = "POST", body = rows)
+        return (v as? JSONArray).objects()
+    }
+
+    suspend fun deleteRows(table: String, ids: List<String>) {
+        if (ids.isEmpty()) return
+        request("rest/v1/$table", listOf("id" to "in.(${ids.joinToString(",")})"), "DELETE")
+    }
+
     suspend fun deleteRow(table: String, id: String) {
         val v = request("rest/v1/$table", listOf("id" to "eq.$id"), "DELETE")
         if ((v as? JSONArray)?.length() == 0) throw NativeApiError("권한이 없거나 이미 지워졌습니다.")
