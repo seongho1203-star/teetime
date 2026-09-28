@@ -35,6 +35,9 @@ interface ScreenHost {
     fun roundGroups(r: JSONObject, people: List<JSONObject>)
     fun newSettlement(roundId: String, joined: List<String>, people: List<JSONObject>)
     fun editPoll(p: JSONObject)
+    fun editPost(p: JSONObject)
+    /** 주소로 간다(`/rounds/<id>` · `/` 등) — 알림함·가이드가 쓴다(아이폰 `navigate`). */
+    fun open(path: String)
 }
 
 /**

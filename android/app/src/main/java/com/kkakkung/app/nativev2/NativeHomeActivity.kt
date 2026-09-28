@@ -94,6 +94,8 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     override fun roundGroups(r: JSONObject, people: List<JSONObject>) = showGroups(r, people)
     override fun newSettlement(roundId: String, joined: List<String>, people: List<JSONObject>) = settlementForm(roundId, joined, people)
     override fun editPoll(p: JSONObject) = pollEditForm(p)
+    override fun editPost(p: JSONObject) = postForm(p)
+    override fun open(path: String) = if (path == "/" || path.isEmpty()) showTab("home") else openNativeUrl(path)
 
     /** 앱 화면을 올린다 — 머리말·본문을 화면이 스스로 그리므로 `mount`처럼 감싸지 않는다. */
     private fun mountScreen(screen: NativeScreen) {
@@ -683,59 +685,9 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     private fun showPost(id: String) {
-        prepareScreen("/board/$id") { showPost(id) }
+        prepareScreen("/board/$id") { screens["/board/$id"]?.load() }
         detail = true
-        val page = detailPage("공지")
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val post = api.post(id)
-                val comments = api.postComments(id)
-                val peopleList = api.people()
-                val profile = api.profile()
-                page.removeView(loading)
-                if (post == null) { error(page, "없는 공지입니다."); return@launch }
-                val people = peopleList.associateBy { it.optString("id") }
-                val admin = profile?.optString("role") in setOf("staff", "admin", "superadmin")
-                val canEdit = admin || post.optString("author_id") == session.userId
-                if (post.optBoolean("pinned")) page.addView(badge("고정", warn))
-                page.addView(TextView(this@NativeHomeActivity).apply {
-                    text = post.optString("title"); textSize = 20.8f
-                    typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-                    setPadding(0, dp(7), 0, dp(4))
-                })
-                page.addView(TextView(this@NativeHomeActivity).apply {
-                    val who = personLabel(people[post.optString("author_id")]).ifBlank { "알 수 없음" }
-                    text = "$who · ${date(post.optString("created_at"))}"
-                    textSize = 11.5f; setTextColor(faint); setPadding(0, 0, 0, dp(10))
-                })
-                if (post.optString("body").isNotBlank()) page.addView(TextView(this@NativeHomeActivity).apply {
-                    text = post.optString("body"); textSize = 14f; setTextColor(ink)
-                    setLineSpacing(0f, 1.55f); setPadding(0, dp(4), 0, dp(10))
-                })
-                val postActions = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END
-                }
-                if (canEdit) postActions.addView(action("수정") { postForm(post) },
-                    LinearLayout.LayoutParams(0, dp(44), 1f))
-                if (admin) {
-                    postActions.addView(action(if (post.optBoolean("pinned")) "고정 해제" else "맨 위에 고정") {
-                        mutate { api.togglePostPin(id, !post.optBoolean("pinned")); showPost(id) }
-                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
-                    postActions.addView(action("지우기", danger = true) {
-                        confirm("이 공지를 지울까요?", "댓글도 함께 사라지며 되돌릴 수 없습니다.") {
-                            mutate { api.deletePost(id); toast("지웠습니다."); showBoard() }
-                        }
-                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
-                }
-                if (postActions.childCount > 0) page.addView(postActions)
-                commentsBlock(page, comments, people) { text ->
-                    mutate { api.addComment("post_comments", "post_id", id, text); showPost(id) }
-                }
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "공지를 불러오지 못했습니다.")
-            }
-        }
+        mountScreen(PostScreen(this, this, id))
     }
 
     private fun postForm(existing: JSONObject?) {
@@ -883,56 +835,10 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
 
     // ── 알림함 ─────────────────────────────────────────────────
 
-    private fun showAlerts(fresh: MutableSet<String> = mutableSetOf()) {
-        prepareScreen("/alerts") { showAlerts(fresh) }
+    private fun showAlerts() {
+        prepareScreen("/alerts") { screens["/alerts"]?.load() }
         detail = true
-        val page = detailPage("알림")
-        val loading = ProgressBar(this); page.addView(loading); mount(page)
-        scope.launch {
-            try {
-                val list = api.notifications()
-                list.filter { it.isNull("read_at") || it.optString("read_at").isBlank() }
-                    .forEach { fresh.add(it.optString("id")) }
-                api.markNotificationsRead()
-                api.purgeNotifications()
-                page.removeView(loading)
-                if (list.isEmpty()) {
-                    empty(page, "아직 온 알림이 없습니다.\n모집·정산·조 편성 소식이 여기 쌓입니다.")
-                }
-                list.forEach { n ->
-                    val titleText = n.optString("title").ifBlank { "알림" }
-                    val url = n.optString("url")
-                    val unread = n.optString("id") in fresh
-                    val row = LinearLayout(this@NativeHomeActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(if (unread) card else surface2) }
-                        clipToOutline = true
-                        setOnClickListener { openNativeUrl(url) }
-                        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
-                    }
-                    if (unread) row.addView(View(this@NativeHomeActivity).apply { setBackgroundColor(danger) }, LinearLayout.LayoutParams(dp(4), -1))
-                    val words = LinearLayout(this@NativeHomeActivity).apply {
-                        orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(12), dp(13), dp(12))
-                    }
-                    words.addView(TextView(this@NativeHomeActivity).apply {
-                        text = if (unread) android.text.SpannableString("N  $titleText").apply {
-                            setSpan(android.text.style.ForegroundColorSpan(danger), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        } else titleText
-                        textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (unread) ink else dim)
-                    })
-                    words.addView(TextView(this@NativeHomeActivity).apply {
-                        text = n.optString("body").take(90) + if (n.optString("body").length > 90) "…" else ""
-                        textSize = 13f; setTextColor(dim); setPadding(0, dp(5), 0, 0)
-                    })
-                    row.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
-                    if (url.isBlank()) row.isClickable = false
-                    page.addView(row)
-                }
-                if (list.isNotEmpty()) body(page, "90일이 지난 알림은 저절로 지워집니다.")
-            } catch (e: Exception) {
-                page.removeView(loading); error(page, e.message ?: "알림을 불러오지 못했습니다.")
-            }
-        }
+        mountScreen(AlertsScreen(this, this))
     }
 
     private fun openNativeUrl(raw: String) {
@@ -954,43 +860,9 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     private fun showHelp() {
-        prepareScreen("/help") { showHelp() }
+        prepareScreen("/help") { }
         detail = true
-        val page = detailPage("앱 사용자 가이드")
-        fun paragraph(value: String) {
-            if (value.isBlank()) return
-            val styled = android.text.SpannableStringBuilder()
-            val marks = Regex("\\*\\*(.*?)\\*\\*|\\(\\((.*?)\\)\\)")
-            var end = 0
-            marks.findAll(value).forEach { match ->
-                styled.append(value.substring(end, match.range.first))
-                val start = styled.length
-                val bold = match.groups[1] != null
-                styled.append(if (bold) match.groupValues[1] else match.groupValues[2])
-                styled.setSpan(if (bold) android.text.style.StyleSpan(Typeface.BOLD) else android.text.style.ForegroundColorSpan(dim), start, styled.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                end = match.range.last + 1
-            }
-            styled.append(value.substring(end))
-            page.addView(TextView(this).apply {
-                this.text = styled; textSize = 15f; setTextColor(ink); setLineSpacing(0f, 1.35f)
-                setPadding(0, dp(6), 0, dp(6))
-            })
-        }
-        try {
-            val guide = JSONObject(assets.open("guide.json").bufferedReader().use { it.readText() })
-            paragraph(guide.optString("intro"))
-            jsonObjects(guide.optJSONArray("parts")).forEach { part ->
-                section(page, "${part.optString("icon")} ${part.optString("title")}")
-                paragraph(part.optString("lead"))
-                val items = part.optJSONArray("items") ?: org.json.JSONArray()
-                for (i in 0 until items.length()) paragraph("• ${items.optString(i)}")
-                jsonObjects(part.optJSONArray("steps")).filterNot { it.optBoolean("webOnly") }
-                    .forEachIndexed { i, step -> paragraph("${i + 1}. ${step.optString("text")}") }
-                paragraph(part.optString("tip"))
-            }
-            paragraph(guide.optString("foot"))
-        } catch (_: Exception) { error(page, "가이드를 불러오지 못했습니다.") }
-        mount(page)
+        mountScreen(HelpScreen(this, this))
     }
 
     private fun settlementForm(roundId: String, joined: List<String>, people: List<JSONObject>) {

@@ -1,0 +1,4 @@
+[{"id":"a1","kind":"settlement_shares","title":"💰 정산","body":"무등산CC 정산 · 내 몫 52,000원","url":"#/rounds/r1","created_at":"2026-09-28T01:00:00Z","read_at":null},
+ {"id":"a2","kind":"round_groups","title":"🚩 조 편성","body":"무등산CC 조가 나왔습니다","url":"#/rounds/r1","created_at":"2026-09-27T01:00:00Z","read_at":null},
+ {"id":"a3","kind":"polls","title":"🗳 새 투표","body":"10월 정기 모임 날짜","url":"#/polls/p1","created_at":"2026-09-25T01:00:00Z","read_at":"2026-09-25T02:00:00Z"},
+ {"id":"a4","kind":"signups","title":"자리가 났습니다","body":"대기에서 확정으로 올라갔습니다","url":"","created_at":"2026-09-20T01:00:00Z","read_at":"2026-09-20T02:00:00Z"}]

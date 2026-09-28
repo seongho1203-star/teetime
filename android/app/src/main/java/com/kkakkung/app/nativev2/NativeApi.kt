@@ -585,12 +585,12 @@ class NativeApi(private val session: NativeSession) {
         rows("notifications", listOf("select" to "*", "order" to "created_at.desc", "limit" to limit.toString()))
     } catch (_: Exception) { emptyList() }
 
-    suspend fun markNotificationsRead() {
-        try {
-            request("rest/v1/notifications", listOf("read_at" to "is.null"), "PATCH",
-                JSONObject().put("read_at", java.time.Instant.now().toString()))
-        } catch (_: Exception) {}
-    }
+    /** 안 읽은 것을 다 읽음으로 — **방금 찍은 id를 돌려준다**(아이폰 `markAlertsRead`). */
+    suspend fun markNotificationsRead(): List<String> = try {
+        val arr = request("rest/v1/notifications", listOf("read_at" to "is.null"), "PATCH",
+            JSONObject().put("read_at", java.time.Instant.now().toString())) as? JSONArray
+        buildList { if (arr != null) for (i in 0 until arr.length()) arr.optJSONObject(i)?.optString("id")?.takeIf { it.isNotEmpty() }?.let(::add) }
+    } catch (_: Exception) { emptyList() }
 
     suspend fun purgeNotifications() {
         try { request("rest/v1/rpc/purge_my_notifications", method = "POST", body = JSONObject()) }
