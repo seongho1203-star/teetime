@@ -850,123 +850,12 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     private fun settlementForm(roundId: String, joined: List<String>, people: List<JSONObject>) {
-        val candidates = people.filter { it.optString("role") !in setOf("pending", "banned") }
-        val labels = candidates.map { personLabel(it).ifBlank { it.optString("name") } }.toTypedArray()
-        val checked = BooleanArray(candidates.size) { i -> joined.contains(candidates[i].optString("id")) }
-        val picked = candidates.mapIndexedNotNull { i, p -> if (checked[i]) p.optString("id") else null }.toMutableSet()
-
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-        }
-        fun f(h: String, numeric: Boolean = false): EditText {
-            body(box, h)
-            val e = EditText(this).apply {
-                contentDescription = h
-                if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
-            }
-            box.addView(e); return e
-        }
-        val titleField = f("정산 제목")
-        val totalField = f("총금액", true)
-        val bankField = f("은행")
-        val accountField = f("계좌번호")
-        val noteField = f("안내 (선택)")
-        val peopleBtn = Button(this).apply {
-            isAllCaps = false
-            fun label() { text = "정산할 사람 ${picked.size}명 선택" }
-            label()
-            setOnClickListener {
-                AlertDialog.Builder(this@NativeHomeActivity)
-                    .setTitle("정산할 사람")
-                    .setMultiChoiceItems(labels, checked) { _, which, on ->
-                        checked[which] = on
-                        val uid = candidates[which].optString("id")
-                        if (on) picked.add(uid) else picked.remove(uid)
-                    }
-                    .setPositiveButton("완료") { _, _ -> label() }
-                    .show()
-            }
-        }
-        box.addView(peopleBtn)
-
-        val custom = linkedMapOf<String, Int>()
-        lateinit var amountBtn: Button
-        amountBtn = Button(this).apply {
-            text = "사람별 금액 조정"; isAllCaps = false
-            setOnClickListener {
-                val total = totalField.text.toString().replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
-                val ids = picked.toList()
-                if (total <= 0 || ids.isEmpty()) {
-                    toast("총금액과 정산할 사람을 먼저 정해 주세요.")
-                    return@setOnClickListener
-                }
-                val preview = try { SettlementRules.split(total, ids, custom) } catch (_: IllegalArgumentException) {
-                    toast("고정 금액 합계를 확인해 주세요."); return@setOnClickListener
-                }
-                val editBox = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), 0)
-                }
-                val fields = linkedMapOf<String, EditText>()
-                ids.forEachIndexed { i, uid ->
-                    val who = candidates.firstOrNull { it.optString("id") == uid }
-                    val value = preview.getValue(uid)
-                    val name = personLabel(who).ifBlank { who?.optString("name").orEmpty() }
-                    body(editBox, name)
-                    val e = EditText(this@NativeHomeActivity).apply {
-                        contentDescription = name
-                        setText(value.toString()); inputType = InputType.TYPE_CLASS_NUMBER
-                    }
-                    fields[uid] = e; editBox.addView(e)
-                }
-                val amountDialog = AlertDialog.Builder(this@NativeHomeActivity)
-                    .setTitle("사람별 금액").setView(editBox)
-                    .setNegativeButton("취소", null).setPositiveButton("적용", null).create()
-                amountDialog.setOnShowListener {
-                    amountDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val next = fields.mapValues { it.value.text.toString().toIntOrNull() ?: 0 }
-                        val fixed = custom.filterKeys { it in ids }.toMutableMap()
-                        next.forEach { (uid, value) -> if (value != preview[uid]) fixed[uid] = value }
-                        try { SettlementRules.split(total, ids, fixed) } catch (_: IllegalArgumentException) {
-                            toast("고정 금액 합계를 확인해 주세요."); return@setOnClickListener
-                        }
-                        custom.clear(); custom.putAll(fixed)
-                        amountBtn.text = "사람별 금액 조정 ✓"
-                        amountDialog.dismiss()
-                    }
-                }
-                amountDialog.show()
-            }
-        }
-        box.addView(amountBtn)
-
-        val dialog = AlertDialog.Builder(this).setTitle("정산 만들기").setView(box)
-            .setNegativeButton("취소", null).setPositiveButton("보내기", null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val title = titleField.text.toString().trim()
-                val total = totalField.text.toString().replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
-                if (title.isBlank()) { toast("정산 제목을 적어 주세요."); return@setOnClickListener }
-                if (picked.isEmpty()) { toast("정산할 사람을 골라 주세요."); return@setOnClickListener }
-                if (total <= 0) { toast("총금액을 적어 주세요."); return@setOnClickListener }
-                val ids = picked.toList()
-                val amounts = try { SettlementRules.split(total, ids, custom) } catch (_: IllegalArgumentException) {
-                    toast("고정 금액과 총금액을 확인해 주세요."); return@setOnClickListener
-                }
-                dialog.dismiss()
-                mutate {
-                    api.createSettlement(
-                        roundId, title, noteField.text.toString().trim(),
-                        bankField.text.toString().trim(), accountField.text.toString().trim(), amounts
-                    )
-                    toast("${ids.size}명에게 정산을 보냈습니다.")
-                    showRound(roundId)
-                }
-            }
-        }
-        dialog.show()
+        prepareScreen("/rounds/$roundId/settle-new") { }
+        detail = true
+        /* 고르는 명단은 **회원 전체**(대기·추방만 뺀다) — 참가자로 좁히면 뒷풀이만 온 사람을 못 넣는다. */
+        val members = people.map(::AppProfile).filter { it.role != "pending" && it.role != "banned" }.sortedBy { it.name }
+        mountScreen(SettlementEditScreen(this, this, roundId, members, joined, NativeChatShared.banks()))
     }
-
-    // ── 정산 현황 ───────────────────────────────────────────────
 
     private fun showSettlements() {
         prepareScreen("/settle") { showSettlements() }

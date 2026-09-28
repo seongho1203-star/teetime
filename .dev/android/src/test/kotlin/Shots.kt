@@ -13,6 +13,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -154,6 +155,13 @@ class Shots {
         RoundEditScreen(RuntimeEnvironment.getApplication(), it, r, false, courses())
     }
     @Test fun roundNew() = shoot("round-new") { RoundEditScreen(RuntimeEnvironment.getApplication(), it, null, false, courses()) }
+    @Test fun settlementNew() = shoot("settlement-new") {
+        val people = JSONArray(File(fixtures, "profiles.json").readText()).let { a -> (0 until a.length()).map { AppProfile(a.getJSONObject(it)) } }
+            .filter { p -> p.role != "pending" && p.role != "banned" }
+        SettlementEditScreen(RuntimeEnvironment.getApplication(), it, "r1", people, listOf("me", "u2", "u4"), listOf("국민은행", "광주은행")).also { s ->
+            s.load(); s.totalField.setWon(420000); s.allTapped()
+        }
+    }
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */

@@ -17,6 +17,13 @@ object NativeChatShared {
             .put("suggest", open.optJSONArray("suggest") ?: JSONArray())
             .put("suggestMax", open.optInt("suggestMax", 8))
             .put("suggestAnim", open.optInt("suggestAnim", 4))
+            .put("banks", open.optJSONArray("banks") ?: JSONArray())
+    }
+
+    /** 은행 목록(웹 `BANKS`) — 정산 만들기가 고르는 칸에 쓴다. */
+    fun banks(): List<String> {
+        val a = raw?.optJSONArray("banks") ?: return emptyList()
+        return (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
     }
 
     /**
