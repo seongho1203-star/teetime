@@ -163,6 +163,11 @@ class Shots {
         }
     }
     @Test fun settle() = shoot("settle") { SettleScreen(RuntimeEnvironment.getApplication(), it) }
+    @Test fun groups() = shoot("groups") {
+        val r = JSONArray(File(fixtures, "rounds.json").readText()).getJSONObject(0)
+        val people = JSONArray(File(fixtures, "profiles.json").readText()).let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+        RoundGroupsScreen(RuntimeEnvironment.getApplication(), it, r, people)
+    }
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */

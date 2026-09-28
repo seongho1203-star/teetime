@@ -584,9 +584,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         }
     }
 
-    private fun nativeAvatar(profile: JSONObject?, size: Int): View =
-        Ui(this).avatar(profile?.let(::AppProfile), size)
-
     private fun showRoundsList() {
         prepareScreen("/rounds") { showRoundsList() }
         showTabPage("/rounds") { tabPages.rounds() }
@@ -596,52 +593,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         prepareScreen("/polls") { showPollsList() }
         showTabPage("/polls") { tabPages.polls() }
     }
-
-    private fun infoPair(a: Pair<String, String>, b: Pair<String, String>): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(infoCell(a.first, a.second), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(infoCell(b.first, b.second), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(1)
-            })
-        }
-
-    private fun infoCell(label: String, value: String): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(13), dp(8), dp(13), dp(8))
-            setBackgroundColor(card)
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = label; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; setTextColor(faint)
-            })
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = value; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            })
-        }
-
-    private fun fullDate(raw: String): String = try {
-        val z = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
-        z.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN))
-    } catch (_: Exception) { date(raw) }
-
-    private fun timeOnly(raw: String): String = try {
-        val z = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
-        z.format(DateTimeFormatter.ofPattern("HH:mm", Locale.KOREAN))
-    } catch (_: Exception) { "" }
-
-    private fun listHeader(titleText: String, actionText: String, click: () -> Unit): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = titleText; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = actionText; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER; setPadding(dp(12), dp(7), dp(12), dp(7))
-                background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(brand) }
-                isClickable = true; setOnClickListener { click() }
-            })
-            setPadding(0, dp(2), 0, dp(12))
-        }
 
     private fun badge(label: String, color: Int): TextView = TextView(this).apply {
         text = label; textSize = 10.5f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color)
@@ -653,24 +604,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         ).apply { marginEnd = dp(5) }
     }
 
-    private fun emptyBox(parent: LinearLayout, message: String) {
-        parent.addView(TextView(this).apply {
-            text = message; textSize = 14f; setTextColor(dim); gravity = Gravity.CENTER
-            setPadding(dp(16), dp(28), dp(16), dp(28))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-            }
-        })
-    }
-
-    private fun epoch(raw: String): Long = try { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
-        catch (_: Exception) { 0L }
-
-    private fun daysUntil(raw: String): Long = try {
-        val target = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul")).toLocalDate()
-        java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(ZoneId.of("Asia/Seoul")), target)
-    } catch (_: Exception) { 99L }
-
     // ── 공지 ───────────────────────────────────────────────────
 
     private fun showBoard() {
@@ -679,19 +612,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         detail = false
         currentTab = "board"; selectTabCompat("board")
         showTabPage("/board") { tabPages.board() }
-    }
-
-    private fun timeAgo(raw: String): String {
-        val ms = epoch(raw)
-        if (ms <= 0) return date(raw)
-        val sec = maxOf(0L, (System.currentTimeMillis() - ms) / 1000)
-        return when {
-            sec < 60 -> "방금 전"
-            sec < 3600 -> "${sec / 60}분 전"
-            sec < 86400 -> "${sec / 3600}시간 전"
-            sec < 604800 -> "${sec / 86400}일 전"
-            else -> date(raw)
-        }
     }
 
     private fun showPost(id: String) {
@@ -719,62 +639,9 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     private fun showGroups(round: JSONObject, people: List<JSONObject>) {
-        val id = round.optString("id")
-        prepareScreen("/rounds/$id/groups") { } // Editing screens are never rebuilt on resume.
+        prepareScreen("/rounds/${round.optString("id")}/groups") { }
         detail = true
-        val page = detailPage("조 편성")
-        val members = jsonObjects(round.optJSONArray("signups")).filter { it.optString("state") == "confirmed" }.sortedBy { it.optInt("seq") }
-        val names = people.associateBy { it.optString("id") }
-        val persons = members.map { m ->
-            val uid = m.optString("user_id"); val p = names[uid]
-            GroupPerson(uid, p?.optString("gender"), p?.optInt("birth_year", 0)?.takeIf { it > 0 })
-        }
-        val sizes = android.widget.Spinner(this).apply {
-            adapter = android.widget.ArrayAdapter(this@NativeHomeActivity, android.R.layout.simple_spinner_dropdown_item, listOf("최대 2명", "최대 3명", "최대 4명"))
-            setSelection(2)
-        }
-        page.addView(sizes)
-        var assignments: Map<String, Int> = members.associate { it.optString("user_id") to it.optInt("grp", 0) }
-        var tees = JSONObject()
-        val editedTees = mutableSetOf<String>()
-        val roster = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        fun paint() {
-            roster.removeAllViews()
-            assignments.values.filter { it > 0 }.distinct().sorted().forEach { group ->
-                section(roster, RoundFormRules.groupTitle(round, group))
-                roster.addView(action(tees.optString(group.toString()).takeIf { it.isNotBlank() }?.let { "티오프 ${timeOnly(it)}" } ?: "조별 티오프") {
-                    val base = OffsetDateTime.parse(tees.optString(group.toString()).takeIf { it.isNotBlank() } ?: round.optString("tee_at")).atZoneSameInstant(ZoneId.of("Asia/Seoul"))
-                    TimePickerDialog(this, { _, h, minute ->
-                        editedTees.add(group.toString())
-                        tees.put(group.toString(), base.withHour(h).withMinute(minute).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)); paint()
-                    }, base.hour, base.minute, true).show()
-                })
-                roster.addView(action("시각 지우기") { editedTees.add(group.toString()); tees.remove(group.toString()); paint() })
-                assignments.filterValues { it == group }.keys.forEach { uid -> body(roster, personLabel(names[uid])) }
-            }
-            val unassigned = assignments.filterValues { it <= 0 }.keys
-            if (unassigned.isNotEmpty()) { section(roster, "미배정"); unassigned.forEach { body(roster, personLabel(names[it])) } }
-        }
-        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("seq" to "신청순", "random" to "랜덤", "gender" to "성별", "age" to "나이").forEach { (mode, label) ->
-            modes.addView(action(label) { assignments = GroupRules.splitGroups(persons, sizes.selectedItemPosition + 2, mode); paint() }, LinearLayout.LayoutParams(0, -2, 1f))
-        }
-        page.addView(modes); page.addView(roster)
-        val saveGroups = action("조 편성 저장", primary = true) {
-            if (assignments.size != persons.size || assignments.values.any { it <= 0 }) { toast("확정자 모두를 편성해 주세요."); return@action }
-            val result = JSONObject(); assignments.forEach { (uid, group) -> result.put(uid, group) }
-            val kept = JSONObject(); assignments.values.distinct().forEach { group ->
-                if (tees.has(group.toString())) kept.put(group.toString(), tees.get(group.toString()))
-            }
-            mutate { api.setRoundGroups(id, result, kept); toast("조 편성을 저장했습니다."); content.invalidatePrevious(); navigateBack() }
-        }.apply { isEnabled = false }
-        page.addView(saveGroups)
-        mount(page); paint()
-        scope.launch { try {
-            val loaded = RoundFormRules.groupTees(round, api.groupTees(id))
-            loaded.keys().forEach { key -> if (key !in editedTees) tees.put(key, loaded.get(key)) }
-            paint(); saveGroups.isEnabled = true
-        } catch (_: Exception) { toast("조별 시각을 받지 못했습니다. 다시 열어 주세요.") } }
+        mountScreen(RoundGroupsScreen(this, this, round, people))
     }
 
     private fun showPoll(id: String) {
@@ -881,47 +748,12 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         mountScreen(MembersScreen(this, this))
     }
 
-    private fun roundCard(r: JSONObject): View = cardView(
-        (if (r.optString("kind") == "screen") "🎯 " else "⛳ ") +
-            r.optString("title").ifBlank { r.optString("course") },
-        "${r.optString("course")}  ·  ${date(r.optString("tee_at"))}"
-    ) { showRound(r.optString("id")) }
-
-    private fun pollCard(p: JSONObject): View = cardView(
-        "🗳 ${p.optString("title")}",
-        if (p.optBoolean("closed")) "마감" else "진행중"
-    ) { showPoll(p.optString("id")) }
-
     private fun page(title: String): LinearLayout {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(24))
         }
         title(col, title)
-        return col
-    }
-
-    private fun detailPage(label: String): LinearLayout {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(24))
-        }
-        /* TopBar.css: 36px back + fs-md 800 title + min-height 40px. */
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        }
-        top.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_nav_back); imageTintList = ColorStateList.valueOf(dim)
-            contentDescription = "뒤로"; scaleType = ImageView.ScaleType.CENTER
-            isClickable = true
-            background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(Color.TRANSPARENT) }
-            setOnClickListener { navigateBack() }
-        }, LinearLayout.LayoutParams(dp(36), dp(40)))
-        top.addView(TextView(this).apply {
-            text = label; textSize = 16.3f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            gravity = Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(0, dp(40), 1f))
-        col.addView(top, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
         return col
     }
 
@@ -958,13 +790,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         })
     }
 
-    private fun section(parent: LinearLayout, value: String) {
-        parent.addView(TextView(this).apply {
-            text = value; textSize = 14.7f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            setPadding(0, dp(20), 0, dp(8))
-        })
-    }
-
     private fun line(parent: LinearLayout, label: String, value: String) {
         if (value.isBlank()) return
         parent.addView(TextView(this).apply {
@@ -981,8 +806,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         })
     }
 
-    private fun empty(parent: LinearLayout, value: String) = body(parent, value)
-
     private fun error(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
             text = value; textSize = 15f; setTextColor(Color.rgb(190, 40, 40))
@@ -990,48 +813,11 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         })
     }
 
-    private fun cardView(title: String, sub: String, click: () -> Unit): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
-                setColor(card)
-                setStroke(dp(1), line)
-            }
-            elevation = 0f
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { click() }
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = title; textSize = 17f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-            })
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = sub; textSize = 13f; setTextColor(dim); setPadding(0, dp(5), 0, 0)
-            })
-        }.also {
-            it.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(10) }
-        }
-    }
-
     private fun roundForm(existing: JSONObject?, copy: Boolean = false) {
         prepareScreen(if (existing == null || copy) "/rounds/new" else "/rounds/${existing.optString("id")}/edit") { }
         detail = true
         mountScreen(RoundEditScreen(this, this, existing, copy))
     }
-    private fun pickDateTime(days: Int = 1, done: (String) -> Unit) {
-        val zone = ZoneId.of("Asia/Seoul")
-        val base = ZonedDateTime.now(zone).plusDays(days.toLong()).withSecond(0).withNano(0)
-        DatePickerDialog(this, { _, y, m, d ->
-            TimePickerDialog(this, { _, h, min ->
-                val z = ZonedDateTime.of(y, m + 1, d, h, min, 0, 0, zone)
-                done(z.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
-            }, base.hour, base.minute, true).show()
-        }, base.year, base.monthValue - 1, base.dayOfMonth).show()
-    }
-
     private fun action(
         label: String, primary: Boolean = false, danger: Boolean = false, click: () -> Unit
     ): Button = Button(this).apply {
@@ -1047,120 +833,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
         ).apply { topMargin = dp(8); bottomMargin = dp(4) }
     }
-
-    private fun personRow(name: String, state: String): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(11), dp(14), dp(11))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat(); setColor(card); setStroke(dp(1), line)
-            }
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = name; textSize = 15f; setTextColor(ink)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(this@NativeHomeActivity).apply {
-                text = state; textSize = 12f; setTextColor(dim)
-            })
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
-        }
-
-    private fun commentsBlock(
-        parent: LinearLayout,
-        comments: List<JSONObject>,
-        names: Map<String, JSONObject>,
-        submit: (String) -> Unit
-    ) {
-        section(parent, "댓글 ${comments.size}")
-        if (comments.isEmpty()) empty(parent, "아직 댓글이 없습니다.")
-        comments.forEach { c ->
-            val uid = c.optString("author_id")
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE) }
-                val head = LinearLayout(this@NativeHomeActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                }
-                head.addView(TextView(this@NativeHomeActivity).apply {
-                    text = personLabel(names[uid]).ifBlank { "알 수 없음" }
-                    textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ink)
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                head.addView(TextView(this@NativeHomeActivity).apply {
-                    text = timeAgo(c.optString("created_at")); textSize = 11.5f; setTextColor(faint)
-                })
-                addView(head)
-                addView(TextView(this@NativeHomeActivity).apply {
-                    text = c.optString("body"); textSize = 14f; setTextColor(ink)
-                    setLineSpacing(0f, 1.35f); setPadding(0, dp(4), 0, 0)
-                })
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(6) }
-            }
-            if (uid == session.userId) {
-                row.setOnLongClickListener {
-                    confirm("댓글을 지울까요?", "지운 댓글은 되돌릴 수 없습니다.") {
-                        mutate {
-                            val table = when {
-                                c.has("round_id") -> "round_comments"
-                                c.has("post_id") -> "post_comments"
-                                else -> "poll_comments"
-                            }
-                            api.deleteRow(table, c.optString("id"))
-                            when (table) {
-                                "round_comments" -> showRound(c.optString("round_id"))
-                                "post_comments" -> showPost(c.optString("post_id"))
-                                else -> showPoll(c.optString("poll_id"))
-                            }
-                        }
-                    }
-                    true
-                }
-            }
-            parent.addView(row)
-        }
-
-        val input = EditText(this).apply {
-            hint = "댓글 남기기"; textSize = 15f; setTextColor(ink); setHintTextColor(dim)
-            minHeight = dp(48); maxLines = 5
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(11).toFloat(); setColor(surface2)
-                setStroke(dp(1), line)
-            }
-        }
-        parent.addView(input, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(8) })
-        parent.addView(action("등록", primary = true) {
-            val value = input.text.toString().trim()
-            if (value.isNotEmpty()) submit(value)
-        })
-    }
-
-    private fun jsonObjects(a: JSONArray?): List<JSONObject> {
-        if (a == null) return emptyList()
-        return buildList { for (i in 0 until a.length()) a.optJSONObject(i)?.let(::add) }
-    }
-
-    private fun personLabel(p: JSONObject?): String {
-        if (p == null) return ""
-        val parts = ArrayList<String>()
-        val y = p.optInt("birth_year", 0)
-        if (y > 0) parts.add((y % 100).toString().padStart(2, '0'))
-        p.optString("name").trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        p.optString("region").trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        return parts.joinToString("/")
-    }
-
-    private fun isPast(raw: String): Boolean = try {
-        val day = OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.of("Asia/Seoul")).toLocalDate()
-        day.isBefore(java.time.LocalDate.now(ZoneId.of("Asia/Seoul")))
-    } catch (_: Exception) { false }
 
     private fun pollExpired(raw: String): Boolean {
         if (raw.isBlank() || raw == "null") return false
@@ -1195,21 +867,6 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
 
     private fun toast(message: String) =
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-
-    private fun date(raw: String): String {
-        if (raw.isBlank() || raw == "null") return ""
-        return try {
-            val input = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-            input.timeZone = TimeZone.getTimeZone("UTC")
-            val d = input.parse(raw.take(19)) ?: return raw
-            val out = SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA)
-            out.timeZone = TimeZone.getTimeZone("Asia/Seoul")
-            out.format(d)
-        } catch (_: Exception) { raw.take(16).replace("T", " ") }
-    }
-
-    private fun money(v: Int): String =
-        if (v <= 0) "미정" else NumberFormat.getNumberInstance(Locale.KOREA).format(v) + "원"
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 }
