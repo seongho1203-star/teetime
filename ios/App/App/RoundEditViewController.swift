@@ -219,7 +219,7 @@ final class RoundEditViewController: FormScreenController {
         appButton(add, title: "＋ 팀 추가", color: AppSkin.text, filled: false)
         add.addTarget(self, action: #selector(addSlotTapped), for: .touchUpInside)
         slotsHint.font = .systemFont(ofSize: 12); slotsHint.textColor = AppSkin.faint; slotsHint.numberOfLines = 0
-        slotsWrap.addArrangedSubview(mkLabel("팀별 코스·시각 (2팀 이상일 경우 선택)", size: 13, weight: .bold, color: AppSkin.dim))
+        slotsWrap.addArrangedSubview(mkLabel("2팀 이상일 경우 입력(선택)", size: 13, weight: .bold, color: AppSkin.dim))
         slotsWrap.addArrangedSubview(slotsBox)
         slotsWrap.addArrangedSubview(UIStackView(arrangedSubviews: [add, UIView()]))
         slotsWrap.addArrangedSubview(slotsHint)
