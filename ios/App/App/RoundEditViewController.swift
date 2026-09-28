@@ -208,7 +208,7 @@ final class RoundEditViewController: FormScreenController {
         appButton(add, title: "＋ 팀 추가", color: AppSkin.text, filled: false)
         add.addTarget(self, action: #selector(addSlotTapped), for: .touchUpInside)
         slotsHint.font = .systemFont(ofSize: 12); slotsHint.textColor = AppSkin.faint; slotsHint.numberOfLines = 0
-        slotsWrap.addArrangedSubview(mkLabel("팀별 코스·시각 (선택)", size: 13, weight: .bold, color: AppSkin.dim))
+        slotsWrap.addArrangedSubview(mkLabel("팀별 코스·시각 (2팀 이상일 경우 선택)", size: 13, weight: .bold, color: AppSkin.dim))
         slotsWrap.addArrangedSubview(slotsBox)
         slotsWrap.addArrangedSubview(UIStackView(arrangedSubviews: [add, UIView()]))
         slotsWrap.addArrangedSubview(slotsHint)
@@ -224,6 +224,10 @@ final class RoundEditViewController: FormScreenController {
         c.text = course
         c.autocorrectionType = .no
         c.accessibilityLabel = "\(n)팀 코스"
+        /* 코스 이름 다섯 글자(`임페리얼`·`마제스티`·`베르힐 A`)가 한눈에 들어가는 폭 —
+           글자 수에 따라 칸이 줄었다 늘었다 하면 줄마다 들쭉날쭉해진다. */
+        c.widthAnchor.constraint(equalToConstant: 116).isActive = true
+        c.setContentHuggingPriority(.required, for: .horizontal)
         let p = UIDatePicker()
         p.datePickerMode = .time
         p.preferredDatePickerStyle = .compact
@@ -244,7 +248,7 @@ final class RoundEditViewController: FormScreenController {
         x.addTarget(self, action: #selector(removeSlotTapped(_:)), for: .touchUpInside)
         x.widthAnchor.constraint(equalToConstant: 32).isActive = true
         x.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        let row = UIStackView(arrangedSubviews: [no, c, p, x])
+        let row = UIStackView(arrangedSubviews: [no, c, UIView(), p, x])
         row.axis = .horizontal; row.alignment = .center; row.spacing = 6
         slotRows.append(SlotRow(course: c, time: p, view: row))
         slotsBox.addArrangedSubview(row)
