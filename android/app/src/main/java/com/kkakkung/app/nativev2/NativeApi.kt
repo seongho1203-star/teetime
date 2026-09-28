@@ -644,6 +644,17 @@ class NativeApi(private val session: NativeSession) {
         arr?.let { buildMap { for (i in 0 until it.length()) it.optJSONObject(i)?.let { r -> put(r.optString("user_id"), r.optInt("n")) } } }
     } catch (_: Exception) { null }
 
+    /**
+     * 생일 축하 글 — 누가 생일인지는 DB가 고른다(웹 `announceBirthdays`). 넘기는 것은 **오늘이 음력
+     * 며칠인가** 하나뿐이고, **윤달이면 음력 생일은 안 센다**(null). 한 사람에 하루 한 줄은 DB가 지킨다.
+     */
+    suspend fun postBirthdays(today: java.time.LocalDate) {
+        val lu = Lunar.toLunar(today.year, today.monthValue, today.dayOfMonth)
+        request("rest/v1/rpc/post_birthday_greetings", method = "POST", body = JSONObject()
+            .put("p_lmonth", if (lu.leap) JSONObject.NULL else lu.month)
+            .put("p_lday", if (lu.leap) JSONObject.NULL else lu.day))
+    }
+
     suspend fun setMemberRole(id: String, role: String) {
         val v = request("rest/v1/profiles", listOf("id" to "eq.$id"), "PATCH", JSONObject().put("role", role))
         if ((v as? JSONArray)?.length() == 0) throw NativeApiError("회원 등급을 바꿀 권한이 없습니다.")

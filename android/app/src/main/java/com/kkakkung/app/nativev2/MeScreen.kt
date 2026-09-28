@@ -105,8 +105,15 @@ class MeScreen(ctx: Context, host: ScreenHost) : NativeScreen(ctx, host, "내 �
         texts.addView(ui.label(p?.label?.ifEmpty { null } ?: "닉네임 없음", 19f, bold = true))
         texts.addView(ui.label(AppRole.label[p?.role ?: "member"] ?: "일반회원", 13f, color = AppSkin.faint))
         contact?.strOrNull("birth_md")?.ifBlank { null }?.let { md ->
-            texts.addView(ui.label("🎂 " + AppDate.birthLabel(p?.birthYear, md, contact?.strOrNull("birth_cal") ?: "solar"),
-                13f, color = AppSkin.faint, lines = 0))
+            val cal = contact?.strOrNull("birth_cal") ?: "solar"
+            var line = "🎂 " + AppDate.birthLabel(p?.birthYear, md, cal)
+            /* 음력이면 **올해 양력 며칠인가**를 함께(웹 `MeRoute`·아이폰 `birthdayThisYear`와 같다). */
+            if (cal == "lunar") {
+                val mm = md.take(2).toIntOrNull(); val dd = md.takeLast(2).toIntOrNull()
+                val got = if (mm != null && dd != null) Lunar.lunarToSolar(java.time.LocalDate.now(AppDate.seoul).year, mm, dd) else null
+                if (got != null) line += " · 올해 ${got.monthValue}월 ${got.dayOfMonth}일"
+            }
+            texts.addView(ui.label(line, 13f, color = AppSkin.faint, lines = 0))
         }
         return LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL

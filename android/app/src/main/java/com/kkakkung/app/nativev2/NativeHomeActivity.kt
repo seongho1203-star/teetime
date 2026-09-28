@@ -122,6 +122,21 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     private val tabBadges = linkedMapOf<String, TextView>()
     private var badgeJob: Job? = null
     private var bellBadge: TextView? = null
+    /**
+     * 생일이면 대화방에 축하 글 — **앱을 연 사람의 화면이 하루 한 번** 부른다(웹 `announceBirthdays`와 같은 결 ·
+     * pg_cron을 새로 켜지 않는다). 기기마다 하루 한 번만 묻고, 실패하면 표를 지워 다음에 다시 해 본다.
+     */
+    private fun announceBirthdays() {
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+        val prefs = getSharedPreferences("native-birthday", MODE_PRIVATE)
+        if (prefs.getString("day", "") == today.toString()) return
+        prefs.edit().putString("day", today.toString()).apply()
+        scope.launch {
+            try { api.postBirthdays(today) }
+            catch (_: Exception) { prefs.edit().remove("day").apply() }   // 함수가 없는 저장소 — 조용히 넘긴다
+        }
+    }
+
     private fun refreshBadges() {
         if (!::api.isInitialized || badgeJob?.isActive == true) return
         badgeJob = scope.launch {
@@ -260,6 +275,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         resumedOnce = true
         NativePushForeground.active = true
         refreshBadges()
+        announceBirthdays()
         val pushPrefs = getSharedPreferences("native-push", MODE_PRIVATE)
         if (pushPrefs.getBoolean("asked", false) && !pushPrefs.getBoolean("disabled", false) && NativePush.permissionGranted(this)) {
             scope.launch { try { api.enablePush(NativePush.token()) } catch (_: Exception) { } }

@@ -3,7 +3,7 @@ repositories { mavenCentral() }
 val app = file("../../android/app/src/main/java").absolutePath
 val appTest = file("../../android/app/src/test/java").absolutePath
 sourceSets {
-  test { kotlin.srcDirs("src/test/kotlin", appTest); java.srcDirs("src/test/java", appTest) }
+  test { kotlin.srcDirs("src/test/kotlin", appTest); java.srcDirs("src/test/java", appTest); resources.srcDirs("../../android/app/src/test/resources") }
   main {
     kotlin.srcDirs(app, "stubs", "build/gen")
     java.srcDirs(app, "stubs", "build/gen")
