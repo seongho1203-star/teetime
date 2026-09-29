@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import { watchBadge } from './lib/badge';
@@ -20,7 +20,7 @@ import { Board } from './screens/Board';
 import { ChatRoute } from './screens/NativeChat';
 import { hasNativeChat, resetNativeChat } from './lib/native-chat';
 import { AlertsRoute, MembersRoute, NativeShellSync, HelpRoute, PollEditRoute, PollRoute, PostEditRoute, PostRoute, RoundEditRoute, RoundGroupsRoute, RoundRoute, SettleRoute, MeRoute } from './screens/NativeScreen';
-import { hasNativeApp, hasAndroidNativeV2, openAndroidNativeV2 } from './lib/native-app';
+import { hasNativeApp, hasAndroidNativeV2, isShellUp, openAndroidNativeV2, watchShell } from './lib/native-app';
 import { autoEnablePush } from './lib/push';
 import { IS_NATIVE } from './lib/native';
 
@@ -58,6 +58,23 @@ function Gate() {
        훅은 아래 갈림길들보다 **먼저** 불러야 한다 — 렌더마다 같은 차례로
        돌아야 하기 때문이다. */
     const appRef = useRef<HTMLDivElement>(null);
+
+    /* **아이폰 앱은 껍데기(홈·탭바)가 설 때까지 첫 화면 그림을 그대로 든다**
+       (사용자 제보 — `로고가 중간에 한번 깜빡이던데`). 로그인 확인이 끝나면
+       웹이 곧장 제 화면을 그리는데, 껍데기(`NativeApp.shell()`)는 다리를 건너
+       한 박자 늦게 서서 **그 사이에 로고가 사라졌다 다시 떴다**(껍데기도 같은
+       로고로 홈이 받아질 때까지 덮는다 — `ShellController.putCover`).
+       그 틈 동안 이 `.boot`가 그대로 남아 로고가 한 번도 안 끊긴다.
+       웹 화면(`Routes`)도 그동안 안 그린다 — 어차피 껍데기 뒤라 안 보이고,
+       웹 홈의 조회가 앱 홈의 조회와 통신을 다투면 첫 화면만 길어진다.
+       **못 서도(옛 판·오류) 3.5초 뒤에는 무조건 푼다** — 첫 화면에 갇히면 안 된다. */
+    const [shellWait, setShellWait] = useState(() => hasNativeApp() && !isShellUp());
+    useEffect(() => {
+        if (!shellWait) return;
+        const off = watchShell(() => setShellWait(false));
+        const t = window.setTimeout(() => setShellWait(false), 3500);
+        return () => { off(); window.clearTimeout(t); };
+    }, [shellWait]);
     useBackSwipe();
     useScreenSlide(appRef);
     /* 키보드가 올라오면 탭바를 감추고, 글칸 밖을 누르면 내린다.
@@ -114,6 +131,10 @@ function Gate() {
                 세우고, 로그아웃으로 이 칸이 사라지면 내린다(`NativeShellSync`). */}
             {hasNativeApp() && <NativeShellSync />}
             {IS_NATIVE && session && <AutoPush userId={session.user.id} />}
+            {/* 껍데기를 기다리는 동안 — 위 `loading`과 같은 그림이라 바뀌는 것이 안 보인다.
+                **`NativeShellSync`와 같은 자리(이 `.app` 안)에 둘 것** — 따로 떼어
+                그리면 넘어가는 순간 그것이 다시 만들어지며 뒷정리가 껍데기를 내린다. */}
+            {shellWait && hasNativeApp() ? <div className="boot" role="img" aria-label="까꿍" /> : <>
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rounds" element={<Rounds />} />
@@ -139,6 +160,7 @@ function Gate() {
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             <TabBar />
+            </>}
         </div>
     );
 }

@@ -139,9 +139,19 @@ export function nativeDeepLink(path: string): boolean {
     return true;
 }
 
+/** 껍데기가 섰는가 — `App.tsx`가 그때까지 첫 화면 그림을 들고 있는다. */
+export function isShellUp(): boolean { return shellUp; }
+const shellWatch = new Set<(up: boolean) => void>();
+/** 껍데기가 서거나 못 서거나 내려갈 때마다 부른다. 돌려준 함수로 끊는다. */
+export function watchShell(cb: (up: boolean) => void): () => void {
+    shellWatch.add(cb);
+    return () => { shellWatch.delete(cb); };
+}
+
 /** 껍데기가 섰다(`ok`) · 못 섰다 · 내렸다 — 기다리던 딥링크가 있으면 그때 넘긴다. */
 export function shellReady(ok: boolean) {
     shellUp = ok;
+    for (const cb of [...shellWatch]) cb(ok);
     if (!pendingDeep) return;
     const p = pendingDeep;
     pendingDeep = '';
