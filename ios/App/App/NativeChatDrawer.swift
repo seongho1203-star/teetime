@@ -594,7 +594,12 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
 
         /* **사진은 `cover`다**(카톡과 같다) — 어떤 비율이 올지 모른다.
            없는 사람은 얼굴에 쓰는 그 두 글자를 크게 놓는다. */
-        photo.contentMode = .scaleAspectFill
+        /* **통째로 담아 보인다 — 잘라 채우지 않는다**(사용자 제보 — 커스텀 프로필을
+           누르면 `마제` 두 글자만 크게 보였다). 얼굴은 정사각이라 세로로 긴
+           화면에 `.scaleAspectFill`로 채우면 가로가 반 넘게 잘린다. 남는 위아래는
+           그림 가장자리 색으로 칠해(`edgeColor`) 커스텀 프로필은 화면을 꽉 채운
+           것처럼 보이고 사진은 액자처럼 들어앉는다. 안드로이드 `showProfile`과 한 벌. */
+        photo.contentMode = .scaleAspectFit
         photo.clipsToBounds = true
         letter.textAlignment = .center
         letter.textColor = UIColor(white: 1, alpha: 0.5)
@@ -737,14 +742,34 @@ final class ChatProfile: UIView, UIGestureRecognizerDelegate {
         extra.isHidden = attend == nil
         letter.text = String((p["name"] as? String ?? "?").suffix(2))
         photo.image = nil
+        photo.backgroundColor = nil
         photo.isHidden = true
         if let url = p["avatar_url"] as? String, !url.isEmpty {
             ImageStore.shared.load(url) { [weak self] shot in
                 guard let self = self, let img = shot?.first else { return }
                 self.photo.image = img
+                self.photo.backgroundColor = ChatProfile.edgeColor(img)
                 self.photo.isHidden = false
             }
         }
+    }
+
+    /// 그림 왼쪽 위 모서리의 색 — 남는 자리를 그 색으로 칠한다.
+    static func edgeColor(_ img: UIImage) -> UIColor? {
+        guard let cg = img.cgImage, cg.width > 4, cg.height > 4,
+              let corner = cg.cropping(to: CGRect(x: 1, y: 1, width: 3, height: 3)) else { return nil }
+        var px = [UInt8](repeating: 0, count: 4)
+        let ok: Bool = px.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                                      bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(corner, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        guard ok else { return nil }
+        return UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255,
+                       blue: CGFloat(px[2]) / 255, alpha: 1)
     }
 
     func hide() {

@@ -210,11 +210,14 @@ class Ui(val ctx: Context) {
         val box = FrameLayout(ctx)
         val r = dpf(size * 10f / 29f)
         val edge = p?.edge
-        box.background = GradientDrawable().apply {
-            cornerRadius = r; setColor(AppSkin.faint)
-            if (edge != null) setStroke(dp(2), edge)
-        }
+        box.background = GradientDrawable().apply { cornerRadius = r; setColor(AppSkin.faint) }
         box.clipToOutline = true
+        /* 남녀 테두리는 **그림 위에** 얹는다(웹이 `box-shadow`로 그리는 것과 같은 결).
+           예전에는 그림을 2dp 안으로 들여 그 사이에 바탕이 비쳐, 사진이 꽉 안 차고
+           테두리가 두 겹으로 보였다(사용자 제보 — `프로필이 꽉 안차서 테두리가 생겨`). */
+        if (edge != null) box.foreground = GradientDrawable().apply {
+            cornerRadius = r; setColor(Color.TRANSPARENT); setStroke(dp(2), edge)
+        }
         val name = p?.name.orEmpty()
         box.addView(TextView(ctx).apply {
             text = if (name.isEmpty()) "?" else name.takeLast(2)
@@ -228,7 +231,7 @@ class Ui(val ctx: Context) {
             box.addView(ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 load(url) { crossfade(false) }
-            }, FrameLayout.LayoutParams(-1, -1).apply { if (edge != null) setMargins(dp(2), dp(2), dp(2), dp(2)) })
+            }, FrameLayout.LayoutParams(-1, -1))
         }
         box.layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
         return box

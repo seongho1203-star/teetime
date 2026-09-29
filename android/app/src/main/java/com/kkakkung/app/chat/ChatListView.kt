@@ -129,21 +129,40 @@ class ChatListView(context: Context) : RecyclerView(context) {
         itemAnimator = null
         clipToPadding = false
         overScrollMode = View.OVER_SCROLL_NEVER
-        /* iPhone ChatList와 같은 '말풍선을 왼쪽으로 밀어 답장'.
-           놓으면 줄은 제자리로 돌아오고 답장 상태만 남는다. */
+        /* 말풍선을 왼쪽으로 밀어 댓글 — 아이폰 `ChatList.swiped`와 같은 값이다:
+           **72dp까지만 따라오고**(swipeMax) 55dp를 넘기고 놓으면 댓글이 걸린다(swipeAt).
+           ItemTouchHelper의 '밀어서 지우기'를 그대로 쓰면 손을 따라 화면 밖까지
+           끝없이 밀려 나갔다(사용자 제보 — `왼쪽으로 하염없이 밀려`). 그래서
+           밀기가 끝나는 일은 아예 없게 두고(문턱·튕김 무한대) 놓는 순간 판단한다. */
         ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+            private val swipeAt = context.dp(55f).toFloat()
+            private val swipeMax = context.dp(72f).toFloat()
+            private var hitId: String? = null
             override fun onMove(rv: RecyclerView, a: ViewHolder, b: ViewHolder) = false
-            override fun getSwipeDirs(rv: RecyclerView, holder: ViewHolder): Int =
-                if (rows.getOrNull(holder.bindingAdapterPosition)?.id?.startsWith("tmp:") == true) 0
+            override fun getSwipeDirs(rv: RecyclerView, holder: ViewHolder): Int {
+                val row = rows.getOrNull(holder.bindingAdapterPosition) ?: return 0
+                return if (row.id.startsWith("tmp:") || row.kind in setOf("system", "card", "hidden")) 0
                 else super.getSwipeDirs(rv, holder)
-            override fun getSwipeThreshold(viewHolder: ViewHolder) = 0.28f
+            }
+            override fun getSwipeThreshold(viewHolder: ViewHolder) = Float.MAX_VALUE
+            override fun getSwipeEscapeVelocity(defaultValue: Float) = Float.MAX_VALUE
             override fun onSwiped(viewHolder: ViewHolder, direction: Int) {
                 val pos = viewHolder.bindingAdapterPosition
-                val row = rows.getOrNull(pos)
-                if (row != null && row.kind !in setOf("system", "card") && !row.id.startsWith("tmp:")) {
-                    onReply?.invoke(row.id)
-                }
                 if (pos >= 0) rowAdapter.notifyItemChanged(pos)
+            }
+            override fun onChildDraw(c: android.graphics.Canvas, rv: RecyclerView, holder: ViewHolder,
+                                     dX: Float, dY: Float, actionState: Int, isCurrentlyActive: Boolean) {
+                val x = dX.coerceIn(-swipeMax, 0f)
+                if (isCurrentlyActive) {
+                    hitId = if (x <= -swipeAt) rows.getOrNull(holder.bindingAdapterPosition)?.id else null
+                }
+                super.onChildDraw(c, rv, holder, x, dY, actionState, isCurrentlyActive)
+            }
+            override fun clearView(rv: RecyclerView, holder: ViewHolder) {
+                super.clearView(rv, holder)
+                val id = hitId ?: return
+                hitId = null
+                onReply?.invoke(id)
             }
         }).attachToRecyclerView(this)
 
@@ -485,6 +504,10 @@ class ChatListView(context: Context) : RecyclerView(context) {
             /* 내 글은 오른쪽, 도장은 말풍선 안쪽(가운데 쪽)에 선다. */
             msgRow.gravity = if (r.mine) Gravity.END else Gravity.START
             column.gravity = if (r.mine) Gravity.END else Gravity.START
+            /* contentRow는 줄 폭을 다 쓰므로(세로 LinearLayout의 기본 MATCH_PARENT)
+               **여기서 오른쪽으로 밀어야** 내 글이 오른쪽에 선다. column의 gravity만
+               주면 내 글까지 왼쪽에 붙었다(사용자 제보 — `전부 좌측이야`). */
+            contentRow.gravity = Gravity.BOTTOM or (if (r.mine) Gravity.END else Gravity.START)
             contentRow.removeAllViews()
             val sp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             sp.leftMargin = ctx.dp(4f); sp.rightMargin = ctx.dp(4f)

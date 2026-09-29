@@ -126,6 +126,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private var loadJob: Job? = null
     private var wordsJob: Job? = null
     private var stickerWords: Map<String, List<String>> = emptyMap()
+    private var suggestKey = ""
     private var readJob: Job? = null
     private var metaJob: Job? = null
     private val syncRunner by lazy { ChatRefreshRunner(scope) { syncNow() } }
@@ -182,6 +183,15 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         status.setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
         status.setOnClickListener { startLoad() }
         body.addView(status, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER })
+        /* 고른 이모티콘 — 아이폰 `StickerPeek`처럼 **대화 위에 뜨는 182×135 카드**다.
+           줄 전체를 어둡게 까는 띠로 두지 말 것(사용자 제보 — `배경칸이 너무커`). */
+        stickerPreview.visibility = View.GONE
+        stickerPreview.background = GradientDrawable().apply {
+            cornerRadius = dp(13f).toFloat(); setColor(Color.argb((255 * .86f).toInt(), 59, 61, 69))
+        }
+        stickerPreview.clipToOutline = true
+        body.addView(stickerPreview, LayoutParams(dp(182f), dp(135f), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+            .apply { bottomMargin = dp(9f) })
         column.addView(body, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         /* 2-2 @언급 카드 — 흰 카드만 떠 있고 그 뒤는 대화 보라다. */
@@ -246,10 +256,6 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         column.addView(findBar, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
-        stickerPreview.visibility = View.GONE
-        column.addView(stickerPreview, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { leftMargin=dp(10f); rightMargin=dp(10f); bottomMargin=dp(4f) })
 
         /* 글칸 줄 — 카톡처럼 뒤에 판을 안 깔고(보라 그대로) 흰 알약 하나가 뜬다.
            한 줄 48 · 둥글기 24 (CLAUDE.md `글칸 한 줄은 48px`). */
@@ -306,17 +312,21 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             LinearLayout.LayoutParams.MATCH_PARENT, trayH))
 
         input.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) stickerTray.visibility = View.GONE
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) setTray(false)
             false
         }
+        /* 글칸에 초점이 가면 서랍이 닫힌다 — 키보드와 자리를 맞바꾼다(CLAUDE.md). */
+        input.setOnFocusChangeListener { _, has -> if (has) setTray(false) }
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(x: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(x: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(e: Editable?) {
                 if (!stage2 || e == null || paintingMentions) return
-                /* 한글 조합 중에는 범위/색/글을 손대지 않는다. */
-                if (BaseInputConnection.getComposingSpanStart(e) >= 0) return
-                paintMentionText(e)
+                /* 한글 조합 중에는 칠(span)을 손대지 않는다 — 다만 **추천 줄과 언급 목록은
+                   그대로 띄운다.** 안드로이드 한글 자판은 마지막 글자를 다음 글자를 칠
+                   때까지 조합 중으로 쥐고 있어서, 여기서 통째로 돌아서면 `안녕`을 쳐도
+                   줄이 영영 안 떴다(사용자 제보 — `안녕이라고 치면 아무것도 안떠`). */
+                if (BaseInputConnection.getComposingSpanStart(e) < 0) paintMentionText(e)
                 updateMentionCard()
                 updateSuggest(e.toString())
             }
@@ -580,7 +590,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         searching = true
         scrollHints.reset()
         hideMentionCard(); clearReply(); hideKeyboard()
-        stickerTray.visibility = View.GONE
+        setTray(false)
         header.removeAllViews()
         searchInput.hint = "대화내용 검색"
         searchInput.textSize = 16f; searchInput.setSingleLine(true)
@@ -904,12 +914,23 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             if (profileDialog === dialog) profileDialog = null
         }
         profileDialog = dialog
+        /* **통째로 담아 보인다 — 잘라 채우지 않는다**(사용자 제보 — 커스텀 프로필을 누르면
+           글자 두 개만 크게 확대돼 보였다). 얼굴은 정사각이라 세로로 긴 화면에 채우면
+           가로가 반 넘게 잘린다. 남는 위아래는 그림 가장자리 색으로 칠해 커스텀 프로필은
+           꽉 찬 것처럼, 사진은 액자처럼 보인다(아이폰 `ChatProfile.edgeColor`와 한 벌). */
         val photo = ImageView(activity).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
+            scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(0xFF121212.toInt())
         }
         val avatar = httpsUrl(person.optString("avatar_url"))
-        if (!avatar.isNullOrBlank()) photo.load(avatar) { crossfade(false) }
+        if (!avatar.isNullOrBlank()) photo.load(avatar) {
+            crossfade(false)
+            allowHardware(false)
+            listener(onSuccess = { _, result ->
+                val bmp = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                if (bmp != null && bmp.width > 4 && bmp.height > 4) photo.setBackgroundColor(bmp.getPixel(2, 2) or 0xFF000000.toInt())
+            })
+        }
         overlay.addView(photo, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
         ))
@@ -1205,7 +1226,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         stickerWords = rows.filter { it.optString("sticker_id").isNotBlank() && suggestNorm(it.optString("word")).isNotEmpty() }
             .groupBy { it.optString("sticker_id") }.mapValues { (_, rows) -> rows.map { it.optString("word") }.distinct() }
         if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
-        if (BaseInputConnection.getComposingSpanStart(input.text) < 0) updateSuggest(input.text.toString())
+        updateSuggest(input.text.toString())
     }
     private fun loadWords() {
         if (!stage2 || !visible) return
@@ -1245,8 +1266,9 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     }
 
     private fun updateSuggest(raw: String) {
-        if (BaseInputConnection.getComposingSpanStart(input.text) >= 0) return
-        paintSuggest(raw, emptyList())
+        /* 조합 중에는 칠만 미루고 줄은 띄운다(위 `afterTextChanged` 참고). */
+        val composing = BaseInputConnection.getComposingSpanStart(input.text) >= 0
+        if (!composing) paintSuggest(raw, emptyList())
         if (!stage2 || raw.contains('@')) { suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return }
         val q=suggestNorm(raw)
         if (q.isEmpty() || stickerWords.isEmpty()) {
@@ -1281,6 +1303,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             input.setTextColor(ChatSkin.text)
             return
         }
+        /* 달라졌을 때만 다시 만든다 — 글자마다 새로 만들면 누르려던 것이 손가락 밑에서 갈린다. */
+        val key = selected.keys.joinToString(",")
+        if (key != suggestKey || suggestRow.childCount == 0) {
+        suggestKey = key
         suggestRow.removeAllViews()
         selected.forEach { (id, label) ->
             val iv = ImageView(activity).apply {
@@ -1291,20 +1317,36 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             }
             suggestRow.addView(iv, LinearLayout.LayoutParams(dp(58f), dp(58f)).apply { marginEnd = dp(4f) })
         }
+        }
         suggestPanel.visibility=View.VISIBLE
         input.setTextColor(ChatSkin.text)
-        paintSuggestAt(lastAt)
+        if (!composing) paintSuggestAt(lastAt)
     }
 
     private fun stickerAsset(id: String): String =
         "file:///android_asset/public/stickers/" + id + if (id.startsWith("mv")) ".webp" else ".png"
 
+    /** 서랍을 여닫는 곳은 여기 하나다 — **열려 있는 동안 단추 그림이 자판으로 바뀐다**
+     *  (아이폰 `ComposerBar`의 `keyboard` · 사용자 제보 — `이모티콘 아이콘이 키보드로 안바껴`). */
+    private fun setTray(open: Boolean) {
+        stickerTray.visibility = if (open) View.VISIBLE else View.GONE
+        stickerBtn.setImageResource(if (open) R.drawable.ic_chat_keyboard else R.drawable.ic_chat_smile)
+        stickerBtn.contentDescription = if (open) "키보드" else "이모티콘"
+    }
+
     private fun toggleStickerTray() {
         if (service.config.stickers.length() == 0) return
+        if (stickerTray.visibility == View.VISIBLE) {
+            /* 자판 그림을 눌렀으니 그 뜻대로 키보드를 도로 올린다(아이폰과 같다). */
+            setTray(false)
+            input.requestFocus()
+            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+                ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+            return
+        }
         hideKeyboard()
-        val open = stickerTray.visibility != View.VISIBLE
-        stickerTray.visibility = if (open) View.VISIBLE else View.GONE
-        if (open) stickerTray.post {
+        setTray(true)
+        stickerTray.post {
             if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
         }
     }
@@ -1312,7 +1354,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private fun renderStickerTray() {
         stickerTabs.removeAllViews()
         val groups = service.config.stickers
-        if (groups.length() == 0) { stickerTray.visibility = View.GONE; return }
+        if (groups.length() == 0) { setTray(false); return }
         stickerGroup = stickerGroup.coerceIn(0, groups.length()-1)
         for (i in 0 until groups.length()) {
             val g = groups.optJSONObject(i) ?: continue
@@ -1355,18 +1397,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private fun pickSticker(id: String) {
         pickedSticker=id
         stickerPreview.removeAllViews()
-        stickerPreview.setBackgroundColor(0xCC1B1F19.toInt())
+        /* 그림은 카드 높이에서 22를 뺀 정사각(아이폰 `StickerPeek.layoutSubviews`). */
+        val side = dp(135f - 22f)
         val image=ImageView(activity).apply {
-            scaleType=ImageView.ScaleType.CENTER_INSIDE
+            scaleType=ImageView.ScaleType.FIT_CENTER
             load(stickerAsset(id)) { crossfade(false) }
-            setOnClickListener { sendPickedStickerOnly() }
         }
-        stickerPreview.addView(image, FrameLayout.LayoutParams(dp(182f),dp(135f),Gravity.CENTER))
-        stickerPreview.addView(TextView(activity).apply {
-            text="✕"; textSize=16f; gravity=Gravity.CENTER; setTextColor(Color.WHITE)
+        stickerPreview.addView(image, FrameLayout.LayoutParams(side, side, Gravity.CENTER).apply { topMargin = dp(8f) })
+        stickerPreview.setOnClickListener { sendPickedStickerOnly() }
+        stickerPreview.addView(ImageView(activity).apply {
+            setImageResource(R.drawable.ic_chat_close); scaleType = ImageView.ScaleType.CENTER
+            setColorFilter(Color.WHITE)
+            contentDescription = "이모티콘 빼기"
             setOnClickListener { clearSticker() }
-        }, FrameLayout.LayoutParams(dp(36f),dp(36f),Gravity.TOP or Gravity.END))
+        }, FrameLayout.LayoutParams(dp(38f),dp(38f),Gravity.TOP or Gravity.END).apply { topMargin = dp(2f); rightMargin = dp(2f) })
         stickerPreview.visibility=View.VISIBLE
+        stickerPreview.bringToFront()
     }
 
     private fun clearSticker() {
@@ -1448,15 +1494,31 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private fun showMediaMenu() {
         if (!loaded) { notice("대화를 불러온 뒤 다시 눌러 주세요."); return }
         if (uploads.pending) { notice("전송 중인 파일을 마치거나 취소해 주세요."); return }
-        val row = TextView(activity).apply {
-            text = "사진·동영상 보내기\n최대 10개 · 한 파일 50MB"
-            textSize = 15f; setTextColor(ChatSkin.text); gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+        setTray(false)
+        /* 아이폰 `composerTapped`의 그 작은 카드 — 누른 `+` 바로 위에 선다.
+           높이를 못박으면 두 줄 글이 잘리고, 어긋난 자리 셈으로 카드가 대화
+           카드를 덮었다(사용자 제보 — `파일 첨부할때 뜨는게 이상해`). */
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(14f).toFloat() }
         }
-        val popup = PopupWindow(row, dp(240f), dp(76f), true).apply {
+        card.addView(TextView(activity).apply {
+            text = "사진·동영상 첨부"; textSize = 13f; setTextColor(0xFF8B9486.toInt()); gravity = Gravity.CENTER
+            setPadding(dp(16f), dp(10f), dp(16f), dp(8f))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        card.addView(View(activity).apply { setBackgroundColor(ChatSkin.cardRule) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
+        val row = TextView(activity).apply {
+            text = "사진 보관함"; textSize = 16f; setTextColor(0xFF2C7BD4.toInt()); gravity = Gravity.CENTER
+            contentDescription = "사진 보관함 · 한 번에 10개까지"
+        }
+        card.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)))
+        val w = dp(220f)
+        card.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val popup = PopupWindow(card, w, card.measuredHeight, true).apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            elevation = dp(6f).toFloat(); isOutsideTouchable = true
+            elevation = dp(8f).toFloat(); isOutsideTouchable = true
         }
         row.setOnClickListener {
             popup.dismiss(); hideKeyboard()
@@ -1467,7 +1529,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
                 }, "chat-media-picker").commit()
             }
         }
-        popup.showAsDropDown(mediaBtn, 0, -mediaBtn.height - dp(84f))
+        popup.showAsDropDown(mediaBtn, dp(4f), -(mediaBtn.height + card.measuredHeight + dp(6f)))
     }
 
     private fun sendSelectedMedia() {
