@@ -96,8 +96,9 @@ export const a = (id: string, label: string): Sticker => ({ id, label });
 /**
  * 묶음 목록.
  *
- * 아홉 묶음이다 — **펭귄 움짤 서른**(검은 바탕 영상에서 잘랐다 — 아래 참고),
+ * 열 묶음이다 — **펭귄 움짤 서른**(검은 바탕 영상에서 잘랐다 — 아래 참고),
  * **흰곰 열하나**(사용자가 만들어 보내 준 것 — 아래 참고),
+ * **골프공 반응 열넷**(코드로 그린 것 — `.dev/sticker-draw.mjs`),
  * 골프공(앱 아이콘과 같은 캐릭터) 스물일곱, 골퍼 스물넷, 골프친구 스물넷,
  * 펭귄골프 스물둘, 펭귄 스물여덟, 고양이 스물넷, 이모지 열여덟.
  * **차례는 원본에 나온 차례 그대로다.**
@@ -162,6 +163,16 @@ export const STICKER_GROUPS: StickerGroup[] = [
       s('wbeung', '응?'), s('wbeng', '엥?'), s('wbmwo', '뭐?'), s('wbwhat', '어쩌라고?'),
       s('wbhello', '안녕!'), s('wbthanks', '고마워'), s('wbsorry', '미안해'),
       s('wbgreat', '좋아!'), s('wbhmph', '흥!'), s('wbsleep', '잘자'), s('wblol', 'ㅋㅋㅋ')),
+    /* **코드로 그린 반응 묶음**(`.dev/sticker-draw.mjs` · 사용자 요청 —
+       `ㅋㅋ,헐,힝,버럭 이런것들 종류가 많이 부족한거같아`). 캐릭터는 앱
+       아이콘의 선글라스 골프공이다. 다시 그리거나 더할 때는 그 파일을 고쳐
+       찍는다 — **손으로 PNG를 고치지 말 것**(다음에 찍으면 덮인다).
+       id는 `rx`로 시작한다(`mv`면 움직이는 것으로 읽힌다). */
+    g('react', '😎', '골프공 반응',
+      s('rxkkk', 'ㅋㅋㅋ'), s('rxhehe', 'ㅎㅎ'), s('rxoh', '오~'), s('rxhul', '헐...'),
+      s('rxheok', '헉!!'), s('rxhdd', 'ㅎㄷㄷ'), s('rxdd', '덜덜'), s('rxhing', '힝...'),
+      s('rxehyu', '에휴~'), s('rxanwa', '아놔~'), s('rxburuk', '버럭!'), s('rxjjj', '짜증나'),
+      s('rxking', '킹받네'), s('rxdaebak', '대박!')),
     g('golf', '⛳', '골프공',
       s('gday', '까꿍day'), s('gfight', '화이팅!'), s('ggood', 'Good!'),
       s('gswing', '스윙'), s('gcart', '카트'), s('gheart', '하트'),
