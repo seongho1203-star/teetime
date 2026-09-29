@@ -16,6 +16,15 @@
     </style>
 
 
+    <!-- 로그인·홈 창의 첫 화면. 창이 뜨는 첫 프레임부터 까꿍 로고가 보여,
+         로그인 창 → 홈 창 → 홈 가리개로 넘어가는 동안 빈 화면이 안 끼어든다. -->
+    <style name="AppTheme.Boot" parent="AppTheme.NoActionBar">
+        <item name="android:windowBackground">@drawable/boot_window</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
     </style>

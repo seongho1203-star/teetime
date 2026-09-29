@@ -5593,6 +5593,13 @@ src/lib/account.ts                           ← 탈퇴 순서(`leaveAccount`) �
   `App.tsx`의 `shellWait`가 그동안 `.boot`를 들고 있고(`watchShell` · 3.5초 그물) 웹
   `Routes`도 안 그린다. **`.boot`를 `NativeShellSync`와 같은 `.app` 안에 둘 것** — 따로
   떼어 그리면 넘어갈 때 그것이 다시 만들어지며 뒷정리가 껍데기를 내린다.
+  **안드로이드는 창 바탕으로 덮는다** — 로그인 창·홈 창의 테마가 `AppTheme.Boot`
+  (`windowBackground` = `drawable/boot_window` · 흰 바탕 가운데 로고 200dp)이고 홈 가리개도
+  같은 그림 한 장을 깐다. 로그인 → 홈으로 옮길 때 움직임을 끈다(`overridePendingTransition(0, 0)`).
+  안드로이드 12+의 시스템 시작 화면은 흰 바탕만 둔다(`values-v31` · 아이콘 비움 — 아이폰 시작
+  화면과 같다). 안드로이드만 **200dp 못박기**다(창 바탕 그림은 폭의 52%를 못 잰다) —
+  **가리개와 창 바탕을 따로 재지 말 것**(넘어가는 순간 크기가 한 번 바뀐다).
+  가리개를 걷을 때 창 바탕도 `bg` 색으로 되돌린다(키보드가 화면을 줄일 때 로고가 비치지 않게).
   같은 판에서 **아이폰 홈의 조회를 한꺼번에 보내게 했다**(`async let` — 예전에는 여덟을
   하나씩 기다렸다). `announceClosedPolls`는 화면이 기다릴 일이 아니라 뒤에서 돈다.
 - **골프장·은행·가이드 글은 웹이 한 번 실어 보낸다**(`shell()` → `NativeAppPlugin.shared`,

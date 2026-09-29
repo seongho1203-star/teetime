@@ -23,7 +23,7 @@
 
         <activity
             android:name=".nativev2.NativeHomeActivity"
-            android:theme="@style/AppTheme.NoActionBar"
+            android:theme="@style/AppTheme.Boot"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask"
@@ -31,7 +31,7 @@
 
         <activity
             android:name=".nativev2.NativeLoginActivity"
-            android:theme="@style/AppTheme.NoActionBar"
+            android:theme="@style/AppTheme.Boot"
             android:screenOrientation="portrait"
             android:launchMode="singleTask"
             android:exported="true">

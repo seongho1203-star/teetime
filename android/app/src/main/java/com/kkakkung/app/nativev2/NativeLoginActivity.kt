@@ -67,6 +67,7 @@ class NativeLoginActivity : AppCompatActivity() {
         }
 
         buildLogin()
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(bg))
         handleCallback(intent?.data)
     }
 
@@ -258,6 +259,10 @@ class NativeLoginActivity : AppCompatActivity() {
         if (!target.isNullOrBlank()) i.putExtra("native_url", target)
         startActivity(i)
         finish()
+        /* 옮겨 가는 움직임을 끈다 — 두 창 다 첫 화면(`boot_window`)이라, 밀려 들어오면
+           로고가 한 번 옆으로 흔들려 깜빡여 보인다. */
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     /** MainActivity가 더 이상 LAUNCHER가 아니므로 알림 채널도 Native 시작점에서

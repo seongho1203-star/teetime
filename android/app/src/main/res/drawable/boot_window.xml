@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  첫 화면 한 장 — 흰 바탕 가운데 까꿍 로고 200dp.
+  창 바탕(AppTheme.Boot)과 홈의 가리개(NativeHomeActivity.putCover)가 이 그림 하나를
+  같이 쓴다. 둘이 따로 그리면 넘어가는 순간 크기·자리가 한 번 어긋나 깜빡여 보인다.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFF" />
+        </shape>
+    </item>
+    <item
+        android:width="200dp"
+        android:height="200dp"
+        android:gravity="center"
+        android:drawable="@drawable/boot_logo" />
+</layer-list>

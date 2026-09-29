@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 안드로이드 12부터는 시스템이 제 시작 화면(가운데 아이콘)을 먼저 띄운다.
+         아이폰 시작 화면처럼 흰 바탕만 두고 아이콘은 비운다 — 그 아이콘은 크기·자리가
+         우리 로고와 달라, 두면 로고가 한 번 바뀌어 보인다. 첫 프레임부터는 창 바탕의 로고다. -->
+    <style name="AppTheme.Boot" parent="AppTheme.NoActionBar">
+        <item name="android:windowBackground">@drawable/boot_window</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+    </style>
+</resources>
