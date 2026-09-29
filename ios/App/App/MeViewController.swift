@@ -367,7 +367,15 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
             self.photoBusy = true; self.render()
             self.upload(data)
         }
-        vc.modalPresentationStyle = .fullScreen
+        /* **`.fullScreen`으로 두지 말 것**(사용자 제보 — `커스텀가서 수정후 확인눌러서
+           홈나오고난후 다시 프로필을 누르면 터치가안돼`). 그 방식은 뒤의 틀(웹뷰까지)을
+           창에서 떼었다 닫힐 때 되붙이는데, 그때 틀이 **나타남 신호(`didShow`)를 한 번 더**
+           낸다 — 화면 전환 층(`NavLayer`)이 그것을 뒤로 가기로 읽어 웹 주소와 앱 화면이
+           어긋났다(웹은 `/me`에 남고 앱은 홈 — 다시 `/me`로 가라 해도 웹은 이미 거기라
+           아무 일도 안 일어난다). 사진 고르기·프로필 수정(`.pageSheet`)은 멀쩡했던 까닭이다.
+           `.overFullScreen`은 뒤를 그대로 두고 그 위에 덮기만 한다(바탕이 불투명하다). */
+        vc.modalPresentationStyle = .overFullScreen
+        vc.modalPresentationCapturesStatusBarAppearance = true
         present(vc, animated: true)
     }
 

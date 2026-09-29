@@ -463,6 +463,13 @@ final class NavLayer: NSObject, UIGestureRecognizerDelegate, UINavigationControl
             systemInteractiveCompleted(to: viewController)
             return
         }
+        /* **끌던 page가 아직 틀에 있는데 다른 화면이 보였다면 그 끌기의 끝이 아니다.**
+           전체화면 창(`.fullScreen`)이 닫히면 틀이 다시 나타나며 `didShow`를 한 번 더
+           내는데, 그것을 pop 성공으로 읽으면 웹만 뒤로 가 앱 화면과 주소가 어긋난다. */
+        if viewController !== from, navigationController.viewControllers.contains(where: { $0 === from }) {
+            AppLog.add("didShow 무시 — 끌던 page가 아직 틀에 있음")
+            return
+        }
         systemInteractiveFrom = nil
 
         if viewController === from {

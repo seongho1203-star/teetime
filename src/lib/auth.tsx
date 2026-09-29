@@ -166,7 +166,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!uid) return;
         const [{ data }, mine] = await Promise.all([
             supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
-            supabase.from('profile_private').select('id, phone, car')
+            /* **처음 받을 때와 같이 `*`로 받는다.** 칸을 골라 받았더니 생일(`birth_md`·
+               `birth_cal`)이 빠져, 사진만 바꿔도 `내 정보`의 올해 양력 생일 줄이 사라졌다. */
+            supabase.from('profile_private').select('*')
                     .eq('id', uid).maybeSingle(),
         ]);
         setProfile(data ?? null);
