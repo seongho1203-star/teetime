@@ -17,6 +17,13 @@ class StickerWordsTest {
         assertTrue(StickerWords.matches("응", "응")); assertFalse(StickerWords.matches("응원해", "응"))
         assertTrue(StickerWords.matches("응원해", "응원")); assertTrue(StickerWords.ranges("응원해", listOf("응")).isEmpty())
     }
+    @Test fun onlyTheLastTypedWordPicksStickers() {
+        val rules = mapOf("a" to listOf("엥?"), "b" to listOf("ㅋㅋ"), "c" to listOf("감사"), "d" to listOf("감사합니다"))
+        val (at, ids) = StickerWords.lastHit("엥? ㅋㅋ 감사", rules)!!
+        assertEquals("감사", "엥? ㅋㅋ 감사".substring(at)); assertEquals(setOf("c"), ids)
+        assertEquals(setOf("c", "d"), StickerWords.lastHit("감사합니다", rules)!!.second)
+        assertNull(StickerWords.lastHit("안녕", rules))
+    }
     private fun service(server: MockWebServer) = ChatService(ChatConfig(JSONObject().put("user", "member").put("url", server.url("/").toString()).put("key", "anon").put("token", "member-token")))
     @Test fun fetchesDatabaseWordsAndWritesOnlyChangedRowsWithEscapedFilters() = runBlocking {
         MockWebServer().use { server ->

@@ -1191,6 +1191,15 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         } finally { paintingMentions = false }
     }
 
+    /** 그 줄을 띄운 **마지막 말 하나만** 파랗게 칠한다. */
+    private fun paintSuggestAt(at: IntRange) {
+        val editable = input.text
+        if (at.last + 1 > editable.length) return
+        paintingMentions = true
+        try { editable.setSpan(SuggestPaint(), at.first, at.last + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        finally { paintingMentions = false }
+    }
+
     private fun isSuper() = people.firstOrNull { it.optString("id") == me }?.optString("role") == "superadmin"
     private fun applyWords(rows: List<JSONObject>) {
         stickerWords = rows.filter { it.optString("sticker_id").isNotBlank() && suggestNorm(it.optString("word")).isNotEmpty() }
@@ -1243,9 +1252,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         if (q.isEmpty() || stickerWords.isEmpty()) {
             suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return
         }
-        // Collect every match first, then follow the shared catalog order (suggestFor).
-        val hits = HashSet<String>()
-        stickerWords.forEach { (id, words) -> if (words.any { StickerWords.matches(q, suggestNorm(it)) }) hits.add(id) }
+        // 맨 끝에 친 말 하나만 — 그 이모티콘들을 목록 차례대로 고른다(suggestFor).
+        val (lastAt, hits) = StickerWords.lastHit(raw, stickerWords) ?: run {
+            suggestPanel.visibility = View.GONE; input.setTextColor(ChatSkin.text); return
+        }
         val selected = LinkedHashMap<String, String>()
         val max = service.config.suggestMax.coerceAtLeast(0)
         val maxAnimated = service.config.suggestAnim.coerceAtLeast(0)
@@ -1283,7 +1293,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
         suggestPanel.visibility=View.VISIBLE
         input.setTextColor(ChatSkin.text)
-        paintSuggest(raw, selected.keys.flatMap { stickerWords[it].orEmpty() }.map(::suggestNorm))
+        paintSuggestAt(lastAt)
     }
 
     private fun stickerAsset(id: String): String =

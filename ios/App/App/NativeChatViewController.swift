@@ -1268,8 +1268,9 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         guard !flat.isEmpty, !wordRules.isEmpty else { return none }
         let norm = normalize(text)
         guard !norm.scalars.isEmpty else { return none }
-        var hit = Set<String>()
-        var spots: [NSRange] = []
+        /* 걸린 자리마다 어느 이모티콘인지 적어 둔다 — 그중 **맨 끝에 친 말
+           하나만** 쓴다(아래). */
+        var found: [(at: NSRange, ids: [String])] = []
         for (word, ids) in wordRules {
             /* **한 글자 말은 그 한 글자만 쳤을 때만** 걸린다 — 들어 있는가로
                보면 `응원`·`헉헉`처럼 글자를 칠 때마다 줄이 뜬다. 두 글자부터는
@@ -1277,12 +1278,23 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
                같은 잣대다. */
             if word.unicodeScalars.count == 1,
                !(norm.scalars.count == 1 && norm.scalars[0] == word.unicodeScalars.first!) { continue }
-            let found = places(of: word, in: norm)
-            guard !found.isEmpty else { continue }
-            spots.append(contentsOf: found)
-            for id in ids { hit.insert(id) }
+            for at in places(of: word, in: norm) { found.append((at, ids)) }
         }
-        guard !hit.isEmpty else { return none }
+        /* **맨 끝에 친 말 하나만 본다**(사용자 요청 — `엥? ㅋㅋ 감사`처럼 치면
+           마지막 `감사`의 것만). 앞의 말까지 다 섞으면 줄이 엉뚱한 그림으로
+           차고 글칸도 통째로 파래진다. 끝이 가장 뒤인 자리를 고르고, 끝이
+           같으면 긴 쪽(`감사합니다` > `감사`)이다. 그 자리 **안에 든** 말은
+           함께 친다 — `감사합니다`를 치면 `감사`의 이모티콘도 뜬다.
+           안드로이드 `StickerWords.lastHit`와 같은 잣대다. */
+        guard let last = found.max(by: { a, b in
+            NSMaxRange(a.at) != NSMaxRange(b.at) ? NSMaxRange(a.at) < NSMaxRange(b.at)
+                                                  : a.at.length < b.at.length
+        })?.at else { return none }
+        var hit = Set<String>()
+        for f in found where f.at.location >= last.location && NSMaxRange(f.at) <= NSMaxRange(last) {
+            for id in f.ids { hit.insert(id) }
+        }
+        let spots = [last]
         var out: [ChatJSON] = []
         var anim = 0
         for item in flat {

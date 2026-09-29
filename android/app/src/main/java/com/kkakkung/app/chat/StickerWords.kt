@@ -28,6 +28,26 @@ internal object StickerWords {
      */
     fun matches(norm: String, word: String): Boolean =
         if (word.codePointCount(0, word.length) == 1) norm == word else word.isNotEmpty() && norm.contains(word)
+    /**
+     * **맨 끝에 친 말 하나만 본다**(사용자 요청 — `엥? ㅋㅋ 감사`처럼 치면
+     * 마지막 `감사`의 것만). 끝이 가장 뒤인 자리를 고르고, 끝이 같으면 긴 쪽
+     * (`감사합니다` > `감사`)이다. 그 자리 **안에 든** 말의 이모티콘은 함께 친다.
+     * 돌려주는 것은 칠할 자리(원문)와 이모티콘 id들이다. 아이폰
+     * `NativeChatViewController.suggestFind`와 같은 잣대다.
+     */
+    fun lastHit(raw: String, rules: Map<String, List<String>>): Pair<IntRange, Set<String>>? {
+        val q = normalize(raw)
+        val found = mutableListOf<Pair<IntRange, String>>()
+        rules.forEach { (id, words) ->
+            words.forEach { w0 ->
+                val w = normalize(w0)
+                if (w.isNotEmpty() && matches(q, w)) ranges(raw, listOf(w)).forEach { found.add(it to id) }
+            }
+        }
+        val last = found.map { it.first }.maxWithOrNull(compareBy<IntRange>({ it.last }, { it.last - it.first })) ?: return null
+        val ids = found.filter { it.first.first >= last.first && it.first.last <= last.last }.mapTo(LinkedHashSet()) { it.second }
+        return last to ids
+    }
     fun ranges(raw: String, words: Collection<String>): List<IntRange> {
         val norm = mapped(raw); val out = mutableListOf<IntRange>()
         words.forEach { word ->
