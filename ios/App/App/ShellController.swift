@@ -97,7 +97,74 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
         tabBar.scrollEdgeAppearance = ap
         tabBar.tintColor = AppSkin.brand
         swipe.attach(to: self)
+        putCover()
         Task { @MainActor [weak self] in await self?.refreshPeople() }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if let c = cover { view.bringSubviewToFront(c) }
+    }
+
+    // ── 첫 화면 가리개 ───────────────────────────────────────────
+
+    /*
+     * **홈이 다 받아질 때까지 까꿍 첫 화면을 그대로 둔다**(사용자 요청 — `처음
+     * 접속할때 까꿍로고가 전체화면으로 뜨는데 그때 백그라운드에서 미리 로딩하고
+     * 띄우면 어떨까?`). 예전에는 껍데기가 서자마자 머리말만 있고 가운데에
+     * 스피너가 도는 빈 홈이 보였다 — 그 사이를 첫 화면이 덮는다.
+     *
+     *   - **웹 `.boot`(index.html)와 같은 그림이다** — 흰 바탕 · 가운데 200pt
+     *     (좁으면 화면 폭의 52%). 그래야 웹 첫 화면에서 이것으로 넘어갈 때
+     *     아무것도 안 바뀐 것처럼 이어진다. 그림은 `boot-logo`(앱 아이콘에서 뽑은 것) —
+     *     **아이콘을 바꾸면 이것도 다시 뽑을 것.**
+     *   - 걷는 신호는 **보이는 탭이 처음 다 받았을 때**다(`onFirstLoad` — 알림으로
+     *     공지 탭부터 열리는 판도 있다). 실패해도 `finished()`는 불리므로 걷힌다.
+     *   - **그래도 `coverMax`(4초) 뒤에는 무조건 걷는다** — 통신이 막혀 영영
+     *     첫 화면에 갇히면 앱이 죽은 것처럼 보인다.
+     *   - 걷을 때만 살짝 사라진다(0.2초). 나타나는 연출은 없다 — 첫 프레임부터
+     *     있어야 가리는 뜻이 있다.
+     */
+    private var cover: UIView?
+    private static let coverMax: TimeInterval = 4
+
+    private func putCover() {
+        let c = UIView()
+        c.backgroundColor = .white
+        c.frame = view.bounds
+        c.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        let logo = UIImageView(image: UIImage(named: "boot-logo"))
+        logo.contentMode = .scaleAspectFit
+        logo.translatesAutoresizingMaskIntoConstraints = false
+        logo.isAccessibilityElement = true
+        logo.accessibilityLabel = "까꿍"
+        c.addSubview(logo)
+        let want = logo.widthAnchor.constraint(equalToConstant: 200)
+        want.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            logo.centerXAnchor.constraint(equalTo: c.centerXAnchor),
+            logo.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+            want,
+            logo.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+            logo.widthAnchor.constraint(lessThanOrEqualTo: c.widthAnchor, multiplier: 0.52),
+            logo.heightAnchor.constraint(equalTo: logo.widthAnchor)
+        ])
+        view.addSubview(c)
+        cover = c
+        for t in [homeTab, boardTab, roundsTab, pollsTab] as [ShellTabController] {
+            t.onFirstLoad = { [weak self] in self?.dropCover() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.coverMax) { [weak self] in
+            if self?.cover != nil { AppLog.add("첫 화면 가리개 — 시간이 다 돼 걷음") }
+            self?.dropCover()
+        }
+    }
+
+    func dropCover() {
+        guard let c = cover else { return }
+        cover = nil
+        for t in [homeTab, boardTab, roundsTab, pollsTab] as [ShellTabController] { t.onFirstLoad = nil }
+        UIView.animate(withDuration: 0.2, animations: { c.alpha = 0 }, completion: { _ in c.removeFromSuperview() })
     }
 
     // ── 사람들 ───────────────────────────────────────────────────
@@ -477,8 +544,11 @@ class ShellTabController: UIViewController, UITableViewDataSource, UITableViewDe
 
     /// 화면마다 받아 온다 — 끝나면 `finished()`를 부른다.
     func load() { finished() }
+    /// 처음 한 번 다 받았을 때 — 껍데기가 첫 화면 가리개를 걷는 신호(`dropCover`).
+    var onFirstLoad: (() -> Void)?
     func finished() {
         loadedOnce = true
+        if let f = onFirstLoad { onFirstLoad = nil; f() }
         lastLoad = Date()
         spinner.stopAnimating()
         refresh.endRefreshing()

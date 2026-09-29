@@ -44,6 +44,8 @@ class TabPages(
     private val cards = TabCards(ui)
     var homeHead: TabCards.HomeHead? = null
         private set
+    /** 홈을 처음 다 그렸을 때 한 번 — 첫 화면 가리개를 걷는 신호(아이폰 `onFirstLoad`). 실패해도 부른다. */
+    var onHomeLoaded: (() -> Unit)? = null
 
     private fun body(): LinearLayout = LinearLayout(ctx).apply {
         orientation = LinearLayout.VERTICAL
@@ -122,6 +124,7 @@ class TabPages(
                         others.forEach { r -> page.addView(cards.homeRound(r, me) { nav.openRound(r.id) }) }
                     }
                 } catch (e: Exception) { fail(page, e) }
+                onHomeLoaded?.let { onHomeLoaded = null; it() }
             }
         }
     }

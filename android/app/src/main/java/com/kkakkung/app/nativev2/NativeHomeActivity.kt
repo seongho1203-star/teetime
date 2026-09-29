@@ -216,6 +216,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         window.statusBarColor = bg
         window.navigationBarColor = card
         buildShell()
+        putCover()
         /* 만료 직전이면 첫 화면을 읽기 전에 갱신한다. 실패하면 저장 세션을
            지우고 뒤의 웹 로그인 화면으로 돌아간다. */
         if (session.needsRefresh) {
@@ -302,6 +303,36 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         super.onPause()
     }
 
+    /*
+     * **홈이 다 받아질 때까지 까꿍 첫 화면을 그대로 둔다**(아이폰 `ShellController.putCover`와
+     * 같다 · 사용자 요청 — `처음 접속할때 까꿍로고가 전체화면으로 뜨는데 그때 백그라운드에서
+     * 미리 로딩하고 띄우면 어떨까?`). 흰 바탕 · 가운데 200dp(좁으면 화면 폭의 52%) —
+     * 웹 `.boot`와 같은 그림이다(`boot_logo` · 앱 아이콘에서 뽑았다).
+     * 걷는 신호는 홈을 처음 다 그렸을 때(`TabPages.onHomeLoaded`) · 막는 화면(승인 대기 등)이
+     * 설 때 · 오류가 날 때이고, **그래도 4초 뒤에는 무조건 걷는다** — 통신이 막혀 첫 화면에
+     * 갇히면 앱이 죽은 것처럼 보인다.
+     */
+    private var cover: View? = null
+    private fun putCover() {
+        val c = FrameLayout(this).apply { setBackgroundColor(Color.WHITE); isClickable = true }
+        val size = minOf(dp(200), (resources.displayMetrics.widthPixels * 0.52f).toInt())
+        c.addView(ImageView(this).apply {
+            setImageResource(R.drawable.boot_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "까꿍"
+        }, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+        (window.decorView as ViewGroup).addView(c, ViewGroup.LayoutParams(-1, -1))
+        cover = c
+        tabPages.onHomeLoaded = { dropCover() }
+        c.postDelayed({ dropCover() }, 4000)
+    }
+    private fun dropCover() {
+        val c = cover ?: return
+        cover = null
+        tabPages.onHomeLoaded = null
+        c.animate().alpha(0f).setDuration(200).withEndAction { (c.parent as? ViewGroup)?.removeView(c) }.start()
+    }
+
     private fun routeAfterLogin() {
         val loading = page("까꿍")
         val spin = ProgressBar(this); loading.addView(spin); mount(loading)
@@ -324,6 +355,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
                     }
                 }
             } catch (e: Exception) {
+                dropCover()
                 loading.removeView(spin); error(loading, e.message ?: "회원 정보를 불러오지 못했습니다.")
             }
         }
@@ -342,6 +374,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     /** 들어가기 전에 막는 화면(승인 대기·추방·빠진 정보) — 뿌리에 세워 끌어서 뒤로 못 가게 한다. */
     private var gated = false
     private fun showGate(mode: AccountGateScreen.Mode, profile: JSONObject, contact: JSONObject?) {
+        dropCover()
         detail = true
         gated = true
         bottom.visibility = View.GONE

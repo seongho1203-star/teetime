@@ -117,23 +117,45 @@ final class HomeTabController: ShellTabController {
     @objc private func faceTapped() { go("/me") }
     @objc private func bellTapped() { go("/alerts") }
 
+    /// 명단이 아직 없을 때만 받는다(껍데기가 먼저 받아 두었으면 건너뛴다).
+    private func peopleIfNeeded() async {
+        if shell?.me == nil { await shell?.refreshPeople() }
+    }
+    /// 가입 대기 수 — 운영진에게만 묻는다.
+    private func pendingIfAdmin() async -> Int {
+        guard shell?.isAdmin ?? false else { return 0 }
+        return await service.pendingCount()
+    }
+
     override func load() {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            if self.shell?.me == nil { await self.shell?.refreshPeople() }
+            /* **한꺼번에 묻는다**(첫 화면 가리개 — 사용자 요청). 예전에는 여덟 조회를
+               하나씩 기다려, 왕복이 150ms면 그것만 1초가 넘었다. 서로 기대지 않는
+               것은 다 함께 보내고, 조 시각·날씨만 다음 라운드를 알고 나서 둘이 함께 간다. */
+            async let people: Void = self.peopleIfNeeded()
+            async let roundsQ = self.service.roundsUpcoming()
+            async let pollsQ = self.service.pollsLive()
+            async let votedQ = self.service.myVotedPolls()
+            async let chatQ = self.service.unreadChatCount()
+            async let alertsQ = self.service.unreadAlertCount()
+            _ = await people
             let me = self.shell?.me
             self.face.show(url: me?.avatar, letter: me?.name ?? "", edge: me?.edge, size: 36)
             self.nameLabel.text = "\(me?.name ?? "회원")님"
+            async let pendingQ = self.pendingIfAdmin()
             do {
-                let rounds = try await self.service.roundsUpcoming().filter { $0.status != "cancelled" }
-                let rawPolls = try await self.service.pollsLive()
+                let rounds = try await roundsQ.filter { $0.status != "cancelled" }
+                let rawPolls = try await pollsQ
                 let live = rawPolls.filter { !$0.closed }
-                /* 홈이 함께 부르는 것이 핵심이다 — 투표 탭을 아무도 안 여는 날 결과가 하루 종일 안 남는다(웹과 같다). */
-                await self.service.announceClosedPolls(rawPolls)
-                let voted = await self.service.myVotedPolls()
-                let pending = (self.shell?.isAdmin ?? false) ? await self.service.pendingCount() : 0
-                let chat = await self.service.unreadChatCount()
-                let alerts = await self.service.unreadAlertCount()
+                /* 홈이 함께 부르는 것이 핵심이다 — 투표 탭을 아무도 안 여는 날 결과가 하루 종일 안 남는다(웹과 같다).
+                   **화면이 기다릴 일은 아니라** 뒤에서 돌린다(대화방에 결과 카드를 남길 뿐이다). */
+                let service = self.service
+                Task { @MainActor in await service.announceClosedPolls(rawPolls) }
+                let voted = await votedQ
+                let pending = await pendingQ
+                let chat = await chatQ
+                let alerts = await alertsQ
                 self.bellDot.text = alerts > 99 ? "99+" : String(alerts)
                 self.bellDot.isHidden = alerts == 0
 
@@ -142,13 +164,15 @@ final class HomeTabController: ShellTabController {
                 if let next = upcoming.first {
                     r.append(.next(next))
                     /* 조별 시각과 날씨는 뒤따라 붙는다 — 없어도 카드는 먼저 선다. */
-                    self.tees = await self.service.groupTees(next.id)
+                    let wKey = next.id + AppDate.kstDay(NativeChatRows.date(next.teeAt))
+                    async let teesQ = self.service.groupTees(next.id)
                     if !next.isScreen, let lat = next.lat, let lon = next.lon {
-                        if self.weatherFor != next.id + AppDate.kstDay(NativeChatRows.date(next.teeAt)) {
+                        if self.weatherFor != wKey {
                             self.weather = await self.service.weather(lat: lat, lon: lon, teeAt: next.teeAt)
-                            self.weatherFor = next.id + AppDate.kstDay(NativeChatRows.date(next.teeAt))
+                            self.weatherFor = wKey
                         }
                     } else { self.weather = nil; self.weatherFor = "" }
+                    self.tees = await teesQ
                 } else {
                     r.append(.empty)
                 }
