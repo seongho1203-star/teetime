@@ -109,11 +109,28 @@ class AvatarMakerScreen(ctx: Context, host: ScreenHost, name: String) : NativeSc
         setPadding(ui.dp(12), 0, ui.dp(12), 0)
     }
     private var saving = false
+    private var previewMax = 0
+
+    private companion object {
+        /** 판이 늘 쓸 높이 — 떠 있는 도구(16+56)를 빼고도 `텍스트 적용` 줄과 글자 칸(58+56)이 보인다. */
+        const val PANEL_MIN = 200
+    }
 
     init {
         header.visibility = View.GONE
         root.setBackgroundColor(AppSkin.surface)
-        val column = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val column = object : LinearLayout(ctx) {
+            /* 잴 때마다 남는 높이를 보고 미리보기 크기를 정한다 — 붙박이 64%(`side`)가 윗한도. */
+            override fun onMeasure(wSpec: Int, hSpec: Int) {
+                if (MeasureSpec.getMode(hSpec) == MeasureSpec.EXACTLY) {
+                    val room = MeasureSpec.getSize(hSpec) - ui.dp(60 + 12 + 16) - ui.dp(PANEL_MIN)
+                    val want = room.coerceIn(ui.dp(88), previewMax)
+                    val lp = preview.layoutParams
+                    if (lp != null && lp.width != want) { lp.width = want; lp.height = want }
+                }
+                super.onMeasure(wSpec, hSpec)
+            }
+        }.apply { orientation = LinearLayout.VERTICAL }
 
         /* 머리 — 왼쪽 `✕` · 가운데 제목 · 오른쪽 `확인`(둘 다 테두리 둥근 단추). */
         val top = FrameLayout(ctx)
@@ -127,6 +144,7 @@ class AvatarMakerScreen(ctx: Context, host: ScreenHost, name: String) : NativeSc
 
         val sw = ctx.resources.displayMetrics.widthPixels
         val side = (sw * .64f).toInt()
+        previewMax = side
         column.addView(preview, LinearLayout.LayoutParams(side, side).apply {
             gravity = Gravity.CENTER_HORIZONTAL; topMargin = ui.dp(12); bottomMargin = ui.dp(16)
         })
@@ -136,7 +154,14 @@ class AvatarMakerScreen(ctx: Context, host: ScreenHost, name: String) : NativeSc
             panelBox.setPadding(0, 0, 0, ui.dp(90))
         }
         column.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        /* 글자 칸을 누르면 판을 맨 위로 — 판이 키보드 위에 좁게 남아도 칸이 그 안에 보인다(아이폰과 같다). */
+        field.setOnFocusChangeListener { _, has -> if (has) scroll.post { scroll.smoothScrollTo(0, 0) } }
         body.addView(column, FrameLayout.LayoutParams(-1, -1))
+        /* **키보드가 올라오면 미리보기를 줄인다**(사용자 제보 — `커스텀 글씨입력할때 키보드가 화면을
+           가려서 안보임`). `adjustResize`라 화면이 키보드만큼 줄어드는데 미리보기가 폭의 64%로 못박혀
+           있으면 아래 판(글자 칸)이 통째로 키보드 뒤로 밀린다. 판에 `PANEL_MIN`만큼은 늘 남기고
+           미리보기가 나머지를 쓴다 — 아이폰 `AvatarMakerViewController`와 같은 셈이다.
+           셈하는 자리는 위 `column`의 `onMeasure`다(잴 때 정하므로 `post`로 미룰 일이 없다). */
 
         /* 아래에 떠 있는 알약 도구 — 이모티콘 · 색 · `Aa`. */
         tools.background = ui.rounded(AppSkin.surface, 28, AppSkin.line)

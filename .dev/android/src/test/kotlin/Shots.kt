@@ -178,6 +178,26 @@ class Shots {
     @Test fun avatarMaker() = shoot("avatar-maker") { AvatarMakerScreen(RuntimeEnvironment.getApplication(), it, "악마제리") }
     @Test fun avatarMakerEmoji() = shoot("avatar-maker-emoji") { AvatarMakerScreen(RuntimeEnvironment.getApplication(), it, "악마제리").apply { tab(0) } }
     @Test fun avatarMakerText() = shoot("avatar-maker-text") { AvatarMakerScreen(RuntimeEnvironment.getApplication(), it, "악마제리").apply { tab(2) } }
+    /** 키보드가 올라온 것처럼 화면을 줄여 찍는다 — 미리보기가 줄고 글자 칸이 보여야 한다. */
+    @Test fun avatarMakerKeyboard() {
+        val srv = server()
+        val api = NativeApi(NativeSession("me", "t", "", 0, srv.url("/").toString(), "anon"))
+        val ctx = RuntimeEnvironment.getApplication()
+        val screen = AvatarMakerScreen(ctx, host(api), "악마제리").apply { tab(2) }
+        val frame = FrameLayout(ctx)
+        frame.addView(screen.root, FrameLayout.LayoutParams(-1, -1))
+        val w = ctx.resources.displayMetrics.widthPixels
+        fun lay(h: Int) {
+            frame.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+            frame.layout(0, 0, w, h)
+            repeat(10) { shadowOf(Looper.getMainLooper()).idle() }
+        }
+        val full = ctx.resources.displayMetrics.heightPixels
+        lay(full); val h = full * 55 / 100; lay(h); lay(h)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        frame.draw(Canvas(bmp))
+        File(System.getProperty("shots.dir"), "avatar-maker-keyboard.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
     @Test fun avatarArt() = shootView("avatar-art", 1200) { ctx ->
         android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.VERTICAL

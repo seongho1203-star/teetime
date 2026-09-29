@@ -2054,6 +2054,8 @@ final class BubbleCell: UITableViewCell {
                   reactRow] {
             contentView.addSubview(v)
         }
+        /* 보라 목록 위의 얼굴은 흰색 25% — `AvatarView`의 기본(회녹색)은 밝은 화면 몫이다. */
+        avatarView.backgroundColor = UIColor(white: 1, alpha: 0.25)
         bubble.addSubview(bodyLabel)
         capBubble.addSubview(capLabel)
         for v in [cardPill, cardTitle, cardNote, cardBy, cardGo] as [UIView] {
@@ -2988,7 +2990,11 @@ final class AvatarView: UIView {
         image.contentMode = .scaleAspectFill
         letter.textAlignment = .center
         letter.textColor = .white
-        backgroundColor = UIColor(white: 1, alpha: 0.25)
+        /* **바탕은 흐린 회녹색이 기본이다**(사용자 제보 — `기본이미지 적용했을때 내정보에 저렇게나와서
+           안보임`). 예전에는 흰색 25%라 **보라 대화 목록에서만** 보였고, 밝은 화면(`내 정보` 등)에서는
+           흰 글자가 흰 바탕에 묻혔다 — 화면마다 `AppSkin.faint`를 덧칠해 두었는데 몇 곳이 빠졌다.
+           대화 말풍선 옆 얼굴만 제자리에서 흰색 25%로 되돌린다(`ChatCell`). */
+        backgroundColor = AppSkin.faint
         addSubview(letter)
         addSubview(image)
     }

@@ -88,6 +88,7 @@ final class AvatarMakerViewController: UIViewController, UITextFieldDelegate {
     private let panelBox = UIStackView()
     private let toolBar = UIStackView()
     private let textField = UITextField()
+    private let scroll = UIScrollView()
 
     init(name: String, done: @escaping (Data) -> Void) {
         self.done = done
@@ -118,7 +119,6 @@ final class AvatarMakerViewController: UIViewController, UITextFieldDelegate {
         panelBox.axis = .vertical
         panelBox.spacing = 0
         panelBox.translatesAutoresizingMaskIntoConstraints = false
-        let scroll = UIScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.keyboardDismissMode = .onDrag
         scroll.addSubview(panelBox)
@@ -154,13 +154,20 @@ final class AvatarMakerViewController: UIViewController, UITextFieldDelegate {
 
             preview.topAnchor.constraint(equalTo: close.bottomAnchor, constant: 20),
             preview.centerXAnchor.constraint(equalTo: g.centerXAnchor),
-            preview.widthAnchor.constraint(equalTo: g.widthAnchor, multiplier: 0.64),
+            preview.widthAnchor.constraint(lessThanOrEqualTo: g.widthAnchor, multiplier: 0.64),
+            preview.widthAnchor.constraint(greaterThanOrEqualToConstant: 88),
             preview.heightAnchor.constraint(equalTo: preview.widthAnchor),
 
             scroll.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 20),
             scroll.leadingAnchor.constraint(equalTo: g.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: g.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: toolBar.topAnchor, constant: -8),
+            /* **키보드가 올라오면 미리보기가 줄어든다**(사용자 제보 — `커스텀 글씨입력할때 키보드가
+               화면을 가려서 안보임`). 도구가 `keyboardLayoutGuide`에 붙어 올라가는데 미리보기가 폭의
+               64%로 못박혀 있어 판이 0으로 눌렸다. 판에 `텍스트 적용` 줄과 글자 칸(58+56)이 늘
+               보이게 높이를 잡아 두고, 미리보기는 남는 만큼만 쓴다(64%가 윗한도 · 88이 아랫한도).
+               안드로이드 `AvatarMaker.kt`의 `PANEL_MIN`과 같은 셈이다. */
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 128),
             panelBox.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             panelBox.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             panelBox.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),
@@ -171,6 +178,13 @@ final class AvatarMakerViewController: UIViewController, UITextFieldDelegate {
             toolBar.heightAnchor.constraint(equalToConstant: 56),
             toolBar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -12),
         ])
+
+        let wide = preview.widthAnchor.constraint(equalTo: g.widthAnchor, multiplier: 0.64)
+        wide.priority = .defaultHigh
+        wide.isActive = true
+        /* 그림이 제 크기(240)를 고집하지 않게 — 키보드가 올라오면 그보다 작아져야 한다. */
+        preview.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        preview.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         textField.delegate = self
         textField.text = spec.text
@@ -444,6 +458,11 @@ final class AvatarMakerViewController: UIViewController, UITextFieldDelegate {
         spec.text = textField.text ?? ""
         if !spec.text.isEmpty && !spec.showText { spec.showText = true }
         redraw()
+    }
+
+    /** 글자 칸을 누르면 판을 맨 위로 — 판이 키보드 위에 좁게 남아도 칸이 그 안에 보인다. */
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        scroll.setContentOffset(.zero, animated: true)
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
