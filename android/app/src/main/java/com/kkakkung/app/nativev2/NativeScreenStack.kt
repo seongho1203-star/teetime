@@ -25,6 +25,42 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
     var rootMotion: ((Float, Boolean) -> Unit)? = null
     var tabNeighbor: ((Int) -> Screen?)? = null
     var tabSelected: ((String) -> Unit)? = null
+    /**
+     * 화면이 밀리는 만큼 알린다 — `front`가 `t`(0~1)만큼 보인다. 껍데기가 이 값으로
+     * 바닥 띠(내비게이션 바) 색을 섞는다: 대화방만 보라라, 한 번에 바꾸면 밀려 들어오기
+     * 시작하는 순간 바닥만 툭 바뀌었다(사용자 제보). 움직임이 끝나면 `changed`가 제자리를 맞춘다.
+     */
+    var motion: ((front: Screen, back: Screen?, t: Float) -> Unit)? = null
+    private fun tell(front: Screen, back: Screen?) {
+        val w = width.coerceAtLeast(1).toFloat()
+        motion?.invoke(front, back, (1f - abs(front.view.translationX) / w).coerceIn(0f, 1f))
+    }
+    /**
+     * 탭 사이를 미는 동안 **탭바는 제자리에 둔다**(아이폰과 같다 · 사용자 요청 — `탭바까지도
+     * 이동해서 불편해`). 탭바는 탭 화면 안(`view.tag`)에 붙어 있으므로, 끄는 동안만 이 층으로
+     * 옮겨 맨 위에 얹었다가 남는 화면에 도로 붙인다. **같은 탭바 하나를 옮기는 것이라 뱃지가
+     * 안 사라진다** — 예전에는 옆 탭을 미리 그리며 새 탭바를 만들어 숫자가 없다가 다시 떴다.
+     */
+    private var floatingBar: View? = null
+    private fun liftBar(from: View) {
+        val bar = from.tag as? View ?: return
+        if (bar.parent !== from) return
+        val h = bar.layoutParams?.height ?: return
+        (from as ViewGroup).removeView(bar)
+        addView(bar, LayoutParams(-1, h, android.view.Gravity.BOTTOM))
+        bar.bringToFront()
+        floatingBar = bar
+    }
+    private fun dropBar(into: View) {
+        val bar = floatingBar ?: return
+        floatingBar = null
+        val h = (bar.layoutParams as? LayoutParams)?.height ?: -2
+        removeView(bar)
+        if (into is FrameLayout) {
+            into.addView(bar, LayoutParams(-1, h, android.view.Gravity.BOTTOM))
+            into.tag = bar
+        }
+    }
     private var busy = false
     private var dragging = false
     val transitioning get() = busy || dragging
@@ -63,9 +99,12 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         busy = true
         view.translationX = width.toFloat()
         val duration = if (animationsEnabled()) 500L else 0L
-        old.view.animate().translationX(-width * .25f).setDuration(duration).setInterpolator(ease).start()
+        old.view.animate().translationX(-width * .25f).setDuration(duration).setInterpolator(ease).setUpdateListener(null).start()
         rootMotion?.invoke(-width * .25f, screens.size == 2)
-        view.animate().translationX(0f).setDuration(duration).setInterpolator(ease).withEndAction {
+        view.animate().translationX(0f).setDuration(duration).setInterpolator(ease)
+            .setUpdateListener { tell(entry, old) }.withEndAction {
+            view.animate().setUpdateListener(null)
+            tell(entry, old)
             removeView(old.view); old.view.translationX = 0f
             busy = false; changed?.invoke()
         }.start()
@@ -84,9 +123,12 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
         val behind = screens[screens.lastIndex - 1]
         busy = true
         val duration = if (!animationsEnabled()) 0L else if (gesture) 230L else 500L
-        behind.view.animate().translationX(if (go) 0f else -width * .25f).setDuration(duration).setInterpolator(ease).start()
+        behind.view.animate().translationX(if (go) 0f else -width * .25f).setDuration(duration).setInterpolator(ease).setUpdateListener(null).start()
         rootMotion?.invoke(if (go) 0f else -width * .25f, screens.size == 2)
-        front.view.animate().translationX(if (go) width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).withEndAction {
+        front.view.animate().translationX(if (go) width.toFloat() else 0f).setDuration(duration).setInterpolator(ease)
+            .setUpdateListener { tell(front, behind) }.withEndAction {
+            front.view.animate().setUpdateListener(null)
+            tell(front, behind)
             if (go) { removeView(front.view); screens.removeAt(screens.lastIndex) }
             else removeView(behind.view)
             front.view.translationX = 0f; behind.view.translationX = 0f
@@ -131,6 +173,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
                     if (preview == null) { rejected = true; return false }
                     preview!!.view.translationX = direction * width.toFloat()
                     attach(preview!!); current!!.view.bringToFront()
+                    liftBar(current!!.view)
                 } else { rejected = true; return false }
                 dragging = true; stopScroll(current!!.view)
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -152,6 +195,7 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
                 front.view.translationX = x
                 screens[screens.lastIndex-1].view.translationX = (x-width)*.25f
                 rootMotion?.invoke((x-width)*.25f, screens.size == 2)
+                tell(front, screens[screens.lastIndex-1])
             } else {
                 val x = if (direction > 0) dx.coerceIn(-width.toFloat(), 0f) else dx.coerceIn(0f, width.toFloat())
                 front.view.translationX = x
@@ -170,8 +214,9 @@ internal class NativeScreenStack(context: Context) : FrameLayout(context) {
                 val go = !cancelled && completesTab(progress, along)
                 busy = true
                 val duration = if (animationsEnabled()) 300L else 0L
-                front.view.animate().translationX(if (go) -direction*width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).start()
-                next.view.animate().translationX(if (go) 0f else direction*width.toFloat()).setDuration(duration).setInterpolator(ease).withEndAction {
+                front.view.animate().translationX(if (go) -direction*width.toFloat() else 0f).setDuration(duration).setInterpolator(ease).setUpdateListener(null).start()
+                next.view.animate().translationX(if (go) 0f else direction*width.toFloat()).setDuration(duration).setInterpolator(ease).setUpdateListener(null).withEndAction {
+                    dropBar(if (go) next.view else front.view)
                     if (go) { removeView(front.view); screens.clear(); screens.add(next); tabSelected?.invoke(next.key) }
                     else removeView(next.view)
                     front.view.translationX = 0f; next.view.translationX = 0f

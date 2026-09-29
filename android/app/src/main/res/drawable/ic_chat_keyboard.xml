@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 서랍이 열려 있을 때의 이모티콘 단추 — 아이폰 `keyboard`의 자리.
+     색은 아이폰 `composer.cBrand`(#E84A80) 그대로다 — 켜진 표시가 곧 이 색이다.
      얼굴 그대로 두면 눌러도 또 이모티콘이 나올 것처럼 보인다(CLAUDE.md). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="@android:color/transparent" android:strokeColor="#5B6455"
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#E84A80"
         android:strokeWidth="1.8" android:strokeLineJoin="round"
         android:pathData="M4.5,6 L19.5,6 Q21,6 21,7.5 L21,16.5 Q21,18 19.5,18 L4.5,18 Q3,18 3,16.5 L3,7.5 Q3,6 4.5,6 Z"/>
-    <path android:fillColor="#5B6455"
+    <path android:fillColor="#E84A80"
         android:pathData="M6,9h2v2h-2z M9.5,9h2v2h-2z M13,9h2v2h-2z M16.5,9h1.5v2h-1.5z M6,12.2h2v2h-2z M9.5,12.2h2v2h-2z M13,12.2h2v2h-2z M16.5,12.2h1.5v2h-1.5z"/>
-    <path android:fillColor="@android:color/transparent" android:strokeColor="#5B6455"
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#E84A80"
         android:strokeWidth="1.8" android:strokeLineCap="round" android:pathData="M8.5,16 L15.5,16"/>
 </vector>

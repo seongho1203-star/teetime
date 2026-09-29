@@ -129,6 +129,13 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     private val tabBadges = linkedMapOf<String, TextView>()
     private var badgeJob: Job? = null
     private var bellBadge: TextView? = null
+    /** 마지막으로 받은 알림 수 — 새로 그린 홈의 종에 **받아 오기 전부터** 붙인다(없다가 다시 뜨지 않게). */
+    private var lastAlerts = 0
+    private fun paintBell(dot: TextView?) {
+        dot ?: return
+        dot.text = if (lastAlerts > 99) "99+" else "$lastAlerts"
+        dot.visibility = if (lastAlerts > 0) View.VISIBLE else View.GONE
+    }
     /**
      * 생일이면 대화방에 축하 글 — **앱을 연 사람의 화면이 하루 한 번** 부른다(웹 `announceBirthdays`와 같은 결 ·
      * pg_cron을 새로 켜지 않는다). 기기마다 하루 한 번만 묻고, 실패하면 표를 지워 다음에 다시 해 본다.
@@ -157,8 +164,8 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
                 "polls" to safe { api.openPolls(200).count { !it.optBoolean("closed") && !pollExpired(it.optString("closes_at")) } }
             )
             values.forEach { (id, n) -> tabBadges[id]?.let { badge -> badge.text = if (n > 99) "99+" else "$n"; badge.visibility = if (n > 0) View.VISIBLE else View.GONE } }
-            val alerts = safe { api.unreadAlertCount() }
-            bellBadge?.let { it.text = if (alerts > 99) "99+" else "$alerts"; it.visibility = if (alerts > 0) View.VISIBLE else View.GONE }
+            lastAlerts = safe { api.unreadAlertCount() }
+            paintBell(bellBadge)
         }
     }
 
@@ -401,13 +408,46 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         finish()
     }
 
+    /**
+     * 바닥 띠(내비게이션 바 자리) 색 — **화면이 밀리는 만큼 섞는다**(사용자 제보 — `대화버튼을
+     * 눌러서 채팅화면이 밀려들어오고 밀려나갈때 탭바 아랫부분이 색이 바뀌면서 들어오는데 뭔가
+     * 부자연스러워`). 예전에는 대화 화면이 붙는 순간 `navigationBarColor`를 한 번에 보라로
+     * 바꿔, 화면은 아직 오른쪽 끝에 있는데 바닥만 먼저 물들었다.
+     * 안드로이드 15(target 35)는 `navigationBarColor`를 무시하므로 **뿌리가 제 아래 여백
+     * (시스템 바 몫)을 직접 칠한다** — 둘 다 같은 값을 쓴다. 대화방만 보라 · 나머지는 탭바의 흰색.
+     */
+    private var navTint = Color.WHITE
+    private lateinit var shellRoot: FrameLayout
+    private val navPaint = android.graphics.Paint()
+    private fun navColorOf(s: NativeScreenStack.Screen?) = if (s?.key == "/chat") com.kkakkung.app.chat.ChatSkin.bg else card
+    private fun setNavTint(c: Int) {
+        if (c == navTint) return
+        navTint = c
+        window.navigationBarColor = c
+        if (::shellRoot.isInitialized) shellRoot.invalidate()
+    }
+    private val blend = android.animation.ArgbEvaluator()
+
     private fun buildShell() {
-        val root = FrameLayout(this).apply { setBackgroundColor(bg) }
+        val root = object : FrameLayout(this) {
+            override fun dispatchDraw(canvas: android.graphics.Canvas) {
+                super.dispatchDraw(canvas)
+                if (paddingBottom > 0) {
+                    navPaint.color = navTint
+                    canvas.drawRect(0f, (height - paddingBottom).toFloat(), width.toFloat(), height.toFloat(), navPaint)
+                }
+            }
+        }.apply { setBackgroundColor(bg) }
+        shellRoot = root
         content = NativeScreenStack(this).apply {
             setBackgroundColor(bg)
+            motion = { front, back, t ->
+                setNavTint(blend.evaluate(t, navColorOf(back), navColorOf(front)) as Int)
+            }
             changed = {
                 detail = content.canPop
                 val top = content.current
+                setNavTint(navColorOf(top))
                 if (!detail) (top?.view?.tag as? LinearLayout)?.let { bar -> bindBottomBar(bar) }
                 if (top?.key == "/chat") {
                     chat?.attach(top.view as ViewGroup)
@@ -416,6 +456,8 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
             }
             tabSelected = { key ->
                 currentTab = key.removePrefix("/").ifEmpty { "home" }
+                /* 밀어서 넘어온 홈은 미리 그린 그 화면이다 — 종도 그 화면의 것으로 옮긴다. */
+                if (key == "/") tabPages.homeHead?.dot?.let { bellBadge = it }
                 if (currentTab == "board") getSharedPreferences("native-seen", MODE_PRIVATE).edit().putString("board:${session.userId}", java.time.Instant.now().toString()).apply()
             }
             tabNeighbor = { direction ->
@@ -552,7 +594,10 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         selectTabCompat("home")
         bottom.visibility = View.VISIBLE
         showTabPage("/") {
-            tabPages.home().also { if (!buildingTabPreview) bellBadge = tabPages.homeHead?.dot }
+            tabPages.home().also {
+                paintBell(tabPages.homeHead?.dot)
+                if (!buildingTabPreview) bellBadge = tabPages.homeHead?.dot
+            }
         }
     }
 
@@ -746,10 +791,14 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         val view: View = if (root) FrameLayout(this).apply {
             setBackgroundColor(bg)
             addView(body, FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) })
-            val bar = if (buildingTabPreview) makeBottomBar() else this@NativeHomeActivity.bottom
-            (bar.parent as? ViewGroup)?.removeView(bar)
-            bar.visibility = View.VISIBLE
-            addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM)); tag = bar
+            /* 옆 탭을 미리 그릴 때는 탭바를 안 만든다 — 미는 동안 탭바는 `NativeScreenStack`이
+               제자리에 붙들고 있다가 남는 화면에 옮겨 붙인다(새로 만들면 뱃지가 빈 채로 떴다). */
+            if (!buildingTabPreview) {
+                val bar = this@NativeHomeActivity.bottom
+                (bar.parent as? ViewGroup)?.removeView(bar)
+                bar.visibility = View.VISIBLE
+                addView(bar, FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM)); tag = bar
+            }
         } else body
         if (buildingTabPreview) builtPreview = NativeScreenStack.Screen(key, view, pendingRefresh)
         else { content.show(key, view, root, pendingRefresh, replace = replaceNextMount); replaceNextMount = false }

@@ -1,4 +1,5 @@
 [
+ {"id":"m8","room_id":"room1","user_id":"me","body":"테스트","created_at":"2026-09-28T03:14:00Z","system":false,"reply_to":"m6"},
  {"id":"m7","room_id":"room1","user_id":"me","body":"네 좋아요 ㅎㅎ","created_at":"2026-09-28T03:12:00Z","system":false},
  {"id":"m6","room_id":"room1","user_id":"u2","body":"이번 주 무등산 날씨 괜찮네요","created_at":"2026-09-28T03:10:00Z","system":false},
  {"id":"m5","room_id":"room1","user_id":"me","body":"악마제리님이 스크린을 공유했습니다\n골프존파크 상무점\n9월 30일 (수) · 오후 4:11 · 정원 8명 · 7자리 남음","created_at":"2026-09-28T03:05:00Z","system":true,"round_id":"r1"},

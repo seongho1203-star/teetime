@@ -80,10 +80,10 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private val searchCancel = TextView(activity)
     private val findBar = LinearLayout(activity)
     private val findCount = TextView(activity)
-    private val findUp = TextView(activity)
-    private val findDown = TextView(activity)
+    private val findUp = ImageView(activity)
+    private val findDown = ImageView(activity)
     private val list = ChatListView(activity)
-    private val scrollHints = ChatScrollHints(activity) { list.scrollToBottom(true) }
+    private val scrollHints = ChatScrollHints(activity) { list.scrollToBottom(false) }
     private val status = TextView(activity)
     private val mentionPanel = LinearLayout(activity)
     private val suggestPanel = HorizontalScrollView(activity)
@@ -222,7 +222,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         replyPanel.orientation = LinearLayout.HORIZONTAL
         replyPanel.gravity = Gravity.CENTER_VERTICAL
         replyPanel.visibility = View.GONE
-        replyPanel.setPadding(dp(12f), dp(8f), dp(8f), dp(8f))
+        replyPanel.setPadding(dp(14f), dp(11f), dp(12f), dp(11f))
         replyPanel.background = GradientDrawable().apply {
             cornerRadius = dp(18f).toFloat(); setColor(0xFFB0A5E5.toInt())
         }
@@ -240,21 +240,35 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             LinearLayout.LayoutParams.MATCH_PARENT, dp(50f)
         ).apply { leftMargin=dp(10f); rightMargin=dp(10f) })
 
+        /* 검색 바 — 아이폰 `FindBar`(NativeChatDrawer.swift) 값 그대로다(사용자 요청 —
+           `키보드위에 뜨는 바모양과 위아래화살표버튼을 아이폰과 디자인같게해줘`).
+           보라 바탕 위 옅은 라벤더(#B0A5E5) 알약 48 · 모서리 24 · 좌우 10 · 위아래 6,
+           글자 14 medium #32303B(왼쪽 18), 흰 동그라미 36 둘(사이 6 · 오른쪽 6). */
         findBar.orientation = LinearLayout.HORIZONTAL
         findBar.gravity = Gravity.CENTER_VERTICAL
         findBar.visibility = View.GONE
-        findBar.setPadding(dp(12f), dp(7f), dp(12f), dp(7f))
-        findBar.setBackgroundColor(ChatSkin.bg)
-        findCount.textSize = 14f; findCount.setTextColor(Color.WHITE)
-        findBar.addView(findCount, LinearLayout.LayoutParams(0, dp(38f), 1f))
-        for ((button, label, step) in listOf(Triple(findUp, "⌃", 1), Triple(findDown, "⌄", -1))) {
-            button.text = label; button.textSize = 22f; button.gravity = Gravity.CENTER
-            button.setTextColor(Color.WHITE)
-            button.setOnClickListener { stepSearch(step) }
-            findBar.addView(button, LinearLayout.LayoutParams(dp(44f), dp(38f)))
+        findBar.setPadding(dp(18f), 0, dp(6f), 0)
+        findBar.background = GradientDrawable().apply {
+            cornerRadius = dp(24f).toFloat(); setColor(0xFFB0A5E5.toInt())
         }
+        findCount.textSize = 14f; findCount.setTextColor(0xFF32303B.toInt())
+        findCount.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        findCount.gravity = Gravity.CENTER_VERTICAL; findCount.maxLines = 1
+        findCount.ellipsize = android.text.TextUtils.TruncateAt.END
+        findBar.addView(findCount, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+        for ((i, spec) in listOf(Triple(findUp, R.drawable.ic_find_up, 1), Triple(findDown, R.drawable.ic_find_down, -1)).withIndex()) {
+            val (button, icon, step) = spec
+            button.setImageResource(icon); button.scaleType = ImageView.ScaleType.CENTER
+            button.contentDescription = if (step > 0) "더 지난 것" else "더 최근 것"
+            button.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
+            button.setOnClickListener { stepSearch(step) }
+            findBar.addView(button, LinearLayout.LayoutParams(dp(36f), dp(36f)).apply { if (i > 0) leftMargin = dp(6f) })
+        }
+        setFindEnabled()
         column.addView(findBar, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)).apply {
+            leftMargin = dp(10f); rightMargin = dp(10f); topMargin = dp(6f); bottomMargin = dp(6f)
+        })
 
 
         /* 글칸 줄 — 카톡처럼 뒤에 판을 안 깔고(보라 그대로) 흰 알약 하나가 뜬다.
@@ -394,7 +408,8 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         list.onUploadCancel = { uploads.cancel(it) }
         activity.supportFragmentManager.setFragmentResultListener(mediaResultKey, activity) { _, result ->
             val uris = result.getStringArrayList("uris").orEmpty().map(android.net.Uri::parse)
-            if (uris.size > 10) notice("한 번에 10개까지 선택해 주세요.")
+            if (result.getBoolean("noCamera")) notice("카메라를 열 수 없습니다.")
+            else if (uris.size > 10) notice("한 번에 10개까지 선택해 주세요.")
             else if (uris.isNotEmpty()) {
                 selectedMedia = uris
                 sendSelectedMedia()
@@ -420,7 +435,11 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
         visible = true; navigating = false
         com.kkakkung.app.nativev2.NativePushForeground.chatVisible = true
-        if (stage2 && navColorBefore == null) {
+        /* 네이티브 껍데기(NativeHomeActivity)에서는 **화면이 밀리는 만큼 껍데기가 바닥 띠를
+           물들인다**(`NativeScreenStack.motion`). 여기서 한 번에 바꾸면 들어오기 시작하는 순간
+           바닥만 툭 보라가 됐다(사용자 제보 — `탭바 아랫부분이 색이 바뀌면서 들어오는데`). */
+        val shellTints = activity.javaClass.name.endsWith(".nativev2.NativeHomeActivity")
+        if (stage2 && !shellTints && navColorBefore == null) {
             navColorBefore = activity.window.navigationBarColor
             activity.window.navigationBarColor = ChatSkin.bg
         }
@@ -643,7 +662,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         val generation = ++searchGeneration
         searchJob?.cancel()
         searchJumpJob?.cancel(); searchJumpJob = null
-        searchHits = emptyList(); searchIndex = -1
+        searchHits = emptyList(); searchIndex = -1; setFindEnabled()
         if (q.length < 2 || q.contains('%') || q.contains('_')) {
             list.setFindQuery(if (q.length >= 2) q else "")
             findCount.text = if (q.contains('%') || q.contains('_')) "% · _ 는 검색할 수 없습니다" else "두 글자 이상 입력"
@@ -676,6 +695,15 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
     private fun updateFindCount() {
         findCount.text = if (searchHits.isEmpty() || searchIndex < 0) "0 / 0"
             else "${searchIndex + 1} / ${searchHits.size}"
+        setFindEnabled()
+    }
+
+    /** 끝까지 갔으면 그쪽 화살표를 흐리게(아이폰 `FindBar.set` — 40%). */
+    private fun setFindEnabled() {
+        val up = searchIndex >= 0 && searchIndex < searchHits.lastIndex
+        val down = searchIndex > 0
+        findUp.isEnabled = up; findUp.alpha = if (up) 1f else .4f
+        findDown.isEnabled = down; findDown.alpha = if (down) 1f else .4f
     }
 
     private fun showSearchHit(hit: ChatMessage) {
@@ -1432,25 +1460,31 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
         val text = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val who = people.firstOrNull { it.optString("id") == m.user }?.optString("name").orEmpty()
+        /* 아이폰 `ReplyBox` 값 그대로 — 머리말 14 굵게 · 원문 13.5(검정 60%) ·
+           동그라미 24(테두리 #9C93CA · 사이 16). */
         text.addView(TextView(activity).apply {
             this.text = if (who.isBlank()) "댓글" else "${who}에게 댓글"
-            textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ChatSkin.text)
-        })
+            textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(ChatSkin.text)
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(24f)))
         text.addView(TextView(activity).apply {
-            this.text = m.preview; textSize = 13f; setTextColor(0xFF5B6455.toInt()); maxLines = 1
-        })
+            this.text = m.preview; textSize = 13.5f; setTextColor(0x99000000.toInt()); maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END; includeFontPadding = false
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2f) })
         text.setOnClickListener { list.scrollTo(m.id) }
-        replyPanel.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        replyPanel.gravity = Gravity.TOP
+        replyPanel.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(8f) })
 
-        replyPanel.addView(TextView(activity).apply {
-            this.text = "↳"; textSize = 16f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-            setOnClickListener { list.scrollTo(m.id) }
-        }, LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { rightMargin = dp(6f) })
-        replyPanel.addView(TextView(activity).apply {
-            this.text = "✕"; textSize = 14f; gravity = Gravity.CENTER; setTextColor(ChatSkin.text)
-            setOnClickListener { clearReply() }
-        }, LinearLayout.LayoutParams(dp(24f), dp(24f)))
+        fun circle(glyph: String, label: String, size: Float, tap: () -> Unit) = TextView(activity).apply {
+            this.text = glyph; textSize = size; gravity = Gravity.CENTER; setTextColor(0xFF32303B.toInt())
+            includeFontPadding = false; contentDescription = label
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(1f), 0xFF9C93CA.toInt()) }
+            setOnClickListener { tap() }
+        }
+        replyPanel.addView(circle("↳", "원문 보기", 13f) { list.scrollTo(m.id) },
+            LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { rightMargin = dp(16f) })
+        replyPanel.addView(circle("✕", "댓글 취소", 11f) { clearReply() }, LinearLayout.LayoutParams(dp(24f), dp(24f)))
         replyPanel.visibility = View.VISIBLE
         input.requestFocus()
         (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
@@ -1508,11 +1542,22 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         card.addView(View(activity).apply { setBackgroundColor(ChatSkin.cardRule) },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
-        val row = TextView(activity).apply {
-            text = "사진 보관함"; textSize = 16f; setTextColor(0xFF2C7BD4.toInt()); gravity = Gravity.CENTER
-            contentDescription = "사진 보관함 · 한 번에 10개까지"
+        /* 줄은 아이폰 차례 그대로 — `사진 보관함` · `사진 찍기`(+ 안드로이드만 `동영상 찍기`:
+           카메라 앱이 사진·동영상을 한 번에 오가지 못한다). */
+        fun row(label: String, desc: String, first: Boolean): TextView {
+            if (!first) card.addView(View(activity).apply { setBackgroundColor(ChatSkin.cardRule) },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
+            val v = TextView(activity).apply {
+                text = label; textSize = 16f; setTextColor(0xFF2C7BD4.toInt()); gravity = Gravity.CENTER
+                contentDescription = desc
+            }
+            card.addView(v, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)))
+            return v
         }
-        card.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)))
+        val library = row("사진 보관함", "사진 보관함 · 한 번에 10개까지", true)
+        val hasCamera = activity.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+        val photo = if (hasCamera) row("사진 찍기", "사진 찍기", false) else null
+        val video = if (hasCamera) row("동영상 찍기", "동영상 찍기", false) else null
         val w = dp(220f)
         card.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -1520,15 +1565,18 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             elevation = dp(8f).toFloat(); isOutsideTouchable = true
         }
-        row.setOnClickListener {
+        fun open(tag: String, make: () -> androidx.fragment.app.Fragment) {
             popup.dismiss(); hideKeyboard()
             val manager = activity.supportFragmentManager
-            if (!manager.isStateSaved && manager.findFragmentByTag("chat-media-picker") == null) {
-                manager.beginTransaction().add(ChatMediaPicker().apply {
-                    arguments = android.os.Bundle().apply { putString("result", mediaResultKey) }
-                }, "chat-media-picker").commit()
+            if (!manager.isStateSaved && manager.findFragmentByTag(tag) == null) {
+                manager.beginTransaction().add(make().apply {
+                    arguments = (arguments ?: android.os.Bundle()).apply { putString("result", mediaResultKey) }
+                }, tag).commit()
             }
         }
+        library.setOnClickListener { open("chat-media-picker") { ChatMediaPicker() } }
+        photo?.setOnClickListener { open("chat-camera") { ChatCameraPicker().apply { arguments = android.os.Bundle().apply { putBoolean("video", false) } } } }
+        video?.setOnClickListener { open("chat-camera") { ChatCameraPicker().apply { arguments = android.os.Bundle().apply { putBoolean("video", true) } } } }
         popup.showAsDropDown(mediaBtn, dp(4f), -(mediaBtn.height + card.measuredHeight + dp(6f)))
     }
 

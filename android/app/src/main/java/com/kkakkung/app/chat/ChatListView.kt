@@ -304,7 +304,15 @@ class ChatListView(context: Context) : RecyclerView(context) {
         private val bubble = LinearLayout(ctx)
         private val quoteWho = TextView(ctx)
         private val quoteText = TextView(ctx)
-        private val quoteRule = View(ctx)
+        /* 가르는 선은 **제 폭을 안 우긴다** — 보통 View는 `AT_MOST`에서 받은 폭을
+           통째로 가져가 말풍선이 화면 끝까지 퍼졌다(사용자 제보 · 사진 —
+           `채팅에서 댓글이 너무커`). 말풍선이 폭을 정한 뒤 늘여 줄 때(EXACTLY)만 그 폭이다. */
+        private val quoteRule = object : View(ctx) {
+            override fun onMeasure(w: Int, h: Int) {
+                val width = if (MeasureSpec.getMode(w) == MeasureSpec.EXACTLY) MeasureSpec.getSize(w) else 0
+                setMeasuredDimension(width, MeasureSpec.getSize(h))
+            }
+        }
         private val body = TextView(ctx)
         private val reacts = TextView(ctx)
         private val stamp = LinearLayout(ctx)
@@ -369,14 +377,21 @@ class ChatListView(context: Context) : RecyclerView(context) {
             bubble.orientation = LinearLayout.VERTICAL
             val ph = ctx.dp(ChatSkin.padH); val pv = ctx.dp(ChatSkin.padV)
             bubble.setPadding(ph, pv, ph, pv)
-            quoteWho.textSize = ChatSkin.quoteSize; quoteWho.typeface = Typeface.DEFAULT_BOLD; quoteWho.setTextColor(ChatSkin.text)
-            quoteText.textSize = ChatSkin.quoteSize; quoteText.setTextColor(0xFF5B6455.toInt()); quoteText.maxLines = 1
+            /* 인용은 아이폰(`ChatList.layoutQuote`) 값 그대로 — 한 줄 18 · 머리말 semibold 66% ·
+               원문 55% · 선 1 · 선 아래 6. 글꼴 여백을 빼야 두 줄이 18씩 붙는다. */
+            quoteWho.textSize = ChatSkin.quoteSize; quoteWho.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            quoteWho.setTextColor((ChatSkin.text and 0xFFFFFF) or (168 shl 24))
+            quoteText.textSize = ChatSkin.quoteSize; quoteText.setTextColor((ChatSkin.text and 0xFFFFFF) or (140 shl 24))
+            for (q in listOf(quoteWho, quoteText)) {
+                q.maxLines = 1; q.ellipsize = android.text.TextUtils.TruncateAt.END
+                q.includeFontPadding = false; q.gravity = Gravity.CENTER_VERTICAL
+            }
             quoteRule.setBackgroundColor(ChatSkin.quoteRule)
             body.textSize = ChatSkin.fontSize; body.setTextColor(ChatSkin.text)
             body.setLineSpacing(0f, 1.2f)
-            bubble.addView(quoteWho)
-            bubble.addView(quoteText)
-            bubble.addView(quoteRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ctx.dp(1f)).apply { topMargin = ctx.dp(5f); bottomMargin = ctx.dp(6f) })
+            bubble.addView(quoteWho, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, ctx.dp(18f)))
+            bubble.addView(quoteText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, ctx.dp(18f)))
+            bubble.addView(quoteRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ctx.dp(1f)).apply { bottomMargin = ctx.dp(6f) })
             bubble.addView(body)
             bubble.setOnClickListener { current?.quoteTo?.let { onQuote?.invoke(it) } }
             bubble.setOnLongClickListener {
