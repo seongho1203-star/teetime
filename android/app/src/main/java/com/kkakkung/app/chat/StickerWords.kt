@@ -20,11 +20,18 @@ internal object StickerWords {
     }
     fun normalize(raw: String) = mapped(raw).text
     fun split(raw: String): List<String> = raw.split(Regex("[,，\\n]+")).map(::normalize)
-        .filter { it.codePointCount(0, it.length) in 2..20 }.distinct()
+        .filter { it.codePointCount(0, it.length) in 1..20 }.distinct()
+    /**
+     * 한 글자 말(`응`·`헉`)은 **그 한 글자만 쳤을 때만** 걸린다 — 들어 있는가로
+     * 보면 글자를 칠 때마다 줄이 뜬다. 두 글자부터는 들어 있으면 걸린다.
+     * 아이폰 `NativeChatViewController.suggestFind`와 같은 잣대다.
+     */
+    fun matches(norm: String, word: String): Boolean =
+        if (word.codePointCount(0, word.length) == 1) norm == word else word.isNotEmpty() && norm.contains(word)
     fun ranges(raw: String, words: Collection<String>): List<IntRange> {
         val norm = mapped(raw); val out = mutableListOf<IntRange>()
         words.forEach { word ->
-            if (word.isNotEmpty()) {
+            if (word.isNotEmpty() && (word.codePointCount(0, word.length) > 1 || norm.text == word)) {
                 var from = 0
                 while (from < norm.text.length) {
                     val at = norm.text.indexOf(word, from); if (at < 0) break

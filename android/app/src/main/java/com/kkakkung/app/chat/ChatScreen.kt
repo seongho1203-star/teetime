@@ -1193,7 +1193,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
 
     private fun isSuper() = people.firstOrNull { it.optString("id") == me }?.optString("role") == "superadmin"
     private fun applyWords(rows: List<JSONObject>) {
-        stickerWords = rows.filter { it.optString("sticker_id").isNotBlank() && suggestNorm(it.optString("word")).let { w -> w.codePointCount(0, w.length) >= 2 } }
+        stickerWords = rows.filter { it.optString("sticker_id").isNotBlank() && suggestNorm(it.optString("word")).isNotEmpty() }
             .groupBy { it.optString("sticker_id") }.mapValues { (_, rows) -> rows.map { it.optString("word") }.distinct() }
         if (stickerTray.visibility == View.VISIBLE) renderStickerTray()
         if (BaseInputConnection.getComposingSpanStart(input.text) < 0) updateSuggest(input.text.toString())
@@ -1216,7 +1216,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             contentDescription = "추천 말"; setPadding(dp(18f), dp(8f), dp(18f), dp(8f))
         }
         val dialog = AlertDialog.Builder(activity).setTitle("추천 말 · ${sticker.optString("label", "이모티콘")}")
-            .setMessage("쉼표로 여럿 적을 수 있고, 비우면 추천에서 빠집니다. 짱! · 응? · ^^처럼 기호도 그대로 됩니다.")
+            .setMessage("쉼표로 여럿 적을 수 있고, 비우면 추천에서 빠집니다. 짱! · 응? · ^^처럼 기호도 그대로 됩니다. 한 글자(응·헉)는 그 한 글자만 칠 때 뜹니다.")
             .setView(field).setNegativeButton("취소", null).setPositiveButton("저장", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -1240,12 +1240,12 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         paintSuggest(raw, emptyList())
         if (!stage2 || raw.contains('@')) { suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return }
         val q=suggestNorm(raw)
-        if (q.codePointCount(0, q.length) < 2 || stickerWords.isEmpty()) {
+        if (q.isEmpty() || stickerWords.isEmpty()) {
             suggestPanel.visibility=View.GONE; input.setTextColor(ChatSkin.text); return
         }
         // Collect every match first, then follow the shared catalog order (suggestFor).
         val hits = HashSet<String>()
-        stickerWords.forEach { (id, words) -> if (words.any { q.contains(suggestNorm(it)) }) hits.add(id) }
+        stickerWords.forEach { (id, words) -> if (words.any { StickerWords.matches(q, suggestNorm(it)) }) hits.add(id) }
         val selected = LinkedHashMap<String, String>()
         val max = service.config.suggestMax.coerceAtLeast(0)
         val maxAnimated = service.config.suggestAnim.coerceAtLeast(0)

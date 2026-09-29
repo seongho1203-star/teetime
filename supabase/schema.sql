@@ -2514,10 +2514,16 @@ create policy avatars_del on storage.objects for delete to authenticated
 --   아무나 넣게 열면 남의 대화창에 엉뚱한 그림을 띄울 수 있다.
 create table if not exists sticker_words (
     sticker_id text not null check (char_length(sticker_id) between 1 and 40),
-    word       text not null check (char_length(word) between 2 and 20),
+    word       text not null check (char_length(word) between 1 and 20),
     created_at timestamptz not null default now(),
     primary key (sticker_id, word)
 );
+-- 한 글자 말(`응`·`헉`)도 받는다(사용자 요청 — `카톡은 1글자도 되네`).
+-- 그 말은 그 한 글자만 칠 때 뜬다 — 가르는 것은 앱이다.
+-- 이미 만들어진 표는 위 정의로 안 바뀌므로 검사를 갈아 끼운다.
+alter table sticker_words drop constraint if exists sticker_words_word_check;
+alter table sticker_words add constraint sticker_words_word_check
+    check (char_length(word) between 1 and 20);
 alter table sticker_words enable row level security;
 drop policy if exists sticker_words_read  on sticker_words;
 drop policy if exists sticker_words_super on sticker_words;

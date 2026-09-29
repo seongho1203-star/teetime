@@ -1127,20 +1127,20 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
     }
 
     /**
-     * 적은 글을 말들로 — 쉼표·줄바꿈으로 나누고 깎고, 두 글자 아래와
-     * 겹치는 것은 뺀다. **웹 `splitWords`와 결과가 같아야 한다**
+     * 적은 글을 말들로 — 쉼표·줄바꿈으로 나누고 깎고, 빈 것과 스무 글자
+     * 넘는 것과 겹치는 것은 뺀다. **한 글자 말(`응`·`헉`)도 받는다**(사용자
+     * 요청 — `카톡은 1글자도 되네`) — 대신 그 한 글자만 칠 때 뜬다(`suggestFind`). **웹 `splitWords`와 결과가 같아야 한다**
      * (`.dev/suggest-check.mts`가 웹 쪽을 붙들어 둔다).
      */
-    private func splitWords(_ text: String) -> (words: [String], short: Bool) {
-        var out: [String] = []; var short = false
+    private func splitWords(_ text: String) -> [String] {
+        var out: [String] = []
         for part in text.components(separatedBy: CharacterSet(charactersIn: ",，\n")) {
             let w = normWord(part)
             let n = w.unicodeScalars.count
             if n == 0 { continue }
-            if n < 2 { short = true; continue }
             if n <= 20 && !out.contains(w) { out.append(w) }
         }
-        return (out, short)
+        return out
     }
 
     /**
@@ -1160,7 +1160,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         for r in raw {
             guard let id = r["sticker_id"] as? String, let word = r["word"] as? String else { continue }
             let w = normWord(word)
-            guard w.unicodeScalars.count >= 2 else { continue }
+            guard !w.unicodeScalars.isEmpty else { continue }
             if !(byId[id]?.contains(w) ?? false) { byId[id, default: []].append(w) }
             if !(byWord[w]?.contains(id) ?? false) { byWord[w, default: []].append(id) }
         }
@@ -1188,7 +1188,7 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         let label = item["label"] as? String ?? "이모티콘"
         let now = stickerWords[id] ?? []
         let ask = UIAlertController(title: "추천 말 · \(label)",
-            message: "글에 이 말이 들어 있으면 이 이모티콘이 뜹니다.\n쉼표로 나눠 여럿 적을 수 있고, 비우면 추천에서 빠집니다.\n짱! · 응? · ^^ 처럼 기호도 그대로 됩니다.",
+            message: "글에 이 말이 들어 있으면 이 이모티콘이 뜹니다.\n쉼표로 나눠 여럿 적을 수 있고, 비우면 추천에서 빠집니다.\n짱! · 응? · ^^ 처럼 기호도 그대로 됩니다.\n한 글자(응 · 헉)는 그 한 글자만 칠 때 뜹니다.",
             preferredStyle: .alert)
         ask.addTextField { f in
             f.text = now.joined(separator: ", ")
@@ -1198,20 +1198,16 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         ask.addAction(UIAlertAction(title: "취소", style: .cancel))
         ask.addAction(UIAlertAction(title: "저장", style: .default) { [weak self, weak ask] _ in
             guard let self = self else { return }
-            let (next, short) = self.splitWords(ask?.textFields?.first?.text ?? "")
+            let next = self.splitWords(ask?.textFields?.first?.text ?? "")
             let add = next.filter { !now.contains($0) }
             let remove = now.filter { !next.contains($0) }
-            guard !add.isEmpty || !remove.isEmpty else {
-                if short { self.notice("한 글자 말은 넣지 않습니다") }
-                return
-            }
+            guard !add.isEmpty || !remove.isEmpty else { return }
             Task { [weak self] in
                 guard let self = self else { return }
                 do {
                     try await self.service.setStickerWords(id, add: add, remove: remove)
                     if let raw = try? await self.service.stickerWords() { self.applyWords(raw) }
-                    self.notice(short ? "저장했습니다 · 한 글자 말은 뺐습니다"
-                                      : next.isEmpty ? "추천에서 뺐습니다" : "추천 말을 저장했습니다")
+                    self.notice(next.isEmpty ? "추천에서 뺐습니다" : "추천 말을 저장했습니다")
                 } catch {
                     self.notice(error.localizedDescription)
                 }
@@ -1271,11 +1267,16 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         let flat = service.config.stickers.flatMap { ($0["stickers"] as? [ChatJSON]) ?? [] }
         guard !flat.isEmpty, !wordRules.isEmpty else { return none }
         let norm = normalize(text)
-        /* 두 글자부터 본다 — 웹의 `SUGGEST_MIN`과 같은 값이다. */
-        guard norm.scalars.count >= 2 else { return none }
+        guard !norm.scalars.isEmpty else { return none }
         var hit = Set<String>()
         var spots: [NSRange] = []
         for (word, ids) in wordRules {
+            /* **한 글자 말은 그 한 글자만 쳤을 때만** 걸린다 — 들어 있는가로
+               보면 `응원`·`헉헉`처럼 글자를 칠 때마다 줄이 뜬다. 두 글자부터는
+               예전처럼 들어 있으면 걸린다. 안드로이드 `StickerWords.matches`와
+               같은 잣대다. */
+            if word.unicodeScalars.count == 1,
+               !(norm.scalars.count == 1 && norm.scalars[0] == word.unicodeScalars.first!) { continue }
             let found = places(of: word, in: norm)
             guard !found.isEmpty else { continue }
             spots.append(contentsOf: found)

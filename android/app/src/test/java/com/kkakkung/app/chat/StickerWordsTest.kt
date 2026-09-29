@@ -10,10 +10,12 @@ import org.junit.Test
 
 class StickerWordsTest {
     @Test fun punctuationSurvivesAndHighlightOffsetsReferToOriginalText() {
-        assertEquals(listOf("짱!", "응?", "^^", "a~b", "a.b"), StickerWords.split(" 짱 ！, 응？, ^^, A～B, a.b, 짱!, ㄱ"))
+        assertEquals(listOf("짱!", "응?", "^^", "a~b", "a.b"), StickerWords.split(" 짱 ！, 응？, ^^, A～B, a.b, 짱!"))
         assertEquals("짱 ！", "앞 짱 ！ 뒤".substring(StickerWords.ranges("앞 짱 ！ 뒤", listOf("짱!")).single()))
         assertEquals("👋👋", StickerWords.split("👋👋").single())
-        assertTrue(StickerWords.split("👋").isEmpty())
+        assertEquals(listOf("응", "헉"), StickerWords.split("응, 헉, 응"))
+        assertTrue(StickerWords.matches("응", "응")); assertFalse(StickerWords.matches("응원해", "응"))
+        assertTrue(StickerWords.matches("응원해", "응원")); assertTrue(StickerWords.ranges("응원해", listOf("응")).isEmpty())
     }
     private fun service(server: MockWebServer) = ChatService(ChatConfig(JSONObject().put("user", "member").put("url", server.url("/").toString()).put("key", "anon").put("token", "member-token")))
     @Test fun fetchesDatabaseWordsAndWritesOnlyChangedRowsWithEscapedFilters() = runBlocking {
