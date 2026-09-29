@@ -47,6 +47,8 @@ interface ScreenHost {
     fun logout()
     /** 프로필 수정 — `내 정보` 위에 쓰는 화면을 얹는다. */
     fun editProfile(profile: JSONObject?, contact: JSONObject?)
+    /** 커스텀 프로필 만들기 — 색 바탕 + 글자·이모티콘 그림을 사진처럼 올린다(`AvatarMakerScreen`). */
+    fun makeAvatar(name: String)
 }
 
 /**

@@ -37,6 +37,8 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
     private var pushBusy = false
     private var chatBusy = false
     private var photoBusy = false
+    /// 사진 고르기 창을 붙일 자리(아이패드는 붙일 자리가 없으면 죽는다).
+    private weak var pickView: UIView?
     private var leaving = false
     private var step = ""
     private var why = ""
@@ -162,6 +164,7 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         pick.accessibilityTraits = .button
         pick.isAccessibilityElement = true
         pick.addTarget(self, action: #selector(photoTapped), for: .touchUpInside)
+        pickView = pick
         face.isUserInteractionEnabled = false
         let mark = mkLabel(photoBusy ? "…" : "＋", size: 13, weight: .heavy, color: .white)
         mark.textAlignment = .center
@@ -334,8 +337,41 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
 
     // ── 프로필 사진 ─────────────────────────────────────────────
 
+    /*
+     * **누르면 먼저 고르게 한다 — `앨범에서 사진 선택` / `커스텀 프로필 만들기` / (사진이 있으면)
+     * `기본 이미지로 변경`**(카톡과 같은 말 ·
+     * 사용자 요청 — 카톡 프사가 가입할 때 저절로 딸려 오는데 그게 싫은 사람이 있다).
+     * 기본 이미지는 **`avatar_url`을 비우는 것**이다 — 그러면 어디서나 이름 두 글자가 그려진다(`AvatarView`).
+     * 카톡 프사는 계정이 처음 만들어질 때만 복사되므로(가입 트리거) 비워 둔 것이 되살아나지 않는다.
+     */
     @objc private func photoTapped() {
         guard !photoBusy else { return }
+        let a = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        a.addAction(UIAlertAction(title: "앨범에서 사진 선택", style: .default) { [weak self] _ in self?.openPicker() })
+        a.addAction(UIAlertAction(title: "커스텀 프로필 만들기", style: .default) { [weak self] _ in self?.openMaker() })
+        if let url = profile?.avatar, !url.isEmpty {
+            a.addAction(UIAlertAction(title: "기본 이미지로 변경", style: .default) { [weak self] _ in self?.clearPhoto() })
+        }
+        a.addAction(UIAlertAction(title: "취소", style: .cancel))
+        if let pop = a.popoverPresentationController {
+            pop.sourceView = pickView ?? view
+            pop.sourceRect = (pickView ?? view).bounds
+        }
+        present(a, animated: true)
+    }
+
+    /// 색 바탕 + 글자·이모티콘 그림을 만들어 사진처럼 올린다(`AvatarMakerViewController`).
+    private func openMaker() {
+        let vc = AvatarMakerViewController(name: profile?.name ?? "") { [weak self] data in
+            guard let self = self else { return }
+            self.photoBusy = true; self.render()
+            self.upload(data)
+        }
+        vc.modalPresentationStyle = .fullScreen
+        present(vc, animated: true)
+    }
+
+    private func openPicker() {
         var cfg = PHPickerConfiguration()
         cfg.filter = .images
         cfg.selectionLimit = 1
@@ -370,6 +406,34 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         fmt.scale = 1
         let out = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }
         return out.jpegData(compressionQuality: 0.82)
+    }
+
+    /// 기본 이미지로 — `avatar_url`을 비우고, 저장소의 내 옛 사진도 걷는다(자기 폴더만 · `avatars_del`).
+    /// 파일 지우기는 실패해도 그냥 넘어간다 — 화면에는 이미 글자로 보인다.
+    private func clearPhoto() {
+        photoBusy = true; render()
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            let me = self.service.config.user
+            do {
+                try await self.service.patchRow("profiles", id: me, ["avatar_url": NSNull()])
+                if let files = try? await self.service.request("storage/v1/object/list/avatars", method: "POST",
+                                                              body: ["prefix": me, "limit": 1000, "offset": 0]) as? [ChatJSON] {
+                    let paths = files.compactMap { $0["name"] as? String }
+                        .filter { !$0.isEmpty && !$0.contains("/") }.map { "\(me)/\($0)" }
+                    if !paths.isEmpty {
+                        _ = try? await self.service.request("storage/v1/object/avatars", method: "DELETE", body: ["prefixes": paths])
+                    }
+                }
+                self.photoBusy = false
+                self.flash("기본 이미지로 바꿨습니다.")
+                self.changed()
+            } catch {
+                self.photoBusy = false
+                self.render()
+                self.flash(error.localizedDescription, error: true)
+            }
+        }
     }
 
     private func upload(_ data: Data) {

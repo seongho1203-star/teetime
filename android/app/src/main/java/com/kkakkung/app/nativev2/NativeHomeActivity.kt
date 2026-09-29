@@ -104,6 +104,11 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
     override fun logout() = logoutNative()
     override fun editProfile(profile: JSONObject?, contact: JSONObject?) = showMeEdit(profile, contact)
+    override fun makeAvatar(name: String) {
+        prepareScreen("/me/avatar") { }
+        detail = true
+        mountScreen(AvatarMakerScreen(this, this, name))
+    }
     private var avatarDone: ((ByteArray?) -> Unit)? = null
     private var pushDone: ((Boolean) -> Unit)? = null
 

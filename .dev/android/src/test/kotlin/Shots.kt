@@ -63,6 +63,7 @@ class Shots {
         override fun askPushPermission(done: (Boolean) -> Unit) {}
         override fun logout() {}
         override fun editProfile(profile: JSONObject?, contact: JSONObject?) {}
+        override fun makeAvatar(name: String) {}
     }
 
     private fun shoot(name: String, make: (ScreenHost) -> NativeScreen) {
@@ -174,6 +175,18 @@ class Shots {
     @Test fun gatePending() = shoot("gate-pending", gate(AccountGateScreen.Mode.PENDING, """{"id":"u9","name":"골프왕","role":"pending"}""", null))
     @Test fun gateFill() = shoot("gate-fill", gate(AccountGateScreen.Mode.FILL, """{"id":"u9","name":"김지명","role":"member","gender":"f"}""", """{"id":"u9","phone":"010","car":"12가"}"""))
     @Test fun gateBanned() = shoot("gate-banned", gate(AccountGateScreen.Mode.BANNED, """{"id":"u9","name":"정추방","role":"banned"}""", null))
+    @Test fun avatarMaker() = shoot("avatar-maker") { AvatarMakerScreen(RuntimeEnvironment.getApplication(), it, "악마제리") }
+    @Test fun avatarMakerEmoji() = shoot("avatar-maker-emoji") { AvatarMakerScreen(RuntimeEnvironment.getApplication(), it, "악마제리").apply { tab(0) } }
+    @Test fun avatarMakerText() = shoot("avatar-maker-text") { AvatarMakerScreen(RuntimeEnvironment.getApplication(), it, "악마제리").apply { tab(2) } }
+    @Test fun avatarArt() = shootView("avatar-art", 1200) { ctx ->
+        android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            listOf(AvatarArt.Spec(text = "악마제리"), AvatarArt.Spec(color = "#f6c343", text = "신성호", bold = true, emoji = "⛳"),
+                AvatarArt.Spec(color = "#3f5ba9", showText = false, emoji = "🐻"), AvatarArt.Spec(color = "#f5f1e8", text = "김지명")).forEach { s ->
+                addView(android.widget.ImageView(ctx).apply { setImageBitmap(AvatarArt.render(s, 240)) }, android.widget.LinearLayout.LayoutParams(240, 240))
+            }
+        }
+    }
     @Test fun help() = shoot("help") { HelpScreen(RuntimeEnvironment.getApplication(), it, File(System.getProperty("shots.dir"), "../gen-assets/guide.json").readText()) }
 
     /** 탭 넷(홈·공지·라운드·투표) — 머리말은 붙박이, 본문만 굴러간다. */

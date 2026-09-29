@@ -1,5 +1,6 @@
 package com.kkakkung.app.nativev2
 
+import androidx.appcompat.app.AlertDialog
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
@@ -251,8 +252,32 @@ class MeScreen(ctx: Context, host: ScreenHost) : NativeScreen(ctx, host, "내 �
         }
     }
 
+    /**
+     * 누르면 먼저 고르게 한다 — `앨범에서 사진 선택` / `커스텀 프로필 만들기` / (사진이 있으면) `기본 이미지로 변경`
+     * (아이폰 `photoTapped`와 같다). 기본 이미지는 `avatar_url`을 비우는 것이다 — 이름 두 글자가 그려진다.
+     */
     private fun photoTapped() {
         if (photoBusy) return
+        val items = mutableListOf<Pair<String, () -> Unit>>(
+            "앨범에서 사진 선택" to { openPicker() },
+            "커스텀 프로필 만들기" to { host.makeAvatar(profile?.name.orEmpty()) },
+        )
+        if (!profile?.avatar.isNullOrBlank()) items += "기본 이미지로 변경" to { clearPhoto() }
+        AlertDialog.Builder(ctx)
+            .setItems(items.map { it.first }.toTypedArray()) { _, i -> items[i].second() }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun clearPhoto() {
+        photoBusy = true; render()
+        launch {
+            try { api.clearAvatar(); photoBusy = false; flash("기본 이미지로 바꿨습니다."); load() }
+            catch (e: Exception) { photoBusy = false; render(); flash(e.message ?: "기본 이미지로 바꾸지 못했습니다.", error = true) }
+        }
+    }
+
+    private fun openPicker() {
         host.pickAvatar { bytes ->
             if (bytes == null) return@pickAvatar
             photoBusy = true; render()

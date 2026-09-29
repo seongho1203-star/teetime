@@ -595,9 +595,8 @@ class NativeApi(private val session: NativeSession) {
         request("rest/v1/push_subscriptions", listOf("endpoint" to "eq.fcm:$token"), "DELETE")
     }
 
-    /** Same order as lib/account.ts. Optional cleanup cannot trap a member here. */
-    suspend fun deleteMe(pushToken: suspend () -> String = { NativePush.token() }) {
-        try { disablePush(pushToken()) } catch (_: Exception) { }
+    /** 저장소의 내 프로필 사진을 다 걷는다(자기 폴더만 · `avatars_del`). 실패해도 그냥 넘어간다. */
+    private suspend fun dropMyAvatarFiles() {
         try {
             val files = request("storage/v1/object/list/avatars", method = "POST",
                 body = JSONObject().put("prefix", session.userId).put("limit", 1000).put("offset", 0)) as? JSONArray
@@ -609,6 +608,20 @@ class NativeApi(private val session: NativeSession) {
             if (paths.length() > 0) request("storage/v1/object/avatars", method = "DELETE",
                 body = JSONObject().put("prefixes", paths))
         } catch (_: Exception) { }
+    }
+
+    /** 기본 이미지로 — `avatar_url`을 비우면 어디서나 이름 두 글자가 그려진다(아이폰 `clearPhoto`). */
+    suspend fun clearAvatar() {
+        val changed = request("rest/v1/profiles", listOf("id" to "eq.${session.userId}"), "PATCH",
+            JSONObject().put("avatar_url", JSONObject.NULL))
+        if ((changed as? JSONArray)?.length() == 0) throw NativeApiError("기본 이미지로 바꾸지 못했습니다.")
+        dropMyAvatarFiles()
+    }
+
+    /** Same order as lib/account.ts. Optional cleanup cannot trap a member here. */
+    suspend fun deleteMe(pushToken: suspend () -> String = { NativePush.token() }) {
+        try { disablePush(pushToken()) } catch (_: Exception) { }
+        dropMyAvatarFiles()
         request("rest/v1/rpc/delete_me", method = "POST", body = JSONObject())
     }
 

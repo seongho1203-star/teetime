@@ -47,6 +47,7 @@
 		CB3000000000000000000017 /* RoundGroupsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000017 /* RoundGroupsViewController.swift */; };
 		CB3000000000000000000018 /* SettleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000018 /* SettleViewController.swift */; };
 		CB3000000000000000000019 /* MeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2000000000000000000019 /* MeViewController.swift */; };
+		CB300000000000000000001A /* AvatarMakerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB200000000000000000001A /* AvatarMakerViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -94,6 +95,7 @@
 		CB2000000000000000000017 /* RoundGroupsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundGroupsViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000018 /* SettleViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettleViewController.swift; sourceTree = "<group>"; };
 		CB2000000000000000000019 /* MeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeViewController.swift; sourceTree = "<group>"; };
+		CB200000000000000000001A /* AvatarMakerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarMakerViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -170,6 +172,7 @@
 				CB2000000000000000000017 /* RoundGroupsViewController.swift */,
 				CB2000000000000000000018 /* SettleViewController.swift */,
 				CB2000000000000000000019 /* MeViewController.swift */,
+				CB200000000000000000001A /* AvatarMakerViewController.swift */,
 				CB1000000000000000000A07 /* kkakkung.wav */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -338,6 +341,7 @@
 				CB3000000000000000000017 /* RoundGroupsViewController.swift in Sources */,
 				CB3000000000000000000018 /* SettleViewController.swift in Sources */,
 				CB3000000000000000000019 /* MeViewController.swift in Sources */,
+				CB300000000000000000001A /* AvatarMakerViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
