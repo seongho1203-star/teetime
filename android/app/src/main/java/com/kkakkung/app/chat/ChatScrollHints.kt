@@ -44,9 +44,10 @@ internal class ChatScrollHints(context: Context, onLatest: () -> Unit) : FrameLa
     init {
         isClickable = false
         addView(datePill, LayoutParams(LayoutParams.WRAP_CONTENT, dp(22), Gravity.TOP or Gravity.END).apply { rightMargin = dp(4) })
-        // The 38dp circle sits 10dp from the right and 8dp from the bottom of the list.
-        addView(jump, LayoutParams(dp(48), dp(48), Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(5); bottomMargin = dp(3)
+        // 38dp 동그라미는 목록 아래 가운데, 바닥에서 8dp 위다(아이폰 `JumpBar`와 같은 자리).
+        // 오른쪽 끝으로 되돌리지 말 것 — 사용자 요청: `우측 끝에있으니까 잘 안보여`.
+        addView(jump, LayoutParams(dp(48), dp(48), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            bottomMargin = dp(3)
         })
     }
 

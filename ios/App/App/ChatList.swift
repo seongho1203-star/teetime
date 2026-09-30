@@ -989,14 +989,13 @@ final class ChatList: UIView, UITableViewDataSource, UITableViewDelegate {
         }
         changingViewport = wasChanging
         if !wasChanging { report() }
-        /* `최근 대화로` 동그라미는 **목록 오른쪽 아래에 떠 있다**(웹의
-           `.chat-jump`가 입력칸 바로 위에 뜨는 그 자리다 — 여기서는 목록
-           아랫변이 곧 바 윗변이라 같은 자리가 된다).
-           **카톡 화면을 픽셀로 재서 맞춘 값이다**(1206×2622 · 배율 3.0):
-           지름 114px → 38 · 오른쪽 30px → 10 · 바까지 25px → 8.
-           눈대중으로 고치지 말 것. */
+        /* `최근 대화로` 동그라미는 **목록 아래 가운데에 떠 있다**(사용자 요청 —
+           `최근대화로 가는 버튼을 가운데로해줘. 우측 끝에있으니까 잘 안보여`).
+           크기와 바까지의 거리는 카톡 화면을 픽셀로 잰 값 그대로다
+           (1206×2622 · 배율 3.0 — 지름 114px → 38 · 바까지 25px → 8).
+           **오른쪽 끝으로 되돌리지 말 것** — 거기서는 눈에 안 띈다. */
         if !jumpBar.isHidden {
-            jumpBar.frame = CGRect(x: bounds.width - skin.jumpH - 10,
+            jumpBar.frame = CGRect(x: ((bounds.width - skin.jumpH) / 2).rounded(),
                                    y: bounds.height - skin.jumpH - 8,
                                    width: skin.jumpH, height: skin.jumpH)
         }
@@ -2929,7 +2928,7 @@ final class ReactChip: UIControl {
  * 위에 얹힌 앱 부품이라, 웹이 그리면 **통째로 가려진다**(사용자 제보 —
  * `최신대화로 버튼 안나옴`). 네이티브 바에서 겪은 그 자리다.
  *
- * **카톡처럼 오른쪽 아래의 작은 동그라미다**(사용자 요청 — `최근대화로
+ * **카톡처럼 작은 동그라미이고 목록 아래 가운데에 뜬다**(사용자 요청 — `최근대화로
  * 가는 버튼을 카톡처럼 바꿔줘` · 카톡 사진을 받아 픽셀로 맞췄다).
  * 한동안 **얼굴 · 이름 · 한 줄 미리보기 · `↓`를 펼친 줄**이었는데,
  * 그 줄은 좌우를 다 써서 말풍선 한 줄을 통째로 덮었다.
