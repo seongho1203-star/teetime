@@ -91,7 +91,7 @@ class TabPages(
                     val live = polls.await()
                     api.announceClosedPolls(live)
                     val upcoming = rounds.await().map(::AppRound)
-                        .filter { it.status != "cancelled" && AppDate.daysUntil(it.teeAt) >= 0 }
+                        .filter { it.status != "cancelled" && !it.isPast }
                     val ppl = people.await()
                     val first = upcoming.firstOrNull()
                     val tees = mutableMapOf<String, String>()
@@ -174,7 +174,7 @@ class TabPages(
             val kinds = all.map { it.isScreen }.toSet()
             if (kinds.size > 1) page.addView(cards.segments(listOf("전체", "⛳ 필드", "🎯 스크린"), roundFilter) { roundFilter = it; render() })
             val shown = all.filter { roundFilter == 0 || it.isScreen == (roundFilter == 2) }
-            val upcoming = shown.filter { it.status != "cancelled" && AppDate.daysUntil(it.teeAt) >= 0 }.sortedBy { it.teeAt }
+            val upcoming = shown.filter { it.status != "cancelled" && !it.isPast }.sortedBy { it.teeAt }
             val past = shown.filter { it !in upcoming }.sortedByDescending { it.teeAt }
             if (upcoming.isEmpty()) page.addView(cards.empty(when (roundFilter) {
                 1 -> "예정된 필드 라운드가 없습니다."

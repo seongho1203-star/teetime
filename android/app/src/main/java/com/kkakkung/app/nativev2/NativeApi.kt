@@ -225,7 +225,7 @@ class NativeApi(private val session: NativeSession) {
 
     /**
      * 탭·홈의 라운드(아이폰 `roundsUpcoming`) — **하루 여유를 두고** 자른다. 오늘 라운드가
-     * 시각이 지났다고 빠지면 안 되므로, 지났는지는 화면이 한국 날짜(`daysUntil`)로 가른다.
+     * 시각이 지났다고 빠지면 안 되므로, 지났는지는 화면이 `AppDate.ended`(티오프 + 20분)로 가른다.
      */
     private fun since(): String = java.time.Instant.now().minusSeconds(86_400).toString()
 

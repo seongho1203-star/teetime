@@ -121,7 +121,7 @@ final class RoundsTabController: ShellTabController {
                 self.all = next + past
                 self.rebuild()
                 /* 탭 위의 숫자 — 예정된 것(취소 아님). 진행중 투표 수는 투표 탭이 준다. */
-                let open = next.filter { AppDate.daysUntil($0.teeAt) >= 0 && $0.status != "cancelled" }.count
+                let open = next.filter { !$0.isPast && $0.status != "cancelled" }.count
                 self.shell?.refreshBadges(rounds: open)
             } catch {
                 self.flash(error.localizedDescription, error: true)
@@ -143,9 +143,9 @@ final class RoundsTabController: ShellTabController {
         }
         let only = filter.selectedSegmentIndex
         let list = all.filter { only == 0 || (only == 1 && !$0.isScreen) || (only == 2 && $0.isScreen) }
-        /* 오늘(한국 날짜) 이후는 '예정', 그 전은 '지난'. 지난 것은 최근 순으로. */
-        let upcoming = list.filter { AppDate.daysUntil($0.teeAt) >= 0 && $0.status != "cancelled" }
-        let past = list.filter { AppDate.daysUntil($0.teeAt) < 0 || $0.status == "cancelled" }
+        /* 티오프에서 20분이 안 지났으면 '예정', 지났으면 '지난'(`AppDate.ended`). 지난 것은 최근 순으로. */
+        let upcoming = list.filter { !$0.isPast && $0.status != "cancelled" }
+        let past = list.filter { $0.isPast || $0.status == "cancelled" }
             .sorted { $0.teeAt > $1.teeAt }
         var r: [Row] = upcoming.map { .round($0, past: false) }
         if !past.isEmpty {

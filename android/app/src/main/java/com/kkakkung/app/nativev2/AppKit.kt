@@ -291,10 +291,18 @@ object AppDate {
         val d = parse(iso)?.toLocalDate() ?: return 0
         return ChronoUnit.DAYS.between(LocalDate.now(seoul), d).toInt()
     }
+    /** 티오프에서 **20분이 지나면 끝난 라운드**다(사용자 요청 — 아침 7시 라운드가 저녁까지 홈 맨 위에
+     *  남아 있었다). 아이폰 `AppDate.ended`와 같은 값이다. */
+    const val END_AFTER_MIN = 20L
+    fun ended(iso: String?): Boolean {
+        val t = parse(iso) ?: return false
+        return ZonedDateTime.now(seoul).isAfter(t.plusMinutes(END_AFTER_MIN))
+    }
     /** `D-3` · `D-DAY` · `종료`. */
     fun dday(iso: String?): String {
+        if (ended(iso)) return "종료"
         val d = daysUntil(iso)
-        return if (d > 0) "D-$d" else if (d == 0) "D-DAY" else "종료"
+        return if (d > 0) "D-$d" else "D-DAY"
     }
     /** `120,000원`. */
     fun won(n: Int): String = NumberFormat.getNumberInstance(Locale.KOREA).format(n) + "원"
@@ -395,7 +403,8 @@ class AppRound(val raw: JSONObject) {
     fun mine(me: String) = signups.firstOrNull { it.userId == me }
     /** 대기 줄에서 몇 번째인가(1부터 · 아이폰 `waitRank`). 대기가 아니면 0. */
     fun waitRank(me: String): Int = waiting.indexOfFirst { it.userId == me } + 1
-    val isPast get() = AppDate.daysUntil(teeAt) < 0
+    /** 티오프에서 20분이 지나면 지난 라운드다(`AppDate.ended`). */
+    val isPast get() = AppDate.ended(teeAt)
 
     data class Slot(val course: String, val h: Int, val m: Int) { val time get() = "%02d:%02d".format(h, m) }
     /** 팀별 코스·시각(`tee_slots`) — 팀 n = 조 n. 스크린·옛 저장소는 빈 배열. */

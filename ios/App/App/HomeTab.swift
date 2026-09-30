@@ -160,7 +160,7 @@ final class HomeTabController: ShellTabController {
                 self.bellDot.text = alerts > 99 ? "99+" : String(alerts)
                 self.bellDot.isHidden = alerts == 0
 
-                let upcoming = rounds.filter { AppDate.daysUntil($0.teeAt) >= 0 }
+                let upcoming = rounds.filter { !$0.isPast }
                 var r: [Row] = []
                 if let next = upcoming.first {
                     r.append(.next(next))
@@ -227,7 +227,8 @@ final class HomeTabController: ShellTabController {
             let left = Swift.max(0, r.capacity - confirmed)
             let trailing: BadgeLabel = r.mine(me) != nil ? BadgeLabel("신청함", .dim)
                 : left > 0 ? BadgeLabel("\(left)자리", .brand) : BadgeLabel("자리 참", .dim)
-            let when = AppDate.dateTime(r.teeAt).replacingOccurrences(of: #" \(.\)"#, with: "", options: .regularExpression)
+            /* 요일까지 적는다(사용자 요청 — `9월 30일 (수) 오후 4:10`). */
+            let when = AppDate.dateTime(r.teeAt)
             c.fill(badge: nil, text: "\(r.kindIcon) \(when) \(r.place)", trailing: trailing)
             return c
         }

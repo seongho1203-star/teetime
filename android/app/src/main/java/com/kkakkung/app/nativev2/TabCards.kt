@@ -233,7 +233,7 @@ class TabCards(private val ui: Ui) {
         return place(c)
     }
 
-    /** 모집중의 한 줄 — `⛳ 9월 8일 오전 7:30 무등산CC` · 오른쪽에 `신청함`/`N자리`/`자리 참`. */
+    /** 모집중의 한 줄 — `⛳ 9월 8일 (화) 오전 7:30 무등산CC` · 오른쪽에 `신청함`/`N자리`/`자리 참`. */
     fun homeRound(r: AppRound, me: String, click: () -> Unit): View {
         val left = maxOf(0, r.capacity - r.confirmed.size)
         val trailing = when {
@@ -241,7 +241,7 @@ class TabCards(private val ui: Ui) {
             left > 0 -> ui.badge("${left}자리", Ui.Badge.BRAND)
             else -> ui.badge("자리 참", Ui.Badge.DIM)
         }
-        val whenText = AppDate.dateTime(r.teeAt).replace(Regex(" \\(.\\)"), "")
+        val whenText = AppDate.dateTime(r.teeAt)   // 요일까지(사용자 요청)
         return homeRow(null, "${r.kindIcon} $whenText ${r.place}", trailing, click)
     }
 

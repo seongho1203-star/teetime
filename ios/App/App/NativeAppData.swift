@@ -226,8 +226,8 @@ struct AppRound {
             return c.isEmpty ? times : "\(c) \(times)"
         }
     }
-    /// 오늘(한국 날짜)보다 앞이면 지난 라운드다.
-    var isPast: Bool { AppDate.daysUntil(teeAt) < 0 }
+    /// 티오프에서 20분이 지나면 지난 라운드다(`AppDate.ended`).
+    var isPast: Bool { AppDate.ended(teeAt) }
     /// 조별로 묶은 확정자 — **조가 하나도 없으면 빈 배열**이고 그때는 한 줄로 그린다(웹 `grouped`).
     /// 미배정(`nil`)은 늘 맨 뒤다.
     func grouped() -> [(no: Int?, list: [AppSignup])] {
@@ -392,12 +392,17 @@ enum AppDate {
         let b = cal.startOfDay(for: Date())
         return cal.dateComponents([.day], from: b, to: a).day ?? 0
     }
+    /// 티오프에서 **20분이 지나면 끝난 라운드**다(사용자 요청 — 아침 7시 라운드가 저녁까지 홈 맨 위에
+    /// 남아 있었다). 날짜로 가르던 것을 이 한 곳으로 모았다 — 안드로이드 `AppDate.ended`와 같은 값이다.
+    static let endAfter: TimeInterval = 20 * 60
+    static func ended(_ iso: String) -> Bool {
+        Date().timeIntervalSince(NativeChatRows.date(iso)) > endAfter
+    }
     /// `D-3` · `D-DAY` · `종료`(웹 `ddayLabel`).
     static func dday(_ iso: String) -> String {
+        if ended(iso) { return "종료" }
         let d = daysUntil(iso)
-        if d > 0 { return "D-\(d)" }
-        if d == 0 { return "D-DAY" }
-        return "종료"
+        return d > 0 ? "D-\(d)" : "D-DAY"
     }
     /// 하루 여유를 둔 잘라 내기(웹 `upcomingSince`) — 오늘 라운드가 사라지지 않게.
     static func upcomingSince() -> String { NativeChatRows.iso.string(from: Date(timeIntervalSinceNow: -86400)) }
