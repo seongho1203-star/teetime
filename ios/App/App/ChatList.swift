@@ -3037,6 +3037,12 @@ final class AvatarView: UIView {
     }
     private var shown: String?
 
+    /// 누르는 자리를 그림 밖으로 이만큼 넓힌다 — 배치는 한 픽셀도 안 움직인다(웹 `.chat-face`의 음수 여백과 같은 수).
+    var hitOutset: CGFloat = 0
+    override func point(inside p: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -hitOutset, dy: -hitOutset).contains(p)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         image.frame = bounds

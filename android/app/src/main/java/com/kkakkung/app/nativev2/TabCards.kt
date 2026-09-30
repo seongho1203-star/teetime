@@ -86,6 +86,15 @@ class TabCards(private val ui: Ui) {
             }, FrameLayout.LayoutParams(ui.dp(22), ui.dp(22), Gravity.CENTER))
             bell.addView(dot, FrameLayout.LayoutParams(-2, ui.dp(16)).apply { marginStart = ui.dp(24); topMargin = ui.dp(4) })
             view.addView(bell, FrameLayout.LayoutParams(ui.dp(44), ui.dp(44), Gravity.END).apply { marginEnd = ui.dp(8); topMargin = ui.dp(26) })
+            /* 누르는 자리만 얼굴 둘레로 8씩 넓힌다(그림은 36 그대로 · 아이폰 `hitOutset`과 같다) —
+               36 칸 가장자리를 누르면 안 먹어 `됐다 안됐다` 했다. */
+            view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                val r = android.graphics.Rect()
+                faceBox.getDrawingRect(r)
+                view.offsetDescendantRectToMyCoords(faceBox, r)
+                r.inset(-ui.dp(8), -ui.dp(8))
+                view.touchDelegate = android.view.TouchDelegate(r, faceBox)
+            }
             show(null, "")
         }
 

@@ -106,17 +106,40 @@ export function SettleRoute() {
  * 로그아웃·탈퇴(로그인 세션) · 시험 스위치(`localStorage`) · 내 값 다시 받기.
  * 그래서 알림 상태를 **먼저 물어 두고** 연다 — 앱은 그 값이 없으면 안 뜬다.
  */
+/**
+ * 마지막으로 읽은 알림 상태 — **다음에 열 때 기다리지 않고 이것으로 먼저 연다**
+ * (사용자 제보 — `홈에서 프로필이 터치가 됐다 안됐다해`). 홈의 얼굴을 누르면
+ * 웹이 알림 상태(권한·토큰·대화 스위치 조회)를 다 물어본 **뒤에야** 화면을 열어,
+ * 그 사이 아무 반응이 없으니 안 눌린 줄 알고 또 누르게 됐다. 참값은 뒤에서
+ * 받아 `sync`로 넘긴다(앱이 스위치만 고친다).
+ */
+const ME_PUSH_KEY = 'teetime:me-push';
+function lastMePush(): Record<string, unknown> | null {
+    try {
+        const v = JSON.parse(localStorage.getItem(ME_PUSH_KEY) ?? 'null') as Record<string, unknown> | null;
+        return v && typeof v.push === 'string' ? v : null;
+    } catch { return null; }
+}
+
 export function MeRoute() {
     const on = nativeScreen('/me');
     const { session, contact, refresh } = useAuth();
-    const [info, setInfo] = useState<Record<string, unknown> | null>(null);
+    const [info, setInfo] = useState<Record<string, unknown> | null>(() => lastMePush());
+    const [sync, setSync] = useState<Record<string, unknown> | undefined>();
+    const infoRef = useRef(info);
+    useEffect(() => { infoRef.current = info; }, [info]);
     useEffect(() => {
         if (!on) return;
         let dead = false;
         void (async () => {
             const push = await pushState();
             const chat = push === 'on' ? await chatPush().catch(() => true) : true;
-            if (!dead) setInfo({ push, chat });
+            if (dead) return;
+            const got = { push, chat };
+            try { localStorage.setItem(ME_PUSH_KEY, JSON.stringify(got)); } catch { /* 없어도 된다 */ }
+            const was = infoRef.current;
+            if (!was) setInfo(got);
+            else if (was.push !== push || was.chat !== chat) setSync(got);
         })();
         return () => { dead = true; };
     }, [on]);
@@ -146,7 +169,7 @@ export function MeRoute() {
             case 'refresh': await refresh(); return;
         }
     };
-    return <NativeScreenHost path="/me" onAction={act} extra={{
+    return <NativeScreenHost path="/me" onAction={act} sync={sync} extra={{
         ...info, birthdayThisYear: thisYear, version: APP_VERSION,
     }} />;
 }
@@ -172,8 +195,10 @@ const NAV_OK = /^\/(?:$|rounds(?:\/|$)|polls(?:\/|$)|board(?:\/|$)|chat$|members
 type ActionFn = (name: string, value: unknown, say: (data: Record<string, unknown>) => void)
     => Promise<Record<string, unknown> | void>;
 
-function NativeScreenHost({ path, extra, onAction }: {
+function NativeScreenHost({ path, extra, onAction, sync }: {
     path: string; extra?: Record<string, unknown>; onAction?: ActionFn;
+    /** 연 뒤에 바뀐 값 — 앱에 `sync` 답으로 넘긴다(`내 정보`의 알림 상태). */
+    sync?: Record<string, unknown>;
 }) {
     const { session } = useAuth();
     const user = session?.user.id ?? '';
@@ -187,6 +212,13 @@ function NativeScreenHost({ path, extra, onAction }: {
     useEffect(() => { extraRef.current = extra; }, [extra]);
     const actionRef = useRef(onAction);
     useEffect(() => { actionRef.current = onAction; }, [onAction]);
+    /** 열린 화면의 번호 — 열기 전에는 빈 글자라 `sync`가 기다린다. */
+    const openedRef = useRef('');
+    const syncRef = useRef(sync);
+    useEffect(() => {
+        syncRef.current = sync;
+        if (sync && openedRef.current) void NativeApp.reply({ screen: openedRef.current, name: 'sync', ok: true, ...sync }).catch(() => {});
+    }, [sync]);
     useLayoutEffect(() => {
         if (!user) return;
         const screen = crypto.randomUUID();
@@ -235,6 +267,11 @@ function NativeScreenHost({ path, extra, onAction }: {
                 slide: back || dragged ? 0 : ms,
             });
             if (!result.ok) throw new Error('화면을 열지 못했습니다. 다시 시도해 주세요.');
+            if (!dead) {
+                openedRef.current = screen;
+                const s = syncRef.current;
+                if (s) void NativeApp.reply({ screen, name: 'sync', ok: true, ...s }).catch(() => {});
+            }
             if ((back || dragged) && !dead) nativeChatEnter();
             nativeNavRendered();
         })().catch(e => {
@@ -244,7 +281,7 @@ function NativeScreenHost({ path, extra, onAction }: {
             setError(e instanceof Error ? e.message : '화면을 열지 못했습니다.');
         });
         return () => {
-            dead = true; nativeChatLeave();
+            dead = true; openedRef.current = ''; nativeChatLeave();
             void remove?.(); void NativeApp.close({ screen }).catch(() => {});
         };
     }, [user, navigate, attempt, path]);
@@ -338,6 +375,11 @@ export function NativeShellSync() {
             if (e.type === 'navigate' && e.data.path && NAV_OK.test(e.data.path)) {
                 void NativeApp.log({ line: `열라는 주소 받음 ${e.data.path} (지금 ${window.location.hash})` }).catch(() => {});
                 fromNative.current = e.data.path;
+                /* **이미 그 주소에 있으면 한 번 비웠다 다시 든다.** 껍데기가 열라고 했다는 것은
+                   그 화면이 앱에 없다는 뜻인데, 웹 주소만 옛것으로 남아 있으면(뒤로 가기가 한
+                   칸 어긋난 판) 같은 주소로 가 봐야 화면이 새로 안 만들어져 **아무 일도 안
+                   일어났다**(사용자 제보 — `홈에서 프로필이 터치가 됐다 안됐다해`). */
+                if (pathRef.current === e.data.path) navRef.current('/', { replace: true });
                 navRef.current(e.data.path);
             }
             if (e.type === 'auth') {

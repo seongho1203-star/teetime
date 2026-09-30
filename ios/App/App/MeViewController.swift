@@ -106,6 +106,10 @@ final class MeViewController: NativeScreenController, PHPickerViewControllerDele
         switch name {
         case "step":
             step = data["step"] as? String ?? ""
+        case "sync":
+            /* 웹이 **지난번 값으로 먼저 열고** 참값을 뒤에서 받아 보낸다 — 조용히 고치기만 한다. */
+            if !pushBusy, let s = data["push"] as? String { push = s }
+            if !chatBusy, let c = data["chat"] as? Bool { chat = c }
         case "push":
             pushBusy = false
             if let s = data["push"] as? String { push = s }

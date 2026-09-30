@@ -116,6 +116,9 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
 
     /** 앱 화면을 올린다 — 머리말·본문을 화면이 스스로 그리므로 `mount`처럼 감싸지 않는다. */
     private fun mountScreen(screen: NativeScreen) {
+        /* 화면이 밀리는 중이면 아무것도 안 한다 — 예전에는 `content.show`만 돌아서고
+           화면 등록·조회·`detail`은 그대로 남아, 보이지 않는 화면이 반쯤 열린 채 남았다. */
+        if (content.transitioning) { detail = content.canPop; return }
         val key = pendingKey
         screens.keys.retainAll { k -> content.contains(k) }
         screens[key] = screen

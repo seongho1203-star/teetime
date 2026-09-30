@@ -207,12 +207,30 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
             if nav.topViewController !== chat { nav.popToViewController(chat, animated: true) }
             return
         }
-        if path == "/chat" { onWeb?(path); return }
+        if path == "/chat" { askWeb(path); return }
         if let vc = NativeAppPlugin.make(path, service: service) {
             vc.path = path
             push(vc)
             return
         }
+        askWeb(path)
+    }
+
+    /**
+     * 웹에 열어 달라고 한다 — **웹이 아직 열고 있는 동안 같은 주소를 또 보내지 않는다.**
+     * 홈의 얼굴(→ `내 정보`)은 웹이 알림 상태를 물어보고 여느라 한 박자 늦는데, 그 사이
+     * 한 번 더 누르면 웹 기록에 `/me`가 두 칸 쌓여 **뒤로 와도 웹은 `/me`에 남고,
+     * 다음에 누르면 아무 일도 안 일어났다**(사용자 제보 — `홈에서 프로필이 터치가
+     * 됐다안됐다해`). 껍데기가 맨 위가 아니면(=이미 열렸으면) 거르지 않는다.
+     */
+    private var webAsked: (path: String, at: Date)?
+    private func askWeb(_ path: String) {
+        if let a = webAsked, a.path == path, Date().timeIntervalSince(a.at) < 1.5,
+           navigationController?.topViewController === self {
+            AppLog.add("같은 주소 또 누름 — 무시 \(path)")
+            return
+        }
+        webAsked = (path, Date())
         onWeb?(path)
     }
 

@@ -48,6 +48,7 @@ final class HomeTabController: ShellTabController {
         face.translatesAutoresizingMaskIntoConstraints = false
         face.backgroundColor = AppSkin.faint
         face.isUserInteractionEnabled = true
+        face.hitOutset = 8          // 그림은 36 그대로, 누르는 자리만 52로(가장자리를 눌러도 먹게)
         face.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(faceTapped)))
         nameLabel.font = .systemFont(ofSize: 22, weight: .bold)
         nameLabel.textColor = AppSkin.text
