@@ -997,6 +997,33 @@ $$;
 -- 크론이 부르는 것이라 사람에게는 열지 않는다.
 revoke all on function queue_round_reminders(timestamptz) from public;
 
+-- **시각을 바꾸면 '보냈다'는 표시를 지운다**(사용자 요청 — 오후 2시 스크린의
+-- 12시 알림을 받은 뒤 3시로 바꾸면 1시에 다시 와야 한다). 위의
+-- `unique (round_id, kind)`가 한 라운드에 한 번만 보내게 막으므로, 지우지
+-- 않으면 바뀐 시각으로는 영영 안 온다. 지우면 크론이 새 시각으로 다시 넣는다.
+--   · **`tee_at`이 바뀔 때만** 지운다 — 이름·안내만 고친 것으로 또 울리면 안 된다.
+--   · 필드도 같다 — 날짜를 옮기면 새 날짜의 전날 저녁에 다시 간다.
+--   · `security definer`인 것은 이 표에 지우기 정책을 안 열어 두었기 때문이다
+--     (회원에게 열면 남의 라운드 알림을 몇 번이고 다시 울릴 수 있다).
+create or replace function reset_round_reminders()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    delete from round_reminders where round_id = new.id;
+    return new;
+end;
+$$;
+
+drop trigger if exists rounds_time_moved on rounds;
+create trigger rounds_time_moved
+    after update of tee_at on rounds
+    for each row
+    when (old.tee_at is distinct from new.tee_at)
+    execute function reset_round_reminders();
+
 
 -- ── 참석 횟수 ─────────────────────────────────────────────────
 --
