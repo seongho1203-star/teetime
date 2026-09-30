@@ -333,23 +333,60 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
      */
     @objc func deep(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            guard let path = call.getString("path"), let sh = self.shell,
-                  let nav = sh.navigationController, nav.transitionCoordinator == nil
-            else { call.resolve(["handled": false]); return }
-            /* 껍데기 위가 **전부** 껍데기가 세운 화면일 때만 맡는다 — 대화방이나 웹이 연
-               화면(`내 정보`)이 사이에 끼어 있으면 틀을 되돌리다 그것까지 내린다. */
-            let above = nav.viewControllers.drop(while: { $0 !== sh }).dropFirst()
-            let ours = above.allSatisfy { ($0 as? NativeScreenController)?.shellOwned ?? false }
-            AppLog.add("알림 딥링크 \(path) 맡음=\(ours)")
-            guard ours else { call.resolve(["handled": false]); return }
-            /* 떠 있는 창(프로필 수정 시트·확인창)은 걷는다 — 알림을 누른 것이 곧 그리로 가겠다는 뜻이다. */
-            let go = {
-                if nav.topViewController !== sh { nav.popToViewController(sh, animated: false) }
-                sh.go(path)
-                call.resolve(["handled": true])
+            guard let path = call.getString("path") else { call.resolve(["handled": false]); return }
+            /* **앱이 방금 알림을 누른 그 자리에서 이미 열었으면 또 안 연다**(`tapped` 아래) —
+               웹이 같은 알림을 뒤따라 넘겨 오므로, 안 거르면 같은 화면이 두 겹 선다. */
+            if let t = Self.lastTap, t.path == path, Date().timeIntervalSince(t.at) < 10 {
+                AppLog.add("알림 딥링크 \(path) — 앱이 이미 열었음")
+                call.resolve(["handled": true]); return
             }
-            if nav.presentedViewController != nil { nav.dismiss(animated: false, completion: go) } else { go() }
+            call.resolve(["handled": self.openDeep(path)])
         }
+    }
+
+    /**
+     * 알림으로 갈 곳을 껍데기 틀에 연다 — 맡았으면 `true`.
+     * 껍데기 위가 **전부** 껍데기가 세운 화면일 때만 맡는다 — 대화방이나 웹이 연
+     * 화면(`내 정보`)이 사이에 끼어 있으면 틀을 되돌리다 그것까지 내린다.
+     */
+    @MainActor private func openDeep(_ path: String) -> Bool {
+        guard let sh = self.shell, let nav = sh.navigationController, nav.transitionCoordinator == nil else { return false }
+        let above = nav.viewControllers.drop(while: { $0 !== sh }).dropFirst()
+        let ours = above.allSatisfy { ($0 as? NativeScreenController)?.shellOwned ?? false }
+        AppLog.add("알림 딥링크 \(path) 맡음=\(ours)")
+        guard ours else { return false }
+        /* 떠 있는 창(프로필 수정 시트·확인창)은 걷는다 — 알림을 누른 것이 곧 그리로 가겠다는 뜻이다. */
+        let go = {
+            if nav.topViewController !== sh { nav.popToViewController(sh, animated: false) }
+            sh.go(path)
+        }
+        if nav.presentedViewController != nil { nav.dismiss(animated: false, completion: go) } else { go() }
+        return true
+    }
+
+    /**
+     * **알림을 누른 그 자리에서 앱이 곧바로 연다**(사용자 제보 — `아이폰 필드 사전알림이 왔을때
+     * 그걸 누르면 해당라운드로 이동이 안돼`).
+     *
+     * 예전에는 누른 것을 **웹에 넘겨** 웹이 다시 `deep`을 불렀다. 그런데 사전알림은
+     * 저녁 8시에 온다 — 앱을 몇 시간 안 연 뒤라 iOS가 **웹 화면(웹뷰의 속 프로세스)을
+     * 치워 두었다가** 알림을 누르는 순간 다시 띄우는 일이 흔하고, 그 사이 넘긴 한 마디가
+     * 죽은 화면으로 가서 **아무 일도 안 일어났다.** 앱 껍데기는 그대로 살아 있으므로
+     * 여기서 열면 웹이 깨어 있든 말든 상관없다.
+     *
+     * 껍데기가 아직 없으면(앱이 꺼져 있다 켜진 판) 예전처럼 웹이 맡는다 — 그때는
+     * 플러그인이 그 한 마디를 웹이 들을 때까지 붙들고 있다가 준다.
+     */
+    @MainActor static var lastTap: (path: String, at: Date)?
+    private static weak var live: NativeAppPlugin?
+    public override func load() { Self.live = self }
+
+    @MainActor static func tapped(url: String) {
+        var path = url
+        if let i = path.firstIndex(of: "#") { path = String(path[path.index(after: i)...]) }
+        if path.isEmpty { path = "/" }
+        guard path.hasPrefix("/"), let me = live, me.shell != nil else { return }
+        if me.openDeep(path) { lastTap = (path, Date()) }
     }
 
     /// 실시간으로 바뀐 표(웹 `NativeShellSync`가 모아 보낸다) — 보이는 앱 화면이 다시 받는다.

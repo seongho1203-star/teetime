@@ -98,7 +98,15 @@ final class QuietChatPush: NSObject, NotificationHandlerProtocol {
     }
 
     func didReceive(response: UNNotificationResponse) {
-        /* 누른 것은 손대지 않는다 — 그대로 그 화면으로 옮겨져야 한다. */
+        /* **앱이 먼저 연다**(`NativeAppPlugin.tapped`) — 웹은 몇 시간 쉰 뒤라 잠들어 있거나
+           막 다시 뜨는 중일 수 있다. 그다음 웹에도 그대로 넘긴다(껍데기가 아직 없는
+           판은 웹이 맡는다 · 앱이 이미 연 것은 웹이 다시 부를 때 거른다). */
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+           let url = response.notification.request.content.userInfo["url"] as? String {
+            /* 메인 줄에 먼저 올려 둔다 — 웹이 이 알림을 받아 `deep`을 다시 부르는 것은
+               다리를 한 바퀴 돈 뒤라 늘 이것보다 늦다(그래서 `lastTap`으로 걸러진다). */
+            DispatchQueue.main.async { NativeAppPlugin.tapped(url: url) }
+        }
         inner.didReceive(response: response)
     }
 
