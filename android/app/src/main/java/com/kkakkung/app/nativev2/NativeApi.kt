@@ -523,6 +523,15 @@ class NativeApi(private val session: NativeSession) {
         if ((v as? JSONArray)?.length() == 0) throw NativeApiError("정산을 지울 권한이 없습니다.")
     }
 
+    /** 아직 안 낸 내 몫(홈 `내가 할 일`의 `미정산금액` · 아이폰 `myUnpaidShares`). 오래된 것부터. */
+    suspend fun myUnpaidShares(): List<Pair<Int, String?>> = try {
+        rows("settlement_shares", listOf(
+            "select" to "amount,created_at,settlements(round_id)",
+            "user_id" to "eq.${session.userId}", "paid" to "eq.false",
+            "order" to "created_at.asc", "limit" to "50"
+        )).map { it.optInt("amount") to it.optJSONObject("settlements")?.strOrNull("round_id") }
+    } catch (_: Exception) { emptyList() }
+
     suspend fun markSharePaid(id: String, paid: Boolean = true) {
         val v = request("rest/v1/settlement_shares", listOf("id" to "eq.$id"), "PATCH",
             JSONObject().put("paid", paid))

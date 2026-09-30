@@ -28,6 +28,19 @@ class RoundFormRulesTest {
         val saved = JSONObject().put("2", "2026-09-29T08:00+09:00")
         assertSame(saved, RoundFormRules.groupTees(out, saved)); assertFalse(saved.has("1"))
     }
+    @Test fun subCourseChipsKeepPickOrderAndSendOnlyWhenNeeded() {
+        assertEquals("해피니스", RoundFormRules.clubKey("해피니스 CC"))
+        assertEquals("함평엘리체", RoundFormRules.clubKey("함평엘리체컨트리클럽"))
+        assertEquals("화순엘리체", RoundFormRules.clubKey("화순엘리체CC"))
+        assertEquals("펠리스-마제스티", RoundFormRules.toggle("펠리스", "마제스티"))
+        assertEquals("마제스티", RoundFormRules.toggle("펠리스-마제스티", "펠리스"))
+        val none = RoundFormRules.payload(base(), false, "목록 밖 필드", date, 8, 100000, "안내", null, null, null, emptyList())
+        assertFalse(none.has("sub_course"))
+        val picked = RoundFormRules.payload(base(), false, "목록 밖 필드", date, 8, 100000, "안내", null, null, null, emptyList(), "하트-휴먼")
+        assertEquals("하트-휴먼", picked.getString("sub_course"))
+        val cleared = RoundFormRules.payload(base().put("sub_course", "하트"), true, "매장", date, 8, 0, "", null, null, null, emptyList(), "하트")
+        assertTrue(cleared.isNull("sub_course"))
+    }
     @Test fun emptyTeamsOmitLegacyColumnButClearExistingColumn() {
         assertFalse(payload(base()).has("tee_slots"))
         val original = base().put("tee_slots", JSONArray().put(JSONObject().put("course", "A").put("time", "07:00")))

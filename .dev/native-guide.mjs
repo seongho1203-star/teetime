@@ -16,6 +16,11 @@ const courseCode = ts.transpileModule(courseSource, { compilerOptions: { module:
 const courses = await import(`data:text/javascript;base64,${Buffer.from(courseCode).toString('base64')}`);
 fs.writeFileSync(path.join(path.dirname(output), 'courses.json'), JSON.stringify(courses.COURSES));
 
+/* 골프장마다의 코스(`lib/clubs.ts`) — 모집 열기의 `코스` 칩. 코틀린에 또 적지 말 것. */
+const clubSource = fs.readFileSync(new URL('../src/lib/clubs.ts', import.meta.url), 'utf8');
+const clubs = await import(`data:text/javascript;base64,${Buffer.from(ts.transpileModule(clubSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText).toString('base64')}`);
+fs.writeFileSync(path.join(path.dirname(output), 'clubs.json'), JSON.stringify(clubs.CLUB_COURSES));
+
 /* **대화 규칙 꾸러미**(`lib/chat-shared.ts`의 `chatShared()`와 같은 이름) — 반응 그림글자 ·
    이모티콘 목록 · 추천 한도. 안드로이드는 웹뷰를 안 거쳐 `NativeApp.open`으로 받을 길이
    없으므로 빌드 때 여기서 뽑아 `chat-shared.json`으로 담는다(`NativeChatShared.load`).

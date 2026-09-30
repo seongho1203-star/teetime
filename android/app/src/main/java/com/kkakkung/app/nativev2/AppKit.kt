@@ -413,6 +413,12 @@ class AppRound(val raw: JSONObject) {
         val h = t.getOrNull(0)?.toIntOrNull(); val m = t.getOrNull(1)?.toIntOrNull()
         if (h == null || m == null || h !in 0..23 || m !in 0..59) null else Slot(d.str("course").trim(), h, m)
     }
+    /** 9홀 코스(`sub_course` · `마제스티-펠리스`) — 모집 열기의 `코스` 칸. 스크린·옛 저장소는 빈 글자. */
+    val subCourse: String get() = if (isScreen) "" else raw.str("sub_course").trim()
+    /** 장소 줄 — `해피니스CC · 하트-휴먼`. 코스를 안 골랐으면 골프장 이름 그대로(아이폰 `placeLine`). */
+    val placeLine: String get() = if (subCourse.isEmpty()) place else "$place · $subCourse"
+    /** 그 조의 코스 — 팀별 코스(`tee_slots`, 팀 n = 조 n). 안 적었으면 빈 글자(아이폰 `groupCourse`). */
+    fun groupCourse(grp: Int): String = teeSlots.getOrNull(grp - 1)?.course ?: ""
     /** 코스별로 묶은 줄 — `스카이 07:21 · 07:28`. 코스는 처음 나온 차례 그대로. */
     val slotLines: List<String> get() {
         val bag = LinkedHashMap<String, MutableList<String>>()

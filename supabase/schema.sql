@@ -378,6 +378,11 @@ create table if not exists rounds (
     -- 한 골프장에서 코스를 나눠 여러 팀이 나갈 때 모집을 열며 미리 적어 둔다.
     -- **팀 n = 조 n**이라 조 편성이 이 차례대로 시각을 채운다. 비어 있으면 예전 그대로.
     tee_slots   jsonb       not null default '[]'::jsonb,
+    -- 이 라운드에서 도는 9홀 코스(`마제스티-펠리스` — 전·후반 차례 그대로).
+    -- 모집 열기의 `코스` 칸에서 고른다(골프장별 목록은 `src/lib/clubs.ts`).
+    -- 선택이라 비어 있는 것이 정상이다. **골프장 이름(`course`)에 합치지 말 것** —
+    -- 합치면 좌표를 못 찾아 날씨가 사라진다.
+    sub_course  text,
     created_by  uuid        references profiles on delete set null,
     created_at  timestamptz not null default now()
 );
@@ -389,6 +394,7 @@ alter table rounds add column if not exists cart   text;
 -- 기본값을 함께 준 덕에 이미 쌓인 행이 전부 'field'로 채워진다.
 alter table rounds add column if not exists kind   text not null default 'field';
 alter table rounds add column if not exists tee_slots jsonb not null default '[]'::jsonb;
+alter table rounds add column if not exists sub_course text;
 alter table rounds drop constraint if exists rounds_caddie_check;
 alter table rounds add  constraint rounds_caddie_check check (caddie in ('caddie', 'none'));
 alter table rounds drop constraint if exists rounds_cart_check;
@@ -579,6 +585,7 @@ begin
         $t$;
     end if;
 end $$;
+
 
 
 -- **정원을 늘리면 대기자가 저절로 올라간다.**
@@ -2160,6 +2167,35 @@ end $$;
 drop trigger if exists shares_amount_guard on settlement_shares;
 create trigger shares_amount_guard before update on settlement_shares
     for each row execute function shares_amount_locked();
+
+
+-- ── 내 몫을 `입금완료`로 표시하면 걷는 사람에게 알린다 ──────────
+--
+-- 사용자 요청 — `입금완료버튼을 입금완료 알림보내기 로 바꿔주고 이 버튼을
+-- 누르면 돈을 걷는사람에게 누가 얼마를 입금했습니다 이렇게 알림이가도록`.
+-- 걷는 사람은 통장을 열어 보기 전까지 누가 보냈는지 몰랐다.
+--
+-- **`when`이 셋을 본다** — 안 낸 것이 낸 것으로 뒤집혔고, **그 몫의 주인이
+-- 스스로 눌렀을 때만**이다(`auth.uid()`). 걷는 사람이 정산 현황에서 현금으로
+-- 받은 것을 대신 눌러 준 것까지 울리면 제 손으로 한 일을 알림으로 되받는다.
+-- 발송기는 걷는 사람이 제 몫을 누른 것도 뺀다(자기에게 가는 알림).
+-- 알림 트리거를 이 파일에 두는 까닭은 `notify_signups_wait`와 같다.
+-- **표를 만든 뒤라야 하므로 여기 있다** — 위로 올리면 새 DB에서 표를 못 찾아 멈춘다.
+do $$
+begin
+    if exists (
+        select 1 from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'notify_push')
+    then
+        execute 'drop trigger if exists notify_shares_paid on settlement_shares';
+        execute $t$
+            create trigger notify_shares_paid after update of paid on settlement_shares
+                for each row when (not old.paid and new.paid and new.user_id = auth.uid())
+                execute function notify_push()
+        $t$;
+    end if;
+end $$;
 
 -- chat -------------------------------------------------------
 drop policy if exists rooms_read on rooms;

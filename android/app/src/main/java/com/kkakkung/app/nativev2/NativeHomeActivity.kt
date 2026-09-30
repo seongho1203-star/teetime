@@ -571,6 +571,8 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     private val tabPages by lazy {
         TabPages(this, api, scope, session.userId, object : TabNav {
             override fun openRound(id: String) = showRound(id)
+            override fun openRoundSettle(id: String) { RoundScreen.focusSettle = id; showRound(id) }
+            override fun openSettle() = showSettlements()
             override fun openPoll(id: String) = showPoll(id)
             override fun openPost(id: String) = showPost(id)
             override fun openMe() = showMe()

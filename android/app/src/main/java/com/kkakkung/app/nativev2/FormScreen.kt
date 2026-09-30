@@ -171,6 +171,9 @@ class OptButton(private val ui: Ui, title: String) : LinearLayout(ui.ctx) {
     private val label = ui.label(title, 15f, bold = true)
     var on = false
         set(v) { field = v; paint() }
+    /** 켜졌을 때 네모 안에 ✓ 대신 적을 글자 — 코스 칩의 `1`·`2`(전·후반 차례 · 아이폰 `mark`). */
+    var mark: String? = null
+        set(v) { field = v; paint() }
 
     init {
         orientation = HORIZONTAL
@@ -187,7 +190,7 @@ class OptButton(private val ui: Ui, title: String) : LinearLayout(ui.ctx) {
         background = ui.rounded(if (on) AppSkin.alpha(AppSkin.brand, .1f) else AppSkin.surface, AppSkin.radiusSm,
             if (on) AppSkin.brandDeep else AppSkin.line)
         label.setTextColor(if (on) AppSkin.text else AppSkin.dim)
-        box.text = if (on) "✓" else ""
+        box.text = if (on) (mark ?: "✓") else ""
         box.background = ui.rounded(if (on) AppSkin.grass else Color.TRANSPARENT, 5, if (on) AppSkin.grass else AppSkin.faint, 2)
     }
 }

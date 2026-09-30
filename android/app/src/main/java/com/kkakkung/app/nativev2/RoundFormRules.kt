@@ -31,8 +31,20 @@ internal object RoundFormRules {
         slots(round).forEachIndexed { i, row -> out.put((i + 1).toString(), day.atTime(LocalTime.parse(row.getString("time"))).atZone(seoul).toOffsetDateTime().toString()) }
         return out
     }
+    /** 골프장 이름을 표 열쇠 모양으로 — 웹 `clubKey`(lib/clubs.ts)·아이폰과 같은 규칙. **딱 맞을 때만 쓴다.** */
+    fun clubKey(name: String): String = name.replace(Regex("\\s+"), "")
+        .replace(Regex("(CC|GC|컨트리클럽|골프클럽|골프장|골프앤리조트|골프리조트|골프링크스|골프클럽스)$", RegexOption.IGNORE_CASE), "")
+    /** 코스 칸의 글을 고른 차례대로 — `마제스티-펠리스` → [마제스티, 펠리스]. */
+    fun picked(text: String): List<String> = text.split("-").map { it.trim() }.filter { it.isNotEmpty() }
+    /** 칩을 눌렀을 때 — 있으면 빼고 없으면 뒤에 붙인다(**고른 차례가 곧 전·후반**, 정렬하지 않는다). */
+    fun toggle(text: String, name: String): String {
+        val on = picked(text).toMutableList()
+        if (!on.remove(name)) on.add(name)
+        return on.joinToString("-")
+    }
     fun payload(base: JSONObject?, screen: Boolean, course: String, date: ZonedDateTime, capacity: Int, fee: Int,
-                note: String, caddie: String?, cart: String?, geo: JSONObject?, teamSlots: List<JSONObject>): JSONObject {
+                note: String, caddie: String?, cart: String?, geo: JSONObject?, teamSlots: List<JSONObject>,
+                subCourse: String = ""): JSONObject {
         require(course.isNotBlank() && capacity > 0 && fee >= 0)
         val teams = if (screen) emptyList() else teamSlots
         val earliest = teams.map { LocalTime.parse(it.getString("time")) }.minOrNull()
@@ -45,6 +57,9 @@ internal object RoundFormRules {
             .put("fee", fee).put("note", note.trim()).put("caddie", if (screen) JSONObject.NULL else caddie ?: JSONObject.NULL)
             .put("cart", if (screen) JSONObject.NULL else cart ?: JSONObject.NULL).put("lat", coordinate("lat")).put("lon", coordinate("lon"))
         if (teams.isNotEmpty() || base?.has("tee_slots") == true) out.put("tee_slots", JSONArray(teams))
+        /* 코스도 같은 잣대 — 적었거나 원래 칸이 있던 라운드일 때만 싣는다(`PGRST204`). */
+        val sub = if (screen) "" else subCourse.trim()
+        if (sub.isNotEmpty() || base?.has("sub_course") == true) out.put("sub_course", if (sub.isEmpty()) JSONObject.NULL else sub)
         return out
     }
     fun homeState(round: JSONObject, user: String): String {

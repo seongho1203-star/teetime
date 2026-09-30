@@ -95,12 +95,14 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         case "/rounds/new":
             /* 골프장 목록은 웹이 실어 보낸다(`lib/courses.ts`) — 없으면(껍데기가 직접 부른 판) 웹에 맡긴다. */
             guard let c = options["courses"] as? [ChatJSON] else { return nil }
-            return RoundEditViewController(service: service, id: nil, from: options["from"] as? String, courses: c)
+            return RoundEditViewController(service: service, id: nil, from: options["from"] as? String, courses: c,
+                                           clubs: options["clubs"] as? [String: [String]] ?? [:])
         default:
             if path.hasPrefix("/rounds/"), path.hasSuffix("/edit"),
                let id = UUID(uuidString: String(path.dropFirst("/rounds/".count).dropLast("/edit".count))) {
                 guard let c = options["courses"] as? [ChatJSON] else { return nil }
-                return RoundEditViewController(service: service, id: id.uuidString.lowercased(), from: nil, courses: c)
+                return RoundEditViewController(service: service, id: id.uuidString.lowercased(), from: nil, courses: c,
+                                               clubs: options["clubs"] as? [String: [String]] ?? [:])
             }
             /* `/rounds/<uuid>/groups` — 조 편성(3단계). */
             if path.hasPrefix("/rounds/"), path.hasSuffix("/groups"),
@@ -235,7 +237,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             else { call.reject("껍데기를 세울 수 없습니다."); return }
             let path = call.getString("path") ?? "/"
             let o = call.options as? ChatJSON ?? [:]
-            for k in ["courses", "banks", "guide"] where o[k] != nil { Self.shared[k] = o[k] }
+            for k in ["courses", "clubs", "banks", "guide"] where o[k] != nil { Self.shared[k] = o[k] }
             if let sh = self.shell, sh.service.config.user == config.user,
                nav.viewControllers.contains(where: { $0 === sh }) {
                 sh.service.config = config

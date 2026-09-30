@@ -13,6 +13,9 @@ import org.json.JSONObject
 /** 탭 화면이 바깥에 부탁하는 일 — 화면을 여는 것은 `NativeHomeActivity`가 한다. */
 interface TabNav {
     fun openRound(id: String)
+    /** 라운드를 열고 정산 카드로 굴려 준다(홈의 `미정산금액`). */
+    fun openRoundSettle(id: String)
+    fun openSettle()
     fun openPoll(id: String)
     fun openPost(id: String)
     fun openMe()
@@ -83,6 +86,7 @@ class TabPages(
                     val people = async { peopleMap() }
                     val chat = async { runCatching { api.unreadChatCount() }.getOrDefault(0) }
                     val alerts = async { runCatching { api.unreadAlertCount() }.getOrDefault(0) }
+                    val unpaidQ = async { api.myUnpaidShares() }
                     val prof = profile.await()?.let(::AppProfile)
                     head.show(prof, "")
                     head.alerts(alerts.await())
@@ -110,6 +114,15 @@ class TabPages(
                     val votedSet = voted.await()
                     live.map(::AppPoll).filter { !it.closed && it.id !in votedSet }.forEach { p ->
                         todo.add(cards.homeRow(ui.badge("투표", Ui.Badge.BRAND), p.title, null) { nav.openPoll(p.id) })
+                    }
+                    /* 아직 안 낸 내 몫(사용자 요청 — `미정산금액 1건`). 누르면 가장 오래된 것의
+                       라운드로 가서 정산 카드에 선다. 다 내면 사라진다(아이폰 `.unpaid`). */
+                    val unpaid = unpaidQ.await()
+                    if (unpaid.isNotEmpty()) {
+                        val rid = unpaid.firstOrNull { it.second != null }?.second
+                        todo.add(cards.homeRow(ui.badge("정산", Ui.Badge.WARN), "미정산금액 ${unpaid.size}건 · ${AppDate.won(unpaid.sumOf { it.first })}", null) {
+                            if (rid != null) nav.openRoundSettle(rid) else nav.openSettle()
+                        })
                     }
                     if (pending > 0) todo.add(cards.homeRow(ui.badge("승인", Ui.Badge.WARN), "가입 신청 ${pending}명", null) { nav.openMembers() })
                     val unread = chat.await()

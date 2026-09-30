@@ -29,6 +29,10 @@ import org.json.JSONObject
  *  - 신청 단추는 화면 아래 붙박이 바. 댓글 칸은 카드 안에 그대로 선다.
  */
 class RoundScreen(ctx: Context, host: ScreenHost, private val roundId: String) : NativeScreen(ctx, host, "라운드") {
+    companion object {
+        /** 홈의 `미정산금액`을 누르고 왔으면 그 라운드 id — 첫 그림에서 정산 카드로 굴려 준다(아이폰 `focusSettle`). */
+        var focusSettle: String? = null
+    }
     private val scroll: ScrollView
     private val stack: LinearLayout
     private val actionBar = LinearLayout(ctx)
@@ -130,6 +134,8 @@ class RoundScreen(ctx: Context, host: ScreenHost, private val roundId: String) :
         val hero = ui.vstack(6).apply { setPadding(ui.dp(2), ui.dp(4), ui.dp(2), ui.dp(6)) }
         hero.addView(ui.hrow(badges))
         hero.addView(ui.label("${r.kindIcon} ${r.place}", 22f, bold = true, lines = 0))
+        /* 모집 열기에서 고른 코스(`sub_course`) — 골프장과 섞지 않고 한 줄 아래(아이폰과 같다). */
+        if (r.subCourse.isNotEmpty()) hero.addView(ui.label("🏁 ${r.subCourse} 코스", 15f, bold = true, color = AppSkin.dim, lines = 0))
         if (r.title.isNotEmpty() && r.course.isNotEmpty()) hero.addView(ui.label(r.title, 14f, color = AppSkin.dim, lines = 0))
         stack.addView(hero)
 
@@ -235,6 +241,10 @@ class RoundScreen(ctx: Context, host: ScreenHost, private val roundId: String) :
         if (settlements.isEmpty()) settleCard.addView(ui.label("아직 정산이 없습니다.", 12f, color = AppSkin.faint))
         settlements.forEach { settleCard.addView(settlementView(it)) }
         stack.addView(settleCard)
+        if (focusSettle == roundId && settlements.isNotEmpty()) {
+            focusSettle = null
+            scroll.post { scroll.smoothScrollTo(0, maxOf(0, settleCard.top - ui.dp(12))) }
+        }
 
         // 운영 — 연 사람과 운영진만
         if (isAdmin || isOwner) {
@@ -322,8 +332,16 @@ class RoundScreen(ctx: Context, host: ScreenHost, private val roundId: String) :
                 background = ui.rounded(if (mine.paid) AppSkin.alpha(AppSkin.grass, .12f) else AppSkin.surface2, AppSkin.radiusSm)
             }
             wrap.addView(ui.hrow(listOf(ui.label("입금금액", 13f, color = AppSkin.dim), ui.label(AppDate.won(mine.amount), 20f, bold = true))))
-            wrap.addView(ui.button(if (mine.paid) "입금완료 ✓" else "입금완료", if (mine.paid) AppSkin.grass else AppSkin.brand, filled = true) {
-                act { api.markSharePaid(mine.id, !mine.paid) }
+            /* 누르면 **걷는 사람에게 알림이 간다**(사용자 요청 — `입금완료 알림 보내기`).
+               보내는 것은 DB 트리거(`notify_shares_paid`)다 — 내 몫이 내 손으로 입금완료가
+               될 때만. 제가 걷는 정산의 제 몫이면 받을 사람이 없어 그냥 `입금완료`다. */
+            val collector = s.createdBy?.takeIf { it != myId }
+            wrap.addView(ui.button(if (mine.paid) "입금완료 ✓" else if (collector == null) "입금완료" else "입금완료 알림 보내기",
+                if (mine.paid) AppSkin.grass else AppSkin.brand, filled = true) {
+                act {
+                    api.markSharePaid(mine.id, !mine.paid)
+                    if (!mine.paid && collector != null) flash("${people[collector]?.name ?: "걷는 분"}님께 입금완료 알림을 보냈습니다.")
+                }
             })
             if (mine.paid) wrap.addView(ui.label("잘못 누르셨으면 한 번 더 누르면 취소됩니다.", 12f, color = AppSkin.faint, lines = 0))
             box.addView(wrap)

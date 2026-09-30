@@ -23,7 +23,8 @@ import UIKit
  *    카드가 첫 조각을 큰 제목(날짜)으로, 나머지를 칩으로 그린다.
  *  - 운영 단추(모집 마감·다시 열기·취소·되돌리기·지우기)와 `수정`·`조 편성`은
  *    **연 사람과 운영진**. 남을 빼는 `✕`는 운영진만.
- *  - 정산은 **보는 쪽만** 여기 있다 — 내 몫 크게 · `입금완료`(본인만 뒤집는다) ·
+ *  - 정산은 **보는 쪽만** 여기 있다 — 내 몫 크게 · `입금완료 알림 보내기`(본인만
+ *    뒤집고, 걷는 사람에게 알림이 간다 — DB `notify_shares_paid`) ·
  *    계좌 복사 · `토스로 보내기` · 누구 몫이 얼마인지 · 지우기(만든 사람·
  *    총무·운영진). **만드는 것은 3단계(쓰는 화면)에서 온다.**
  *  - 댓글은 누구나 달고 지우는 것은 쓴 사람과 운영진. 알림은 안 간다.
@@ -42,6 +43,8 @@ final class RoundViewController: NativeScreenController {
     /// 실시간 — 이 표들이 바뀌면 보이는 동안 다시 받는다(5단계 · `AppLive`).
     override var liveTables: Set<String> { ["rounds", "signups", "round_comments", "round_groups", "settlements", "settlement_shares", "profiles"] }
     private let roundId: String
+    /// 홈의 `미정산금액`을 누르고 왔으면 그 라운드 id — 첫 그림에서 정산 카드로 굴려 준다(한 번만).
+    static var focusSettle: String?
 
     private let scroll = UIScrollView()
     private let stack = UIStackView()
@@ -220,6 +223,8 @@ final class RoundViewController: NativeScreenController {
         hero.layoutMargins = UIEdgeInsets(top: 4, left: 2, bottom: 6, right: 2)
         hero.addArrangedSubview(hrow(badges))
         hero.addArrangedSubview(mkLabel("\(r.kindIcon) \(r.place)", size: 22, weight: .bold, lines: 0))
+        /* 모집 열기에서 고른 코스(`sub_course` · 사용자 요청) — 골프장과 섞지 않고 한 줄 아래. */
+        if !r.subCourse.isEmpty { hero.addArrangedSubview(mkLabel("🏁 \(r.subCourse) 코스", size: 15, weight: .semibold, color: AppSkin.dim, lines: 0)) }
         if !r.title.isEmpty && !r.course.isEmpty { hero.addArrangedSubview(mkLabel(r.title, size: 14, color: AppSkin.dim, lines: 0)) }
         stack.addArrangedSubview(hero)
 
@@ -361,6 +366,16 @@ final class RoundViewController: NativeScreenController {
             settleCard.content.addArrangedSubview(settlementView(s, shares: shares.filter { $0.settlementId == s.id }))
         }
         stack.addArrangedSubview(settleCard)
+        if Self.focusSettle == roundId, !settlements.isEmpty {
+            Self.focusSettle = nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.view.layoutIfNeeded()
+                let frame = settleCard.convert(settleCard.bounds, to: self.scroll)
+                let maxY = max(0, self.scroll.contentSize.height - self.scroll.bounds.height + self.scroll.adjustedContentInset.bottom)
+                self.scroll.setContentOffset(CGPoint(x: 0, y: min(maxY, max(0, frame.minY - 12))), animated: true)
+            }
+        }
 
         // 운영 — 연 사람과 운영진만
         if isAdmin || isOwner {
@@ -499,9 +514,14 @@ final class RoundViewController: NativeScreenController {
             let line = hrow([mkLabel("입금금액", size: 13, color: AppSkin.dim)])
             line.addArrangedSubview(mkLabel(AppDate.won(m.amount), size: 20, weight: .bold))
             wrap.addArrangedSubview(line)
+            /* 누르면 **걷는 사람에게 `누가 얼마를 입금했습니다`가 간다**(사용자 요청 —
+               DB `notify_shares_paid`). 걷는 사람이 제 몫을 누를 때는 알림이 안 가므로
+               말도 그냥 `입금완료`다. */
+            let collector = s.createdBy.flatMap { $0 == myId ? nil : $0 }
             let b = UIButton(type: .system)
-            appButton(b, title: m.paid ? "입금완료 ✓" : "입금완료", color: m.paid ? AppSkin.grass : AppSkin.brand, filled: true)
-            b.addAction(UIAction { [weak self] _ in self?.togglePaid(m) }, for: .touchUpInside)
+            appButton(b, title: m.paid ? "입금완료 ✓" : collector == nil ? "입금완료" : "입금완료 알림 보내기",
+                      color: m.paid ? AppSkin.grass : AppSkin.brand, filled: true)
+            b.addAction(UIAction { [weak self] _ in self?.togglePaid(m, to: collector) }, for: .touchUpInside)
             wrap.addArrangedSubview(b)
             if m.paid { wrap.addArrangedSubview(mkLabel("잘못 누르셨으면 한 번 더 누르면 취소됩니다.", size: 12, color: AppSkin.faint, lines: 0)) }
             box.addArrangedSubview(wrap)
@@ -667,9 +687,14 @@ final class RoundViewController: NativeScreenController {
         }
     }
 
-    private func togglePaid(_ m: AppShare) {
+    private func togglePaid(_ m: AppShare, to collector: String?) {
         guard !busy else { return }
-        run { try await self.service.setSharePaid(m.id, !m.paid) }
+        run {
+            try await self.service.setSharePaid(m.id, !m.paid)
+            if !m.paid, let c = collector {
+                self.flash("\(self.people[c]?.name ?? "걷는 분")님께 입금완료 알림을 보냈습니다.")
+            }
+        }
     }
 
     /// 정산 만들기 — 라운드 위에 시트로 뜬다(주소가 없다 · `SettlementEditViewController`).

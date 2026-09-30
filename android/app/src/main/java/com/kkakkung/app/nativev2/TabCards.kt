@@ -155,7 +155,7 @@ class TabCards(private val ui: Ui) {
 
         val col = ui.vstack(2)
         col.addView(white(AppDate.dateTime(r.teeAt), 22f, true))
-        col.addView(white(r.place, 16f, true, .95f))
+        col.addView(white(r.placeLine, 16f, true, .95f, lines = 0))
         card.addView(col)
 
         val my = r.mine(me)
@@ -163,6 +163,8 @@ class TabCards(private val ui: Ui) {
         val grp = my?.grp
         if (my != null && grp != null) {
             var text = "${grp}조"
+            /* 팀별 코스를 적어 두었으면 그 조의 코스도(사용자 요청 — `2조 · 펠리스 코스 · 티오프 오전 7:07`). */
+            r.groupCourse(grp).takeIf { it.isNotEmpty() }?.let { text += " · $it 코스" }
             tees[grp.toString()]?.let { text += " · ${r.teeLabel} ${AppDate.time(it)}" }
             val mates = r.confirmed.filter { it.grp == grp && it.userId != me }.mapNotNull { people[it.userId]?.name }
             if (mates.isNotEmpty()) text += " · " + mates.joinToString(", ")

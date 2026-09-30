@@ -433,6 +433,9 @@ export type Round = {
      * 칸이 없는 저장소에서는 안 실려 오므로 선택이다.
      */
     tee_slots?: TeeSlot[];
+    /** 9홀 코스(`마제스티-펠리스`) — 모집 열기의 `코스` 칸. 골프장(`course`)과 섞지 않는다.
+     *  적는 것은 앱이다(웹 `RoundEdit`은 안 보낸다). 칸이 없는 저장소에서는 안 실려 온다. */
+    sub_course?: string | null;
     created_by: string | null;
     created_at: string;
 };

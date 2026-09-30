@@ -4,7 +4,7 @@ import UIKit
  * **홈 — '내가 뭘 해야 하나'에 답한다**(웹 `Home.tsx`). 위에서부터 급한 순서로
  * 쌓고 해당 없는 칸은 통째로 사라진다:
  *   1 다음 라운드 — 주인공. 언제·어디·날씨·내 조·자리·**내 상태**.
- *   2 내가 할 일 — 안 한 투표 · (운영진) 승인 대기 · 안 읽은 대화.
+ *   2 내가 할 일 — 안 한 투표 · 미정산금액 · (운영진) 승인 대기 · 안 읽은 대화.
  *   3 모집중 — 다음 것 말고 열려 있는 라운드.
  * 머리말은 왼쪽이 얼굴 + 인사말, 오른쪽이 🔔(안 읽은 알림 수).
  *
@@ -15,7 +15,7 @@ import UIKit
 final class HomeTabController: ShellTabController {
     private enum Row {
         case next(AppRound), empty, section(String)
-        case poll(AppPoll), pending(Int), chat(Int)
+        case poll(AppPoll), pending(Int), chat(Int), unpaid(Int, Int, String?)
         case other(AppRound)
     }
     private var rows: [Row] = []
@@ -86,7 +86,8 @@ final class HomeTabController: ShellTabController {
     }
 
     override var liveTables: Set<String> {
-        ["rounds", "signups", "polls", "poll_votes", "profiles", "round_groups", "messages", "notifications"]
+        ["rounds", "signups", "polls", "poll_votes", "profiles", "round_groups", "messages", "notifications",
+         "settlements", "settlement_shares"]
     }
 
     /**
@@ -140,6 +141,7 @@ final class HomeTabController: ShellTabController {
             async let votedQ = self.service.myVotedPolls()
             async let chatQ = self.service.unreadChatCount()
             async let alertsQ = self.service.unreadAlertCount()
+            async let unpaidQ = self.service.myUnpaidShares()
             _ = await people
             let me = self.shell?.me
             self.face.show(url: me?.avatar, letter: me?.name ?? "", edge: me?.edge, size: 36)
@@ -157,6 +159,7 @@ final class HomeTabController: ShellTabController {
                 let pending = await pendingQ
                 let chat = await chatQ
                 let alerts = await alertsQ
+                let unpaid = await unpaidQ
                 self.bellDot.text = alerts > 99 ? "99+" : String(alerts)
                 self.bellDot.isHidden = alerts == 0
 
@@ -178,9 +181,15 @@ final class HomeTabController: ShellTabController {
                     r.append(.empty)
                 }
                 let todoPolls = live.filter { !voted.contains($0.id) }
-                if !todoPolls.isEmpty || pending > 0 || chat > 0 {
+                if !todoPolls.isEmpty || !unpaid.isEmpty || pending > 0 || chat > 0 {
                     r.append(.section("내가 할 일"))
                     r += todoPolls.map { .poll($0) }
+                    /* 아직 안 낸 내 몫(사용자 요청 — `미정산금액 1건`). 누르면 **가장 오래된 것의
+                       라운드**로 가서 그 자리에서 `입금완료 알림 보내기`를 누른다. 다 내면 사라진다. */
+                    if !unpaid.isEmpty {
+                        r.append(.unpaid(unpaid.count, unpaid.reduce(0) { $0 + $1.amount },
+                                         unpaid.first { $0.roundId != nil }?.roundId))
+                    }
                     if pending > 0 { r.append(.pending(pending)) }
                     if chat > 0 { r.append(.chat(chat)) }
                 }
@@ -218,6 +227,9 @@ final class HomeTabController: ShellTabController {
         case .pending(let n):
             let c = tableView.dequeueReusableCell(withIdentifier: "h", for: indexPath) as! HomeRowCell
             c.fill(badge: BadgeLabel("승인", .warn), text: "가입 신청 \(n)명", trailing: nil); return c
+        case .unpaid(let n, let won, _):
+            let c = tableView.dequeueReusableCell(withIdentifier: "h", for: indexPath) as! HomeRowCell
+            c.fill(badge: BadgeLabel("정산", .warn), text: "미정산금액 \(n)건 · \(AppDate.won(won))", trailing: nil); return c
         case .chat(let n):
             let c = tableView.dequeueReusableCell(withIdentifier: "h", for: indexPath) as! HomeRowCell
             c.fill(badge: BadgeLabel("대화", .danger), text: "안 읽은 메시지 \(n)개", trailing: nil); return c
@@ -240,6 +252,11 @@ final class HomeTabController: ShellTabController {
         case .empty: go("/rounds/new")
         case .poll(let p): go("/polls/\(p.id)")
         case .pending: go("/members")
+        case .unpaid(_, _, let roundId):
+            if let id = roundId {
+                RoundViewController.focusSettle = id
+                go("/rounds/\(id)")
+            } else { go("/settle") }
         case .chat: go("/chat")
         case .section: break
         }
@@ -295,7 +312,7 @@ final class NextRoundCell: UITableViewCell {
         stack.addArrangedSubview(top)
 
         let when = white(AppDate.dateTime(r.teeAt), 22, .bold)
-        let whereL = white(r.place, 16, .semibold, alpha: 0.95)
+        let whereL = white(r.placeLine, 16, .semibold, alpha: 0.95, lines: 0)
         let col = UIStackView(arrangedSubviews: [when, whereL]); col.axis = .vertical; col.spacing = 2
         stack.addArrangedSubview(col)
 
@@ -303,6 +320,9 @@ final class NextRoundCell: UITableViewCell {
         /* **내 조는 여기서 끝나야 한다** — 조 번호 · 그 조의 시각 · 같은 조 사람(닉네임). */
         if let my = my, let grp = my.grp {
             var text = "\(grp)조"
+            /* 팀별 코스를 적어 두었으면 그 조의 코스도 적는다(사용자 요청 — `2조 · 펠리스 코스 · 티오프 오전 7:07`). */
+            let gc = r.groupCourse(grp)
+            if !gc.isEmpty { text += " · \(gc) 코스" }
             if let t = tees[String(grp)] { text += " · \(r.teeLabel) \(AppDate.time(t))" }
             let mates = r.confirmed.filter { $0.grp == grp && $0.userId != me }.compactMap { people[$0.userId]?.name }
             if !mates.isEmpty { text += " · " + mates.joined(separator: ", ") }

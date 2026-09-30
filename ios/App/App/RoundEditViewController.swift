@@ -38,6 +38,14 @@ final class RoundEditViewController: FormScreenController {
     private let courseField = FormTextField(max: 40)
     private let hitsStack = UIStackView()
     private let placeNote = UILabel()
+    /* 코스(`rounds.sub_course` · 사용자 요청 — `골프장칸을 절반으로하고 그 자리에 코스를`).
+       골프장과 섞지 않는다(`course`에 합쳐 넣으면 좌표를 못 찾아 날씨가 사라진다).
+       칩은 `lib/clubs.ts`의 표 — 누를 때마다 켜지고 꺼지며 **고른 차례가 곧 전·후반**이다. */
+    private let subName = UILabel()
+    private let subField = FormTextField(max: 30)
+    private let subChips = UIStackView()
+    private let clubs: [String: [String]]
+    private var hadSub = false
     private let condBox = UIStackView()
     private let caddieBtn = OptButton(), noCaddieBtn = OptButton()
     private let cartInBtn = OptButton(), cartOutBtn = OptButton()
@@ -58,8 +66,9 @@ final class RoundEditViewController: FormScreenController {
 
     private var screen: Bool { kind == "screen" }
 
-    init(service: NativeChatService, id: String?, from: String?, courses: [ChatJSON]) {
+    init(service: NativeChatService, id: String?, from: String?, courses: [ChatJSON], clubs: [String: [String]] = [:]) {
         roundId = id
+        self.clubs = clubs
         fromId = id == nil ? from : nil
         book = CourseBook(courses)
         super.init(service: service, title: id == nil ? "모집 열기" : "라운드 수정")
@@ -98,6 +107,8 @@ final class RoundEditViewController: FormScreenController {
         caddie = base?.caddie
         cart = base?.cart
         courseField.text = base?.course ?? ""
+        subField.text = base?.subCourse ?? ""
+        hadSub = base?.raw["sub_course"] != nil
         /* **새로 열 때도 날짜·시각 칸을 처음부터 편다**(사용자 요청 — `티오프시간을
            기본으로 나오게해줘. 눌러야지 나오는거말고`). 비워 두면 `📅 날짜·시각 고르기`를
            한 번 더 눌러야 해서 한 걸음이 늘었다. 기본은 **내일**(지난 날짜가 채워지는
@@ -148,7 +159,17 @@ final class RoundEditViewController: FormScreenController {
         hitsStack.clipsToBounds = true
         hitsStack.isHidden = true
         placeNote.font = .systemFont(ofSize: 12); placeNote.textColor = AppSkin.faint; placeNote.numberOfLines = 0
-        let placeBox = UIStackView(arrangedSubviews: [placeName, courseField, hitsStack, placeNote])
+        subName.font = .systemFont(ofSize: 13, weight: .bold); subName.textColor = AppSkin.dim
+        subName.text = "코스"
+        subField.autocorrectionType = .no
+        subField.addTarget(self, action: #selector(subChanged), for: .editingChanged)
+        subChips.axis = .vertical; subChips.spacing = 8
+        let clubCol = UIStackView(arrangedSubviews: [placeName, courseField]); clubCol.axis = .vertical; clubCol.spacing = 6
+        let subCol = UIStackView(arrangedSubviews: [subName, subField]); subCol.axis = .vertical; subCol.spacing = 6
+        subCol.tag = 71
+        let placeRow = UIStackView(arrangedSubviews: [clubCol, subCol])
+        placeRow.axis = .horizontal; placeRow.spacing = 10; placeRow.distribution = .fillEqually
+        let placeBox = UIStackView(arrangedSubviews: [placeRow, hitsStack, subChips, placeNote])
         placeBox.axis = .vertical; placeBox.spacing = 6
 
         caddieBtn.setTitle("캐디"); noCaddieBtn.setTitle("노캐디")
@@ -197,6 +218,8 @@ final class RoundEditViewController: FormScreenController {
         feeName.text = "1인 \(screen ? "게임비" : "그린피")"
         condBox.isHidden = screen
         slotsWrap.isHidden = screen
+        (subField.superview as? UIStackView)?.isHidden = screen
+        refreshSubChips()
         refreshSlots()
         caddieBtn.on = caddie == "caddie"; noCaddieBtn.on = caddie == "none"
         cartInBtn.on = cart == "included"; cartOutBtn.on = cart == "excluded"
@@ -351,9 +374,52 @@ final class RoundEditViewController: FormScreenController {
         }
         refreshKind()
     }
-    @objc private func courseChanged() { refreshPlace(showHits: true) }
+    @objc private func courseChanged() { refreshPlace(showHits: true); refreshSubChips() }
+    /// 골프장 이름을 표 열쇠 모양으로 — 웹 `clubKey`(lib/clubs.ts)와 같은 규칙. **딱 맞을 때만 쓴다.**
+    static func clubKey(_ name: String) -> String {
+        let s = name.components(separatedBy: .whitespacesAndNewlines).joined()
+        return s.replacingOccurrences(of: "(CC|GC|컨트리클럽|골프클럽|골프장|골프앤리조트|골프리조트|골프링크스|골프클럽스)$",
+                                      with: "", options: [.regularExpression, .caseInsensitive])
+    }
+    private var picked: [String] {
+        (subField.text ?? "").split(separator: "-").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+    /// 그 골프장의 코스 칩 — 누를 때마다 켜지고 꺼진다. 표에 없는 골프장이면 칩 없이 칸만 남는다.
+    private func refreshSubChips() {
+        subChips.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let list = screen ? [] : (clubs[Self.clubKey(courseField.text ?? "")] ?? [])
+        subChips.isHidden = list.isEmpty
+        guard !list.isEmpty else { return }
+        let on = picked
+        for i in stride(from: 0, to: list.count, by: 3) {
+            var bs: [UIView] = []
+            for name in list[i..<min(i + 3, list.count)] {
+                let b = OptButton()
+                let n = on.firstIndex(of: name).map { String($0 + 1) }
+                b.setTitle(name)
+                b.mark = n
+                b.on = n != nil
+                b.accessibilityIdentifier = name
+                b.addTarget(self, action: #selector(subTapped(_:)), for: .touchUpInside)
+                bs.append(b)
+            }
+            while bs.count < 3 { bs.append(UIView()) }
+            subChips.addArrangedSubview(optRow(bs))
+        }
+    }
+    @objc private func subTapped(_ b: OptButton) {
+        guard let name = b.accessibilityIdentifier else { return }
+        var on = picked
+        if let i = on.firstIndex(of: name) { on.remove(at: i) } else { on.append(name) }
+        subField.text = on.joined(separator: "-")
+        refreshSubChips()
+    }
+    @objc private func subChanged() { refreshSubChips() }
     @objc private func hitTapped(_ b: UIButton) {
+        /* 골프장을 바꾸면 골라 둔 코스를 비운다 — 안 비우면 어등산인데 마제스티가 붙은 채 저장된다. */
+        if Self.clubKey(b.title(for: .normal) ?? "") != Self.clubKey(courseField.text ?? "") { subField.text = "" }
         courseField.text = b.title(for: .normal)
+        refreshSubChips()
         refreshPlace(showHits: false)
         view.endEditing(true)
     }
@@ -398,6 +464,9 @@ final class RoundEditViewController: FormScreenController {
         /* 팀을 적었거나 원래 칸이 있던 라운드일 때만 싣는다 — 그 칸이 아직 없는
            저장소에서 **안 쓰는 모집까지 `PGRST204`로 막히면 안 된다.** */
         if !slots.isEmpty || hadSlots { payload["tee_slots"] = slots }
+        /* 코스도 같은 잣대 — 적었거나 원래 칸이 있던 라운드일 때만 싣는다(`PGRST204`). */
+        let sub = screen ? "" : (subField.text ?? "").trimmingCharacters(in: .whitespaces)
+        if !sub.isEmpty || hadSub { payload["sub_course"] = sub.isEmpty ? NSNull() : sub }
         let saveTitle = round == nil ? "모집 열기" : "수정 저장"
         setSave(saveTitle, busy: true)
         Task { @MainActor [weak self] in
@@ -431,6 +500,8 @@ final class OptButton: UIControl {
     private let box = UILabel()
     private let label = UILabel()
     var on = false { didSet { paint() } }
+    /// 켜졌을 때 네모 안에 ✓ 대신 적을 글자 — 코스 칩의 `1`·`2`(전·후반 차례).
+    var mark: String? { didSet { paint() } }
 
     init() {
         super.init(frame: .zero)
@@ -466,7 +537,7 @@ final class OptButton: UIControl {
         layer.borderColor = (on ? AppSkin.brandDeep : AppSkin.line).cgColor
         backgroundColor = on ? AppSkin.brand.withAlphaComponent(0.1) : AppSkin.surface
         label.textColor = on ? AppSkin.text : AppSkin.dim
-        box.text = on ? "✓" : ""
+        box.text = on ? (mark ?? "✓") : ""
         box.backgroundColor = on ? AppSkin.grass : .clear
         box.layer.borderColor = (on ? AppSkin.grass : AppSkin.line).cgColor
         accessibilityTraits = on ? [.button, .selected] : .button

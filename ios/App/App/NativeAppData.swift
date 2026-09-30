@@ -213,6 +213,18 @@ struct AppRound {
         guard t.count >= 2, let h = Int(t[0]), let m = Int(t[1]), (0..<24).contains(h), (0..<60).contains(m) else { return nil }
         return Slot(course: (d["course"] as? String ?? "").trimmingCharacters(in: .whitespaces), h: h, m: m)
     }
+    /// 이 라운드에서 도는 9홀 코스(`마제스티-펠리스`) — 모집 열기의 `코스` 칸. 스크린·옛 저장소는 빈 글자.
+    var subCourse: String {
+        guard !isScreen else { return "" }
+        return (raw["sub_course"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+    }
+    /// 그 조의 코스 — 팀별 코스(`tee_slots`, 팀 n = 조 n). 안 적었으면 빈 글자.
+    func groupCourse(_ grp: Int) -> String {
+        let slots = teeSlots
+        return slots.indices.contains(grp - 1) ? slots[grp - 1].course : ""
+    }
+    /// 장소 줄 — `해피니스CC · 하트-휴먼`. 코스를 안 골랐으면 골프장 이름 그대로.
+    var placeLine: String { subCourse.isEmpty ? place : "\(place) · \(subCourse)" }
     /// 코스별로 묶은 줄 — `스카이 07:21 · 07:28`. 코스는 처음 나온 차례 그대로다.
     var slotLines: [String] {
         var order: [String] = []
@@ -644,6 +656,20 @@ extension NativeChatService {
               let raw = try? await rows("settlement_shares", [("select", "*"), ("settlement_id", "in.(\(ids.joined(separator: ",")))"),
                                                               ("order", "created_at.asc"), ("limit", "1000")]) else { return [] }
         return raw.map { AppShare(raw: $0) }
+    }
+    /**
+     * 내가 아직 안 낸 몫 — 홈 `내가 할 일`의 `미정산금액 N건`(사용자 요청).
+     * 정산에 딸려 받아 **어느 라운드인지**까지 한 번에 안다(누르면 그 라운드로 간다).
+     * 표가 없는 저장소에서는 빈 것으로 물러난다 — 홈이 통째로 죽으면 안 된다.
+     */
+    func myUnpaidShares() async -> [(amount: Int, roundId: String?)] {
+        guard let raw = try? await rows("settlement_shares", [
+            ("select", "amount,created_at,settlements(round_id)"),
+            ("user_id", "eq.\(config.user)"), ("paid", "eq.false"),
+            ("order", "created_at.asc"), ("limit", "50")]) else { return [] }
+        return raw.map { x in
+            (x["amount"] as? Int ?? 0, (x["settlements"] as? ChatJSON)?["round_id"] as? String)
+        }
     }
     /// `입금완료` — 본인 몫의 `paid`만 뒤집을 수 있다(DB `shares_own_paid`).
     func setSharePaid(_ id: String, _ paid: Bool) async throws {

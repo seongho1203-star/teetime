@@ -24,6 +24,7 @@ import { RoundEdit } from './RoundEdit';
 import { RoundGroups } from './RoundGroups';
 import { Settle } from './Settle';
 import { COURSES } from '../lib/courses';
+import { CLUB_COURSES } from '../lib/clubs';
 import { APP_VERSION, BANKS } from '../lib/types';
 import { guideTable } from '../lib/guide';
 
@@ -84,7 +85,7 @@ export function RoundEditRoute() {
     const from = id ? null : params.get('from');
     const path = id ? `/rounds/${id}/edit` : '/rounds/new';
     return nativeScreen(path)
-        ? <NativeScreenHost key={from ?? 'new'} path={path} extra={{ courses: COURSES, ...(from ? { from } : {}) }} />
+        ? <NativeScreenHost key={from ?? 'new'} path={path} extra={{ courses: COURSES, clubs: CLUB_COURSES, ...(from ? { from } : {}) }} />
         : <RoundEdit />;
 }
 
@@ -334,7 +335,7 @@ export function NativeShellSync() {
            정산)도 쓰게. 원본은 여기 한 곳이다(`NativeAppPlugin.shared`). */
         void NativeApp.shell({
             user, token, path: pathRef.current,
-            courses: COURSES, banks: BANKS, guide: guideTable(),
+            courses: COURSES, clubs: CLUB_COURSES, banks: BANKS, guide: guideTable(),
             url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
         }).then(() => shellReady(true), () => shellReady(false));
     }, [user, token]);

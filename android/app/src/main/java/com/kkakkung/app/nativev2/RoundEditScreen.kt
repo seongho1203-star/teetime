@@ -32,6 +32,7 @@ import java.time.LocalTime
 class RoundEditScreen(
     ctx: Context, host: ScreenHost, private val base: JSONObject?, private val copy: Boolean,
     courses: List<JSONObject>? = null,
+    clubs: Map<String, List<String>>? = null,
 ) : FormScreen(ctx, host, if (base == null || copy) "모집 열기" else "라운드 수정") {
     private val book = CourseBook(courses ?: loadCourses(ctx))
     private val editing get() = base != null && !copy
@@ -46,6 +47,13 @@ class RoundEditScreen(
     private val placeName = ui.label("", 13f, bold = true, color = AppSkin.dim)
     private val courseField = textField(max = 40)
     private val hits = ui.vstack(0).apply { visibility = View.GONE }
+    /* 코스(`rounds.sub_course` · 사용자 요청 — `골프장칸을 절반으로하고 그 자리에 코스를`).
+       골프장과 섞지 않는다. 칩은 `assets/clubs.json`(웹 `lib/clubs.ts`) — 누를 때마다 켜지고
+       꺼지며 **고른 차례가 곧 전·후반**이다(아이폰 `RoundEditViewController`와 같다). */
+    private val subField = textField(max = 30)
+    private val subCol = ui.vstack(6)
+    private val subChips = ui.vstack(8).apply { visibility = View.GONE }
+    private val clubs: Map<String, List<String>> by lazy { clubs ?: loadClubs(ctx) }
     private val placeNote = ui.label("", 12f, color = AppSkin.faint, lines = 0)
     private val condBox = ui.vstack(8)
     private val caddieBtn = OptButton(ui, "캐디")
@@ -84,6 +92,7 @@ class RoundEditScreen(
         caddie = base?.strOrNull("caddie")?.takeIf { it == "caddie" || it == "none" }
         cart = base?.strOrNull("cart")?.takeIf { it == "included" || it == "excluded" }
         courseField.setText(base?.strOrNull("course").orEmpty())
+        subField.setText(base?.strOrNull("sub_course").orEmpty())
         whenPick.date = RoundFormRules.initialDate(base, copy)
         capField.setText((base?.optInt("capacity", 4)?.takeIf { it > 0 } ?: 4).toString())
         feeField.setWon(base?.optInt("fee") ?: 0)
@@ -106,11 +115,19 @@ class RoundEditScreen(
         courseField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: Editable?) { if (courseField.hasFocus()) refreshPlace(true) }
+            override fun afterTextChanged(s: Editable?) { if (courseField.hasFocus()) refreshPlace(true); refreshSubChips() }
+        })
+        subField.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        subField.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) { if (subField.hasFocus()) refreshSubChips() }
         })
         hits.background = ui.rounded(AppSkin.surface, AppSkin.radiusSm, AppSkin.line)
         hits.clipToOutline = true
-        val placeBox = ui.vstack(6).apply { addView(placeName); addView(courseField); addView(hits); addView(placeNote) }
+        val clubCol = ui.vstack(6).apply { addView(placeName); addView(courseField) }
+        subCol.addView(ui.label("코스", 13f, bold = true, color = AppSkin.dim)); subCol.addView(subField)
+        val placeBox = ui.vstack(6).apply { addView(equalRow(ui, listOf(clubCol, subCol), 10)); addView(hits); addView(subChips); addView(placeNote) }
 
         caddieBtn.setOnClickListener { caddie = if (caddie == "caddie") null else "caddie"; refreshKind() }
         noCaddieBtn.setOnClickListener { caddie = if (caddie == "none") null else "none"; refreshKind() }
@@ -141,10 +158,34 @@ class RoundEditScreen(
         feeName.text = "1인 ${if (screen) "게임비" else "그린피"}"
         condBox.visibility = if (screen) View.GONE else View.VISIBLE
         slotsWrap.visibility = if (screen) View.GONE else View.VISIBLE
+        subCol.visibility = if (screen) View.GONE else View.VISIBLE
+        refreshSubChips()
         refreshSlots()
         caddieBtn.on = caddie == "caddie"; noCaddieBtn.on = caddie == "none"
         cartInBtn.on = cart == "included"; cartOutBtn.on = cart == "excluded"
         refreshPlace(false)
+    }
+
+    /** 그 골프장의 코스 칩 — 한 줄에 셋. 표에 없는 골프장이면 칩 없이 칸만 남는다. */
+    private fun refreshSubChips() {
+        subChips.removeAllViews()
+        val list = if (screen) emptyList() else clubs[RoundFormRules.clubKey(courseField.text.toString())].orEmpty()
+        subChips.visibility = if (list.isEmpty()) View.GONE else View.VISIBLE
+        val on = RoundFormRules.picked(subField.text.toString())
+        list.chunked(3).forEach { row ->
+            val views = row.map { name ->
+                OptButton(ui, name).apply {
+                    val i = on.indexOf(name)
+                    mark = if (i >= 0) (i + 1).toString() else null
+                    this.on = i >= 0
+                    setOnClickListener {
+                        subField.setText(RoundFormRules.toggle(subField.text.toString(), name))
+                        refreshSubChips()
+                    }
+                } as View
+            } + List(3 - row.size) { View(ctx) }
+            subChips.addView(equalRow(ui, views, 10))
+        }
     }
 
     /** 찾은 곳 목록과 아래 안내 한 줄(웹 `course-hits`). */
@@ -160,6 +201,8 @@ class RoundEditScreen(
                 isClickable = true
                 ui.pressable(this)
                 setOnClickListener {
+                    /* 골프장을 바꾸면 골라 둔 코스를 비운다 — 안 비우면 어등산인데 마제스티가 붙은 채 저장된다. */
+                    if (RoundFormRules.clubKey(c.optString("name")) != RoundFormRules.clubKey(courseField.text.toString())) subField.setText("")
                     courseField.setText(c.optString("name"))
                     courseField.setSelection(courseField.text.length)
                     refreshPlace(false)
@@ -254,7 +297,7 @@ class RoundEditScreen(
             JSONObject().put("course", it.course.text.toString().trim()).put("time", "%02d:%02d".format(it.time.hour, it.time.minute))
         }
         return RoundFormRules.payload(base, screen, course, tee, cap, feeField.won, text(noteField),
-            caddie, cart, if (screen) null else book.geo(course), teams)
+            caddie, cart, if (screen) null else book.geo(course), teams, text(subField))
     }
 
     override fun save() {
@@ -280,6 +323,11 @@ class RoundEditScreen(
 
     companion object {
         /** 골프장 목록 — 빌드 때 `.dev/native-guide.mjs`가 웹 `lib/courses.ts`에서 뽑아 담는다. */
+        /** 골프장마다의 코스 — 빌드 때 웹 `lib/clubs.ts`에서 뽑는다(`clubs.json`). */
+        fun loadClubs(ctx: Context): Map<String, List<String>> = try {
+            val o = JSONObject(ctx.assets.open("clubs.json").bufferedReader().use { it.readText() })
+            o.keys().asSequence().associateWith { k -> o.optJSONArray(k).let { a -> (0 until (a?.length() ?: 0)).map { a!!.optString(it) } } }
+        } catch (_: Exception) { emptyMap() }
         fun loadCourses(ctx: Context): List<JSONObject> = try {
             JSONArray(ctx.assets.open("courses.json").bufferedReader().use { it.readText() }).objects()
         } catch (_: Exception) { emptyList() }

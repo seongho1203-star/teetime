@@ -17,6 +17,7 @@
  *   round_reminders    필드는 전날 저녁 · 스크린은 시작 2시간 전
  *                      → **그 라운드의 확정 참가자에게만**, 사람마다 자기 조로
  *   settlement_shares  정산 → **그 몫의 주인 한 사람에게만** (금액이 사람마다 다르다)
+ *   settlement_shares (UPDATE)  내 몫 입금완료 → **걷는 사람에게만**
  *   settle_reminders   입금 독촉 → **아직 안 낸 사람에게만**
  *
  * **`UPDATE`가 오면 그건 '뒤집혔다'는 뜻이다.** 무엇을 보고 가리는지는
@@ -854,6 +855,37 @@ async function planFor(hook: Hook): Promise<Note | null> {
                `round_id`가 없는 옛 행이면 목록으로라도 보낸다. */
             url: st.round_id ? `#/rounds/${st.round_id}` : '#/rounds',
             only: typeof r.user_id === 'string' ? [r.user_id] : [],
+        };
+    }
+
+    /* ── 입금완료 알림 ───────────────────────────────────────────
+     *
+     * 사용자 요청 — `입금완료 알림 보내기`를 누르면 **걷는 사람에게**
+     * `누가 얼마를 입금했습니다`가 간다. 걷는 사람은 통장을 열어 보기 전까지
+     * 누가 보냈는지 몰랐다.
+     *
+     * 무엇을 보고 부르는지는 트리거의 `when`에 있다(`notify_shares_paid` —
+     * 안 낸 것이 낸 것으로 뒤집혔고 그 몫의 주인이 스스로 눌렀을 때).
+     * 여기서는 `paid`만 한 번 더 보고, **걷는 사람이 제 몫을 누른 것은 뺀다** —
+     * 자기에게 가는 알림이다.
+     *
+     * `tag`는 몫마다 다르다 — 둘이 잇따라 보내면 한 사람이 다른 사람을
+     * 알림창에서 밀어내는데, 둘은 서로 다른 입금이다.
+     */
+    if (hook.table === 'settlement_shares' && hook.type === 'UPDATE') {
+        if (r.paid !== true) return null;
+        const { data: st } = await db.from('settlements')
+            .select('title, created_by, round_id')
+            .eq('id', r.settlement_id).maybeSingle();
+        if (!st || typeof st.created_by !== 'string' || st.created_by === r.user_id) return null;
+        const who = await nameOf(r.user_id);
+        const won = Number(r.amount ?? 0).toLocaleString('ko-KR');
+        return {
+            title: '💸 입금완료',
+            body: `${who}님이 ${won}원을 입금했습니다` + (st.title ? `\n${st.title}` : ''),
+            tag: `paid-${r.id}`,
+            url: st.round_id ? `#/rounds/${st.round_id}` : '#/settle',
+            only: [st.created_by],
         };
     }
 
