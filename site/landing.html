@@ -16,8 +16,11 @@
   - 개인정보 처리방침·지원 페이지(`privacy.html`·`support.html`)는 그대로
     나간다 — 스토어 심사가 그 주소를 본다.
 
-  **스토어 주소가 정해지면 아래 `IOS_URL`·`ANDROID_URL` 두 줄만 고치면 된다.**
-  지금은 스토어에서 `까꿍데이`를 찾아 주는 검색 주소다.
+  **지금은 시험판(아이폰 TestFlight)이라 스토어 주소가 없다** — 그래서 아래
+  `IOS_URL`·`ANDROID_URL`이 비어 있고, 빈 단추는 `준비 중`으로 잠긴다.
+  스토어 검색 주소를 넣지 말 것 — 아직 안 올라간 앱이라 검색해도 안 나와
+  고장으로 보인다. 주소가 생기면(TestFlight 공개 링크 · Play 비공개 테스트
+  링크 · 정식 스토어 주소) 그 두 줄만 채우면 된다.
 -->
 <html lang="ko">
 <head>
@@ -42,6 +45,8 @@
     .store.ios { background: #111; color: #fff; }
     .store.android { background: #fff; color: var(--ink); border: 1px solid var(--line); }
     .store.mine { outline: 3px solid var(--brand); outline-offset: 2px; }
+    .store.soon { opacity: .45; pointer-events: none; outline: none; }
+    .store .when { font-size: 13px; font-weight: 600; margin-left: 2px; }
     .store svg { width: 22px; height: 22px; flex: 0 0 auto; }
     .box {
         text-align: left; background: #fff; border: 1px solid var(--line);
@@ -75,15 +80,19 @@
 </div>
 
 <div class="box">
-    <b class="t">스토어에서 ‘까꿍데이’를 찾으세요</b>
-    앱 이름은 <b>까꿍데이</b>로 올라가 있고, 깔고 나면 홈 화면에는 <b>까꿍</b>으로 보입니다.
-    스토어에서 안 보이면 모임 운영진에게 설치 링크를 받아 주세요.
+    <b class="t">지금은 시험 운영 중입니다</b>
+    아직 스토어에 정식으로 올라가지 않아 <b>검색해도 나오지 않습니다.</b>
+    모임 운영진에게 <b>설치 초대</b>를 받아 주세요.
+    <ol>
+        <li><b>아이폰</b> — App Store에서 <b>TestFlight</b> 앱을 먼저 깔고, 운영진이 보내 준 초대(메일 또는 링크)를 누르면 까꿍이 설치됩니다.</li>
+        <li><b>안드로이드</b> — 운영진이 보내 준 설치 링크를 눌러 주세요.</li>
+    </ol>
 </div>
 
 <div class="box" style="margin-top: 12px">
     <b class="t">예전에 홈 화면에 추가해 쓰던 분</b>
     <ol>
-        <li>위 단추로 앱을 깔고 <b>카카오(또는 Apple)로 로그인</b>합니다 — 기록은 그대로입니다.</li>
+        <li>앱을 깔고 <b>카카오(또는 Apple)로 로그인</b>합니다 — 기록은 그대로입니다.</li>
         <li>홈 화면의 예전 ‘까꿍’ 아이콘은 길게 눌러 지워 주세요.</li>
     </ol>
 </div>
@@ -96,16 +105,22 @@
 </main>
 <script>
     // 스토어 주소가 정해지면 이 두 줄만 고친다.
-    var IOS_URL = 'https://apps.apple.com/kr/search?term=' + encodeURIComponent('까꿍데이');
-    var ANDROID_URL = 'https://play.google.com/store/search?q=' + encodeURIComponent('까꿍데이') + '&c=apps';
+    var IOS_URL = '';       // 예) TestFlight 공개 링크 https://testflight.apple.com/join/…
+    var ANDROID_URL = '';   // 예) Play 비공개 테스트 링크
 
-    document.getElementById('ios').href = IOS_URL;
-    document.getElementById('android').href = ANDROID_URL;
+    // 주소가 비어 있으면 단추를 `준비 중`으로 잠근다(누를 데가 없다).
+    [['ios', IOS_URL], ['android', ANDROID_URL]].forEach(function (x) {
+        var a = document.getElementById(x[0]);
+        if (x[1]) { a.href = x[1]; return; }
+        a.removeAttribute('href');
+        a.classList.add('soon');
+        a.insertAdjacentHTML('beforeend', '<span class="when">준비 중</span>');
+    });
     // 지금 폰에 맞는 단추를 도드라지게 한다(둘 다 그대로 눌린다).
     var ua = navigator.userAgent;
     var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
     var mine = ios ? 'ios' : /Android/.test(ua) ? 'android' : '';
-    if (mine) document.getElementById(mine).classList.add('mine');
+    if (mine && document.getElementById(mine).href) document.getElementById(mine).classList.add('mine');
 </script>
 </body>
 </html>
