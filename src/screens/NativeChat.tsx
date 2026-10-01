@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { renewSession } from '../lib/supabase';
+import { renewSession, SUPABASE_URL, SUPABASE_KEY } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
 import { purgeOldPhotos } from '../lib/photos';
 import { chatShared } from '../lib/chat-shared';
@@ -97,7 +97,7 @@ function NativeChatHost() {
             // child's layout effect. Read its timing only once they have run.
             const ms = slideLeft();
             await openNativeChat(screen, {
-                user, token, url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                user, token, url: SUPABASE_URL, key: SUPABASE_KEY,
                 seen: lastSeen('chat', user),
                 /* 뒤에 깔 앞 화면이 있을 때만 끈다 — 없으면 빈 화면이
                    손을 따라 나온다. 대화방 안에서는 주소가 안 바뀌므로

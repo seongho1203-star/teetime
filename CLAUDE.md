@@ -666,6 +666,33 @@ round_reminders 에 한 줄  → notify_push() 트리거 → Edge Function → �
   것이 없다 — 웹과 같은 길로 바깥 브라우저를 거치므로 `entitlement`도
   필요 없다.
 
+#### 심사용 테스트 계정 — 서버째 따로 둔다
+
+애플·구글 심사자를 위한 길이다(사용자가 정했다 — 길 셋 가운데 `심사용
+서버 따로`). 로그인 화면 맨 아래 **`심사용 테스트 계정 로그인`** →
+이메일·비밀번호로 **실제 모임과 떨어진 Supabase 프로젝트**의 샘플 모임에
+들어간다. 절차는 `docs/설치.md` 9번, 심사 메모는 `docs/출시-전-할일.md`.
+
+- **같은 DB에 칸막이를 치는 길로 가지 말 것** — 그러려면 정책 78곳을 다 손봐야
+  하고 하나만 어긋나도 실제 회원 정보가 샌다. 서버를 갈랐으므로 실제 회원 정보·
+  알림과 **애초에 만날 길이 없다**.
+- **웹/아이폰**: 고른 서버는 `localStorage`의 `teetime:server`(`lib/supabase.ts`).
+  클라이언트를 파일을 불러올 때 한 번 만들므로 바꿀 때는 화면을 다시 연다.
+  로그아웃하면 표를 지워 다음 실행부터 실제 서버다. **앱 화면(Swift)에 넘기는
+  주소·키는 반드시 `SUPABASE_URL`·`SUPABASE_KEY`를 쓸 것** — `import.meta.env`를
+  직접 읽으면 심사자의 앱 화면만 실제 서버로 간다.
+- **안드로이드**: `NativeAuth.passwordLogin` — 세션이 서버 주소를 들고 다니므로
+  (`NativeSession.supabaseUrl`) 그 밖에 고칠 곳이 없다. 값은 `BuildConfig.REVIEW_*`.
+- **값이 없는 빌드에는 그 문이 아예 안 뜬다**(`hasReviewServer`). 비밀값
+  `REVIEW_SUPABASE_URL`·`REVIEW_SUPABASE_ANON_KEY`가 ios.yml·android.yml에 들어간다.
+- **채우는 것은 `review.yml`이다**(매일 + schema·seed가 바뀔 때) — `schema.sql`을
+  돌리고 `supabase/review-seed.sql`로 샘플 회원·라운드·투표·정산·대화와 심사 계정
+  (`review@kkakkung.app` · 운영자 · 비밀번호는 `REVIEW_PASSWORD`)을 넣는다.
+  **그 파일을 실제 DB에 돌리지 말 것** — 워크플로(주소 비교)와 파일 첫머리(샘플 아닌
+  회원이 스물 넘으면 멈춤)가 두 번 막는다. 심사 계정 비밀번호를 저장소에 적지 말 것.
+- 샘플 파일은 로컬 Postgres 16 + Supabase 흉내(auth·storage·cron 스키마)로
+  두 번 돌려 확인했다 — 고칠 때도 두 번(여러 번 돌려도 안전한가) 볼 것.
+
 **가입 때 받는 것은 여섯이고 다 필수다** — 사용자가 정해 준 차례 그대로
 **닉네임 · 전화번호 · 생년월일 · 성별 · 차량번호 · 거주지역**이다.
 칸 차례를 임의로 바꾸지 말 것. 성별·태어난 해는 조 편성의 `성별 조합`·

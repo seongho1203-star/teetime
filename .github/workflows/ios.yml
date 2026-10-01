@@ -96,6 +96,10 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # 심사용 서버(애플 심사자 전용 · `docs/설치.md` 9번). 없으면 로그인
+          # 화면에 `심사용 테스트 계정` 문이 안 뜰 뿐이다.
+          VITE_REVIEW_SUPABASE_URL: ${{ secrets.REVIEW_SUPABASE_URL }}
+          VITE_REVIEW_SUPABASE_ANON_KEY: ${{ secrets.REVIEW_SUPABASE_ANON_KEY }}
           VITE_APP_BUILD: ${{ github.run_number }}
         run: npm run build
 

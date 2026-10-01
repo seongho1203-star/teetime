@@ -1,5 +1,6 @@
 import { chatShared } from './chat-shared';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { SUPABASE_URL, SUPABASE_KEY } from './supabase';
 
 /**
  * **앱이 통째로 그리는 화면들의 다리** — 대화(`native-chat.ts`) 다음 걸음이다
@@ -103,8 +104,8 @@ export async function openAndroidNativeV2(
     if (!hasAndroidNativeV2()) return;
     await NativeApp.open({
         user, token, refresh, expires, name,
-        url: import.meta.env.VITE_SUPABASE_URL,
-        key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        url: SUPABASE_URL,
+        key: SUPABASE_KEY,
         ...chatShared(),
     });
 }

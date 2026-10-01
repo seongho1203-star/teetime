@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { signInWithApple, signInWithKakao } from '../lib/supabase';
+import {
+    hasReviewServer, onReviewServer, signInWithApple, signInWithKakao,
+    signInWithPassword, switchReviewServer,
+} from '../lib/supabase';
 import { useToast } from '../components/Toast';
 import { readableError } from '../lib/errors';
 import './Login.css';
@@ -8,6 +11,12 @@ import './Login.css';
 type Busy = 'kakao' | 'apple' | null;
 
 export function Login() {
+    // **심사용 서버에 붙어 있으면 테스트 계정 칸만 보인다**(`lib/supabase.ts`의
+    // 심사용 서버 꼭지). 카카오·애플로 들어가면 심사용 서버에 엉뚱한 계정이 생긴다.
+    return onReviewServer ? <ReviewLogin /> : <SocialLogin />;
+}
+
+function SocialLogin() {
     const [busy, setBusy] = useState<Busy>(null);
     const toast = useToast();
 
@@ -68,7 +77,81 @@ export function Login() {
                     로그인하면 운영진에게 가입 신청이 갑니다.<br />
                     승인된 뒤부터 라운드 신청을 할 수 있습니다.
                 </p>
+
+                {/* **앱 심사자를 위한 문이다** — 숨기면 심사자가 못 찾아 반려된다.
+                    누르면 이 기기만 심사용 서버로 옮겨 간다(실제 모임과 따로다). */}
+                {hasReviewServer && (
+                    <button className="review-link" onClick={() => switchReviewServer(true)} disabled={!!busy}>
+                        심사용 테스트 계정 로그인
+                    </button>
+                )}
             </div>
+        </div>
+    );
+}
+
+/**
+ * 심사용 테스트 계정 로그인 — 이메일·비밀번호.
+ *
+ * **서버가 확인하는 진짜 로그인이다**(Supabase의 이메일 로그인). 계정은 미리
+ * 가입·승인까지 끝나 있어 문자 인증도 운영진 승인도 없이 곧바로 들어간다
+ * (`.github/workflows/review.yml`이 만든다). 안에는 샘플 모임만 있다.
+ */
+function ReviewLogin() {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [busy, setBusy] = useState(false);
+    const toast = useToast();
+
+    const submit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!email.trim() || !password) {
+            toast('이메일과 비밀번호를 적어 주세요.', 'error');
+            return;
+        }
+        setBusy(true);
+        try {
+            await signInWithPassword(email, password);
+            // 성공하면 로그인 화면이 저절로 넘어간다.
+        } catch (err) {
+            toast(readableError(err), 'error');
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="page bare login">
+            <div className="login-brand">
+                <img className="login-mark" src="./icon-192.png" alt="" aria-hidden="true" />
+                <h1>까꿍</h1>
+                <p className="dim">
+                    심사용 테스트 계정<br />샘플 모임으로 들어갑니다
+                </p>
+            </div>
+
+            <form className="login-actions" onSubmit={submit}>
+                <div className="field">
+                    <label htmlFor="rv-email">이메일</label>
+                    <input
+                        id="rv-email" className="input" type="email" inputMode="email"
+                        autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                        value={email} onChange={(e) => setEmail(e.target.value)}
+                    />
+                </div>
+                <div className="field">
+                    <label htmlFor="rv-pass">비밀번호</label>
+                    <input
+                        id="rv-pass" className="input" type="password" autoComplete="current-password"
+                        value={password} onChange={(e) => setPassword(e.target.value)}
+                    />
+                </div>
+                <button className="review-btn" type="submit" disabled={busy}>
+                    {busy ? <span className="spinner" /> : '로그인'}
+                </button>
+                <button type="button" className="review-link" onClick={() => switchReviewServer(false)} disabled={busy}>
+                    ← 카카오·Apple 로그인으로 돌아가기
+                </button>
+            </form>
         </div>
     );
 }

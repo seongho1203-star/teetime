@@ -9,8 +9,63 @@ import type { Database } from './types';
  * anon 키는 브라우저에 드러나도 되는 값이다 — 진짜 방어선은 RLS다.
  * service_role 키는 **절대** 여기 넣지 말 것. 그건 RLS를 통째로 건너뛴다.
  */
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const realUrl = import.meta.env.VITE_SUPABASE_URL;
+const realKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+/**
+ * **심사용 서버** — 애플·구글 심사자가 쓰는 별도 Supabase 프로젝트다
+ * (사용자가 정했다 — 실제 모임과 완전히 갈라 둔다). 심사자는 로그인 화면의
+ * `심사용 테스트 계정`으로 들어오고, 그러면 **이 기기만** 그 서버에 붙는다.
+ * 실제 회원 100명의 이름·대화는 거기 없고, 심사자가 글을 써도 회원 폰이
+ * 안 울린다. 표·샘플 자료·심사 계정은 `.github/workflows/review.yml`이 채운다.
+ *
+ * - **고른 서버는 `localStorage`의 `teetime:server`에 남는다** — 클라이언트는
+ *   파일을 불러오는 그 순간 한 번 만들어지므로, 바꿀 때는 화면을 다시 연다
+ *   (`switchReviewServer`). 로그인 상태는 서버마다 따로 저장돼(열쇠 이름에
+ *   프로젝트 id가 든다) 오가도 실제 로그인이 안 풀린다.
+ * - **값이 없는 판(로컬 · 옛 빌드)에서는 그 길이 통째로 안 보인다**(`hasReviewServer`).
+ * - 앱 화면(Swift)에 넘기는 주소·키도 **반드시 `SUPABASE_URL`·`SUPABASE_KEY`를
+ *   쓸 것** — `import.meta.env`를 직접 읽으면 심사자의 앱 화면만 실제 서버로 간다.
+ */
+const reviewUrl = import.meta.env.VITE_REVIEW_SUPABASE_URL as string | undefined;
+const reviewKey = import.meta.env.VITE_REVIEW_SUPABASE_ANON_KEY as string | undefined;
+const SERVER_KEY = 'teetime:server';
+
+export const hasReviewServer = Boolean(reviewUrl && reviewKey);
+
+function wantReview(): boolean {
+    try { return localStorage.getItem(SERVER_KEY) === 'review'; } catch { return false; }
+}
+
+/** 이 화면이 지금 심사용 서버에 붙어 있는가. */
+export const onReviewServer = hasReviewServer && wantReview();
+
+const url = onReviewServer ? reviewUrl : realUrl;
+const anonKey = onReviewServer ? reviewKey : realKey;
+export const SUPABASE_URL: string = url ?? '';
+export const SUPABASE_KEY: string = anonKey ?? '';
+
+/** 서버를 바꾸고 화면을 다시 연다 — 로그인 화면에서만 부른다. */
+export function switchReviewServer(on: boolean) {
+    try {
+        if (on) localStorage.setItem(SERVER_KEY, 'review');
+        else localStorage.removeItem(SERVER_KEY);
+    } catch { /* 저장이 막힌 기기 — 다시 열어도 그대로다 */ }
+    location.reload();
+}
+
+/** 심사용 테스트 계정 로그인(이메일·비밀번호). 심사용 서버에서만 쓴다. */
+export async function signInWithPassword(email: string, password: string) {
+    if (!onReviewServer) throw new Error('심사용 서버가 아닙니다.');
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) {
+        throw new Error(/invalid login|credentials/i.test(error.message)
+            ? '이메일이나 비밀번호가 맞지 않습니다.'
+            : error.message);
+    }
+    // 앱을 껐다 켜도 심사용 서버로 돌아오게 다시 적어 둔다(로그아웃이 지웠을 수 있다).
+    try { localStorage.setItem(SERVER_KEY, 'review'); } catch { /* 무시 */ }
+}
 
 export const isConfigured = Boolean(url && anonKey);
 
@@ -124,6 +179,10 @@ export function signInWithApple() {
 
 export async function signOut() {
     await supabase.auth.signOut();
+    // 심사용 서버에서 나가면 **다음 실행부터는 실제 서버**다. 지금 화면은 다시
+    // 안 연다 — 앱 껍데기를 걷는 뒷정리가 아직 돌아야 한다. 로그인 화면은
+    // 그대로 심사용 폼이라 다시 들어오면 `signInWithPassword`가 표를 되살린다.
+    if (onReviewServer) { try { localStorage.removeItem(SERVER_KEY); } catch { /* 무시 */ } }
 }
 
 let renewing: Promise<string | null> | null = null;

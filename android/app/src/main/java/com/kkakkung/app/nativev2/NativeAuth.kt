@@ -96,6 +96,56 @@ object NativeAuth {
             }
         }
 
+    /** 심사용 서버가 이 빌드에 실려 있는가 — 없으면 로그인 화면에 그 문이 안 뜬다. */
+    val hasReviewServer: Boolean
+        get() = BuildConfig.REVIEW_SUPABASE_URL.startsWith("https://") &&
+            BuildConfig.REVIEW_SUPABASE_ANON_KEY.isNotBlank()
+
+    /**
+     * **심사용 테스트 계정 로그인**(이메일·비밀번호 · 웹 `signInWithPassword`와 같은 자리).
+     *
+     * 애플·구글 심사자가 쓰는 **따로 떨어진 Supabase 프로젝트**로 들어간다 — 실제 모임
+     * 회원·대화는 거기 없고, 심사자가 글을 써도 회원 폰이 안 울린다. 계정·샘플 자료는
+     * `.github/workflows/review.yml`이 채운다.
+     *
+     * **세션이 서버 주소를 들고 다니므로**(`NativeSession.supabaseUrl`) 다른 곳은 고칠
+     * 것이 없다 — 모든 조회·갱신·알림 등록이 그 주소로 간다. 로그아웃하면 세션째
+     * 지워져 다음 로그인은 다시 실제 서버(`BuildConfig.SUPABASE_URL`)다.
+     */
+    suspend fun passwordLogin(context: Context, email: String, password: String): NativeSession =
+        withContext(Dispatchers.IO) {
+            if (!hasReviewServer) throw NativeApiError("심사용 서버가 이 앱에 없습니다.")
+            val base = BuildConfig.REVIEW_SUPABASE_URL
+            val key = BuildConfig.REVIEW_SUPABASE_ANON_KEY
+            val req = Request.Builder().url(base.trimEnd('/') + "/auth/v1/token?grant_type=password")
+                .header("apikey", key)
+                .header("Content-Type", "application/json")
+                .post(JSONObject().put("email", email.trim()).put("password", password)
+                    .toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            val res = try { http.newCall(req).execute() } catch (e: java.io.IOException) {
+                throw NativeApiError("인터넷 연결이 불안정합니다. 잠시 뒤 다시 시도해 주세요.", "network")
+            }
+            res.use {
+                val raw = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    throw NativeApiError(if (it.code == 400) "이메일이나 비밀번호가 맞지 않습니다."
+                        else "로그인하지 못했습니다(${it.code}).")
+                }
+                val j = JSONObject(raw)
+                val access = j.optString("access_token")
+                val uid = j.optJSONObject("user")?.optString("id").orEmpty().ifBlank { jwtUserId(access) }
+                val session = NativeSession(
+                    uid, access, j.optString("refresh_token"),
+                    System.currentTimeMillis() + j.optLong("expires_in", 3600) * 1000L,
+                    base, key, ""
+                )
+                if (!session.valid) throw NativeApiError("로그인 세션이 올바르지 않습니다.")
+                NativeSessionStore.set(context, session)
+                session
+            }
+        }
+
     private fun jwtUserId(jwt: String): String = try {
         val part = jwt.split('.')[1]
         val decoded = Base64.decode(part, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)

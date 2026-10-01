@@ -13,6 +13,8 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.text.InputType
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -171,6 +173,22 @@ class NativeLoginActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(16) })
 
+        // **앱 심사자를 위한 문이다**(웹 `Login.tsx`의 `review-link`와 같은 자리) —
+        // 숨기면 심사자가 못 찾아 반려된다. 흐린 밑줄 글자 한 줄로 둔다.
+        if (NativeAuth.hasReviewServer) {
+            actions.addView(TextView(this).apply {
+                text = "심사용 테스트 계정 로그인"
+                textSize = 13.1f
+                setTextColor(Color.rgb(139, 148, 134))
+                paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                gravity = Gravity.CENTER
+                minHeight = dp(40)
+                setOnClickListener { if (!busy) askReviewLogin() }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16); gravity = Gravity.CENTER_HORIZONTAL })
+        }
+
         root.addView(actions, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
@@ -232,6 +250,50 @@ class NativeLoginActivity : AppCompatActivity() {
                 showError(e.message ?: "로그인을 완료하지 못했습니다.")
             }
         }
+    }
+
+    /**
+     * 심사용 테스트 계정 — 이메일·비밀번호를 묻고 **심사용 서버**로 들어간다
+     * (`NativeAuth.passwordLogin`). 실제 모임과는 서버째 갈라져 있다.
+     */
+    private fun askReviewLogin() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val email = EditText(this).apply {
+            hint = "이메일"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            isSingleLine = true
+        }
+        val pass = EditText(this).apply {
+            hint = "비밀번호"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+        }
+        box.addView(email)
+        box.addView(pass)
+        android.app.AlertDialog.Builder(this)
+            .setTitle("심사용 테스트 계정")
+            .setMessage("샘플 모임으로 들어갑니다.")
+            .setView(box)
+            .setNegativeButton("취소", null)
+            .setPositiveButton("로그인") { _, _ ->
+                val e = email.text.toString()
+                val p = pass.text.toString()
+                if (e.isBlank() || p.isEmpty()) { showError("이메일과 비밀번호를 적어 주세요."); return@setPositiveButton }
+                setBusy(true)
+                error.visibility = View.GONE
+                scope.launch {
+                    try {
+                        NativeAuth.passwordLogin(this@NativeLoginActivity, e, p)
+                        openHome()
+                    } catch (x: Exception) {
+                        showError(x.message ?: "로그인하지 못했습니다.")
+                    }
+                }
+            }
+            .show()
     }
 
     private fun setBusy(on: Boolean) {

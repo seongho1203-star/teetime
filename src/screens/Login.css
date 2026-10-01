@@ -68,3 +68,30 @@
    검정 판을 쓴다(흰 판은 이 바탕에서 테두리 없이는 안 보인다). */
 .apple-btn { background: #000; color: #fff; }
 .apple-btn .spinner { border-top-color: #fff; border-color: rgba(255,255,255,0.3); }
+
+/* ── 심사용 테스트 계정 ─────────────────────────────────────
+   **눈에 띄지 않되 찾을 수는 있어야 한다** — 회원이 누를 일은 없지만
+   숨겨 두면 심사자가 못 찾아 반려된다. 흐린 글자 한 줄로 둔다. */
+.review-link {
+    align-self: center;
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.review-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 52px;
+    border-radius: var(--r-sm);
+    background: var(--brand);
+    color: #fff;
+    font-size: var(--fs-md);
+    font-weight: 800;
+}
+.review-btn:disabled { opacity: 0.6; }
+.review-btn .spinner { border-top-color: #fff; border-color: rgba(255,255,255,0.3); }

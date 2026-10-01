@@ -6,6 +6,12 @@ def nativeSupabaseEnv = [
     VITE_SUPABASE_URL: System.getenv('VITE_SUPABASE_URL') ?: '',
     VITE_SUPABASE_ANON_KEY: System.getenv('VITE_SUPABASE_ANON_KEY') ?: ''
 ]
+// **심사용 서버**(앱 심사자 전용 Supabase · `NativeAuth.passwordLogin`). 선택 값이라
+// 위 검사에 안 넣는다 — 없으면 로그인 화면에 `심사용 테스트 계정` 문이 안 뜰 뿐이다.
+def reviewSupabaseEnv = [
+    URL: System.getenv('VITE_REVIEW_SUPABASE_URL') ?: '',
+    KEY: System.getenv('VITE_REVIEW_SUPABASE_ANON_KEY') ?: ''
+]
 def validateReleaseSupabase = tasks.register('validateReleaseSupabase') {
     doLast {
         def missing = nativeSupabaseEnv.findAll { name, value -> value.trim().isEmpty() }.keySet()
@@ -51,6 +57,8 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "SUPABASE_URL", '"' + nativeSupabaseEnv.VITE_SUPABASE_URL + '"'
         buildConfigField "String", "SUPABASE_ANON_KEY", '"' + nativeSupabaseEnv.VITE_SUPABASE_ANON_KEY + '"'
+        buildConfigField "String", "REVIEW_SUPABASE_URL", '"' + reviewSupabaseEnv.URL.trim() + '"'
+        buildConfigField "String", "REVIEW_SUPABASE_ANON_KEY", '"' + reviewSupabaseEnv.KEY.trim() + '"'
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

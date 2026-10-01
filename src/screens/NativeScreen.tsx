@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { renewSession, supabase } from '../lib/supabase';
+import { renewSession, supabase, SUPABASE_URL, SUPABASE_KEY } from '../lib/supabase';
 import { LIVE_TABLES, NativeApp, nativeScreen, shellReady } from '../lib/native-app';
 import { chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep } from '../lib/push';
 import { leaveAccount } from '../lib/account';
@@ -263,7 +263,7 @@ function NativeScreenHost({ path, extra, onAction, sync }: {
             const result = await NativeApp.open({
                 ...(extraRef.current ?? {}),
                 screen, path, user, token,
-                url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                url: SUPABASE_URL, key: SUPABASE_KEY,
                 back: hasBackShot(),
                 slide: back || dragged ? 0 : ms,
             });
@@ -336,7 +336,7 @@ export function NativeShellSync() {
         void NativeApp.shell({
             user, token, path: pathRef.current,
             courses: COURSES, clubs: CLUB_COURSES, banks: BANKS, guide: guideTable(),
-            url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            url: SUPABASE_URL, key: SUPABASE_KEY,
         }).then(() => shellReady(true), () => shellReady(false));
     }, [user, token]);
     useEffect(() => () => { shellReady(false); void NativeApp.shellOff().catch(() => {}); }, []);

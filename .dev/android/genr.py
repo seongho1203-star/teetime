@@ -26,5 +26,5 @@ out.append("}")
 os.makedirs("build/gen/com/kkakkung/app", exist_ok=True)
 open("build/gen/com/kkakkung/app/R.java", "w").write("\n".join(out) + "\n")
 open("build/gen/com/kkakkung/app/BuildConfig.java", "w").write("""package com.kkakkung.app;
-public final class BuildConfig { public static final boolean DEBUG = true; public static final String APPLICATION_ID = "com.kkakkung.app"; public static final String BUILD_TYPE = "debug"; public static final int VERSION_CODE = 1; public static final String VERSION_NAME = "1.0"; public static final String SUPABASE_URL = ""; public static final String SUPABASE_ANON_KEY = ""; }
+public final class BuildConfig { public static final boolean DEBUG = true; public static final String APPLICATION_ID = "com.kkakkung.app"; public static final String BUILD_TYPE = "debug"; public static final int VERSION_CODE = 1; public static final String VERSION_NAME = "1.0"; public static final String SUPABASE_URL = ""; public static final String SUPABASE_ANON_KEY = ""; public static final String REVIEW_SUPABASE_URL = ""; public static final String REVIEW_SUPABASE_ANON_KEY = ""; }
 """)

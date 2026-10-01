@@ -1,0 +1,58 @@
+name: 심사용 서버
+
+# 애플·구글 심사자가 쓰는 **따로 떨어진 Supabase 프로젝트**를 채운다
+# (사용자가 정했다 — 실제 모임과 서버째 갈라 둔다).
+#
+#   ① 표·규칙: 실제 서버와 같은 `supabase/schema.sql`
+#   ② 샘플 모임과 심사 계정: `supabase/review-seed.sql`
+#
+# **매일 한 번도 돈다** — 심사자가 비밀번호를 바꾸거나 탈퇴해도 다음 날
+# 되살아나고, 다가오는 샘플 라운드·투표 날짜가 앞으로 밀린다.
+# **비밀값이 없으면 조용히 건너뛴다**(아직 심사용 서버를 안 만들었을 때).
+# 넣을 값과 순서는 `docs/설치.md` 9번.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/schema.sql'
+      - 'supabase/review-seed.sql'
+      - '.github/workflows/review.yml'
+  schedule:
+    - cron: '17 18 * * *'      # 한국 시각 새벽 3시 17분
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-db
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 표 · 샘플 모임 · 심사 계정
+        env:
+          DB_URL: ${{ secrets.REVIEW_DB_URL }}
+          REVIEW_PASSWORD: ${{ secrets.REVIEW_PASSWORD }}
+          REAL_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DB_URL" ] || [ -z "$REVIEW_PASSWORD" ]; then
+            echo "::notice::REVIEW_DB_URL / REVIEW_PASSWORD 가 없어 건너뜁니다 (docs/설치.md 9번)."
+            exit 0
+          fi
+          # **실제 모임 DB 주소를 잘못 넣은 것은 여기서 막는다** — 샘플 사람들이
+          # 진짜 회원 명단에 섞이면 안 된다(seed 파일 안에도 한 번 더 막는 줄이 있다).
+          if [ -n "$REAL_URL" ] && [ "$DB_URL" = "$REAL_URL" ]; then
+            echo "::error::REVIEW_DB_URL 이 실제 모임 DB(SUPABASE_DB_URL)와 같습니다. 심사용 프로젝트의 주소를 넣어 주세요."
+            exit 1
+          fi
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          psql "$DB_URL" -q -v ON_ERROR_STOP=1 -f supabase/schema.sql \
+            || { echo "::error::심사용 DB에 못 붙었거나 표 만들기가 실패했습니다. REVIEW_DB_URL 을 Supabase의 **Session pooler** 주소로 넣었는지 보세요."; exit 1; }
+          psql "$DB_URL" -q -v ON_ERROR_STOP=1 -v review_pw="$REVIEW_PASSWORD" -f supabase/review-seed.sql
+          echo "심사용 서버를 채웠습니다 — 계정 review@kkakkung.app"
