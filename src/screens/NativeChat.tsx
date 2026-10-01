@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { renewSession } from '../lib/supabase';
 import { NativeChat, hasNativeChat, openNativeChat, closeNativeChat } from '../lib/native-chat';
 import { purgeOldPhotos } from '../lib/photos';
 import { chatShared } from '../lib/chat-shared';
@@ -78,8 +78,8 @@ function NativeChatHost() {
                     if (e.data.phase === 'plain') goBack();
                 }
                 if (e.type === 'auth') {
-                    void supabase.auth.refreshSession().then(({ data }) => {
-                        if (data.session && !dead) void NativeChat.session({ user, token: data.session.access_token });
+                    void renewSession().then(token => {
+                        if (token && !dead) void NativeChat.session({ user, token });
                     });
                 }
             });

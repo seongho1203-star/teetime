@@ -229,19 +229,19 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         window.navigationBarColor = card
         buildShell()
         putCover()
-        /* 만료 직전이면 첫 화면을 읽기 전에 갱신한다. 실패하면 저장 세션을
-           지우고 뒤의 웹 로그인 화면으로 돌아간다. */
+        /* 서버가 갱신 열쇠를 거절했으면(정말로 로그인이 끝났으면) 로그인 화면으로. */
+        NativeAuth.onExpired = { runOnUiThread { if (!isFinishing) logoutNative() } }
+        /* 만료 직전이면 첫 화면을 읽기 전에 갱신한다. **로그인을 지우는 것은 서버가
+           거절했을 때뿐이다**(`NativeAuth.refresh`가 `onExpired`로 보낸다) — 깨어나자마자
+           인터넷이 덜 붙어 실패한 것이면 그대로 홈을 열고, 조회가 다시 갱신해 본다. */
         if (session.needsRefresh) {
             val page = page("까꿍")
             val loading = ProgressBar(this); page.addView(loading); mount(page)
             scope.launch {
                 try { NativeAuth.refresh(session); showHome() }
                 catch (e: Exception) {
-                    NativeSessionStore.clear(this@NativeHomeActivity)
-                    toast(e.message ?: "다시 로그인해 주세요.")
-                    startActivity(android.content.Intent(this@NativeHomeActivity, NativeLoginActivity::class.java)
-                        .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                    finish()
+                    if ((e as? NativeApiError)?.code == "expired") return@launch
+                    showHome()
                 }
             }
         } else {
@@ -281,6 +281,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     override fun onDestroy() {
+        NativeAuth.onExpired = null
         chat?.destroy()
         scope.cancel()
         super.onDestroy()
@@ -687,6 +688,15 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
         val c = chat ?: ChatScreen(this, ChatService(ChatConfig(config))).also { chat = it }
         c.service.config = ChatConfig(config)
         c.updateToken(session.accessToken)
+        /* 대화가 401을 받으면 앱이 토큰을 새로 받아 갈아 끼운다 — 웹뷰가 없는 판이라
+           부탁할 데가 없다. 이게 없으면 대화를 한 시간 넘게 켜 두면 만료로 굳었다. */
+        c.service.authNeeded = {
+            val stale = c.service.config.token
+            scope.launch {
+                try { NativeAuth.refresh(session, stale = stale); c.updateToken(session.accessToken) }
+                catch (_: Exception) { /* 대화가 기다리다 스스로 알린다 */ }
+            }
+        }
         c.event = { type, data ->
             runOnUiThread {
                 when (type) {

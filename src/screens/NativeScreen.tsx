@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { renewSession, supabase } from '../lib/supabase';
 import { LIVE_TABLES, NativeApp, nativeScreen, shellReady } from '../lib/native-app';
 import { chatPush, disablePush, enablePush, pushState, setChatPush, watchPushStep } from '../lib/push';
 import { leaveAccount } from '../lib/account';
@@ -247,8 +247,8 @@ function NativeScreenHost({ path, extra, onAction, sync }: {
                         .catch(err => say({ name, ok: false, why: readableError(err) }));
                 }
                 if (e.type === 'auth') {
-                    void supabase.auth.refreshSession().then(({ data }) => {
-                        if (data.session && !dead) void NativeApp.session({ user, token: data.session.access_token });
+                    void renewSession().then(token => {
+                        if (token && !dead) void NativeApp.session({ user, token });
                     });
                 }
             });
@@ -384,8 +384,8 @@ export function NativeShellSync() {
                 navRef.current(e.data.path);
             }
             if (e.type === 'auth') {
-                void supabase.auth.refreshSession().then(({ data }) => {
-                    if (data.session && !dead) void NativeApp.session({ user, token: data.session.access_token });
+                void renewSession().then(token => {
+                    if (token && !dead) void NativeApp.session({ user, token });
                 });
             }
         }).then(h => {

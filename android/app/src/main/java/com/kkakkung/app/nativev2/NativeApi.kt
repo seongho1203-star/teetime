@@ -35,35 +35,43 @@ class NativeApi(private val session: NativeSession) {
         body: Any? = null
     ): Any? = withContext(Dispatchers.IO) {
         /* 앱을 오래 켜 둬도 WebView에게 토큰 갱신을 부탁하지 않는다. */
-        if (session.needsRefresh) NativeAuth.refresh(session)
         val qs = query.joinToString("&") { enc(it.first) + "=" + enc(it.second) }
         val base = session.supabaseUrl.trimEnd('/')
         val url = "$base/$path" + if (qs.isEmpty()) "" else "?$qs"
-        val payload = when {
-            body != null -> body.toString().toRequestBody("application/json".toMediaType())
-            method == "POST" || method == "PATCH" || method == "DELETE" ->
-                "".toRequestBody("application/json".toMediaType())
-            else -> null
-        }
-        val req = Request.Builder().url(url)
-            .header("apikey", session.anonKey)
-            .header("Authorization", "Bearer ${session.accessToken}")
-            .header("Accept", "application/json")
-            .header("Prefer", "return=representation")
-            .method(method, payload)
-            .build()
-        http.newCall(req).execute().use { res ->
-            val raw = res.body?.string().orEmpty()
-            if (res.code == 401) throw NativeApiError("로그인이 만료됐습니다.")
-            if (res.code == 403) throw NativeApiError("이 작업을 할 권한이 없습니다.")
-            if (!res.isSuccessful) {
+        for (attempt in 0..1) {
+            if (session.needsRefresh) NativeAuth.refresh(session)
+            val token = session.accessToken
+            val payload = when {
+                body != null -> body.toString().toRequestBody("application/json".toMediaType())
+                method == "POST" || method == "PATCH" || method == "DELETE" ->
+                    "".toRequestBody("application/json".toMediaType())
+                else -> null
+            }
+            val req = Request.Builder().url(url)
+                .header("apikey", session.anonKey)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/json")
+                .header("Prefer", "return=representation")
+                .method(method, payload)
+                .build()
+            val (code, raw) = http.newCall(req).execute().use { it.code to it.body?.string().orEmpty() }
+            /* 시계가 어긋났거나 서버가 먼저 끊은 토큰 — 한 번 새로 받아 다시 간다.
+               같은 토큰으로 여럿이 401을 받아도 갱신은 한 번만 간다(`stale`). */
+            if (code == 401 && attempt == 0 && session.refreshToken.isNotBlank()) {
+                NativeAuth.refresh(session, stale = token)
+                continue
+            }
+            if (code == 401) throw NativeApiError("로그인이 만료됐습니다.")
+            if (code == 403) throw NativeApiError("이 작업을 할 권한이 없습니다.")
+            if (code !in 200..299) {
                 val message = try {
-                    JSONObject(raw).optString("message").ifBlank { "서버 오류(${res.code})" }
-                } catch (_: Exception) { "서버 오류(${res.code})" }
+                    JSONObject(raw).optString("message").ifBlank { "서버 오류($code)" }
+                } catch (_: Exception) { "서버 오류($code)" }
                 throw NativeApiError(message, try { JSONObject(raw).optString("code") } catch (_: Exception) { "" })
             }
-            if (raw.isBlank()) JSONArray() else JSONTokener(raw).nextValue()
+            return@withContext if (raw.isBlank()) JSONArray() else JSONTokener(raw).nextValue()
         }
+        throw NativeApiError("로그인 확인이 필요합니다.")
     }
 
     suspend fun rows(

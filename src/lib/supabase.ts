@@ -125,3 +125,34 @@ export function signInWithApple() {
 export async function signOut() {
     await supabase.auth.signOut();
 }
+
+let renewing: Promise<string | null> | null = null;
+/**
+ * **앱 화면이 토큰을 새로 달라고 할 때**(`auth` 이벤트) 부른다 — 새 토큰을 돌려준다.
+ *
+ * **한 번에 하나만 돈다.** 앱이 조회를 여럿 한꺼번에 보내면 401도 여럿이 와서,
+ * 예전에는 화면마다 `refreshSession()`을 겹쳐 돌렸다(갱신 열쇠가 그만큼 여러 번
+ * 바뀐다). **실패하면 세 번까지 다시 해 본다** — 오래 쉬다 깨어난 폰은 인터넷이
+ * 다시 붙기까지 몇 초가 걸려 첫 판이 곧잘 실패하는데, 예전에는 그걸로 끝이라
+ * 앱 화면이 `로그인이 만료됐습니다`로 굳었다(사용자 제보 — `앱을 한동안
+ * 사용안하다가 접속하면`). **서버가 열쇠를 거절한 것(4xx)은 다시 안 해 본다** —
+ * 그건 정말로 끝난 것이고, supabase-js가 스스로 로그아웃시켜 로그인 화면으로 간다.
+ */
+export function renewSession(): Promise<string | null> {
+    if (renewing) return renewing;
+    const run = (async () => {
+        for (let i = 0; i < 4; i++) {
+            try {
+                const { data, error } = await supabase.auth.refreshSession();
+                if (data.session) return data.session.access_token;
+                const status = (error as { status?: number } | null)?.status ?? 0;
+                if (status >= 400 && status < 500 && status !== 408 && status !== 429) return null;
+            } catch { /* 끊긴 것 — 조금 뒤 다시 */ }
+            await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+        }
+        return null;
+    })();
+    renewing = run;
+    void run.finally(() => { if (renewing === run) renewing = null; });
+    return run;
+}

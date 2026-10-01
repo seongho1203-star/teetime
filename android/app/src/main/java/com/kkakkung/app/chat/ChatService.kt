@@ -125,15 +125,22 @@ class ChatService(@Volatile var config: ChatConfig) {
                 val text = res.body?.string() ?: ""
                 res.close()
                 if (status == 401 && attempt == 0) {
-                    /* 토큰이 만료됐다 — 웹에 알리고 새 토큰이 오면 한 번 더 간다
-                       (`session()`이 `config.token`을 갈아 끼운다). */
+                    /* 토큰이 만료됐다 — 새 토큰을 부탁하고 오면 한 번 더 간다
+                       (`session()`·`updateToken`이 `config.token`을 갈아 끼운다).
+                       **12초까지 기다리고 4초마다 다시 부탁한다** — 오래 쉬다 깨어난
+                       폰은 인터넷이 다시 붙는 데만 몇 초가 걸려, 3초로는 모자라
+                       `로그인이 만료됐습니다`로 굳었다(사용자 제보). */
                     authNeeded?.invoke()
-                    for (i in 0 until 10) { delay(300); if (config.token != token) break }
+                    for (i in 1..40) {
+                        delay(300)
+                        if (config.token != token) break
+                        if (i % 13 == 0) authNeeded?.invoke()
+                    }
                     lastStatus = status
                     continue
                 }
                 if (status !in 200..299) {
-                    if (status == 401) throw ChatError("로그인이 만료됐습니다. 다시 로그인해 주세요.")
+                    if (status == 401) throw ChatError("로그인을 확인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.")
                     if (status == 403) throw ChatError("이 작업을 할 권한이 없습니다.")
                     throw ChatError("서버에 연결하지 못했습니다($status). 다시 시도해 주세요.")
                 }

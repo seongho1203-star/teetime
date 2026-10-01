@@ -104,6 +104,10 @@ final class NativeChatService {
         // invalid timestamp and the whole request comes back 400.
         parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = parts.url else { throw NativeChatError(message: "요청 주소를 만들 수 없습니다.") }
+        /* **이미 지난 토큰이면 보내기 전에 새로 받는다.** 오래 쉬고 들어오면 토큰이
+           한참 전에 끝나 있다 — 401을 한 바퀴 받고 나서야 부탁하면 그만큼 늦고,
+           홈처럼 조회 여덟을 한꺼번에 보내는 화면은 여덟 번 부탁했다. */
+        if authNeeded != nil, Self.expiring(config.token) { _ = await freshToken(from: config.token) }
         for attempt in 0...1 {
             let token = config.token
             var req = URLRequest(url: url)
@@ -132,12 +136,9 @@ final class NativeChatService {
             try Task.checkCancellation()
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 && attempt == 0 {
-                authNeeded?()
-                for _ in 0..<10 {
-                    try await Task.sleep(nanoseconds: 300_000_000)
-                    if config.token != token { break }
-                }
-                continue
+                if await freshToken(from: token) { continue }
+                try Task.checkCancellation()
+                throw NativeChatError(message: "로그인을 확인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.")
             }
             guard (200..<300).contains(status) else {
                 /* PostgREST는 오류 본문에 `code`·`message`를 실어 준다 — 코드는
@@ -152,6 +153,47 @@ final class NativeChatService {
             return data.isEmpty ? [] : try JSONSerialization.jsonObject(with: data)
         }
         throw NativeChatError(message: "로그인 확인이 필요합니다.")
+    }
+
+    /**
+     * 새 토큰을 웹에 부탁하고 올 때까지 기다린다(`authNeeded` → 웹이 `session`으로 준다).
+     *
+     * **12초까지 기다리고 4초마다 다시 부탁한다**(사용자 제보 — `앱을 한동안
+     * 사용안하다가 접속하면` 라운드 화면이 빈 채로 `로그인이 만료됐습니다`).
+     * 예전에는 3초만 기다렸는데, 오래 쉬다 깨어난 폰은 인터넷이 다시 붙고 웹이
+     * 깨어나 갱신하기까지 그보다 오래 걸렸다 — 로그인은 멀쩡한데 만료로 굳었다.
+     * **여럿이 동시에 불러도 한 번만 부탁한다** — 웹이 갱신을 여러 번 겹쳐 돌리지 않게.
+     */
+    func freshToken(from old: String) async -> Bool {
+        if config.token != old { return true }
+        if let w = waiting { return await w.value }
+        let w = Task { @MainActor [weak self] () -> Bool in
+            guard let self = self else { return false }
+            self.authNeeded?()
+            for i in 1...40 {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                if self.config.token != old { return true }
+                if i % 13 == 0 { self.authNeeded?() }
+            }
+            return false
+        }
+        waiting = w
+        let ok = await w.value
+        if waiting == w { waiting = nil }
+        return ok
+    }
+    private var waiting: Task<Bool, Never>?
+
+    /// 토큰(JWT)이 곧 끝나는가 — 안의 `exp`를 본다(30초 여유). 못 읽으면 아니라고 본다.
+    static func expiring(_ jwt: String, within: TimeInterval = 30) -> Bool {
+        let parts = jwt.split(separator: ".")
+        guard parts.count > 1 else { return false }
+        var b = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b.count % 4 != 0 { b += "=" }
+        guard let data = Data(base64Encoded: b),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? ChatJSON,
+              let exp = obj["exp"] as? Double else { return false }
+        return Date().timeIntervalSince1970 >= exp - within
     }
 
     func rows(_ table: String, _ query: [(String, String)] = []) async throws -> [ChatJSON] {
