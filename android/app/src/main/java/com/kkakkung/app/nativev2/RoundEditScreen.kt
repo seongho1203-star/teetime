@@ -160,7 +160,7 @@ class RoundEditScreen(
         placeName.text = if (screen) "매장" else "골프장"
         courseField.hint = if (screen) "예) 신용DS" else "예) 무등산CC"
         teeName.text = "${if (screen) "시작" else "티오프"} (한국 시각)"
-        feeName.text = "1인 ${if (screen) "게임비" else "그린피"}"
+        feeName.text = if (screen) "1인 게임비(선택)" else "1인 그린피"
         condBox.visibility = if (screen) View.GONE else View.VISIBLE
         slotsWrap.visibility = if (screen) View.GONE else View.VISIBLE
         subCol.visibility = if (screen) View.GONE else View.VISIBLE

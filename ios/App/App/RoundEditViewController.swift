@@ -229,7 +229,7 @@ final class RoundEditViewController: FormScreenController {
         courseField.attributedPlaceholder = NSAttributedString(string: screen ? "예) 신용DS" : "예) 무등산CC",
                                                                attributes: [.foregroundColor: AppSkin.faint])
         teeName.text = "\(screen ? "시작" : "티오프") (한국 시각)"
-        feeName.text = "1인 \(screen ? "게임비" : "그린피")"
+        feeName.text = screen ? "1인 게임비(선택)" : "1인 그린피"
         condBox.isHidden = screen
         slotsWrap.isHidden = screen
         (subField.superview as? UIStackView)?.isHidden = screen
