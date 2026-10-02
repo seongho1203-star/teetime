@@ -178,11 +178,13 @@ final class RoundEditViewController: FormScreenController {
         phoneCol.axis = .vertical; phoneCol.spacing = 6
         phoneCol.addArrangedSubview(mkLabel("매장 전화", size: 13, weight: .bold, color: AppSkin.dim))
         phoneCol.addArrangedSubview(phoneBtn)
-        phoneBtn.heightAnchor.constraint(equalTo: courseField.heightAnchor).isActive = true
         courseField.adjustsFontSizeToFitWidth = true
         courseField.minimumFontSize = 12
         let placeRow = UIStackView(arrangedSubviews: [clubCol, subCol, phoneCol])
         placeRow.axis = .horizontal; placeRow.spacing = 10; placeRow.distribution = .fillEqually
+        /* 두 칸이 같은 줄(`placeRow`)에 든 **뒤에** 묶는다 — 조상이 없는 둘을 묶으면
+           그 자리에서 앱이 죽는다(실기기 제보 — 모집 열기를 누르면 튕김). */
+        phoneBtn.heightAnchor.constraint(equalTo: courseField.heightAnchor).isActive = true
         let placeBox = UIStackView(arrangedSubviews: [placeRow, hitsStack, subChips, placeNote])
         placeBox.axis = .vertical; placeBox.spacing = 6
 
