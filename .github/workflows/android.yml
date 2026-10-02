@@ -46,8 +46,10 @@ on:
       - 'capacitor.config.ts'
       - '.github/workflows/android.yml'
 
+# **`write`인 것은 링크로 나눠 주는 APK 하나 때문이다**(아래 `링크로 나눠 줄
+# APK 올리기`) — 그 파일을 저장소의 Releases 자리에 올린다.
 permissions:
-  contents: read
+  contents: write
 
 # 두 판이 겹치면 Play에 같은 번호가 두 번 올라가 뒤엣것이 거절된다.
 concurrency:
@@ -349,6 +351,45 @@ jobs:
           name: kkakkung-apk-1.${{ github.run_number }}
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # **링크 하나로 받는 APK다**(사용자 요청 — `APK파일을 공유하고싶은데
+      # 카톡이나 블루투스로 공유가 잘안되더라고. 내가 링크를 보내주면 바로
+      # 다운받을수있게`). 위 결과물(artifact)은 GitHub에 로그인해야 받고 zip으로
+      # 묶여 와서 회원에게 보낼 수가 없다.
+      # - **주소는 늘 같다** — 태그 `android-apk`의 Releases에 `kkakkung.apk`로
+      #   덮어 올린다(`--clobber`). 판이 바뀌어도 보내 둔 링크가 그대로 새 판이다:
+      #   https://github.com/seongho1203-star/teetime/releases/download/android-apk/kkakkung.apk
+      # - **덮어 깔리는 것은 서명이 늘 같아서다** — `android/app/share.keystore`
+      #   (`build.gradle`의 `signingConfigs.debug`). 그 열쇠를 바꾸면 회원 폰에서
+      #   새 판이 안 깔리고 지웠다 다시 깔아야 한다.
+      # - **`main`에서만 올린다** — 시험 가지(`android-native-v2`)의 판이 회원에게
+      #   나가면 안 된다.
+      # - **여기서 실패해도 빌드는 초록으로 둔다**(`continue-on-error`) — AAB·APK는
+      #   이미 결과물로 남았다.
+      - name: 링크로 나눠 줄 APK 올리기 (Releases)
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: android-apk
+        run: |
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk 2>/dev/null | head -1 || true)
+          if [ -z "$APK" ]; then echo "::error::올릴 APK가 없습니다."; exit 1; fi
+          cp "$APK" "$RUNNER_TEMP/kkakkung.apk"
+          NOTES="까꿍 안드로이드 시험판 1.${{ github.run_number }} — 받은 뒤 눌러 설치하세요. 처음 한 번은 '출처를 알 수 없는 앱 설치'를 허용해야 합니다."
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "까꿍 안드로이드 시험판" --notes "$NOTES" --prerelease --latest=false
+          fi
+          gh release upload "$TAG" "$RUNNER_TEMP/kkakkung.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$NOTES"
+          LINK="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/kkakkung.apk"
+          echo "::notice::안드로이드 1.${{ github.run_number }} 내려받기 → $LINK"
+          {
+            echo "### 📲 링크로 받는 안드로이드 앱"
+            echo ""
+            echo "1.${{ github.run_number }} → $LINK"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # **브라우저에서 안드로이드 앱을 띄워 보는 자리다**(Appetize · 사용자 요청 —
       # `안드로이드폰을 구하기힘든상황인데 어플확인할수있는 방법없을까`).

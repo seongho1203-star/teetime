@@ -76,6 +76,20 @@ android {
      * 빌드가 빨갛게 되면 안 된다**(아이폰 워크플로와 같은 규칙).
      */
     signingConfigs {
+        /*
+         * **링크로 나눠 주는 시험판(디버그 APK)의 열쇠다**(사용자 요청 — `링크를
+         * 보내주면 바로 다운받을수있게`). CI는 돌 때마다 디버그 열쇠를 새로
+         * 만들어서, 판마다 서명이 달라 **새 판을 받아도 덮어 깔리지 않았다**
+         * (`앱이 설치되지 않았습니다`). 이 열쇠를 저장소에 두어 늘 같은 서명이다.
+         * **비밀값이 아니다** — 디버그 판 전용이고(React Native 틀도 같은
+         * 자리에 둔다) Play에 올리는 AAB는 위 `release` 열쇠로 따로 서명한다.
+         */
+        debug {
+            storeFile file('share.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
         release {
             def path = System.getenv('ANDROID_KEYSTORE_PATH')
             if (path) {
@@ -110,6 +124,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             if (System.getenv('ANDROID_KEYSTORE_PATH')) {
                 signingConfig signingConfigs.release
