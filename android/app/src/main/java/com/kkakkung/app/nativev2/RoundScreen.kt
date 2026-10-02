@@ -137,6 +137,9 @@ class RoundScreen(ctx: Context, host: ScreenHost, private val roundId: String) :
         /* 모집 열기에서 고른 코스(`sub_course`) — 골프장과 섞지 않고 한 줄 아래(아이폰과 같다). */
         if (r.subCourse.isNotEmpty()) hero.addView(ui.label("🏁 ${r.subCourse} 코스", 15f, bold = true, color = AppSkin.dim, lines = 0))
         if (r.title.isNotEmpty() && r.course.isNotEmpty()) hero.addView(ui.label(r.title, 14f, color = AppSkin.dim, lines = 0))
+        /* 스크린은 매장이 하나로 고정이다(`ScreenStore`) — 참가자 누구나 바로 방을 잡게 전화 단추를 둔다. */
+        if (r.isScreen) hero.addView(ui.button("📞 매장 전화 ${ScreenStore.phone}") { ScreenStore.call(ctx) }.apply { contentDescription = "매장 전화 걸기" },
+            LinearLayout.LayoutParams(-2, -2))
         stack.addView(hero)
 
         // 정보 표 — 두 칸씩, 칸 수는 늘 짝수

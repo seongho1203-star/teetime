@@ -44,6 +44,9 @@ final class RoundEditViewController: FormScreenController {
     private let subName = UILabel()
     private let subField = FormTextField(max: 30)
     private let subChips = UIStackView()
+    /* 스크린 매장 전화(`ScreenStore`) — 스크린일 때 코스 칸 자리에 선다. 누르면 바로 걸린다. */
+    private let phoneCol = UIStackView()
+    private let phoneBtn = UIButton(type: .system)
     private let clubs: [String: [String]]
     private var hadSub = false
     private let condBox = UIStackView()
@@ -167,7 +170,18 @@ final class RoundEditViewController: FormScreenController {
         let clubCol = UIStackView(arrangedSubviews: [placeName, courseField]); clubCol.axis = .vertical; clubCol.spacing = 6
         let subCol = UIStackView(arrangedSubviews: [subName, subField]); subCol.axis = .vertical; subCol.spacing = 6
         subCol.tag = 71
-        let placeRow = UIStackView(arrangedSubviews: [clubCol, subCol])
+        appButton(phoneBtn, title: "📞 \(ScreenStore.phone)", color: AppSkin.text, filled: false)
+        phoneBtn.titleLabel?.adjustsFontSizeToFitWidth = true
+        phoneBtn.titleLabel?.minimumScaleFactor = 0.7
+        phoneBtn.accessibilityLabel = "매장 전화 걸기"
+        phoneBtn.addTarget(self, action: #selector(phoneTapped), for: .touchUpInside)
+        phoneCol.axis = .vertical; phoneCol.spacing = 6
+        phoneCol.addArrangedSubview(mkLabel("매장 전화", size: 13, weight: .bold, color: AppSkin.dim))
+        phoneCol.addArrangedSubview(phoneBtn)
+        phoneBtn.heightAnchor.constraint(equalTo: courseField.heightAnchor).isActive = true
+        courseField.adjustsFontSizeToFitWidth = true
+        courseField.minimumFontSize = 12
+        let placeRow = UIStackView(arrangedSubviews: [clubCol, subCol, phoneCol])
         placeRow.axis = .horizontal; placeRow.spacing = 10; placeRow.distribution = .fillEqually
         let placeBox = UIStackView(arrangedSubviews: [placeRow, hitsStack, subChips, placeNote])
         placeBox.axis = .vertical; placeBox.spacing = 6
@@ -219,6 +233,13 @@ final class RoundEditViewController: FormScreenController {
         condBox.isHidden = screen
         slotsWrap.isHidden = screen
         (subField.superview as? UIStackView)?.isHidden = screen
+        phoneCol.isHidden = !screen
+        /* 스크린은 매장이 고정이다 — 이름을 넣고 칸을 잠근다. 필드로 되돌리면 그 이름을 걷는다. */
+        if screen { courseField.text = ScreenStore.name }
+        else if courseField.text == ScreenStore.name { courseField.text = "" }
+        courseField.isEnabled = !screen
+        courseField.textColor = screen ? AppSkin.dim : AppSkin.text
+        courseField.backgroundColor = screen ? AppSkin.surface2 : AppSkin.surface
         refreshSubChips()
         refreshSlots()
         caddieBtn.on = caddie == "caddie"; noCaddieBtn.on = caddie == "none"
@@ -365,6 +386,7 @@ final class RoundEditViewController: FormScreenController {
         kind = b === screenBtn ? "screen" : "field"
         refreshKind()
     }
+    @objc private func phoneTapped() { ScreenStore.call() }
     @objc private func condTapped(_ b: OptButton) {
         switch b {
         case caddieBtn: caddie = caddie == "caddie" ? nil : "caddie"
@@ -443,7 +465,7 @@ final class RoundEditViewController: FormScreenController {
             let cal = WhenPicker.calendar
             tee = cal.date(bySettingHour: first.h, minute: first.m, second: 0, of: cal.startOfDay(for: tee)) ?? tee
         }
-        let course = (courseField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let course = screen ? ScreenStore.name : (courseField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !course.isEmpty else { flash("\(screen ? "매장" : "골프장") 이름을 적어 주세요.", error: true); return }
         guard let cap = Int(capField.text ?? ""), cap >= 1 else { flash("정원은 1명 이상이어야 합니다.", error: true); return }
         let geo = screen ? nil : book.geo(course)

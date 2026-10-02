@@ -147,6 +147,18 @@ struct AppSignup {
 }
 
 /// `rounds` 한 줄(웹 `Round`·`RoundLite`) + 딸려 온 신청.
+/// **스크린 매장은 한 곳으로 고정이다**(사용자 요청 — `스크린 매장은 여기로 그냥 고정해줘`).
+/// 모집 열기에서 스크린을 고르면 이 이름이 들어가고 칸은 잠기며, 오른쪽에 전화 단추가 선다.
+/// 라운드 상세에도 같은 전화 단추가 선다. **안드로이드 `ScreenStore`(AppKit.kt)와 같은 값 — 한쪽만 고치지 말 것.**
+enum ScreenStore {
+    static let name = "골프존파크 신용DS"
+    static let phone = "062-575-5440"
+    static func call() {
+        let digits = phone.filter(\.isNumber)
+        if let url = URL(string: "tel:\(digits)") { UIApplication.shared.open(url) }
+    }
+}
+
 struct AppRound {
     let raw: ChatJSON
     let signups: [AppSignup]

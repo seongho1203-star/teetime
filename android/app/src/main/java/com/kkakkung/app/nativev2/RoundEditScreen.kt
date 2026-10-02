@@ -53,6 +53,8 @@ class RoundEditScreen(
     private val subField = textField(max = 30)
     private val subCol = ui.vstack(6)
     private val subChips = ui.vstack(8).apply { visibility = View.GONE }
+    /* 스크린 매장 전화(`ScreenStore`) — 스크린일 때 코스 칸 자리에 선다. 누르면 바로 걸린다(아이폰과 같다). */
+    private val phoneCol = ui.vstack(6)
     private val clubs: Map<String, List<String>> by lazy { clubs ?: loadClubs(ctx) }
     private val placeNote = ui.label("", 12f, color = AppSkin.faint, lines = 0)
     private val condBox = ui.vstack(8)
@@ -127,7 +129,10 @@ class RoundEditScreen(
         hits.clipToOutline = true
         val clubCol = ui.vstack(6).apply { addView(placeName); addView(courseField) }
         subCol.addView(ui.label("코스", 13f, bold = true, color = AppSkin.dim)); subCol.addView(subField)
-        val placeBox = ui.vstack(6).apply { addView(equalRow(ui, listOf(clubCol, subCol), 10)); addView(hits); addView(subChips); addView(placeNote) }
+        phoneCol.addView(ui.label("매장 전화", 13f, bold = true, color = AppSkin.dim))
+        phoneCol.addView(ui.button("📞 ${ScreenStore.phone}") { ScreenStore.call(ctx) }.apply { contentDescription = "매장 전화 걸기" },
+            LinearLayout.LayoutParams(-1, ui.dp(44)))
+        val placeBox = ui.vstack(6).apply { addView(equalRow(ui, listOf(clubCol, subCol, phoneCol), 10)); addView(hits); addView(subChips); addView(placeNote) }
 
         caddieBtn.setOnClickListener { caddie = if (caddie == "caddie") null else "caddie"; refreshKind() }
         noCaddieBtn.setOnClickListener { caddie = if (caddie == "none") null else "none"; refreshKind() }
@@ -159,6 +164,13 @@ class RoundEditScreen(
         condBox.visibility = if (screen) View.GONE else View.VISIBLE
         slotsWrap.visibility = if (screen) View.GONE else View.VISIBLE
         subCol.visibility = if (screen) View.GONE else View.VISIBLE
+        phoneCol.visibility = if (screen) View.VISIBLE else View.GONE
+        /* 스크린은 매장이 고정이다 — 이름을 넣고 칸을 잠근다. 필드로 되돌리면 그 이름을 걷는다. */
+        if (screen) courseField.setText(ScreenStore.name)
+        else if (courseField.text.toString() == ScreenStore.name) courseField.setText("")
+        courseField.isEnabled = !screen
+        courseField.setTextColor(if (screen) AppSkin.dim else AppSkin.text)
+        courseField.background = ui.rounded(if (screen) AppSkin.surface2 else AppSkin.surface, AppSkin.radiusSm, AppSkin.line)
         refreshSubChips()
         refreshSlots()
         caddieBtn.on = caddie == "caddie"; noCaddieBtn.on = caddie == "none"
@@ -290,7 +302,7 @@ class RoundEditScreen(
     /** 칸들을 DB에 넣을 모양으로 — 틀린 것이 있으면 알리고 null. */
     internal fun payload(): JSONObject? {
         val tee = whenPick.date ?: run { flash("${if (screen) "시작" else "티오프"} 시각을 골라 주세요.", error = true); return null }
-        val course = text(courseField)
+        val course = if (screen) ScreenStore.name else text(courseField)
         if (course.isEmpty()) { flash("${if (screen) "매장" else "골프장"} 이름을 적어 주세요.", error = true); return null }
         val cap = text(capField).toIntOrNull()?.takeIf { it >= 1 } ?: run { flash("정원은 1명 이상이어야 합니다.", error = true); return null }
         val teams = if (screen) emptyList() else slots.map {

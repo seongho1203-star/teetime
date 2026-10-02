@@ -1,6 +1,8 @@
 package com.kkakkung.app.nativev2
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -375,6 +377,21 @@ class AppSignup(val raw: JSONObject) {
     val state get() = raw.str("state")
     val seq get() = raw.optInt("seq")
     val grp: Int? get() = raw.intOrNull("grp")
+}
+
+/**
+ * **스크린 매장은 한 곳으로 고정이다**(사용자 요청 — `스크린 매장은 여기로 그냥 고정해줘`).
+ * 모집 열기에서 스크린을 고르면 이 이름이 들어가고 칸은 잠기며, 오른쪽에 전화 단추가 선다.
+ * 라운드 상세에도 같은 전화 단추가 선다. **아이폰 `ScreenStore`(NativeAppData.swift)와 같은 값 — 한쪽만 고치지 말 것.**
+ */
+object ScreenStore {
+    const val name = "골프존파크 신용DS"
+    const val phone = "062-575-5440"
+    /** 전화 앱에 번호를 채워 연다(`ACTION_DIAL` — 권한이 필요 없다). */
+    fun call(ctx: Context) {
+        val digits = phone.filter { it.isDigit() }
+        try { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$digits")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+    }
 }
 
 class AppRound(val raw: JSONObject) {

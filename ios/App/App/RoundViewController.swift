@@ -226,6 +226,14 @@ final class RoundViewController: NativeScreenController {
         /* 모집 열기에서 고른 코스(`sub_course` · 사용자 요청) — 골프장과 섞지 않고 한 줄 아래. */
         if !r.subCourse.isEmpty { hero.addArrangedSubview(mkLabel("🏁 \(r.subCourse) 코스", size: 15, weight: .semibold, color: AppSkin.dim, lines: 0)) }
         if !r.title.isEmpty && !r.course.isEmpty { hero.addArrangedSubview(mkLabel(r.title, size: 14, color: AppSkin.dim, lines: 0)) }
+        /* 스크린은 매장이 하나로 고정이다(`ScreenStore`) — 참가자 누구나 바로 방을 잡게 전화 단추를 둔다. */
+        if r.isScreen {
+            let call = UIButton(type: .system)
+            appButton(call, title: "📞 매장 전화 \(ScreenStore.phone)", color: AppSkin.text, filled: false)
+            call.accessibilityLabel = "매장 전화 걸기"
+            call.addTarget(self, action: #selector(callStoreTapped), for: .touchUpInside)
+            hero.addArrangedSubview(UIStackView(arrangedSubviews: [call, UIView()]))
+        }
         stack.addArrangedSubview(hero)
 
         // 정보 표 — 두 칸씩, 칸 수는 늘 짝수
@@ -593,6 +601,7 @@ final class RoundViewController: NativeScreenController {
 
     @objc private func editTapped() { navigate("/rounds/\(roundId)/edit") }
     @objc private func groupsTapped() { navigate("/rounds/\(roundId)/groups") }
+    @objc private func callStoreTapped() { ScreenStore.call() }
     @objc private func cloneTapped() { navigate("/rounds/new?from=\(roundId)") }
 
     /// 신청 또는 취소 — 정원 셈은 DB가 한다.

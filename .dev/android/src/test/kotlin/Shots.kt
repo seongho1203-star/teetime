@@ -157,6 +157,11 @@ class Shots {
         val r = JSONObject("""{"id":"r1","course":"무등산CC","kind":"field","tee_at":"2026-09-30T07:10:00+00:00","capacity":8,"fee":140000,"caddie":"none","cart":"included","note":"테스트입니다","created_by":"me","sub_course":"천왕봉-지왕봉","tee_slots":[{"course":"스카이","time":"07:21"},{"course":"베르힐","time":"07:14"}]}""")
         RoundEditScreen(RuntimeEnvironment.getApplication(), it, r, false, courses(), clubs())
     }
+    @Test fun roundEditScreen() = shoot("round-edit-screen") {
+        val r = JSONObject("""{"id":"r2","course":"골프존파크 상무점","kind":"screen","tee_at":"2026-09-30T10:00:00+00:00","capacity":6,"fee":25000,"note":"","created_by":"me"}""")
+        RoundEditScreen(RuntimeEnvironment.getApplication(), it, r, false, courses(), clubs())
+    }
+    @Test fun roundScreen() = shoot("round-screen") { RoundScreen(RuntimeEnvironment.getApplication(), it, "r2") }
     @Test fun roundNew() = shoot("round-new") { RoundEditScreen(RuntimeEnvironment.getApplication(), it, null, false, courses()) }
     @Test fun settlementNew() = shoot("settlement-new") {
         val people = JSONArray(File(fixtures, "profiles.json").readText()).let { a -> (0 until a.length()).map { AppProfile(a.getJSONObject(it)) } }
