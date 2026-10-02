@@ -76,10 +76,40 @@ if (!isConfigured) {
     );
 }
 
+/**
+ * **로그인 서버(`/auth/v1/`)에 가는 요청에만 시간 제한을 건다**(사용자 제보 —
+ * `어제 저녁에 앱사용하고 아침에 … 새로고침해도 반응도없고 새 정보를 받아오지못해` ·
+ * 화면에는 `로그인을 확인하지 못했습니다`).
+ *
+ * 브라우저의 `fetch`에는 시간 제한이 없다. 밤새 잠들었던 폰이 깨어나는 그 순간
+ * supabase-js가 토큰 갱신을 보내는데, 그 요청이 **죽은 연결에 걸려 답이 영영 안
+ * 오면** supabase-js는 그 한 건을 모두가 기다리게 묶어 둔다(`refreshingDeferred`) —
+ * 그 뒤의 갱신이 전부 같은 약속에 매달려 **앱을 완전히 껐다 켜기 전까지 멈춘다.**
+ * 앱 화면은 웹에 새 토큰을 부탁하고 12초를 기다리다 그 문구를 띄운다.
+ *
+ * 8초에 끊으면 supabase-js가 그것을 '다시 해 볼 실패'로 보고 새 연결로 곧바로
+ * 다시 보낸다 — 앱이 기다리는 12초 안에 끝난다. **사진 올리기(Storage)·조회는
+ * 안 건드린다** — 50MB 원본을 8초에 끊으면 안 된다.
+ */
+const AUTH_TIMEOUT = 8000;
+function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!href.includes('/auth/v1/')) return fetch(input, init);
+    const ctl = new AbortController();
+    const outer = init?.signal;
+    if (outer) {
+        if (outer.aborted) ctl.abort();
+        else outer.addEventListener('abort', () => ctl.abort(), { once: true });
+    }
+    const timer = setTimeout(() => ctl.abort(), AUTH_TIMEOUT);
+    return fetch(input, { ...init, signal: ctl.signal }).finally(() => clearTimeout(timer));
+}
+
 export const supabase = createClient<Database>(
     url ?? 'http://localhost',
     anonKey ?? 'anon',
     {
+        global: { fetch: authFetch },
         auth: {
             persistSession: true,
             autoRefreshToken: true,
@@ -202,7 +232,13 @@ export function renewSession(): Promise<string | null> {
     const run = (async () => {
         for (let i = 0; i < 4; i++) {
             try {
-                const { data, error } = await supabase.auth.refreshSession();
+                /* **한 판이 영영 안 끝나도 여기서 끊는다** — 위 `authFetch`가 막지만,
+                   이 약속이 매달리면 `renewing`이 비지 않아 그 뒤 부탁이 전부 같은
+                   자리에서 멈춘다(앱을 껐다 켜기 전까지). 그것만은 없게 한다. */
+                const { data, error } = await Promise.race([
+                    supabase.auth.refreshSession(),
+                    new Promise<never>((_, no) => setTimeout(() => no(new Error('timeout')), 20000)),
+                ]);
                 if (data.session) return data.session.access_token;
                 const status = (error as { status?: number } | null)?.status ?? 0;
                 if (status >= 400 && status < 500 && status !== 408 && status !== 429) return null;

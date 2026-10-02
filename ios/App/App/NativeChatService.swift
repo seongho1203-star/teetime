@@ -158,7 +158,7 @@ final class NativeChatService {
     /**
      * 새 토큰을 웹에 부탁하고 올 때까지 기다린다(`authNeeded` → 웹이 `session`으로 준다).
      *
-     * **12초까지 기다리고 4초마다 다시 부탁한다**(사용자 제보 — `앱을 한동안
+     * **20초까지 기다리고 4초마다 다시 부탁한다**(사용자 제보 — `앱을 한동안
      * 사용안하다가 접속하면` 라운드 화면이 빈 채로 `로그인이 만료됐습니다`).
      * 예전에는 3초만 기다렸는데, 오래 쉬다 깨어난 폰은 인터넷이 다시 붙고 웹이
      * 깨어나 갱신하기까지 그보다 오래 걸렸다 — 로그인은 멀쩡한데 만료로 굳었다.
@@ -170,7 +170,9 @@ final class NativeChatService {
         let w = Task { @MainActor [weak self] () -> Bool in
             guard let self = self else { return false }
             self.authNeeded?()
-            for i in 1...40 {
+            /* 20초까지 — 웹은 죽은 연결을 8초에 끊고 새로 보낸다(`authFetch` in
+               supabase.ts). 12초로는 그 한 바퀴가 아슬아슬했다. */
+            for i in 1...66 {
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 if self.config.token != old { return true }
                 if i % 13 == 0 { self.authNeeded?() }
