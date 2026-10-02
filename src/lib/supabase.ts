@@ -85,13 +85,40 @@ if (!isConfigured) {
  * supabase-js가 토큰 갱신을 보내는데, 그 요청이 **죽은 연결에 걸려 답이 영영 안
  * 오면** supabase-js는 그 한 건을 모두가 기다리게 묶어 둔다(`refreshingDeferred`) —
  * 그 뒤의 갱신이 전부 같은 약속에 매달려 **앱을 완전히 껐다 켜기 전까지 멈춘다.**
- * 앱 화면은 웹에 새 토큰을 부탁하고 12초를 기다리다 그 문구를 띄운다.
+ * 앱 화면은 웹에 새 토큰을 부탁하고 20초를 기다리다 그 문구를 띄운다.
  *
  * 8초에 끊으면 supabase-js가 그것을 '다시 해 볼 실패'로 보고 새 연결로 곧바로
- * 다시 보낸다 — 앱이 기다리는 12초 안에 끝난다. **사진 올리기(Storage)·조회는
+ * 다시 보낸다 — 앱이 기다리는 20초 안에 끝난다. **사진 올리기(Storage)·조회는
  * 안 건드린다** — 50MB 원본을 8초에 끊으면 안 된다.
+ *
+ * **8초는 마지막 그물이다. 깨어나는 순간에는 기다리지 않고 바로 끊는다**
+ * (사용자 요청 — `8초면 좀 길지않아??`). 앱이 잠든 동안 열려 있던 요청은 거의
+ * 늘 죽은 연결이라, 깨어났을 때 아직 답이 없으면 그 자리에서 버리고 다시 보낸다
+ * (`dropSlept`). **잠들기 전에 보냈거나 자는 동안 보낸 것만** 끊는다 — 깨어난
+ * 뒤에 보낸 새 요청까지 끊으면 다시 보내기를 되풀이한다. 잠깐(5초 아래) 다른
+ * 앱에 다녀온 것은 연결이 살아 있으므로 그냥 둔다.
  */
 const AUTH_TIMEOUT = 8000;
+const SLEEP_MIN = 5000;
+type Pending = { ctl: AbortController; slept: boolean };
+const pending = new Set<Pending>();
+let hiddenAt = 0;
+function dropSlept() {
+    if (typeof document === 'undefined') return;
+    if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        for (const p of pending) p.slept = true;
+        return;
+    }
+    const long = hiddenAt > 0 && Date.now() - hiddenAt >= SLEEP_MIN;
+    hiddenAt = 0;
+    for (const p of pending) {
+        if (!p.slept) continue;
+        if (long) p.ctl.abort();
+        else p.slept = false;
+    }
+}
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', dropSlept);
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!href.includes('/auth/v1/')) return fetch(input, init);
@@ -102,7 +129,12 @@ function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
         else outer.addEventListener('abort', () => ctl.abort(), { once: true });
     }
     const timer = setTimeout(() => ctl.abort(), AUTH_TIMEOUT);
-    return fetch(input, { ...init, signal: ctl.signal }).finally(() => clearTimeout(timer));
+    const me: Pending = { ctl, slept: hiddenAt > 0 };
+    pending.add(me);
+    return fetch(input, { ...init, signal: ctl.signal }).finally(() => {
+        clearTimeout(timer);
+        pending.delete(me);
+    });
 }
 
 export const supabase = createClient<Database>(

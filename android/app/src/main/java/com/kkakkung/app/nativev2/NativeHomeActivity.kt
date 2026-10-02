@@ -289,6 +289,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
 
     override fun onResume() {
         super.onResume()
+        NativeAuth.wake()
         if (!::api.isInitialized || !::content.isInitialized) return
         if (resumedOnce && currentFocus !is EditText && !content.transitioning) content.current?.refresh?.invoke()
         resumedOnce = true
@@ -312,6 +313,7 @@ class NativeHomeActivity : AppCompatActivity(), ScreenHost {
     }
 
     override fun onPause() {
+        NativeAuth.sleep()
         NativePushForeground.active = false
         super.onPause()
     }

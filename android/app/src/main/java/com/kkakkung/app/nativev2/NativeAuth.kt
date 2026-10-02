@@ -19,8 +19,31 @@ import java.util.concurrent.TimeUnit
 
 /** Supabase Auth를 WebView 없이 처리하는 Native V2 인증기. */
 object NativeAuth {
+    /*
+     * **로그인 요청은 8초에 끊고, 깨어나는 순간에는 기다리지 않고 끊는다**(아이폰·웹의
+     * `authFetch`·`dropSlept`와 같은 규칙 · 사용자 제보 — 밤새 둔 앱이 아침에 멈춤 ·
+     * `8초면 좀 길지않아??`). 잠든 동안 열려 있던 연결은 거의 늘 죽어 있어, 그대로
+     * 기다리면 `refreshLock`에 뒤의 갱신이 다 매달린다. 5초 넘게 가려져 있다 돌아오면
+     * (`wake`) 연결을 통째로 버리고 걸려 있던 요청을 끊는다 — 끊긴 갱신은 새 연결로
+     * 한 번 더 간다(`refresh`의 두 번째 판).
+     */
     private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+        .connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(8, TimeUnit.SECONDS).build()
+    private const val SLEEP_MIN = 5000L
+    @Volatile private var hiddenAt = 0L
+
+    /** 앱이 가려질 때 부른다(`NativeHomeActivity.onPause`). */
+    fun sleep() { hiddenAt = System.currentTimeMillis() }
+
+    /** 앱이 다시 보일 때 **다른 일보다 먼저** 부른다(`onResume` 맨 앞). */
+    fun wake() {
+        val long = hiddenAt > 0 && System.currentTimeMillis() - hiddenAt >= SLEEP_MIN
+        hiddenAt = 0
+        if (!long) return
+        http.connectionPool.evictAll()
+        http.dispatcher.cancelAll()
+    }
     private const val REDIRECT = "kkakkung://auth"
     private const val PREF = "kk_native_auth"
     private const val VERIFIER = "pkce_verifier"
@@ -184,8 +207,12 @@ object NativeAuth {
                 .post(JSONObject().put("refresh_token", session.refreshToken).toString()
                     .toRequestBody("application/json".toMediaType()))
                 .build()
+            // 한 번 끊기면(죽은 연결 · 깨어나며 끊음 · 8초) 새 연결로 한 번 더 간다.
             val res = try { http.newCall(req).execute() } catch (e: java.io.IOException) {
-                throw NativeApiError("인터넷 연결이 불안정합니다. 잠시 뒤 다시 시도해 주세요.", "network")
+                http.connectionPool.evictAll()
+                try { http.newCall(req).execute() } catch (e2: java.io.IOException) {
+                    throw NativeApiError("인터넷 연결이 불안정합니다. 잠시 뒤 다시 시도해 주세요.", "network")
+                }
             }
             res.use {
                 val raw = it.body?.string().orEmpty()
