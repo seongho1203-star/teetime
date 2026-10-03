@@ -217,6 +217,11 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
            `chatBarSkin()`과 **같은 값이라 한쪽만 고치지 말 것.**
            (댓글 바는 38px 그대로다 — 밝은 화면 위에 잠깐 뜨는 줄이다.) */
         composer.minH = 48; composer.radius = 24
+        /* **알약 하나에 다 담는다**(사용자 요청 — 카톡의 새 입력칸 사진을 받아
+           맞췄다). `+`·글칸·이모티콘·보내기가 유리 알약 안에 들고 `+`·보내기는
+           흰 동그라미다. 잰 값은 `ComposerBar.capsule` 주석에 있다. */
+        composer.capsule = true; composer.padH = 10; composer.iconW = 28
+        composer.setHint("메시지 입력")
         composer.paint(); composer.watchKeyboard()
         composer.textView.accessibilityIdentifier = "native-chat-input"
         composer.sendBtn.accessibilityIdentifier = "native-chat-send"

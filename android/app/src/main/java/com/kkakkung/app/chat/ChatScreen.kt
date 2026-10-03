@@ -271,40 +271,55 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         })
 
 
-        /* 글칸 줄 — 카톡처럼 뒤에 판을 안 깔고(보라 그대로) 흰 알약 하나가 뜬다.
-           한 줄 48 · 둥글기 24 (CLAUDE.md `글칸 한 줄은 48px`). */
+        /* 글칸 줄 — **알약 하나에 `+`·글칸·이모티콘·보내기가 다 든다**(사용자 요청 —
+           카톡의 새 입력칸 사진을 받아 맞췄다 · 아이폰 `ComposerBar.capsule`과 같은 값).
+           알약 48 · 둥글기 24 · 화면 끝에서 10 · 동그라미 32 · 알약 안쪽 끝에서 8.
+           뒤에는 판을 안 깔고 보라가 그대로 보인다. 아이폰은 iOS 26의 유리(Liquid Glass)를
+           쓰고, 안드로이드는 같은 자리에 옅은 흰 칠과 가는 흰 테두리를 둔다. */
         composer.orientation = LinearLayout.HORIZONTAL
         composer.gravity = Gravity.BOTTOM
         composer.setBackgroundColor(ChatSkin.bg)
-        /* 문서 2-2: 뒤에 흰 판/위 선 없이 보라가 그대로 보인다.
-           한 줄 글칸은 정확히 48dp, radius 24. */
-        composer.setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
-        mediaBtn.setImageResource(R.drawable.ic_chat_plus)
-        mediaBtn.contentDescription = "사진·동영상 보내기"
-        mediaBtn.scaleType = ImageView.ScaleType.CENTER
-        mediaBtn.setOnClickListener { if (stage2) showMediaMenu() }
-        composer.addView(mediaBtn, LinearLayout.LayoutParams(dp(36f), dp(48f)))
-        /* 이모티콘 단추는 **글칸 안 오른쪽 끝**에 얹힌다(아이폰 `ComposerBar` · 사용자가 보여 준 카톡 모양).
-           왼쪽 `+` 옆에 나란히 두면 눌러야 할 것이 왼쪽에 둘로 몰린다. 글칸 오른쪽 여백(44)과 한 쌍이다. */
-        stickerBtn.setImageResource(R.drawable.ic_chat_smile); stickerBtn.scaleType = ImageView.ScaleType.CENTER
-        stickerBtn.contentDescription = "이모티콘"
-        stickerBtn.setOnClickListener { if (stage2) toggleStickerTray() }
-        input.background = GradientDrawable().apply { cornerRadius = dp(24f).toFloat(); setColor(ChatSkin.bubble) }
+        composer.setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
+        val pill = FrameLayout(activity)
+        pill.background = GradientDrawable().apply {
+            cornerRadius = dp(24f).toFloat()
+            setColor(0x8CFFFFFF.toInt())
+            setStroke(1, 0xB3FFFFFF.toInt())
+        }
+        input.background = null
         input.setTextColor(ChatSkin.text); input.textSize = 16f
-        input.setHintTextColor(0xFF9AA090.toInt()); input.hint = "메시지"
+        input.setHintTextColor(0xFF6B6B6B.toInt()); input.hint = "메시지 입력"
         input.minHeight = dp(48f); input.maxHeight = dp(120f); input.maxLines = 5
         input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        input.setPadding(dp(16f), dp(12f), dp(44f), dp(12f))
-        val pill = FrameLayout(activity)
+        /* 왼쪽 `+`(8+32) 몫과 오른쪽 보내기(8+32)·이모티콘(28) 몫을 비운다 — 아이폰과 같은 자리다. */
+        input.setPadding(dp(56f), dp(12f), dp(86f), dp(12f))
         pill.addView(input, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        pill.addView(stickerBtn, LayoutParams(dp(40f), dp(48f), Gravity.END or Gravity.BOTTOM).apply { rightMargin = dp(2f) })
-        composer.addView(pill, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6f) })
+        mediaBtn.setImageResource(R.drawable.ic_chat_plus)
+        mediaBtn.setColorFilter(ChatSkin.text)
+        mediaBtn.contentDescription = "사진·동영상 보내기"
+        mediaBtn.scaleType = ImageView.ScaleType.CENTER
+        mediaBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) }
+        mediaBtn.setOnClickListener { if (stage2) showMediaMenu() }
+        pill.addView(mediaBtn, LayoutParams(dp(32f), dp(32f), Gravity.START or Gravity.BOTTOM).apply {
+            leftMargin = dp(8f); bottomMargin = dp(8f)
+        })
+        /* 이모티콘 단추는 **글칸 안 오른쪽**, 보내기 바로 왼쪽에 옅은 동그라미로 앉는다. */
+        stickerBtn.setImageResource(R.drawable.ic_chat_smile); stickerBtn.scaleType = ImageView.ScaleType.CENTER
+        stickerBtn.contentDescription = "이모티콘"
+        stickerBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x14000000) }
+        stickerBtn.setOnClickListener { if (stage2) toggleStickerTray() }
+        pill.addView(stickerBtn, LayoutParams(dp(28f), dp(28f), Gravity.END or Gravity.BOTTOM).apply {
+            rightMargin = dp(54f); bottomMargin = dp(10f)
+        })
         sendBtn.setImageResource(R.drawable.ic_chat_send_up)
         sendBtn.scaleType = ImageView.ScaleType.CENTER
-        sendBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ChatSkin.brand) }
         sendBtn.contentDescription = "보내기"
         sendBtn.setOnClickListener { send() }
-        composer.addView(sendBtn, LinearLayout.LayoutParams(dp(36f), dp(36f)).apply { bottomMargin = dp(6f) })
+        pill.addView(sendBtn, LayoutParams(dp(32f), dp(32f), Gravity.END or Gravity.BOTTOM).apply {
+            rightMargin = dp(8f); bottomMargin = dp(8f)
+        })
+        refreshSend()
+        composer.addView(pill, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         column.addView(composer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         /* 웹에서 받은 stickers만 그린다. 높이 min(38%,300), 탭 위 + 5칸 격자. */
@@ -330,11 +345,12 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
             false
         }
         /* 글칸에 초점이 가면 서랍이 닫힌다 — 키보드와 자리를 맞바꾼다(CLAUDE.md). */
-        input.setOnFocusChangeListener { _, has -> if (has) setTray(false) }
+        input.setOnFocusChangeListener { _, has -> if (has) setTray(false); refreshSend() }
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(x: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(x: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(e: Editable?) {
+                refreshSend()
                 if (!stage2 || e == null || paintingMentions) return
                 /* 한글 조합 중에는 칠(span)을 손대지 않는다 — 다만 **추천 줄과 언급 목록은
                    그대로 띄운다.** 안드로이드 한글 자판은 마지막 글자를 다음 글자를 칠
@@ -1441,10 +1457,20 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }, FrameLayout.LayoutParams(dp(38f),dp(38f),Gravity.TOP or Gravity.END).apply { topMargin = dp(2f); rightMargin = dp(2f) })
         stickerPreview.visibility=View.VISIBLE
         stickerPreview.bringToFront()
+        refreshSend()
     }
 
     private fun clearSticker() {
         pickedSticker=null; stickerPreview.visibility=View.GONE; stickerPreview.removeAllViews()
+        refreshSend()
+    }
+
+    /** 보내기 단추의 켜짐 — 아이폰 `ComposerBar.refreshSend`와 같은 잣대(초점·적은 글·고른 이모티콘).
+     *  꺼지면 `+`와 짝인 흰 동그라미, 켜지면 분홍이다. */
+    private fun refreshSend() {
+        val on = input.hasFocus() || !input.text.isNullOrEmpty() || pickedSticker != null
+        sendBtn.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (on) ChatSkin.brand else Color.WHITE) }
+        sendBtn.setColorFilter(if (on) Color.WHITE else ChatSkin.text)
     }
 
     private fun sendPickedStickerOnly() {

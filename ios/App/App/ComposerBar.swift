@@ -239,6 +239,25 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// 사진을 못 붙인다.
     var showPlus = true
 
+    /**
+     * **알약 하나에 다 담는 입력칸**(대화방만 · 사용자 요청 — 카톡의 새 입력칸
+     * 사진을 받아 맞췄다). `+` · 글칸 · 이모티콘 · 보내기가 **유리 알약 하나**
+     * 안에 들고, `+`와 보내기는 흰 동그라미다.
+     *
+     * 사진(1206px · 배율 3.0)에서 잰 값 — 알약 높이 144px → **48**(=`minH`),
+     * 화면 끝에서 30px → **10**(=`padH`), 동그라미 96px → **32**(`dot`),
+     * 알약 안쪽 끝에서 동그라미까지 24px → **8**(`capIn`).
+     *
+     * **댓글 바는 예전 모양 그대로다**(밝은 화면 위에 잠깐 뜨는 줄이라 거기서
+     * 맞출 것이 아니다). 끄면 예전 셈으로 돌아간다.
+     */
+    var capsule = false { didSet { guard capsule != oldValue else { return }; paint(); setNeedsLayout() } }
+    private let dot: CGFloat = 32
+    private let capIn: CGFloat = 8
+    /// 알약 바탕. iOS 26부터는 유리(`UIGlassEffect`), 그 아래는 옅은 흰 칠이다.
+    private let shell = UIView()
+    private var glass: UIVisualEffectView?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         build()
@@ -260,6 +279,12 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
         topLine.isUserInteractionEnabled = false
         addSubview(topLine)
+
+        shell.isUserInteractionEnabled = false
+        shell.isHidden = true
+        shell.clipsToBounds = true
+        shell.layer.cornerCurve = .continuous
+        addSubview(shell)
 
         textView.delegate = self
         textView.font = .systemFont(ofSize: fontSize)
@@ -317,7 +342,9 @@ final class ComposerBar: UIView, UITextViewDelegate {
            하는 자리라 아예 셈으로 두었다. 댓글 바(38px)에서는 9px이라
            예전(7px)보다 되레 가운데에 온다(높이는 그대로다). */
         let iv = insetV()
-        textView.textContainerInset = UIEdgeInsets(top: iv, left: 9, bottom: iv, right: 34)
+        /* 알약 모양은 이모티콘 동그라미가 커서 그만큼 오른쪽을 더 비운다. */
+        let ir = capsule ? iconW + max(0, (minH - iconW) / 2) + 4 : 34
+        textView.textContainerInset = UIEdgeInsets(top: iv, left: 9, bottom: iv, right: ir)
 
         paintMentions()
 
@@ -340,16 +367,59 @@ final class ComposerBar: UIView, UITextViewDelegate {
 
         sendBtn.setImage(UIImage(systemName: "arrow.up", withConfiguration: small), for: .normal)
         sendBtn.layer.cornerRadius = sendW / 2
+        if capsule { paintCapsule() } else { paintPlain() }
         refreshSend()
         refreshHint()
+    }
+
+    /// 예전 모양(댓글 바) — 알약 바탕을 걷고 단추 바탕을 지운다.
+    private func paintPlain() {
+        shell.isHidden = true
+        plusBtn.backgroundColor = .clear; plusBtn.layer.cornerRadius = 0
+        iconBtn.backgroundColor = .clear; iconBtn.layer.cornerRadius = 0
+    }
+
+    /// 알약 하나에 다 담는 모양(대화방). 값은 `capsule` 주석을 볼 것.
+    private func paintCapsule() {
+        shell.isHidden = false
+        shell.layer.cornerRadius = radius
+        if glass == nil, #available(iOS 26.0, *) {
+            let g = UIGlassEffect()
+            /* 보라 바탕 위에서 글자가 읽히게 흰빛을 조금 얹는다. */
+            g.tintColor = UIColor.white.withAlphaComponent(0.35)
+            let v = UIVisualEffectView(effect: g)
+            v.isUserInteractionEnabled = false
+            shell.addSubview(v)
+            glass = v
+        }
+        if glass == nil {
+            shell.backgroundColor = UIColor.white.withAlphaComponent(0.55)
+            shell.layer.borderWidth = 1 / UIScreen.main.scale
+            shell.layer.borderColor = UIColor.white.withAlphaComponent(0.7).cgColor
+        }
+        /* 글칸은 알약 안에 들므로 제 칠을 벗는다. */
+        textView.backgroundColor = .clear
+        textView.layer.cornerRadius = 0
+
+        let mid = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        plusBtn.setImage(UIImage(systemName: "plus", withConfiguration: mid), for: .normal)
+        plusBtn.backgroundColor = .white
+        plusBtn.tintColor = cText
+        plusBtn.layer.cornerRadius = dot / 2
+        sendBtn.layer.cornerRadius = dot / 2
+        iconBtn.backgroundColor = UIColor.black.withAlphaComponent(0.08)
+        iconBtn.layer.cornerRadius = iconW / 2
+        if !trayOn { iconBtn.tintColor = cText }
+        hintLabel.textColor = UIColor(white: 0.42, alpha: 1)
     }
 
     /// 보내기 단추의 켜짐. **웹과 같은 잣대다** — 초점이 있거나 적어 둔
     /// 글이 있으면 켠다. 글자 수로만 정하면 조합 중에 깜빡인다.
     func refreshSend() {
         let on = textView.isFirstResponder || !textView.text.isEmpty || forceSend
-        sendBtn.backgroundColor = on ? cBrand : cOffBg
-        sendBtn.tintColor = on ? cOnBrand : cOffFg
+        /* 알약 모양에서는 꺼진 단추가 흰 동그라미다(`+`와 짝) — 켜지면 분홍. */
+        sendBtn.backgroundColor = on ? cBrand : (capsule ? .white : cOffBg)
+        sendBtn.tintColor = on ? cOnBrand : (capsule ? cText : cOffFg)
     }
 
     /// 골라 둔 이모티콘이 있을 때처럼 글이 없어도 켜 두어야 하는 경우.
@@ -381,9 +451,18 @@ final class ComposerBar: UIView, UITextViewDelegate {
     private func plusWidth() -> CGFloat { return showPlus ? plusW : 0 }
 
     private func fieldWidth() -> CGFloat {
+        if capsule {
+            let w = totalWidth() - padH * 2 - capLeft() - capRight()
+            return max(60, w)
+        }
         let w = totalWidth() - padH * 2 - plusWidth() - sendW - gap * 2
         return max(60, w)
     }
+
+    /// 알약 왼쪽 끝에서 글칸까지(`+` 동그라미 몫).
+    private func capLeft() -> CGFloat { return showPlus ? capIn + dot + 2 : 6 }
+    /// 글칸 오른쪽 끝에서 알약 끝까지(보내기 동그라미 몫).
+    private func capRight() -> CGFloat { return capIn + dot + 4 }
 
     /// 글칸 위아래 안여백. **한 줄이 `minH` 가운데에 오게** 낸다.
     private func insetV() -> CGFloat {
@@ -720,9 +799,13 @@ final class ComposerBar: UIView, UITextViewDelegate {
         fill.frame = CGRect(x: 0, y: 0, width: w, height: max(0, inner))
         topLine.frame = CGRect(x: 0, y: 0, width: w, height: 1 / UIScreen.main.scale)
 
-        let fx = padH + plusWidth() + (showPlus ? gap : 0)
+        let fx = capsule ? padH + capLeft() : padH + plusWidth() + (showPlus ? gap : 0)
         let fy = inner - padV - fh
         textView.frame = CGRect(x: fx, y: fy, width: fieldWidth(), height: fh)
+        if capsule {
+            shell.frame = CGRect(x: padH, y: fy, width: w - padH * 2, height: fh)
+            glass?.frame = shell.bounds
+        }
 
         hintLabel.frame = CGRect(x: fx + 14,
                                  y: fy + (minH - hintLabel.bounds.height) / 2,
@@ -744,6 +827,13 @@ final class ComposerBar: UIView, UITextViewDelegate {
         sendBtn.frame = CGRect(x: w - padH - sendW,
                                y: inner - padV - sendW - max(0, (minH - sendW) / 2),
                                width: sendW, height: sendW)
+        if capsule {
+            /* 동그라미 둘은 **한 줄일 때의 가운데**에 서고, 여러 줄로 늘면
+               아래 끝을 따라간다(이모티콘 단추와 같은 셈이다). */
+            let dy = inner - padV - (minH + dot) / 2
+            plusBtn.frame = CGRect(x: padH + capIn, y: dy, width: dot, height: dot)
+            sendBtn.frame = CGRect(x: w - padH - capIn - dot, y: dy, width: dot, height: dot)
+        }
 
         tellHeight()
         /* 자리가 잡힐 때마다 알린다 — 움직이는 동안이 아니어도 웹은 이
