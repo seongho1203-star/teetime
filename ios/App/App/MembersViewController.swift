@@ -234,12 +234,9 @@ final class MembersViewController: NativeScreenController, UITableViewDataSource
         if let attend = attend { subs.append("올해 \(attend[p.id] ?? 0)회") }
         if isAdmin { subs.append(c?.car ?? "차량번호 미등록") }
         if isAdmin, let phone = c?.phone { subs.append(phone) }
-        /* 생일은 **안 적은 사람은 줄째 안 그린다** — `1975년`만 적으면 받아 둔
-           것처럼 보인다. */
-        var birth = ""
-        if isAdmin, let md = c?.birthMd {
-            birth = "🎂 " + AppDate.birthLabel(year: p.birthYear, md: md, cal: c?.birthCal ?? "solar")
-        }
+        /* **생일(달·날)은 운영진에게도 안 적는다**(사용자 요청 — 축하 기능만 쓰고
+           표시는 누구도 못 보게). 축하 글은 DB가 고르므로 그대로 돈다. 되살리지 말 것. */
+        let birth = ""
         cell.fill(p, mine: p.id == service.config.user, sub: subs.joined(separator: " · "), birth: birth,
                   manageable: manageable(p), first: indexPath.row == 0,
                   last: indexPath.row == sections[indexPath.section].rows.count - 1)

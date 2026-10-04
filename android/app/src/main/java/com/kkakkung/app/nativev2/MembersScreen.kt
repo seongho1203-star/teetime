@@ -152,9 +152,9 @@ class MembersScreen(ctx: Context, host: ScreenHost) : NativeScreen(ctx, host, "�
         attend?.let { subs.add("올해 ${it[p.id] ?: 0}회") }
         if (isAdmin) subs.add(c?.strOrNull("car")?.ifBlank { null } ?: "차량번호 미등록")
         if (isAdmin) c?.strOrNull("phone")?.ifBlank { null }?.let(subs::add)
-        /* 생일은 **안 적은 사람은 줄째 안 그린다** — `1975년`만 적으면 받아 둔 것처럼 보인다. */
-        val md = if (isAdmin) c?.strOrNull("birth_md")?.ifBlank { null } else null
-        val birth = md?.let { "🎂 " + AppDate.birthLabel(p.birthYear, it, c?.strOrNull("birth_cal") ?: "solar") }.orEmpty()
+        /* **생일(달·날)은 운영진에게도 안 적는다**(사용자 요청 — 축하 기능만 쓰고
+           표시는 누구도 못 보게). 축하 글은 DB가 고르므로 그대로 돈다. 되살리지 말 것. */
+        val birth = ""
         val manage = manageable(p)
 
         val wrap = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
