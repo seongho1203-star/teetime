@@ -240,9 +240,15 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
             for k in ["courses", "clubs", "banks", "guide"] where o[k] != nil { Self.shared[k] = o[k] }
             if let sh = self.shell, sh.service.config.user == config.user,
                nav.viewControllers.contains(where: { $0 === sh }) {
+                /* **같은 사람이면 토큰만 갈아 끼우고 화면은 건드리지 않는다**(사용자 제보 —
+                   `앱을 사용안한지 좀됐다가 다시 접속해서 화면을 터치하면 … 터치한 메뉴로
+                   이동하는게아니고 화면을 다시 리셋하더라고`). 오래 쉬다 깨어나면 웹이 토큰을
+                   갱신해 여기를 다시 부르는데, 그때 `select(path)`가 **방금 누른 화면을 내리고
+                   홈 탭으로 되돌렸다** — 웹 주소는 탭을 옮겨도 안 바뀌어 늘 처음 탭(`/`)이기
+                   때문이다. 웹 화면이 통째로 다시 떠도(웹 내용 프로세스가 죽어 다시 읽힘) 같은
+                   길로 온다. **여기서 탭을 고르지 말 것** — 탭을 옮기는 일은 `go`가 맡는다. */
                 sh.service.config = config
-                sh.select(path)
-                AppLog.add("shell 그대로 \(path)")
+                AppLog.add("shell 그대로(토큰만) \(path)")
                 call.resolve(["ok": true]); return
             }
             let sh = ShellController(service: NativeChatService(config))
