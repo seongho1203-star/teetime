@@ -95,6 +95,10 @@ export function GenderAge({
                     />
                     <span className="birth-unit">일</span>
                 </div>
+                {/* **왜 묻는지 적어 둔다**(사용자 요청 — 모르면 `왜 개인정보를 묻나`
+                    한다). 아이폰 `MeViewController`·안드로이드 `GenderAgeFields`와 같은 글이다.
+                    전화번호·차량번호는 운영진이 보므로 이 글에 섞지 말 것. */}
+                <p className="xs faint">생일 축하 글을 띄우는 데에만 쓰며, 생일(월·일)은 운영진을 포함해 누구도 볼 수 없습니다. 태어난 해만 이름 앞에(예: 83/홍길동) 표시됩니다.</p>
             </div>
             <div className="field">
                 <label>성별</label>

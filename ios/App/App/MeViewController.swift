@@ -560,7 +560,9 @@ final class MeEditViewController: FormScreenController {
 
         card([field("닉네임", nameField),
               field("전화번호", phoneField),
-              field("생년월일", birth),
+              /* 왜 묻는지 적어 둔다(사용자 요청) — 웹 `GenderAge`·안드로이드와 같은 글.
+                 전화번호·차량번호는 운영진이 보므로 섞지 말 것. */
+              field("생년월일", birth, note: "생일 축하 글을 띄우는 데에만 쓰며, 생일(월·일)은 운영진을 포함해 누구도 볼 수 없습니다. 태어난 해만 이름 앞에(예: 83/홍길동) 표시됩니다."),
               field("성별", pair(maleBtn, femaleBtn)),
               field("차량번호", carField),
               field("거주지역", regionField)])

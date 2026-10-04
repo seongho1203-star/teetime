@@ -319,7 +319,9 @@ class GenderAgeFields(private val ui: Ui) {
             addView(equalRow(ui, listOf(solarBtn, lunarBtn)))
             addView(birthRow)
         }
-        return listOf(formField(ui, "생년월일", birth), formField(ui, "성별", equalRow(ui, listOf(maleBtn, femaleBtn))))
+        /* 왜 묻는지 적어 둔다(사용자 요청) — 웹 `GenderAge`·아이폰과 같은 글. 전화번호·차량번호는
+           운영진이 보므로 섞지 말 것. */
+        return listOf(formField(ui, "생년월일", birth, note = BIRTH_NOTE), formField(ui, "성별", equalRow(ui, listOf(maleBtn, femaleBtn))))
     }
 
     class Value(val gender: String, val year: Int, val md: String, val cal: String)
@@ -338,5 +340,8 @@ class GenderAgeFields(private val ui: Ui) {
         return Value(g, year, "%02d-%02d".format(m, d), cal)
     }
 
-    companion object { const val BIRTH_MIN = 1930; const val BIRTH_MAX = 2020; const val REGION_MAX = 8 }
+    companion object {
+        const val BIRTH_NOTE = "생일 축하 글을 띄우는 데에만 쓰며, 생일(월·일)은 운영진을 포함해 누구도 볼 수 없습니다. 태어난 해만 이름 앞에(예: 83/홍길동) 표시됩니다."
+        const val BIRTH_MIN = 1930; const val BIRTH_MAX = 2020; const val REGION_MAX = 8
+    }
 }
