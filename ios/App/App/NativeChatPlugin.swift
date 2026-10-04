@@ -34,6 +34,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
                없이 넘어갔다**(사용자 제보 — `끌기할때 뒷배경 안보임`). */
             self.chat = chat; self.screen = screen
             chat.service.config = config; chat.updateToken(config.token)
+            AuthStore.shared.offer(url: config.url, user: config.user, access: config.token, refresh: config.refresh)
             chat.event = { [weak self] type, data in
                 guard let self = self else { return }
                 self.notifyListeners("event", data: ["screen": self.screen, "type": type, "data": data])
@@ -209,6 +210,7 @@ public class NativeChatPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func session(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             if call.getString("user") == self.chat?.service.config.user, let token = call.getString("token") {
+                self.chat?.service.adopt(token: token, refresh: call.getString("refresh"))
                 self.chat?.updateToken(token)
             }
             call.resolve()

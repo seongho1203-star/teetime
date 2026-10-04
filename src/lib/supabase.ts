@@ -119,9 +119,26 @@ function dropSlept() {
     }
 }
 if (typeof document !== 'undefined') document.addEventListener('visibilitychange', dropSlept);
+/**
+ * **아이폰 앱에서는 로그인 갱신을 앱이 한다**(`ios/App/App/AuthStore.swift` ·
+ * 사용자가 정했다 — `앱이 직접 받기`). 갱신 열쇠는 한 번 쓰면 바뀌고, 옛것을
+ * 10초가 지나 또 쓰면 서버가 로그인을 통째로 끊는다 — 앱 화면과 이 웹이 따로
+ * 갱신하면 언젠가 그 일이 난다. 그래서 갱신 요청만 앱에 넘기고, 앱이 한 줄로
+ * 세워 한 번만 보낸다(웹이 옛 열쇠를 들고 있으면 앱이 지금 것을 돌려준다).
+ * 거는 것은 `native-app.ts`다 — 이 파일이 그쪽을 부르면 서로 물고 돈다.
+ */
+type NativeRefresh = (href: string, key: string, body: string) => Promise<Response>;
+let nativeRefresh: NativeRefresh | null = null;
+export function setNativeRefresh(fn: NativeRefresh) { nativeRefresh = fn; }
+
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!href.includes('/auth/v1/')) return fetch(input, init);
+    if (nativeRefresh && href.includes('grant_type=refresh_token') && typeof init?.body === 'string') {
+        /* 끊긴 것은 `fetch`가 끊긴 것과 같은 모양(TypeError)으로 던진다 —
+           supabase-js가 그것을 '다시 해 볼 실패'로 본다. */
+        return nativeRefresh(href, anonKey ?? '', init.body).catch(() => { throw new TypeError('Failed to fetch'); });
+    }
     const ctl = new AbortController();
     const outer = init?.signal;
     if (outer) {
@@ -247,7 +264,7 @@ export async function signOut() {
     if (onReviewServer) { try { localStorage.removeItem(SERVER_KEY); } catch { /* 무시 */ } }
 }
 
-let renewing: Promise<string | null> | null = null;
+let renewing: Promise<{ token: string; refresh: string } | null> | null = null;
 /**
  * **앱 화면이 토큰을 새로 달라고 할 때**(`auth` 이벤트) 부른다 — 새 토큰을 돌려준다.
  *
@@ -259,7 +276,7 @@ let renewing: Promise<string | null> | null = null;
  * 사용안하다가 접속하면`). **서버가 열쇠를 거절한 것(4xx)은 다시 안 해 본다** —
  * 그건 정말로 끝난 것이고, supabase-js가 스스로 로그아웃시켜 로그인 화면으로 간다.
  */
-export function renewSession(): Promise<string | null> {
+export function renewSession(): Promise<{ token: string; refresh: string } | null> {
     if (renewing) return renewing;
     const run = (async () => {
         for (let i = 0; i < 4; i++) {
@@ -271,7 +288,7 @@ export function renewSession(): Promise<string | null> {
                     supabase.auth.refreshSession(),
                     new Promise<never>((_, no) => setTimeout(() => no(new Error('timeout')), 20000)),
                 ]);
-                if (data.session) return data.session.access_token;
+                if (data.session) return { token: data.session.access_token, refresh: data.session.refresh_token };
                 const status = (error as { status?: number } | null)?.status ?? 0;
                 if (status >= 400 && status < 500 && status !== 408 && status !== 429) return null;
             } catch { /* 끊긴 것 — 조금 뒤 다시 */ }

@@ -24,7 +24,7 @@ export type NativeChatEvent = {
 export const NativeChat = registerPlugin<{
     open(config: Record<string, unknown>): Promise<{ ok: boolean }>;
     close(config: { screen: string }): Promise<void>;
-    session(config: { user: string; token: string }): Promise<void>;
+    session(config: { user: string; token: string; refresh?: string }): Promise<void>;
     reset(): Promise<void>;
     addListener(name: 'event', callback: (e: NativeChatEvent) => void): Promise<PluginListenerHandle>;
 }>('NativeChat');

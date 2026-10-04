@@ -27,6 +27,8 @@ struct NativeChatConfig {
     let url: URL
     let key: String
     var token: String
+    /// 갱신 열쇠 — 웹이 함께 실어 보낸다(옛 웹은 안 보낸다). `AuthStore`가 맡는다.
+    var refresh: String? = nil
     let seen: String
     let stickers: [ChatJSON]
     /// **뒤에 깔 앞 화면 그림이 웹에 있는가**(`hasBackShot()`). 없으면 끌지
@@ -52,6 +54,7 @@ struct NativeChatConfig {
               let key = d["key"] as? String, !key.isEmpty,
               let token = d["token"] as? String, !token.isEmpty else { return nil }
         self.user = user; self.url = url; self.key = key; self.token = token
+        refresh = d["refresh"] as? String
         seen = d["seen"] as? String ?? "1970-01-01T00:00:00Z"
         stickers = d["stickers"] as? [ChatJSON] ?? []
         back = d["back"] as? Bool ?? false
@@ -91,6 +94,20 @@ final class NativeChatService {
     let liveUpdates: Bool
     init(_ config: NativeChatConfig, session: URLSession = .shared, liveUpdates: Bool = true) {
         self.config = config; self.session = session; self.liveUpdates = liveUpdates
+        AuthStore.shared.offer(url: config.url, user: config.user, access: config.token, refresh: config.refresh)
+    }
+
+    /// 웹이 새 토큰을 넘겼다(`session`) — 열쇠도 함께 왔으면 `AuthStore`에 알린다.
+    func adopt(token: String, refresh: String?) {
+        config.token = token
+        AuthStore.shared.offer(url: config.url, user: config.user, access: token, refresh: refresh)
+    }
+
+    /// `AuthStore`가 더 새 토큰을 들고 있으면 갈아 끼운다 — 여러 화면이 한 번 받은 것을 같이 쓴다.
+    private func syncToken() {
+        guard let t = AuthStore.shared.access(url: config.url, user: config.user), t != config.token,
+              AuthStore.exp(t) >= AuthStore.exp(config.token) else { return }
+        config.token = t
     }
 
     func request(_ path: String, query: [(String, String)] = [], method: String = "GET",
@@ -107,6 +124,7 @@ final class NativeChatService {
         /* **이미 지난 토큰이면 보내기 전에 새로 받는다.** 오래 쉬고 들어오면 토큰이
            한참 전에 끝나 있다 — 401을 한 바퀴 받고 나서야 부탁하면 그만큼 늦고,
            홈처럼 조회 여덟을 한꺼번에 보내는 화면은 여덟 번 부탁했다. */
+        syncToken()
         if authNeeded != nil, Self.expiring(config.token) { _ = await freshToken(from: config.token) }
         for attempt in 0...1 {
             let token = config.token
@@ -165,6 +183,14 @@ final class NativeChatService {
      * **여럿이 동시에 불러도 한 번만 부탁한다** — 웹이 갱신을 여러 번 겹쳐 돌리지 않게.
      */
     func freshToken(from old: String) async -> Bool {
+        syncToken()
+        if config.token != old { return true }
+        /* **먼저 앱이 직접 받는다**(`AuthStore`) — 웹이 잠들어 있어도 된다. 열쇠가
+           없거나(옛 웹) 서버가 거절했을 때만 아래의 예전 길(웹에 부탁)로 간다. */
+        if let t = await AuthStore.shared.renew(url: config.url, key: config.key, user: config.user, from: old) {
+            config.token = t
+            if t != old { return true }
+        }
         if config.token != old { return true }
         if let w = waiting { return await w.value }
         let w = Task { @MainActor [weak self] () -> Bool in

@@ -1,6 +1,6 @@
 import { chatShared } from './chat-shared';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
-import { SUPABASE_URL, SUPABASE_KEY } from './supabase';
+import { SUPABASE_URL, SUPABASE_KEY, setNativeRefresh, supabase } from './supabase';
 
 /**
  * **앱이 통째로 그리는 화면들의 다리** — 대화(`native-chat.ts`) 다음 걸음이다
@@ -31,7 +31,9 @@ export const NativeApp = registerPlugin<{
     ready(): Promise<{ v: number; screens: string[] }>;
     open(config: Record<string, unknown>): Promise<{ ok: boolean }>;
     close(config: { screen: string }): Promise<void>;
-    session(config: { user: string; token: string }): Promise<void>;
+    session(config: { user: string; token: string; refresh?: string }): Promise<void>;
+    /** 웹의 로그인 갱신을 앱에 맡긴다(`AuthStore`) — 서버 응답 그대로 돌려준다. 앱 판 13부터. */
+    refresh(config: { url: string; key: string; body: string }): Promise<{ status: number; body: string }>;
     /** 앱 화면 쪽 기록 — `내 정보` 맨 아래에 적는다(폰에서만 갈리는 자리를 읽으려는 것). */
     debug(): Promise<{ lines: string[] }>;
     /** 앱 껍데기(홈·탭바)를 세운다 — 로그인이 끝나면(`NativeShellSync`). 같은 사람이면 토큰·탭만 맞춘다. */
@@ -49,7 +51,41 @@ export const NativeApp = registerPlugin<{
     /** 실시간으로 바뀐 표 — 보이는 앱 화면이 다시 받는다(`AppLive`). 앱 판 12부터. */
     changed(config: { tables: string[] }): Promise<void>;
     addListener(name: 'event', callback: (e: NativeAppEvent) => void): Promise<PluginListenerHandle>;
+    /** 앱이 스스로 받은 새 로그인(`AuthStore.onRotate`) — 웹도 같은 것을 쓰게. */
+    addListener(name: 'authSession', callback: (s: { access_token?: string; refresh_token?: string }) => void): Promise<PluginListenerHandle>;
 }>('NativeApp');
+
+/**
+ * **아이폰 앱이면 로그인 갱신을 앱에 맡긴다**(`AuthStore.swift` · supabase.ts의
+ * `setNativeRefresh`). 그 판을 아는 앱인지는 **플러그인 머리표**로 가린다 —
+ * 모르는 함수를 부르면 앱이 답을 안 해 약속이 영영 안 끝나는 판이 있다.
+ * 파일을 불러오는 그 순간 건다: 웹 화면이 치워졌다 다시 뜨면 supabase-js가
+ * 곧바로 갱신을 보내는데, 그것부터 앱을 거쳐야 옛 열쇠가 서버로 안 나간다.
+ */
+function nativeHas(method: string): boolean {
+    const heads = (window as unknown as { Capacitor?: { PluginHeaders?: { name: string; methods: { name: string }[] }[] } })
+        .Capacitor?.PluginHeaders;
+    return Boolean(heads?.find(h => h.name === 'NativeApp')?.methods.some(m => m.name === method));
+}
+function jwtExp(t: string | undefined): number {
+    try { return JSON.parse(atob((t ?? '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp ?? 0; } catch { return 0; }
+}
+if (Capacitor.getPlatform() === 'ios' && nativeHas('refresh')) {
+    setNativeRefresh(async (href, key, body) => {
+        const r = await Promise.race([
+            NativeApp.refresh({ url: href, key, body }),
+            new Promise<never>((_, no) => setTimeout(() => no(new Error('timeout')), 25000)),
+        ]);
+        return new Response(r.body, { status: r.status, headers: { 'Content-Type': 'application/json' } });
+    });
+    void NativeApp.addListener('authSession', async s => {
+        if (!s.access_token || !s.refresh_token) return;
+        const { data } = await supabase.auth.getSession();
+        /* 붙들려 있다 늦게 온 옛것이면 안 받는다 — 지금 것이 더 늦게 끝나면 그대로 둔다. */
+        if (data.session && jwtExp(data.session.access_token) >= jwtExp(s.access_token)) return;
+        await supabase.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token });
+    });
+}
 
 /**
  * **앱이 그릴 줄 아는 주소.** Swift의 `NativeAppPlugin.screens`와 같아야 한다 —

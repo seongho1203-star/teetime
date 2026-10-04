@@ -39,10 +39,11 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "log", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reply", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deep", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "changed", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "changed", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "refresh", returnType: CAPPluginReturnPromise)
     ]
     /// 앱 쪽 판 번호 — 화면을 더하면 올린다(웹이 무엇을 아는지 가리는 값).
-    static let version = 12
+    static let version = 13
     /// **앱이 그릴 줄 아는 주소.** 웹의 `NATIVE_SCREENS`와 같아야 한다.
     /// `:id`는 uuid 한 조각이다.
     static let screens: [String] = ["/members", "/alerts", "/board/:id", "/rounds/:id", "/polls/:id", "/help",
@@ -248,6 +249,7 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
                    때문이다. 웹 화면이 통째로 다시 떠도(웹 내용 프로세스가 죽어 다시 읽힘) 같은
                    길로 온다. **여기서 탭을 고르지 말 것** — 탭을 옮기는 일은 `go`가 맡는다. */
                 sh.service.config = config
+                AuthStore.shared.offer(url: config.url, user: config.user, access: config.token, refresh: config.refresh)
                 AppLog.add("shell 그대로(토큰만) \(path)")
                 call.resolve(["ok": true]); return
             }
@@ -387,7 +389,16 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
      */
     @MainActor static var lastTap: (path: String, at: Date)?
     private static weak var live: NativeAppPlugin?
-    public override func load() { Self.live = self }
+    public override func load() {
+        Self.live = self
+        /* 앱이 스스로 받은 새 로그인을 웹에도 넘긴다 — 웹의 실시간·올리기가 같은 토큰을 쓰게.
+           **웹이 잠들어 있으면 깨어날 때까지 붙들어 둔다**(`retainUntilConsumed`). */
+        Task { @MainActor [weak self] in
+            AuthStore.shared.onRotate = { [weak self] o in
+                self?.notifyListeners("authSession", data: o, retainUntilConsumed: true)
+            }
+        }
+    }
 
     @MainActor static func tapped(url: String) {
         var path = url
@@ -418,15 +429,39 @@ public class NativeAppPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func session(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            let refresh = call.getString("refresh")
             if let vc = self.screen, call.getString("user") == vc.service.config.user,
                let token = call.getString("token") {
-                vc.service.config.token = token
+                vc.service.adopt(token: token, refresh: refresh)
             }
             if let sh = self.shell, call.getString("user") == sh.service.config.user,
                let token = call.getString("token") {
-                sh.service.config.token = token
+                sh.service.adopt(token: token, refresh: refresh)
             }
             call.resolve()
+        }
+    }
+
+    /**
+     * **웹의 로그인 갱신도 여기서 한다**(`AuthStore` · 웹 `authFetch`). 웹은 갱신
+     * 요청(`/auth/v1/token?grant_type=refresh_token`)을 서버에 안 보내고 이리 넘긴다 —
+     * 웹과 앱이 따로 갱신하면 열쇠가 겹쳐 쓰여 로그인이 통째로 끊길 수 있다.
+     * 답은 서버 응답 그대로(`status`·`body`)다. 끊긴 것은 거절한다(웹이 다시 해 본다).
+     */
+    @objc func refresh(_ call: CAPPluginCall) {
+        guard let href = call.getString("url"), let full = URL(string: href), full.scheme == "https",
+              let key = call.getString("key"), let body = call.getString("body"),
+              let o = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? ChatJSON,
+              let refresh = o["refresh_token"] as? String, !refresh.isEmpty,
+              let range = href.range(of: "/auth/v1/"), let base = URL(string: String(href[..<range.lowerBound]))
+        else { call.reject("갱신 요청을 읽지 못했습니다."); return }
+        Task { @MainActor in
+            do {
+                let (status, data) = try await AuthStore.shared.serve(url: base, key: key, refresh: refresh)
+                call.resolve(["status": status, "body": String(data: data, encoding: .utf8) ?? ""])
+            } catch {
+                call.reject("통신이 끊겼습니다.")
+            }
         }
     }
 

@@ -247,8 +247,8 @@ function NativeScreenHost({ path, extra, onAction, sync }: {
                         .catch(err => say({ name, ok: false, why: readableError(err) }));
                 }
                 if (e.type === 'auth') {
-                    void renewSession().then(token => {
-                        if (token && !dead) void NativeApp.session({ user, token });
+                    void renewSession().then(s => {
+                        if (s && !dead) void NativeApp.session({ user, token: s.token, refresh: s.refresh });
                     });
                 }
             });
@@ -262,7 +262,7 @@ function NativeScreenHost({ path, extra, onAction, sync }: {
             const ms = slideLeft();
             const result = await NativeApp.open({
                 ...(extraRef.current ?? {}),
-                screen, path, user, token,
+                screen, path, user, token, refresh: current.current?.refresh_token,
                 url: SUPABASE_URL, key: SUPABASE_KEY,
                 back: hasBackShot(),
                 slide: back || dragged ? 0 : ms,
@@ -287,8 +287,8 @@ function NativeScreenHost({ path, extra, onAction, sync }: {
         };
     }, [user, navigate, attempt, path]);
     useEffect(() => {
-        if (user && session?.access_token) void NativeApp.session({ user, token: session.access_token });
-    }, [user, session?.access_token]);
+        if (user && session?.access_token) void NativeApp.session({ user, token: session.access_token, refresh: session.refresh_token });
+    }, [user, session?.access_token, session?.refresh_token]);
     return <div className="page center-fill" aria-label="앱 화면 열기">
         {error ? <>
             <p>{error}</p>
@@ -319,6 +319,7 @@ export function NativeShellSync() {
     const { session } = useAuth();
     const user = session?.user.id ?? '';
     const token = session?.access_token ?? '';
+    const refresh = session?.refresh_token ?? '';
     const navigate = useNavigate();
     const { pathname } = useLocation();
     const navRef = useRef(navigate);
@@ -334,11 +335,11 @@ export function NativeShellSync() {
         /* 공용 목록을 함께 실어 보낸다 — 껍데기가 직접 여는 화면(모집 열기·가이드·
            정산)도 쓰게. 원본은 여기 한 곳이다(`NativeAppPlugin.shared`). */
         void NativeApp.shell({
-            user, token, path: pathRef.current,
+            user, token, refresh, path: pathRef.current,
             courses: COURSES, clubs: CLUB_COURSES, banks: BANKS, guide: guideTable(),
             url: SUPABASE_URL, key: SUPABASE_KEY,
         }).then(() => shellReady(true), () => shellReady(false));
-    }, [user, token]);
+    }, [user, token, refresh]);
     useEffect(() => () => { shellReady(false); void NativeApp.shellOff().catch(() => {}); }, []);
 
     /* **실시간을 앱에 넘긴다**(5단계). 웹 화면들이 하던 `useRealtime`과 같은 줄을
@@ -384,8 +385,8 @@ export function NativeShellSync() {
                 navRef.current(e.data.path);
             }
             if (e.type === 'auth') {
-                void renewSession().then(token => {
-                    if (token && !dead) void NativeApp.session({ user, token });
+                void renewSession().then(s => {
+                    if (s && !dead) void NativeApp.session({ user, token: s.token, refresh: s.refresh });
                 });
             }
         }).then(h => {

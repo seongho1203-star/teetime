@@ -78,8 +78,8 @@ function NativeChatHost() {
                     if (e.data.phase === 'plain') goBack();
                 }
                 if (e.type === 'auth') {
-                    void renewSession().then(token => {
-                        if (token && !dead) void NativeChat.session({ user, token });
+                    void renewSession().then(s => {
+                        if (s && !dead) void NativeChat.session({ user, token: s.token, refresh: s.refresh });
                     });
                 }
             });
@@ -97,7 +97,7 @@ function NativeChatHost() {
             // child's layout effect. Read its timing only once they have run.
             const ms = slideLeft();
             await openNativeChat(screen, {
-                user, token, url: SUPABASE_URL, key: SUPABASE_KEY,
+                user, token, refresh: current.current?.refresh_token, url: SUPABASE_URL, key: SUPABASE_KEY,
                 seen: lastSeen('chat', user),
                 /* 뒤에 깔 앞 화면이 있을 때만 끈다 — 없으면 빈 화면이
                    손을 따라 나온다. 대화방 안에서는 주소가 안 바뀌므로
@@ -140,8 +140,8 @@ function NativeChatHost() {
         };
     }, [user, navigate, attempt]);
     useEffect(() => {
-        if (user && session?.access_token) void NativeChat.session({ user, token: session.access_token });
-    }, [user, session?.access_token]);
+        if (user && session?.access_token) void NativeChat.session({ user, token: session.access_token, refresh: session.refresh_token });
+    }, [user, session?.access_token, session?.refresh_token]);
     // This is only the opening/error placeholder, never a second chat renderer.
     return <div className="page center-fill" aria-label="대화 열기">
         {error ? <><p>{error}</p><button className="btn primary" onClick={() => { setError(''); setAttempt(x => x + 1); }}>다시 시도</button></> : <span className="spinner" />}
