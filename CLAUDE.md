@@ -783,7 +783,7 @@ round_reminders 에 한 줄  → notify_push() 트리거 → Edge Function → �
 | | 어디에 | 누가 보나 | 쓰는 곳 |
 |---|---|---|---|
 | `profiles.birth_year` | 공개 표 | 회원 전부 | 이름표(`83/…`) · 조 편성 `나이 조합` · 명단 `나이` 차례 |
-| `profile_private.birth_md` (`MM-DD`) | 가린 표 | **본인만 화면에 보인다** | 생일 축하(DB가 고른다) · `내 정보`의 내 생일 줄 |
+| `profile_private.birth_md` (`MM-DD`) | 가린 표 | **본인만 화면에 보인다**(가입 신청 줄만 운영진에게) | 생일 축하(DB가 고른다) · `내 정보`의 내 생일 줄 |
 | `profile_private.birth_cal` (`solar`/`lunar`) | 가린 표 | **본인·운영진** | 그 날짜를 양력으로 읽을지 음력으로 읽을지 |
 
 - **운영진에게도 남의 생일(달·날)을 안 적는다**(사용자 요청 — `생일축하기능은
@@ -791,6 +791,10 @@ round_reminders 에 한 줄  → notify_push() 트리거 → Edge Function → �
   (웹 `Members.tsx` · 아이폰 `MembersViewController` · 안드로이드 `MembersScreen`).
   **되살리지 말 것.** 축하 글은 DB(`post_birthday_greetings`)가 고르므로 화면에
   안 적어도 그대로 돈다. 본인은 `내 정보`에서 제 것만 본다.
+  - **예외 하나 — `가입 신청` 줄에서는 운영진에게 보인다**(사용자 요청 —
+    `회원가입할때 그 내용도 볼수있게해줘`). 승인하기 전에 누군지 확인하는
+    자리라서다. 승인되는 순간 그 줄이 회원 묶음으로 옮겨 가며 생일도 사라진다.
+    앱 둘(`MembersViewController`·`MembersScreen`)만 고쳤다 — 웹은 회원이 안 쓴다.
   표의 읽기 정책(본인·운영진)은 그대로다 — 전화번호·차량번호와 같은 표라서다.
   `.dev/behave.mjs`가 명단에 `🎂`가 없는지 잰다.
 - **월·일을 `profiles`에 두지 말 것.** RLS는 줄 단위라 한 표 안에서 칸만
