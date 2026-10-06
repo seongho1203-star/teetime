@@ -1888,6 +1888,18 @@ final class BubbleCell: UITableViewCell {
     private let upRing = MediaRing()
     private let upStop = UIImageView()
     private let upSize = UILabel()
+    /**
+     사진·동영상 **옆의 동그란 공유 단추**(사용자 요청 — 카톡 사진을 받아
+     맞췄다 · `사진 우측에 공유기능 똑같이 만들어줘`). 남의 글이면 오른쪽,
+     내 글이면 왼쪽 — 시각·안 읽은 수와 같은 쪽이다.
+
+     잰 값(1206×2622 · 배율 3.0): 지름 90px → **30** · 사진에서 50px → **16** ·
+     **사진 세로 가운데** · 칠은 보라 위 흰색 40%(`115 → 173`) · 먹색 그림.
+     **누르는 셈은 `tapped`가 한다**(그림칸과 같은 길) — 그래서 이 뷰 자체는
+     손짓을 안 받는다. 올리는 중(`tmp:`)·이모티콘에는 안 붙인다.
+     */
+    private let shareBtn = UIView()
+    private let shareIcon = UIImageView()
     private let capBubble = UIView()
     private let capLabel = UILabel()
     private let cardView = UIView()
@@ -1994,6 +2006,17 @@ final class BubbleCell: UITableViewCell {
         upSize.accessibilityIdentifier = "native-upload-size"
         for v in [upVeil, upRing, upStop, upSize] { v.isHidden = true; photoView.addSubview(v) }
 
+        shareBtn.backgroundColor = UIColor(white: 1, alpha: 0.4)
+        shareBtn.layer.cornerRadius = 15
+        shareBtn.isUserInteractionEnabled = false
+        shareBtn.isHidden = true
+        shareBtn.accessibilityLabel = "공유"
+        shareIcon.image = UIImage(systemName: "square.and.arrow.up",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold))
+        shareIcon.tintColor = UIColor(red: 27 / 255, green: 31 / 255, blue: 25 / 255, alpha: 0.9)
+        shareIcon.contentMode = .center
+        shareBtn.addSubview(shareIcon)
+
         capLabel.numberOfLines = 0
         capBubble.layer.cornerRadius = 11
         capBubble.layer.cornerCurve = .continuous
@@ -2049,7 +2072,7 @@ final class BubbleCell: UITableViewCell {
         quoteBox.addSubview(quoteLine)
 
         for v in [dateChip, markView, nameLabel, avatarView, bubble, timeLabel,
-                  unreadLabel, sysChip, photoView, capBubble, cardView, quoteBox,
+                  unreadLabel, sysChip, photoView, shareBtn, capBubble, cardView, quoteBox,
                   reactRow] {
             contentView.addSubview(v)
         }
@@ -2157,6 +2180,12 @@ final class BubbleCell: UITableViewCell {
             let c = CGPoint(x: photoView.frame.midX, y: photoView.frame.midY)
             if hypot(p.x - c.x, p.y - c.y) <= 34 { onTap?("cancel", r.id, nil) }
             return
+        }
+        /* 공유 단추는 **누르는 자리를 넉넉히** 본다(30 → 42) — 작은 동그라미라
+           손가락이 조금 비켜 가도 사진이 크게 뜨는 쪽으로 새면 안 된다. */
+        if !shareBtn.isHidden, shareBtn.frame.insetBy(dx: -6, dy: -6).contains(p),
+           let u = r.image {
+            onTap?("share", r.id, u); return
         }
         if hits(photoView), r.kind == .photo, let u = r.image {
             onTap?("photo", r.id, u); return
@@ -2327,6 +2356,8 @@ final class BubbleCell: UITableViewCell {
         sysChip.isHidden = !isSystem
         cardView.isHidden = !isCard
         photoView.isHidden = !hasImage
+        shareBtn.isHidden = !(r.kind == .photo && r.upload == nil
+                              && !r.id.hasPrefix("tmp:") && !(r.image ?? "").isEmpty)
         capBubble.isHidden = !(hasImage && !(r.cap ?? "").isEmpty)
         bubble.isHidden = isSystem || isCard || hasImage
         for v in [nameLabel, avatarView, timeLabel, unreadLabel] as [UIView] {
@@ -2742,6 +2773,17 @@ final class BubbleCell: UITableViewCell {
         if !unreadLabel.isHidden {
             unreadLabel.frame = CGRect(x: sx, y: bottom - stampH, width: stampW, height: stampH)
             unreadLabel.textAlignment = r.mine ? .right : .left
+            bottom -= stampH
+        }
+        /* 공유 단추 — **사진 세로 가운데**, 시각·안 읽은 수 위로는 안 내려간다
+           (낮은 사진에서 둘이 겹치지 않게). */
+        if !shareBtn.isHidden {
+            let d: CGFloat = 30
+            let pf = photoView.frame
+            let bx = r.mine ? pf.minX - 16 - d : pf.maxX + 16
+            let by = max(pf.minY, min(pf.midY - d / 2, bottom - 4 - d))
+            shareBtn.frame = CGRect(x: bx, y: by, width: d, height: d)
+            shareIcon.frame = shareBtn.bounds.offsetBy(dx: 0, dy: -1)
         }
 
         /* 반응 알약 줄 — 말풍선 **바로 아래**, 말풍선과 같은 쪽에 붙인다.

@@ -420,6 +420,7 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         }
         list.onHold = { row, anchor -> if (stage2) showHold(row, anchor) }
         list.onPhoto = { url -> showPhoto(url) }
+        list.onShare = { url -> shareMedia(url) }
         list.onUploadRetry = { uploads.retry(it) }
         list.onUploadCancel = { uploads.cancel(it) }
         activity.supportFragmentManager.setFragmentResultListener(mediaResultKey, activity) { _, result ->
@@ -1611,6 +1612,59 @@ class ChatScreen(private val activity: AppCompatActivity, val service: ChatServi
         val picked = selectedMedia; selectedMedia = emptyList()
         uploads.enqueue(picked, room)
         list.scrollToBottom(false)
+    }
+
+    /**
+     * 사진 옆 공유 단추 — **파일째** 넘긴다(아이폰 `shareMedia`와 같다).
+     * 주소만 넘기면 받는 쪽에 링크가 갈 뿐이라, 받아서 캐시에 두고
+     * `FileProvider`로 건넨다. 도는 동안 또 누르면 무시한다(`sharing`) —
+     * 동영상은 몇 초 걸려 안 눌린 줄 알고 또 누른다.
+     */
+    private var sharing = false
+    private fun shareMedia(url: String) {
+        val source = httpsUrl(url) ?: return
+        if (sharing) return
+        sharing = true
+        val path = android.net.Uri.parse(source).path.orEmpty().lowercase()
+        val ext = path.substringAfterLast('.', "").takeIf { it.length in 2..4 } ?: "jpg"
+        val video = ext in listOf("mp4", "mov", "m4v")
+        val mime = when (ext) {
+            "mp4" -> "video/mp4"; "mov" -> "video/quicktime"; "m4v" -> "video/x-m4v"
+            "png" -> "image/png"; "webp" -> "image/webp"; "gif" -> "image/gif"
+            "heic", "heif" -> "image/heic"; else -> "image/jpeg"
+        }
+        if (video) notice("동영상을 준비하는 중…")
+        scope.launch {
+            try {
+                val file = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val folder = java.io.File(activity.cacheDir, "chat-photo-share")
+                    folder.mkdirs()
+                    /* 공유 앱이 읽을 시간을 보장한다 — 하루 지난 것만 지운다. */
+                    folder.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000L }
+                        ?.forEach { it.delete() }
+                    val out = java.io.File(folder, "kkakkung-${UUID.randomUUID()}.$ext")
+                    val conn = java.net.URL(source).openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 15_000; conn.readTimeout = 60_000
+                    try {
+                        val code = conn.responseCode
+                        if (code !in 200..299) throw java.io.IOException(if (code == 400 || code == 404) "gone" else "http $code")
+                        conn.inputStream.use { input -> out.outputStream().use { input.copyTo(it) } }
+                    } finally { conn.disconnect() }
+                    out
+                }
+                val uri = androidx.core.content.FileProvider.getUriForFile(activity, activity.packageName + ".fileprovider", file)
+                activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = mime
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newUri(activity.contentResolver, if (video) "동영상" else "사진", uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, if (video) "동영상 공유" else "사진 공유"))
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                notice(if (e.message == "gone") "저장 기간이 만료되었습니다."
+                       else if (video) "동영상을 공유하지 못했습니다." else "사진을 공유하지 못했습니다.")
+            } finally { sharing = false }
+        }
     }
 
     private fun showPhoto(url: String) {

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 사진 옆 공유 단추 — 아이폰 SF Symbol `square.and.arrow.up`과 같은 그림(선 그림). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#E61B1F19"
+        android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M12,3.5V14.5M8,7.5L12,3.5L16,7.5" />
+    <path android:fillColor="#00000000" android:strokeColor="#E61B1F19"
+        android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M8.5,10.5H6.5A1.5,1.5 0,0 0,5 12V19A1.5,1.5 0,0 0,6.5 20.5H17.5A1.5,1.5 0,0 0,19 19V12A1.5,1.5 0,0 0,17.5 10.5H15.5" />
+</vector>

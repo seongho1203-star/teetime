@@ -85,6 +85,8 @@ fun httpsUrl(u: String?): String? = u?.let { if (it.startsWith("http://")) "http
 class ChatListView(context: Context) : RecyclerView(context) {
     var onCard: ((String) -> Unit)? = null
     var onPhoto: ((String) -> Unit)? = null
+    /** 사진 옆 동그란 공유 단추 — 주소를 넘긴다(아이폰 `BubbleCell.shareBtn` · `"share"`). */
+    var onShare: ((String) -> Unit)? = null
     var onQuote: ((String) -> Unit)? = null
     var onReply: ((String) -> Unit)? = null
     var onPersonMessage: ((String) -> Unit)? = null
@@ -318,7 +320,32 @@ class ChatListView(context: Context) : RecyclerView(context) {
         private val stamp = LinearLayout(ctx)
         private val unread = TextView(ctx)
         private val time = TextView(ctx)
+        /* 사진 옆 **동그란 공유 단추**(사용자 요청 — 카톡 사진을 받아 맞췄다).
+           아이폰 `BubbleCell.shareBtn`과 같은 값이다 — 지름 30 · 사진에서 16 ·
+           사진 세로 가운데 · 보라 위 흰색 40% · 먹색 그림. **한쪽만 고치지 말 것.**
+           도장(시각·안 읽은 수)과 한 칸(`side`)에 들어 있어 같은 쪽에 선다 —
+           도장은 바닥에, 단추는 사진 가운데에(`placeShare`). */
+        private val shareBtn = ImageView(ctx)
+        private val side = object : FrameLayout(ctx) {
+            override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+                super.onLayout(changed, l, t, r, b)
+                placeShare()
+            }
+        }
         private var current: ChatRow? = null
+
+        /** 단추를 사진 세로 가운데로 — 도장 위로는 안 내려간다(낮은 사진에서 겹치지 않게). */
+        private fun placeShare() {
+            if (shareBtn.visibility != View.VISIBLE) return
+            val ctx = itemView.context
+            val photoTop = content.top + mediaBox.top - side.top
+            val center = photoTop + mediaBox.height / 2f
+            var y = center - shareBtn.height / 2f
+            val stampTop = if (stamp.height > 0) stamp.top.toFloat() else side.height.toFloat()
+            y = minOf(y, stampTop - ctx.dp(4f) - shareBtn.height)
+            y = maxOf(y, photoTop.toFloat())
+            shareBtn.translationY = y - shareBtn.top
+        }
 
         init {
             root.orientation = LinearLayout.VERTICAL
@@ -418,8 +445,23 @@ class ChatListView(context: Context) : RecyclerView(context) {
             stamp.addView(unread); stamp.addView(time)
             val sp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             sp.leftMargin = ctx.dp(4f); sp.rightMargin = ctx.dp(4f)
+            shareBtn.setImageResource(com.kkakkung.app.R.drawable.ic_chat_share)
+            shareBtn.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val sharePad = ctx.dp(7f)
+            shareBtn.setPadding(sharePad, sharePad, sharePad, sharePad)
+            shareBtn.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(Color.argb(102, 255, 255, 255))
+            }
+            shareBtn.contentDescription = "공유"
+            shareBtn.visibility = View.GONE
+            shareBtn.setOnClickListener {
+                val r = current ?: return@setOnClickListener
+                if (r.kind == "photo" && !r.id.startsWith("tmp:")) r.image?.let { onShare?.invoke(it) }
+            }
+            side.addView(stamp, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START))
+            side.addView(shareBtn, FrameLayout.LayoutParams(ctx.dp(30f), ctx.dp(30f), Gravity.TOP or Gravity.START))
             contentRow.addView(content)
-            contentRow.addView(stamp, sp)
+            contentRow.addView(side, sp)
             column.addView(contentRow)
             msgRow.addView(column, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             root.addView(msgRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -524,11 +566,23 @@ class ChatListView(context: Context) : RecyclerView(context) {
                주면 내 글까지 왼쪽에 붙었다(사용자 제보 — `전부 좌측이야`). */
             contentRow.gravity = Gravity.BOTTOM or (if (r.mine) Gravity.END else Gravity.START)
             contentRow.removeAllViews()
-            val sp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            val sp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
             sp.leftMargin = ctx.dp(4f); sp.rightMargin = ctx.dp(4f)
-            if (r.mine) { contentRow.addView(stamp, sp); contentRow.addView(content) }
-            else { contentRow.addView(content); contentRow.addView(stamp, sp) }
+            if (r.mine) { contentRow.addView(side, sp); contentRow.addView(content) }
+            else { contentRow.addView(content); contentRow.addView(side, sp) }
             stamp.gravity = if (r.mine) Gravity.END else Gravity.START
+            val edge = if (r.mine) Gravity.END else Gravity.START
+            (stamp.layoutParams as FrameLayout.LayoutParams).gravity = Gravity.BOTTOM or edge
+            /* 사진에서 16 — `side`가 이미 4를 띄우므로 단추는 12만 더 띄운다. */
+            (shareBtn.layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.TOP or edge
+                marginStart = if (r.mine) 0 else ctx.dp(12f)
+                marginEnd = if (r.mine) ctx.dp(12f) else 0
+            }
+            shareBtn.visibility = if (r.kind == "photo" && !r.id.startsWith("tmp:") &&
+                !uploads.containsKey(r.id) && !r.image.isNullOrBlank()) View.VISIBLE else View.GONE
+            shareBtn.translationY = 0f
+            side.requestLayout()
             unread.text = if (r.unread > 0) r.unread.toString() else ""
             unread.visibility = if (r.unread > 0) View.VISIBLE else View.GONE
             time.text = r.time ?: ""

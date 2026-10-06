@@ -1727,6 +1727,8 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         case "jump": latest()
         case "card": if let to = to { navigate(to) }
         case "photo": if let to = to { showPhoto(to) }
+        /* 사진 옆 동그란 공유 단추(`BubbleCell.shareBtn`) — **파일째** 넘긴다. */
+        case "share": if let to = to { shareMedia(to) }
         case "face": if let message = messages.first(where: { $0.id == id }) { showProfile(message.user) }
         case "reply": if let m = messages.first(where: { $0.id == id }), !m.hidden { quoted = m; updateContext(); composer.textView.becomeFirstResponder() }
         case "quote": if let to = to { jumpToID(to) }
@@ -1870,6 +1872,59 @@ final class NativeChatViewController: UIViewController, ChatListDelegate, Compos
         screen.player = player
         screen.modalPresentationStyle = .fullScreen
         present(screen, animated: true) { player.play() }
+    }
+    /**
+     사진·동영상 **파일을 그대로** 공유창에 넘긴다(사용자 요청 — 카톡의
+     사진 옆 공유 단추). 주소만 넘기면 받는 쪽에 링크가 갈 뿐이고
+     `이미지 저장`도 안 뜬다 — 그래서 받아서 임시 파일로 만든 뒤 넘긴다.
+
+     - **도는 동안 또 누르면 무시한다**(`sharing`) — 동영상은 몇 초 걸려
+       안 눌린 줄 알고 또 누른다(크게 본 사진의 `저장 중…`과 같은 자리다).
+     - 동영상만 `준비하는 중`을 알린다 — 사진은 금방이라 깜빡이기만 한다.
+     - 공유창이 닫히면 임시 파일을 지운다.
+     */
+    private var sharing = false
+    private func shareMedia(_ raw: String) {
+        guard !sharing else { return }
+        var s = raw
+        if s.hasPrefix("http://") { s = "https://" + s.dropFirst("http://".count) }
+        guard let url = URL(string: s), url.scheme == "https" else { return }
+        sharing = true
+        let video = ChatMedia.isVideo(s)
+        if video { notice("동영상을 준비하는 중…") }
+        view.endEditing(true)
+        URLSession.shared.downloadTask(with: url) { [weak self] tmp, res, _ in
+            let code = (res as? HTTPURLResponse)?.statusCode ?? 0
+            var file: URL?
+            if let tmp = tmp, (200..<300).contains(code) {
+                let dir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("share-" + UUID().uuidString, isDirectory: true)
+                let ext = url.pathExtension.isEmpty ? (video ? "mp4" : "jpg") : url.pathExtension.lowercased()
+                let out = dir.appendingPathComponent("kkakkung." + ext)
+                do {
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    try FileManager.default.moveItem(at: tmp, to: out)
+                    file = out
+                } catch { file = nil }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.sharing = false
+                guard let file = file else {
+                    self.notice(code == 400 || code == 404 ? "저장 기간이 만료되었습니다."
+                                : (video ? "동영상을 공유하지 못했습니다." : "사진을 공유하지 못했습니다."))
+                    return
+                }
+                let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+                sheet.completionWithItemsHandler = { _, _, _, _ in
+                    try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                }
+                sheet.popoverPresentationController?.sourceView = self.view
+                sheet.popoverPresentationController?.sourceRect = CGRect(
+                    x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+                self.present(sheet, animated: true)
+            }
+        }.resume()
     }
     private func showPanel(_ panel: UIViewController) {
         view.endEditing(true)
