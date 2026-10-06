@@ -163,7 +163,7 @@ final class RoundEditViewController: FormScreenController {
         hitsStack.isHidden = true
         placeNote.font = .systemFont(ofSize: 12); placeNote.textColor = AppSkin.faint; placeNote.numberOfLines = 0
         subName.font = .systemFont(ofSize: 13, weight: .bold); subName.textColor = AppSkin.dim
-        subName.text = "코스"
+        subName.text = "코스(선택)"
         subField.autocorrectionType = .no
         subField.addTarget(self, action: #selector(subChanged), for: .editingChanged)
         subChips.axis = .vertical; subChips.spacing = 8

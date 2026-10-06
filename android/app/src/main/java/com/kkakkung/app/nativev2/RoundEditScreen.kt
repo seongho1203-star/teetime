@@ -128,7 +128,7 @@ class RoundEditScreen(
         hits.background = ui.rounded(AppSkin.surface, AppSkin.radiusSm, AppSkin.line)
         hits.clipToOutline = true
         val clubCol = ui.vstack(6).apply { addView(placeName); addView(courseField) }
-        subCol.addView(ui.label("코스", 13f, bold = true, color = AppSkin.dim)); subCol.addView(subField)
+        subCol.addView(ui.label("코스(선택)", 13f, bold = true, color = AppSkin.dim)); subCol.addView(subField)
         phoneCol.addView(ui.label("매장 전화", 13f, bold = true, color = AppSkin.dim))
         phoneCol.addView(ui.button("📞 ${ScreenStore.phone}") { ScreenStore.call(ctx) }.apply { contentDescription = "매장 전화 걸기" },
             LinearLayout.LayoutParams(-1, ui.dp(44)))
