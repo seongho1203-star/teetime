@@ -136,6 +136,8 @@ jobs:
 
       - name: 알림 함수 올리기
         if: steps.what.outputs.functions == 'yes'
+        # 푸시 경로는 선택 기능이다. DB 앱 알림과 Pages 배포는 계속 진행한다.
+        continue-on-error: true
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_URL: ${{ secrets.VITE_SUPABASE_URL }}
