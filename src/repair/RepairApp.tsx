@@ -9,12 +9,12 @@ import { isConfigured, signInWithApple, signInWithKakao, supabase } from '../lib
 import { ToastProvider, useToast } from '../components/Toast';
 import {
     createEntry, getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry, updateEntry,
-    repairDb, requestRepairMembership, searchEntries, setVerification, signedPhotoUrls,
+    repairDb, requestRepairMembership, searchEntries, signedPhotoUrls,
     updateRepairMemberName,
 } from './data';
 import {
     ENTRY_CATEGORIES, PRODUCT_FAMILIES, type EntryCategory, type EntryFilters,
-    type RepairEntry, type RepairMembership, type RepairNotification, type VerificationStatus,
+    type RepairEntry, type RepairMembership, type RepairNotification,
 } from './types';
 import './repair.css';
 
@@ -519,7 +519,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                     <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
                     <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
                     <p>현장의 수리 및 점검 정보와 테스트 내용을 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
-                    <Link to="/new" className="rn-hero-action">지식 등록하기 <Icon name="arrow" size={17} /></Link>
+                    <Link to="/new" className="rn-hero-action">등록하기 <Icon name="arrow" size={17} /></Link>
                 </div>
                 <div className="rn-hero-art" aria-hidden="true">
                     <div className="rn-orbit rn-orbit-a" />
@@ -639,20 +639,16 @@ function KnowledgeHome({ userId }: { userId: string }) {
 
 function EntryCard({ entry }: { entry: RepairEntry }) {
     const category = ENTRY_CATEGORIES.find(item => item.id === entry.category);
-    const verified = entry.verification_status === 'verified';
     return (
         <Link to={'/entry/' + entry.id} className="rn-entry-card">
             <div className="rn-entry-card-top">
                 <span className={'rn-category-tag cat-' + entry.category}>
                     <span>{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}
                 </span>
-                <span className={'rn-verify-tag' + (verified ? ' verified' : '')}>
-                    {verified ? <><Icon name="check" size={13} /> 검증됨</> : '확인 전'}
-                </span>
             </div>
             <div className="rn-model-line">
                 <span className="rn-family">{entry.product_family}</span>
-                <strong>{entry.model_code}</strong>
+                <strong>{entry.model_code || '제품군 공통'}</strong>
             </div>
             <h3>{entry.title}</h3>
             {entry.symptoms && <p className="rn-card-symptom">{entry.symptoms}</p>}
@@ -738,8 +734,8 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
 
     const submit = async (event: FormEvent) => {
         event.preventDefault();
-        if (!form.product_family || !form.model_code.trim() || !form.title.trim() || !form.inspection_steps.trim()) {
-            toast('제품군, 모델명, 제목, 수리 및 점검방법을 입력해 주세요.', 'error');
+        if (!form.product_family || !form.title.trim() || !form.inspection_steps.trim()) {
+            toast('제품군, 제목, 수리 및 점검방법을 입력해 주세요.', 'error');
             return;
         }
         setSaving(true);
@@ -802,10 +798,10 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
                             </select>
                         </label>
                         <label className="rn-field rn-span-2">
-                            <span>모델명 <b>*</b></span>
+                            <span>모델명 <small>(선택)</small></span>
                             <input value={form.model_code} onChange={e => field('model_code', e.target.value)}
-                                   placeholder="예: 제품 라벨의 전체 모델명을 입력하세요" maxLength={40} required />
-                            <small>모델명을 정확히 입력하면 해당 모델 자료를 바로 검색할 수 있습니다.</small>
+                                   placeholder="특정 모델에 해당할 때 입력하세요" maxLength={50} />
+                            <small>제품군 공통 내용이면 비워두세요. 특정 모델에만 해당하면 모델명을 적어 주세요.</small>
                         </label>
                         <label className="rn-field rn-span-2">
                             <span>제목 <b>*</b></span>
@@ -884,7 +880,7 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
                 <div className="rn-form-actions">
                     <Link to={editId ? '/entry/' + editId : '/'} className="rn-secondary-btn">취소</Link>
                     <button type="submit" className="rn-primary-btn" disabled={saving}>
-                        {saving ? <><span className="rn-spinner" /> 저장 중…</> : editId ? '수정 내용 저장' : '회원에게 공유하기'}
+                        {saving ? <><span className="rn-spinner" /> 저장 중…</> : editId ? '수정 내용 저장' : '등록하기'}
                     </button>
                 </div>
             </form>
@@ -917,20 +913,6 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     }, [entryId]);
     useEffect(() => { void load(); }, [load]);
 
-    const verify = async (status: VerificationStatus) => {
-        if (!entry) return;
-        setBusy(true);
-        try {
-            await setVerification(entry.id, status, userId);
-            await load();
-            toast(status === 'verified' ? '현장 확인 상태로 표시했습니다.' : '추가 검토가 필요하다고 표시했습니다.', 'ok');
-        } catch (reason) {
-            toast(messageOf(reason), 'error');
-        } finally {
-            setBusy(false);
-        }
-    };
-
     const destroy = async () => {
         if (!entry || !window.confirm('이 수리 정보를 삭제할까요?')) return;
         setBusy(true);
@@ -955,20 +937,15 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     const category = ENTRY_CATEGORIES.find(item => item.id === entry.category);
     const canDelete = isAdmin || entry.created_by === userId;
     const canEdit = canDelete;
-    const verified = entry.verification_status === 'verified';
-
     return (
         <div className="rn-page rn-detail-page">
             <Link className="rn-back-link" to="/"><span>‹</span> 검색 결과로 돌아가기</Link>
             <article className="rn-detail-card">
                 <div className="rn-detail-topline">
                     <span className={'rn-category-tag cat-' + entry.category}><span>{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}</span>
-                    <span className={'rn-verify-tag' + (verified ? ' verified' : '')}>
-                        {verified ? <><Icon name="check" size={13} /> 현장 확인됨</> : entry.verification_status === 'needs_review' ? '추가 검토 필요' : '확인 전'}
-                    </span>
                 </div>
                 <div className="rn-detail-model">
-                    <span>{entry.product_family}</span><b>{entry.model_code}</b>
+                    <span>{entry.product_family}</span><b>{entry.model_code || '제품군 공통'}</b>
                 </div>
                 <h1>{entry.title}</h1>
                 <div className="rn-detail-author">
@@ -977,13 +954,6 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     <span>등록</span><time>{dateLabel(entry.created_at)}</time>
                     {entry.updated_at !== entry.created_at && <span className="rn-edited">수정됨</span>}
                 </div>
-
-                {entry.verification_status === 'needs_review' && (
-                    <div className="rn-review-warning">
-                        <strong>추가 확인이 필요한 정보입니다.</strong>
-                        <span>현장 적용 전 모델과 절차를 다시 확인해 주세요.</span>
-                    </div>
-                )}
 
                 {entry.symptoms && <DetailSection title="고객 증상·발생 조건"><p>{entry.symptoms}</p></DetailSection>}
                 <DetailSection title="수리 및 점검방법·테스트 절차">
@@ -1002,18 +972,6 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                             {photos.filter(Boolean).map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer">
                                 <img src={url} alt={entry.title + ' 참고 사진 ' + (index + 1)} />
                             </a>)}
-                        </div>
-                    </section>
-                )}
-
-                {isAdmin && (
-                    <section className="rn-verify-panel">
-                        <div><strong>정보 검증</strong><span>확인한 자료는 검증됨으로 표시할 수 있습니다.</span></div>
-                        <div className="rn-verify-actions">
-                            <button className="rn-secondary-btn" disabled={busy || entry.verification_status === 'needs_review'}
-                                    onClick={() => void verify('needs_review')}>추가 검토 필요</button>
-                            <button className="rn-primary-btn" disabled={busy || verified}
-                                    onClick={() => void verify('verified')}>{busy ? '저장 중…' : verified ? '현장 확인 완료' : '현장 확인 완료로 표시'}</button>
                         </div>
                     </section>
                 )}
@@ -1219,12 +1177,11 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
 
 function GuidePage() {
     const tips = [
-        ['모델명을 정확히 입력', '제품 라벨의 모델명 전체를 적어 주세요. 일부 모델에만 해당하면 설명에도 적용 모델 범위를 적습니다.'],
+        ['모델 적용 범위를 기록', '제품군 공통 내용이면 모델명을 비워두고, 특정 모델에만 해당하면 모델명과 적용 범위를 함께 적어 주세요.'],
         ['점검 순서를 단계별로 기록', '증상과 발생 조건, 측정 조건, 조치 후 결과를 나누어 적으면 다른 엔지니어가 재현하기 쉽습니다.'],
         ['테스트 모드 표기', '어떤 제품군과 모델에서 동작하는지, 진입 순서와 복귀 방법을 함께 기록합니다.'],
         ['사진 속 고객 정보를 가리기', '이름, 주소, 전화번호, 주문 정보 등이 보이지 않는지 확인한 뒤 첨부해 주세요.'],
         ['안전 주의 사항을 함께 남기기', '전원, 고온부, 냉매·압력 등 작업 전 확인할 조건과 주의점을 빠뜨리지 않습니다.'],
-        ['검증 상태 확인', '관리자가 현장 검증 여부를 표시합니다. 검증 전 정보는 작업 전 모델·조건을 다시 확인해 주세요.'],
     ];
     return (
         <div className="rn-page">
@@ -1251,9 +1208,9 @@ function GuidePage() {
 function DemoPreview() {
     const [query, setQuery] = useState('');
     const demo = [
-        { family: '에어컨', model: '모델별 등록 예정', type: '수리 및 점검방법', title: '현장 점검 기록을 모델별로 모아보세요.', text: '실제 점검 내용은 승인된 회원이 Supabase 연결 후 등록합니다.' },
-        { family: '세탁기', model: '모델별 등록 예정', type: '테스트 모드', title: '테스트 모드 진입 방법과 결과를 기록합니다.', text: '제품군과 모델명, 진입 절차, 주의사항을 함께 저장합니다.' },
-        { family: 'TV·모니터', model: '모델별 등록 예정', type: '부품·회로', title: '사진과 부품 정보를 함께 공유합니다.', text: '사진은 비공개 저장소에 보관되어 승인된 회원만 볼 수 있습니다.' },
+        { family: '에어컨', model: '제품군 공통', type: '수리 및 점검 노하우', title: '냉방이 약할 때 기본 점검 순서', text: '제품군 공통으로 참고할 점검 내용을 기록하는 예시입니다.' },
+        { family: '세탁기', model: '제품군 공통', type: '테스트 모드', title: '배수 불량 기본 확인 항목', text: '제품군 공통으로 적용되는 확인 항목과 주의사항을 적는 예시입니다.' },
+        { family: 'TV·모니터', model: '제품군 공통', type: '부품·회로', title: '화면 이상 점검 기록 예시', text: '특정 모델 자료가 아니면 모델명 없이 제품군 기준으로 등록할 수 있습니다.' },
     ];
     const shown = demo.filter(item => (item.family + item.model + item.type + item.title).toLowerCase().includes(query.toLowerCase()));
     return (

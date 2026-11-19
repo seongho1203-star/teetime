@@ -108,7 +108,7 @@ create policy repair_memberships_name on public.repair_memberships
 create table if not exists public.repair_entries (
     id                  uuid primary key default gen_random_uuid(),
     product_family      text not null check (char_length(product_family) between 1 and 40),
-    model_code          text not null check (char_length(model_code) between 2 and 50),
+    model_code          text not null default '' check (char_length(model_code) <= 50),
     category            text not null check (category in
                             ('inspection', 'test_mode', 'error_code', 'parts')),
     title               text not null check (char_length(title) between 2 and 120),
@@ -129,6 +129,12 @@ create table if not exists public.repair_entries (
     constraint repair_entries_tags_limit check (cardinality(tags) <= 10),
     constraint repair_entries_photos_limit check (cardinality(photo_paths) <= 6)
 );
+
+-- 이전에 생성된 최소 2자 모델명 제약을 없애 제품군 공통 자료도 허용한다.
+alter table public.repair_entries alter column model_code set default '';
+alter table public.repair_entries drop constraint if exists repair_entries_model_code_check;
+alter table public.repair_entries add constraint repair_entries_model_code_check
+    check (char_length(model_code) <= 50);
 
 -- 이전 화면에서 등록된 유형은 모두 새 '수리 및 점검방법'으로 묶어 보존한다.
 update public.repair_entries
@@ -323,7 +329,8 @@ begin
         else '수리 정보'
     end;
     v_title := '새 수리 정보 · ' || v_category;
-    v_body := left(new.product_family || ' · ' || new.model_code || ' · ' || new.title, 160);
+    v_body := left(concat_ws(' · ', nullif(btrim(new.product_family), ''),
+        nullif(btrim(new.model_code), ''), nullif(btrim(new.title), '')), 160);
 
     if tg_op = 'UPDATE' then
         update public.notifications
