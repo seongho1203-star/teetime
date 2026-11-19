@@ -450,6 +450,7 @@ function MobileNav() {
 function KnowledgeHome({ userId }: { userId: string }) {
     const [entries, setEntries] = useState<RepairEntry[] | null>(null);
     const [loading, setLoading] = useState(true);
+    const [visibleCount, setVisibleCount] = useState(5);
     const [error, setError] = useState('');
     const [filters, setFilters] = useState<EntryFilters>({});
     const [model, setModel] = useState('');
@@ -474,6 +475,8 @@ function KnowledgeHome({ userId }: { userId: string }) {
         const timer = window.setTimeout(() => void load(), 220);
         return () => window.clearTimeout(timer);
     }, [load]);
+
+    useEffect(() => { setVisibleCount(5); }, [filters]);
 
     useEffect(() => {
         void pushState().then(setPush);
@@ -616,9 +619,18 @@ function KnowledgeHome({ userId }: { userId: string }) {
                     </div>
                 )}
                 {!!entries?.length && (
-                    <div className="rn-entry-grid">
-                        {entries.map(entry => <EntryCard key={entry.id} entry={entry} />)}
-                    </div>
+                    <>
+                        <div className="rn-entry-grid">
+                            {entries.slice(0, visibleCount).map(entry => <EntryCard key={entry.id} entry={entry} />)}
+                        </div>
+                        {visibleCount < entries.length && (
+                            <div className="rn-load-more-wrap">
+                                <button className="rn-secondary-btn rn-load-more" onClick={() => setVisibleCount(count => count + 5)}>
+                                    더 보기 <span>{Math.min(5, entries.length - visibleCount)}건</span>
+                                </button>
+                            </div>
+                        )}
+                    </>
                 )}
             </section>
         </div>

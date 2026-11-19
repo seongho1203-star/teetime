@@ -389,6 +389,9 @@
 .rn-inline-link { display: inline-flex; align-items: center; gap: 7px; color: var(--rn-red) !important; font-size: 11px; font-weight: 750; }
 .rn-inline-link:hover { color: var(--rn-red-dark) !important; }
 .rn-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.rn-load-more-wrap { display: flex; justify-content: center; padding: 18px 0 4px; }
+.rn-load-more { min-width: 150px; gap: 7px; }
+.rn-load-more span { color: #a0aab2; font-size: 11px; }
 .rn-entry-card {
     min-width: 0;
     display: block;
