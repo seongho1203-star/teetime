@@ -312,22 +312,16 @@ function Header({ userId, name, isAdmin, onNameChange }: {
                     <Mark />
                     <span className="rn-brand-copy">
                         <strong>수리노트</strong>
-                        <small>현장 기술 지식 공유</small>
                     </span>
                 </Link>
                 <div className="rn-header-actions">
-                    {push !== 'on' && push !== 'unsupported' && (
-                        <button className="rn-push-setup" onClick={() => void turnOnPush()} title={pushLabel}>
-                            <Icon name="bell" size={17} />
-                            <span>{push === 'off' || push === null ? '알림 켜기' : '알림 안내'}</span>
-                        </button>
-                    )}
-                    <button className="rn-bell-btn" aria-label="알림함" onClick={() => navigate('/alerts')}>
-                        <Icon name="bell" size={20} />
+                    <button className="rn-bell-btn" aria-label={count ? `알림함, 읽지 않은 알림 ${count}건` : '알림함'} onClick={() => navigate('/alerts')}>
+                        <Icon name="bell" size={19} />
                         {count > 0 && <span className="rn-badge">{count > 99 ? '99+' : count}</span>}
                     </button>
                     <div className="rn-user-wrap">
-                        <button className="rn-user-btn" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
+                        <button className="rn-user-btn" aria-label="프로필 메뉴" aria-expanded={menuOpen}
+                                onClick={() => setMenuOpen(!menuOpen)}>
                             <span className="rn-avatar">{name.slice(0, 1)}</span>
                             <span className="rn-user-name">{name}</span>
                             <span className="rn-chevron">⌄</span>
@@ -341,6 +335,11 @@ function Header({ userId, name, isAdmin, onNameChange }: {
                                 <Link to="/members" onClick={() => setMenuOpen(false)}>
                                     <Icon name="user" size={16} /> {isAdmin ? '회원·가입 신청 관리' : '회원 명단'}
                                 </Link>
+                                {push !== 'on' && push !== 'unsupported' && (
+                                    <button title={pushLabel} onClick={() => { setMenuOpen(false); void turnOnPush(); }}>
+                                        <Icon name="bell" size={16} /> {push === 'off' || push === null ? '알림 켜기' : '알림 안내'}
+                                    </button>
+                                )}
                                 <button onClick={() => void supabase.auth.signOut()}>
                                     <Icon name="logout" size={16} /> 로그아웃
                                 </button>
@@ -383,7 +382,6 @@ function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
     ];
     return (
         <nav className="rn-side-nav" aria-label="주 메뉴">
-            <div className="rn-side-label">WORKSPACE</div>
             {links.map(link => (
                 <Link key={link.to} to={link.to}
                       className={'rn-side-link' + (location.pathname === link.to ? ' active' : '')}>
@@ -391,15 +389,10 @@ function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
                     <span>{link.label}</span>
                 </Link>
             ))}
-        <Link to="/members" className={'rn-side-link' + (location.pathname === '/members' ? ' active' : '')}>
-            <Icon name="user" size={18} /><span>{isAdmin ? '회원 관리' : '회원 명단'}</span>
-        </Link>
+            <Link to="/members" className={'rn-side-link' + (location.pathname === '/members' ? ' active' : '')}>
+                <Icon name="user" size={18} /><span>{isAdmin ? '회원 관리' : '회원 명단'}</span>
+            </Link>
             <Link to="/new" className="rn-side-create"><Icon name="plus" size={18} />수리 정보 등록</Link>
-            <div className="rn-side-tip">
-                <span className="rn-side-tip-icon"><Icon name="wrench" size={17} /></span>
-                <strong>현장 경험을 지식으로</strong>
-                <span>모델과 증상을 구체적으로 적으면 다음 엔지니어가 더 빨리 찾을 수 있습니다.</span>
-            </div>
         </nav>
     );
 }
@@ -413,12 +406,17 @@ function MobileNav() {
     ];
     return (
         <nav className="rn-mobile-nav" aria-label="모바일 메뉴">
-            {links.map(link => (
-                <Link key={link.to} to={link.to}
-                      className={'rn-mobile-link' + (location.pathname === link.to ? ' active' : '')}>
-                    <Icon name={link.icon} size={20} /><span>{link.label}</span>
-                </Link>
-            ))}
+            {links.map(link => {
+                const active = location.pathname === link.to;
+                return (
+                    <Link key={link.to} to={link.to}
+                          className={'rn-mobile-link' + (active ? ' active' : '')}
+                          aria-current={active ? 'page' : undefined}>
+                        <span className="rn-mobile-icon"><Icon name={link.icon} size={18} /></span>
+                        <span>{link.label}</span>
+                    </Link>
+                );
+            })}
         </nav>
     );
 }

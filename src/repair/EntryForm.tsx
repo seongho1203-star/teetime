@@ -179,17 +179,17 @@ function EntryEditor({ userId, entry, params, backTo, homeTo }: {
                         </select>
                     </label>
                     <label className="rn-field">
-                        <span>어떤 증상이었나요? {needsSymptom && <b>*</b>}</span>
+                        <span>증상 {needsSymptom && <b>*</b>}</span>
                         <textarea value={form.symptoms} onChange={e => field('symptoms', e.target.value)}
                                   placeholder={isQuestion ? '증상과 이미 확인한 내용을 적어 주세요.' : '예: 세탁은 되지만 배수 단계에서 물이 남음'}
-                                  rows={isQuestion ? 5 : 3} maxLength={1200} required={needsSymptom} />
+                                  rows={isQuestion ? 4 : 3} maxLength={1200} required={needsSymptom} />
                     </label>
                     {!isQuestion && (
                         <label className="rn-field">
-                            <span>무엇을 확인했고 어떻게 해결했나요? <b>*</b></span>
+                            <span>점검·해결 내용 <b>*</b></span>
                             <textarea value={form.inspection_steps} onChange={e => field('inspection_steps', e.target.value)}
                                       placeholder="확인한 조건, 실제로 한 조치와 결과를 적어 주세요."
-                                      rows={5} maxLength={8000} required />
+                                      rows={4} maxLength={8000} required />
                         </label>
                     )}
 

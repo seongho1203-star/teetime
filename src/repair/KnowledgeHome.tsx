@@ -6,6 +6,13 @@ import { dateLabel, Icon } from './ui';
 
 type Results = Awaited<ReturnType<typeof searchEntries>> & { key: string };
 
+const CATEGORY_FILTER_LABELS: Record<(typeof ENTRY_CATEGORIES)[number]['id'], string> = {
+    inspection: '수리·점검',
+    test_mode: '테스트',
+    error_code: '에러 코드',
+    parts: '부품·회로',
+};
+
 export function KnowledgeHome() {
     const [params, setParams] = useSearchParams();
     const filters = useMemo<EntryFilters>(() => ({
@@ -84,14 +91,14 @@ export function KnowledgeHome() {
 
     return (
         <div className="rn-page rn-knowledge-home">
-            <section className="rn-search-panel">
+            <section className="rn-search-panel" aria-labelledby="rn-search-title">
                 <div className="rn-home-heading">
-                    <h1>수리 정보 찾기</h1>
-                    <Link to="/new" state={{ homeTo }} className="rn-primary-btn"><Icon name="plus" size={17} /> 등록하기</Link>
+                    <h1 id="rn-search-title">수리 정보 찾기</h1>
+                    <Link to="/new" state={{ homeTo }} className="rn-home-create"><Icon name="plus" size={16} /> 등록하기</Link>
                 </div>
                 <form role="search" onSubmit={event => { event.preventDefault(); void load(); }}>
                     <div className="rn-search-box">
-                        <Icon name="search" size={21} />
+                        <Icon name="search" size={18} />
                         <input type="search" enterKeyHint="search" maxLength={120} aria-label="수리 정보 검색"
                                value={filters.query} onChange={e => change('q', e.target.value)}
                                placeholder="예: 물이 안 빠짐, OE, 모델명" />
@@ -99,35 +106,31 @@ export function KnowledgeHome() {
                             <button type="button" onClick={() => setParams(isQuestion ? { view: 'questions' } : {}, { replace: true })}>초기화</button>
                         )}
                     </div>
-                    <div className="rn-filter-row">
-                        <label className="rn-filter-select">
-                            <span>제품군</span>
-                            <select value={filters.family} onChange={e => change('family', e.target.value)}>
-                                <option value="">전체 제품군</option>
-                                {PRODUCT_FAMILIES.map(family => <option key={family} value={family}>{family}</option>)}
-                            </select>
-                        </label>
-                        <label className="rn-filter-select rn-model-filter">
-                            <span>모델명</span>
-                            <input value={filters.model} onChange={e => change('model', e.target.value)}
-                                   maxLength={50} placeholder="예: FQ18…" />
-                        </label>
+                    <div className="rn-filter-row" role="group" aria-label="제품 필터">
+                        <select className="rn-filter-control" aria-label="제품군"
+                                value={filters.family} onChange={e => change('family', e.target.value)}>
+                            <option value="">전체 제품군</option>
+                            {PRODUCT_FAMILIES.map(family => <option key={family} value={family}>{family}</option>)}
+                        </select>
+                        <input className="rn-filter-control" aria-label="모델명"
+                               value={filters.model} onChange={e => change('model', e.target.value)}
+                               maxLength={50} placeholder="모델명" />
                     </div>
                 </form>
                 <div className="rn-category-filter" role="group" aria-label="정보 유형">
                     <button type="button" className={!filters.category ? 'active' : ''} aria-pressed={!filters.category}
-                            onClick={() => change('category', '')}>전체 유형</button>
+                            aria-label="전체 유형" onClick={() => change('category', '')}>전체</button>
                     {ENTRY_CATEGORIES.map(category => (
                         <button key={category.id} type="button" className={filters.category === category.id ? 'active' : ''}
-                                aria-pressed={filters.category === category.id}
-                                onClick={() => change('category', category.id)}>{category.label}</button>
+                                aria-label={category.label} aria-pressed={filters.category === category.id}
+                                onClick={() => change('category', category.id)}>{CATEGORY_FILTER_LABELS[category.id]}</button>
                     ))}
                 </div>
             </section>
 
             <section className="rn-results" aria-labelledby="rn-results-title">
                 <div className="rn-library-switch">
-                    <div className="rn-mode-picker" role="group" aria-label="글 목록">
+                    <div className="rn-library-tabs" role="group" aria-label="글 목록">
                         <button type="button" aria-pressed={!isQuestion} onClick={() => change('view', '')}>수리 사례</button>
                         <button type="button" aria-pressed={isQuestion} onClick={() => change('view', 'questions')}>미해결 질문</button>
                     </div>
@@ -180,27 +183,25 @@ function EntryCard({ entry, homeTo }: { entry: RepairEntry; homeTo: string }) {
     const summary = entry.inspection_steps.trim().split(/\r?\n/, 1)[0];
     return (
         <Link to={'/entry/' + entry.id} state={{ homeTo }} className="rn-entry-card">
-            <div className="rn-entry-card-top">
-                <span className={'rn-category-tag cat-' + entry.category}>
-                    <span aria-hidden="true">{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}
-                </span>
+            <div className="rn-entry-context">
+                <span className="rn-entry-product">{entry.product_family} · {entry.model_code || '제품군 공통'}</span>
+                <span className="rn-entry-category">{category?.label ?? '수리 정보'}</span>
                 {(isQuestion || entry.accepted_answer_id) && (
                     <span className={isQuestion ? 'rn-entry-status' : 'rn-entry-status resolved'}>{isQuestion ? '미해결' : '질문에서 해결'}</span>
                 )}
-            </div>
-            <div className="rn-model-line">
-                <span className="rn-family">{entry.product_family}</span>
-                <strong>{entry.model_code || '제품군 공통'}</strong>
             </div>
             <h3>{entry.title}</h3>
             {entry.symptoms && entry.symptoms !== entry.title && <p className="rn-card-symptom">{entry.symptoms}</p>}
             {!isQuestion && summary && <p className="rn-case-summary"><strong>점검·조치</strong> {summary}</p>}
             <div className="rn-card-footer">
-                <span className="rn-author-dot">{(entry.author_name ?? '회').slice(0, 1)}</span>
                 <span>{entry.author_name ?? '회원'}</span>
-                <span className="rn-separator">·</span>
+                <span className="rn-separator" aria-hidden="true">·</span>
                 <time dateTime={entry.created_at}>{dateLabel(entry.created_at)}</time>
-                {entry.photo_paths.length > 0 && <span className="rn-card-photo"><Icon name="image" size={15} /> {entry.photo_paths.length}</span>}
+                {entry.photo_paths.length > 0 && (
+                    <span className="rn-card-photo" aria-label={`사진 ${entry.photo_paths.length}장`}>
+                        <Icon name="image" size={14} /> {entry.photo_paths.length}
+                    </span>
+                )}
             </div>
             {entry.tags?.length > 0 && (
                 <div className="rn-tag-row">
