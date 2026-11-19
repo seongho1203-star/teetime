@@ -767,3 +767,16 @@
     .rn-category-filter button { padding: 0 8px; }
     .rn-auth-card { padding: 30px 22px 24px; }
 }
+
+/* iOS 홈 화면 앱은 black-translucent 상태바 아래로 문서가 그려진다.
+   헤더가 상태바 뒤에 가려지지 않도록 안전영역을 헤더 높이에 포함한다. */
+@media (display-mode: standalone) {
+    .rn-header {
+        height: calc(76px + env(safe-area-inset-top, 0px));
+        padding-top: env(safe-area-inset-top, 0px);
+    }
+}
+
+@media (display-mode: standalone) and (max-width: 760px) {
+    .rn-header { height: calc(64px + env(safe-area-inset-top, 0px)); }
+}
