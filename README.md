@@ -1,62 +1,37 @@
-# teetime
+# 수리노트
 
-골프 모임 앱. 라운드 모집·참가신청, 투표, 공지, 대화를 한곳에서 한다.
+LG전자 가전수리 엔지니어가 모델별 점검 방법, 테스트 모드, 히든 키, 에러 코드와 현장 노하우를 공유하고 검색하는 웹앱입니다.
 
-카카오 오픈톡에서 투표와 인원 모집이 대화에 묻히는 문제를 없애려고 만들었다.
-**중요한 것은 각자의 자리에 남고, 대화는 대화 탭에서만 흐른다.**
-
-## 지금 할 것
-
-`docs/설치.md`를 따라 Supabase 프로젝트와 카카오 로그인을 한 번 붙이면 된다.
-그 뒤로는 아래로 충분하다.
+## 시작하기
 
 ```bash
-npm install
-cp .env.example .env     # Supabase 주소와 anon 키를 채운다
-npm run dev              # http://localhost:5173
+npm ci
+cp .env.example .env
+npm run dev
 ```
 
-## 무엇이 들어 있나
+`.env`에 `VITE_SUPABASE_URL`과 `VITE_SUPABASE_ANON_KEY`를 입력합니다. 로그인은 카카오 또는 Apple을 지원하며, 기존 회원 승인 절차를 통과한 계정만 자료를 읽고 등록할 수 있습니다.
 
-| 탭 | 하는 일 |
-|---|---|
-| 홈 | 지금 내가 해야 할 것만 — 다음 라운드, 아직 안 한 투표, 새 공지 |
-| 라운드 | 모집 열기 · 선착순 신청 · 대기자 자동 승격 |
-| 투표 | 복수 선택 · 익명 · 마감 시각 |
-| 공지 | 고정 글 · 댓글 |
-| 대화 | 실시간 채팅 |
+## 주요 기능
 
-회원 가입은 **총무 승인제**다. 카카오로 로그인만 해서는 아무것도 볼 수 없고,
-`내 정보 → 회원 명단`에서 총무가 승인해야 들어온다.
+- 제품군·모델명·정보 유형별 분류와 검색
+- 증상, 점검 절차, 결과, 주의 사항 및 태그 등록
+- 사진 최대 6장 첨부와 승인 회원 전용 비공개 저장
+- 새 수리 정보의 앱 알림함 등록과 선택형 웹 푸시
+- 운영자 회원 승인과 정보 검증 표시
+- 휴대전화와 데스크톱에 맞춘 반응형 화면
 
-## 만든 방식
+## 데이터베이스와 배포
 
-- **Vite + React + TypeScript** — 빌드 결과는 정적 파일이라 어디에나 올라간다
-- **Supabase** — Postgres · 카카오 로그인 · 실시간 · 권한(RLS)
-- **해시 라우팅** — 정적 서버에서 404가 안 나고, 나중에 Capacitor로 감쌀 때도 그대로 동작한다
+`supabase/repair_knowledge.sql`은 기존 인증·회원·알림 데이터를 유지하면서 수리 지식 테이블, 검색 함수, 사진 저장소와 알림 트리거를 추가합니다. `main`에 반영하면 GitHub Actions가 SQL과 알림 함수를 갱신한 뒤 GitHub Pages에 웹앱을 배포합니다.
 
-서버 코드가 따로 없다. 권한과 경합 처리는 전부 DB 안에 있다
-(`supabase/schema.sql`).
+배포용 저장소 Secrets에는 기존 설정인 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, `SUPABASE_ACCESS_TOKEN`이 필요합니다. DB 주소가 없으면 Actions가 SQL 적용을 건너뛰므로 `supabase/repair_knowledge.sql`을 Supabase SQL Editor에서 실행해야 합니다. 자세한 내용은 [운영 안내](docs/수리노트-운영.md)를 참고하세요.
 
-## 명령어
+## 실행 명령
 
 ```bash
 npm run dev       # 개발 서버
-npm run build     # dist/ 로 빌드 (타입 검사 포함)
+npm run build     # 타입 검사 및 프로덕션 빌드
 npm run preview   # 빌드 결과 미리보기
-npm run lint      # oxlint
+npm run lint      # 정적 검사
 ```
-
-`.dev/`는 헤드리스로 화면을 훑어보는 도구다. 가짜 데이터로 Supabase 없이
-모든 화면을 찍어 볼 수 있다.
-
-```bash
-npm run dev -- --port 5199
-node .dev/shots.mjs                     # 화면 전체를 .dev/shots/ 에
-node .dev/scroll.mjs '/#/rounds/r1' rd  # 한 화면을 위/가운데/아래로
-```
-
-## 배포
-
-`main`에 푸시하면 GitHub Actions가 빌드해서 Pages에 올린다.
-저장소 Secrets에 `VITE_SUPABASE_URL`과 `VITE_SUPABASE_ANON_KEY`가 있어야 한다.

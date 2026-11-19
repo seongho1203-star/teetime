@@ -212,6 +212,8 @@ interface Note {
     body: string;
     tag: string;
     url: string;
+    /** 알림함 행을 DB 트리거가 이미 만들었으면 푸시 발송기에서 중복 저장하지 않는다. */
+    persistInbox?: boolean;
     /** 이 사람들에게만. 비우면 (보낸 사람 빼고) 회원 모두. */
     only?: string[];
     except?: string | null;
@@ -832,6 +834,32 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
+    if (hook.table === 'repair_entries' && hook.type === 'INSERT') {
+        const categories: Record<string, string> = {
+            inspection: '점검 방법',
+            test_mode: '테스트 모드',
+            hidden_key: '히든 키',
+            know_how: '수리 노하우',
+            error_code: '에러 코드',
+            parts: '부품·회로',
+        };
+        const family = typeof r.product_family === 'string' ? r.product_family : '가전';
+        const model = typeof r.model_code === 'string' ? r.model_code : '';
+        const title = typeof r.title === 'string' ? r.title : '새 수리 정보';
+        const category = typeof r.category === 'string'
+            ? categories[r.category] ?? '수리 정보'
+            : '수리 정보';
+        return {
+            title: '🛠 새 수리 정보 · ' + category,
+            body: (family + ' · ' + model + ' · ' + title).slice(0, 120),
+            tag: 'repair-' + String(r.id ?? 'new'),
+            url: '#/entry/' + String(r.id ?? ''),
+            // repair_knowledge.sql의 트리거가 푸시 구독과 관계없이
+            // 승인 회원 모두의 알림함에 행을 남긴다.
+            persistInbox: false,
+        };
+    }
+
     /* 정산은 **고른 사람에게만, 각자의 금액으로** 간다.
        몫 행(`settlement_shares`) 하나가 사람 하나라, 그 행이 들어올 때
        그 사람에게만 보내면 금액이 저절로 맞는다 — 사람마다 낼 돈이
@@ -1019,7 +1047,7 @@ Deno.serve(async req => {
      * 알림함은 켜고 끄고와 상관없이 있어야 하는 자리다.
      *
      * **넣는 것이 먼저다** — 아래 뱃지 셈이 이 표를 세기 때문이다. */
-    if (note.channel !== 'chat') {
+    if (note.channel !== 'chat' && note.persistInbox !== false) {
         const people = note.only ?? [...members];
         const rows = people
             .filter(id => id && id !== note.except && members.has(id))

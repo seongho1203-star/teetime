@@ -190,14 +190,14 @@ self.addEventListener('push', event => {
     let data = {};
     try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
 
-    const title = data.title || '까꿍';
+    const title = data.title || '수리노트';
     const options = {
         body: data.body || '',
-        icon: './icon-192.png',
-        badge: './icon-192.png',
+        icon: './repair-icon-192.png',
+        badge: './repair-icon-192.png',
         // 같은 tag면 알림이 쌓이지 않고 마지막 것으로 갱신된다.
         // 대화가 여러 줄 와도 알림창이 도배되지 않게 하려는 것이다.
-        tag: data.tag || 'teetime',
+        tag: data.tag || 'repair-entry',
         renotify: true,
         data: { url: data.url || './' },
     };
