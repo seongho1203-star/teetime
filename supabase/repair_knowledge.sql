@@ -21,11 +21,7 @@ create table if not exists public.repair_entries (
                             check (verification_status in ('unverified', 'verified', 'needs_review')),
     verified_by         uuid references public.profiles(id) on delete set null,
     verified_at         timestamptz,
-    search_vector       tsvector generated always as (
-        to_tsvector('simple', concat_ws(' ',
-            product_family, model_code, title, symptoms, inspection_steps,
-            result_notes, cautions, array_to_string(tags, ' ')))
-    ) stored,
+    search_vector       tsvector not null default ''::tsvector,
     constraint repair_entries_tags_limit check (cardinality(tags) <= 10),
     constraint repair_entries_photos_limit check (cardinality(photo_paths) <= 6)
 );
@@ -69,14 +65,30 @@ language plpgsql
 set search_path = public, pg_catalog
 as $$
 begin
-    new.updated_at := now();
+    if tg_op = 'UPDATE' then
+        new.updated_at := now();
+    end if;
+    -- to_tsvector with an explicit configuration is immutable, but building
+    -- this in the trigger also avoids generated-column restrictions on text
+    -- concatenation and array formatting.
+    new.search_vector := to_tsvector(
+        'pg_catalog.simple'::regconfig,
+        coalesce(new.product_family, '') || ' ' ||
+        coalesce(new.model_code, '') || ' ' ||
+        coalesce(new.title, '') || ' ' ||
+        coalesce(new.symptoms, '') || ' ' ||
+        coalesce(new.inspection_steps, '') || ' ' ||
+        coalesce(new.result_notes, '') || ' ' ||
+        coalesce(new.cautions, '') || ' ' ||
+        coalesce(array_to_string(new.tags, ' '), '')
+    );
     return new;
 end;
 $$;
 
 drop trigger if exists repair_entries_touch_updated_at on public.repair_entries;
 create trigger repair_entries_touch_updated_at
-    before update on public.repair_entries
+    before insert or update on public.repair_entries
     for each row execute function public.repair_entries_touch_updated_at();
 
 -- 작성자가 관리자 검증 상태를 바꾸지 못하게 한다.
@@ -129,7 +141,7 @@ begin
        and (v_model is null or e.model_code ilike '%' || v_model || '%')
        and (
             v_query is null
-            or e.search_vector @@ plainto_tsquery('simple', v_query)
+            or e.search_vector @@ plainto_tsquery('pg_catalog.simple'::regconfig, v_query)
             or e.title ilike '%' || v_query || '%'
             or e.model_code ilike '%' || v_query || '%'
             or e.symptoms ilike '%' || v_query || '%'

@@ -835,6 +835,8 @@ async function planFor(hook: Hook): Promise<Note | null> {
     }
 
     if (hook.table === 'repair_entries' && hook.type === 'INSERT') {
+        // repair_knowledge.sql stores the in-app notice for every member;
+        // this handler sends only the optional device push.
         const categories: Record<string, string> = {
             inspection: '점검 방법',
             test_mode: '테스트 모드',
