@@ -163,6 +163,48 @@ export async function createEntry(
     }
 }
 
+export async function updateEntry(
+    entryId: string,
+    input: NewEntryInput,
+    files: File[],
+    userId: string,
+    existingPhotoPaths: string[],
+): Promise<void> {
+    if (existingPhotoPaths.length + files.length > PHOTO_LIMIT) {
+        throw new Error('사진은 최대 6장까지 첨부할 수 있습니다.');
+    }
+    const uploaded: string[] = [];
+    try {
+        for (const file of files) {
+            const prepared = await preparePhoto(file);
+            const path = userId + '/' + entryId + '/' + id() + '.' + prepared.ext;
+            const { error } = await db.storage.from(PHOTO_BUCKET).upload(path, prepared.blob, {
+                contentType: prepared.mime,
+                upsert: false,
+            });
+            if (error) throw error;
+            uploaded.push(path);
+        }
+
+        // result_notes와 검증 필드는 수정 폼에 노출하지 않으며, 기존 값을 보존한다.
+        const { error } = await db.from('repair_entries').update({
+            product_family: input.product_family,
+            model_code: input.model_code,
+            category: input.category,
+            title: input.title,
+            symptoms: input.symptoms,
+            inspection_steps: input.inspection_steps,
+            cautions: input.cautions,
+            tags: input.tags,
+            photo_paths: [...existingPhotoPaths, ...uploaded],
+        }).eq('id', entryId);
+        if (error) throw error;
+    } catch (error) {
+        if (uploaded.length) await db.storage.from(PHOTO_BUCKET).remove(uploaded).catch(() => {});
+        throw error;
+    }
+}
+
 export async function removeEntry(entry: RepairEntry): Promise<void> {
     const { error } = await db.from('repair_entries').delete().eq('id', entry.id);
     if (error) throw error;

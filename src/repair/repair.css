@@ -551,7 +551,7 @@
 .rn-verify-panel span { color: #8c97a0; font-size: 10px; line-height: 1.5; }
 .rn-verify-actions { display: flex; gap: 7px; }
 .rn-verify-actions .rn-primary-btn, .rn-verify-actions .rn-secondary-btn { min-height: 34px; padding: 0 10px; font-size: 10px; }
-.rn-detail-actions { display: flex; justify-content: flex-end; margin-top: 15px; }
+.rn-detail-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 15px; }
 .rn-delete-btn { border: 0; color: #9e5968; background: transparent; font-size: 10px; font-weight: 700; }
 
 .rn-alert-page { max-width: 900px; }
