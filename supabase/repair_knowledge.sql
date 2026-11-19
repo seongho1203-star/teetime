@@ -325,6 +325,15 @@ begin
     v_title := '새 수리 정보 · ' || v_category;
     v_body := left(new.product_family || ' · ' || new.model_code || ' · ' || new.title, 160);
 
+    if tg_op = 'UPDATE' then
+        update public.notifications
+           set title = v_title,
+               body = v_body
+         where kind = 'repair_entries'
+           and url = '#/entry/' || new.id::text;
+        return new;
+    end if;
+
     insert into public.notifications (user_id, kind, title, body, url)
     select p.user_id, 'repair_entries', v_title, v_body, '#/entry/' || new.id::text
       from public.repair_memberships p
@@ -335,7 +344,7 @@ $$;
 
 drop trigger if exists repair_entries_in_app_notice on public.repair_entries;
 create trigger repair_entries_in_app_notice
-    after insert on public.repair_entries
+    after insert or update on public.repair_entries
     for each row execute function public.repair_entry_in_app_notice();
 
 -- 알림 푸시는 기존 발송기에 연결한다. 발송기가 아직 없더라도 저장·검색·
