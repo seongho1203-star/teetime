@@ -152,7 +152,7 @@ jobs:
           # **`--no-verify-jwt`를 빼지 말 것.** 켜 두면 트리거가 부를 때
           # 관문이 401로 막아 **알림만 조용히 안 온다.** 문은 함수 안의
           # `x-notify-secret`이 지킨다 (CLAUDE.md의 알림 꼭지 참고).
-          supabase functions deploy notify --project-ref "$REF" --no-verify-jwt
+          supabase functions deploy notify --project-ref "$REF" --no-verify-jwt --yes
 
   build:
     needs: db     # DB가 먼저 — 앱이 옛 DB에 붙는 틈을 없앤다
