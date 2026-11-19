@@ -1,12 +1,116 @@
 -- 수리노트 지식 공유 테이블.
 -- 기존 라운드·투표·대화 데이터는 건드리지 않고 별도 테이블과 비공개 사진 통만 추가한다.
 
+-- 수리노트 회원 정보는 기존 profiles와 분리한다. 표시 이름 변경과 가입
+-- 신청 삭제가 JTFAG 회원 프로필·권한에 영향을 주지 않도록 한다.
+create table if not exists public.repair_memberships (
+    user_id       uuid primary key references auth.users(id) on delete cascade,
+    display_name  text not null default '회원'
+                  check (char_length(display_name) between 1 and 40),
+    status        text not null default 'pending'
+                  check (status in ('pending', 'member')),
+    requested_at  timestamptz not null default now(),
+    approved_at   timestamptz,
+    approved_by   uuid references public.profiles(id) on delete set null
+);
+
+create index if not exists repair_memberships_status_name_idx
+    on public.repair_memberships (status, display_name);
+
+-- 기존 승인 회원은 별도 신청 없이 수리노트를 계속 이용할 수 있게 옮긴다.
+insert into public.repair_memberships (user_id, display_name, status, requested_at, approved_at)
+select p.id, coalesce(nullif(btrim(p.name), ''), '회원'), 'member',
+       coalesce(p.joined_at, p.created_at, now()), coalesce(p.joined_at, p.created_at, now())
+  from public.profiles p
+ where p.role in ('member', 'treasurer', 'staff', 'admin', 'superadmin')
+on conflict (user_id) do nothing;
+
+create or replace function public.is_repair_member()
+returns boolean
+language sql security definer stable set search_path = public, pg_catalog as $$
+    select exists (
+        select 1 from public.repair_memberships
+         where user_id = auth.uid() and status = 'member'
+    );
+$$;
+
+revoke all on function public.is_repair_member() from public, anon;
+grant execute on function public.is_repair_member() to authenticated;
+
+create or replace function public.request_repair_membership(p_display_name text default null)
+returns void
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+    v_user uuid := auth.uid();
+    v_profile_name text;
+    v_name text;
+begin
+    if v_user is null then raise exception '로그인이 필요합니다.'; end if;
+    select name into v_profile_name from public.profiles where id = v_user;
+    v_name := coalesce(nullif(btrim(p_display_name), ''), nullif(btrim(v_profile_name), ''), '회원');
+    insert into public.repair_memberships (user_id, display_name, status)
+    values (v_user, left(v_name, 40), 'pending')
+    on conflict (user_id) do nothing;
+end;
+$$;
+
+create or replace function public.approve_repair_membership(p_user_id uuid)
+returns void
+language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+    if not public.is_admin() then raise exception '회원 승인 권한이 없습니다.'; end if;
+    update public.repair_memberships
+       set status = 'member', approved_at = now(), approved_by = auth.uid()
+     where user_id = p_user_id and status = 'pending';
+    if not found then raise exception '대기 중인 가입 신청을 찾을 수 없습니다.'; end if;
+end;
+$$;
+
+create or replace function public.delete_repair_application(p_user_id uuid)
+returns void
+language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+    if not public.is_admin() then raise exception '가입 신청 삭제 권한이 없습니다.'; end if;
+    delete from public.repair_memberships
+     where user_id = p_user_id and status = 'pending';
+    if not found then raise exception '대기 중인 가입 신청을 찾을 수 없습니다.'; end if;
+end;
+$$;
+
+revoke all on function public.request_repair_membership(text) from public, anon;
+revoke all on function public.approve_repair_membership(uuid) from public, anon;
+revoke all on function public.delete_repair_application(uuid) from public, anon;
+grant execute on function public.request_repair_membership(text) to authenticated;
+grant execute on function public.approve_repair_membership(uuid) to authenticated;
+grant execute on function public.delete_repair_application(uuid) to authenticated;
+
+alter table public.repair_memberships enable row level security;
+revoke all on public.repair_memberships from public, anon;
+grant select, insert on public.repair_memberships to authenticated;
+grant update (display_name) on public.repair_memberships to authenticated;
+
+drop policy if exists repair_memberships_read on public.repair_memberships;
+create policy repair_memberships_read on public.repair_memberships
+    for select to authenticated
+    using (user_id = auth.uid() or is_repair_member() or is_admin());
+
+drop policy if exists repair_memberships_request on public.repair_memberships;
+create policy repair_memberships_request on public.repair_memberships
+    for insert to authenticated
+    with check (user_id = auth.uid() and status = 'pending');
+
+drop policy if exists repair_memberships_name on public.repair_memberships;
+create policy repair_memberships_name on public.repair_memberships
+    for update to authenticated
+    using (user_id = auth.uid() and status = 'member')
+    with check (user_id = auth.uid() and status = 'member');
+
 create table if not exists public.repair_entries (
     id                  uuid primary key default gen_random_uuid(),
     product_family      text not null check (char_length(product_family) between 1 and 40),
     model_code          text not null check (char_length(model_code) between 2 and 50),
     category            text not null check (category in
-                            ('inspection', 'test_mode', 'hidden_key', 'know_how', 'error_code', 'parts')),
+                            ('inspection', 'test_mode', 'error_code', 'parts')),
     title               text not null check (char_length(title) between 2 and 120),
     symptoms            text not null default '' check (char_length(symptoms) <= 1200),
     inspection_steps    text not null check (char_length(inspection_steps) between 2 and 8000),
@@ -26,6 +130,15 @@ create table if not exists public.repair_entries (
     constraint repair_entries_photos_limit check (cardinality(photo_paths) <= 6)
 );
 
+-- 이전 화면에서 등록된 유형은 모두 새 '수리 및 점검방법'으로 묶어 보존한다.
+update public.repair_entries
+   set category = 'inspection'
+ where category in ('hidden_key', 'know_how');
+
+alter table public.repair_entries drop constraint if exists repair_entries_category_check;
+alter table public.repair_entries add constraint repair_entries_category_check
+    check (category in ('inspection', 'test_mode', 'error_code', 'parts'));
+
 create index if not exists repair_entries_search_idx
     on public.repair_entries using gin (search_vector);
 create index if not exists repair_entries_family_created_idx
@@ -41,12 +154,12 @@ revoke all on public.repair_entries from anon;
 
 drop policy if exists repair_entries_read on public.repair_entries;
 create policy repair_entries_read on public.repair_entries
-    for select to authenticated using (is_member());
+    for select to authenticated using (is_repair_member());
 
 drop policy if exists repair_entries_add on public.repair_entries;
 create policy repair_entries_add on public.repair_entries
     for insert to authenticated
-    with check (is_member() and created_by = auth.uid());
+    with check (is_repair_member() and created_by = auth.uid());
 
 drop policy if exists repair_entries_edit on public.repair_entries;
 create policy repair_entries_edit on public.repair_entries
@@ -171,14 +284,14 @@ set public = false,
 drop policy if exists repair_photos_member_read on storage.objects;
 create policy repair_photos_member_read on storage.objects
     for select to authenticated
-    using (bucket_id = 'repair-photos' and is_member());
+    using (bucket_id = 'repair-photos' and is_repair_member());
 
 drop policy if exists repair_photos_member_add on storage.objects;
 create policy repair_photos_member_add on storage.objects
     for insert to authenticated
     with check (
         bucket_id = 'repair-photos'
-        and is_member()
+        and is_repair_member()
         and (storage.foldername(name))[1] = auth.uid()::text
     );
 
@@ -203,10 +316,8 @@ declare
     v_body text;
 begin
     v_category := case new.category
-        when 'inspection' then '점검 방법'
+        when 'inspection' then '수리 및 점검방법'
         when 'test_mode' then '테스트 모드'
-        when 'hidden_key' then '히든 키'
-        when 'know_how' then '수리 노하우'
         when 'error_code' then '에러 코드'
         when 'parts' then '부품·회로'
         else '수리 정보'
@@ -216,8 +327,8 @@ begin
 
     insert into public.notifications (user_id, kind, title, body, url)
     select p.id, 'repair_entries', v_title, v_body, '#/entry/' || new.id::text
-      from public.profiles p
-     where p.role in ('member', 'treasurer', 'staff', 'admin', 'superadmin');
+      from public.repair_memberships p
+     where p.status = 'member';
     return new;
 end;
 $$;
@@ -254,6 +365,14 @@ begin
            and tablename = 'repair_entries'
     ) then
         alter publication supabase_realtime add table public.repair_entries;
+    end if;
+    if not exists (
+        select 1 from pg_publication_tables
+         where pubname = 'supabase_realtime'
+           and schemaname = 'public'
+           and tablename = 'repair_memberships'
+    ) then
+        alter publication supabase_realtime add table public.repair_memberships;
     end if;
 end;
 $$;

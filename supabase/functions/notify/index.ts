@@ -839,10 +839,8 @@ async function planFor(hook: Hook): Promise<Note | null> {
         // repair_knowledge.sql stores the in-app notice for every member;
         // this handler sends only the optional device push.
         const categories: Record<string, string> = {
-            inspection: '점검 방법',
+            inspection: '수리 및 점검방법',
             test_mode: '테스트 모드',
-            hidden_key: '히든 키',
-            know_how: '수리 노하우',
             error_code: '에러 코드',
             parts: '부품·회로',
         };

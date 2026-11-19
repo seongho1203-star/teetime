@@ -8,12 +8,13 @@ import { enablePush, pushState, type PushState } from '../lib/push';
 import { isConfigured, signInWithApple, signInWithKakao, supabase } from '../lib/supabase';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
-    createEntry, getEntry, listNotifications, markNotificationsRead, removeEntry,
-    repairDb, searchEntries, setVerification, signedPhotoUrls,
+    createEntry, getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry,
+    repairDb, requestRepairMembership, searchEntries, setVerification, signedPhotoUrls,
+    updateRepairMemberName,
 } from './data';
 import {
     ENTRY_CATEGORIES, PRODUCT_FAMILIES, type EntryCategory, type EntryFilters,
-    type RepairEntry, type RepairNotification, type VerificationStatus,
+    type RepairEntry, type RepairMembership, type RepairNotification, type VerificationStatus,
 } from './types';
 import './repair.css';
 
@@ -74,12 +75,53 @@ function AuthApp() {
 }
 
 function RepairGate() {
-    const { session, profile, isMember, isAdmin, loading, refresh } = useAuth();
+    const { session, profile, isAdmin, loading } = useAuth();
+    const userId = session?.user.id;
+    const [membership, setMembership] = useState<RepairMembership | null>(null);
+    const [membershipLoading, setMembershipLoading] = useState(true);
+    const [membershipError, setMembershipError] = useState('');
+
+    const refreshMembership = useCallback(async () => {
+        if (!userId) {
+            setMembership(null);
+            setMembershipLoading(false);
+            return;
+        }
+        setMembershipLoading(true);
+        setMembershipError('');
+        try {
+            setMembership(await getRepairMembership(userId));
+        } catch (error) {
+            setMembershipError(messageOf(error));
+        } finally {
+            setMembershipLoading(false);
+        }
+    }, [userId]);
+
+    useEffect(() => { void refreshMembership(); }, [refreshMembership]);
+
+    useEffect(() => {
+        if (!userId) return;
+        const channel = repairDb.channel('repair-membership-' + userId)
+            .on('postgres_changes', {
+                event: '*', schema: 'public', table: 'repair_memberships',
+                filter: 'user_id=eq.' + userId,
+            }, () => void refreshMembership())
+            .subscribe();
+        return () => { void repairDb.removeChannel(channel); };
+    }, [refreshMembership, userId]);
+
     if (loading) return <LoadingScreen />;
     if (!session) return <LoginScreen />;
-    if (!isMember) return <PendingScreen name={profile?.name ?? ''} refresh={refresh} />;
+    if (membershipLoading) return <LoadingScreen />;
+    const initialName = profile?.name || String(session.user.user_metadata?.name ?? '');
+    if (membershipError) return <MembershipLoadError error={membershipError} retry={refreshMembership} />;
+    if (!membership || membership.status === 'pending') {
+        return <RepairAccessScreen name={membership?.display_name || initialName}
+            membership={membership} refresh={refreshMembership} />;
+    }
 
-    return <RepairWorkspace userId={session.user.id} name={profile?.name || '회원'} isAdmin={isAdmin} />;
+    return <RepairWorkspace userId={session.user.id} name={membership.display_name || '회원'} isAdmin={isAdmin} />;
 }
 
 function LoginScreen() {
@@ -103,7 +145,7 @@ function LoginScreen() {
                 <Mark />
                 <div className="rn-eyebrow">FIELD KNOWLEDGE · LG ELECTRONICS</div>
                 <h1>수리노트</h1>
-                <p className="rn-auth-sub">현장 엔지니어의 점검 방법과 수리 노하우를<br />모델별로 빠르게 찾고 공유하세요.</p>
+                <p className="rn-auth-sub">현장 엔지니어의 수리 및 점검방법을<br />모델별로 빠르게 찾고 공유하세요.</p>
                 <div className="rn-auth-divider"><span>승인된 회원 전용</span></div>
                 <button className="rn-login-kakao" onClick={() => void login('kakao')} disabled={!!busy}>
                     {busy === 'kakao' ? <span className="rn-spinner" /> : <><b>톡</b> 카카오로 시작하기</>}
@@ -120,30 +162,60 @@ function LoginScreen() {
     );
 }
 
-function PendingScreen({ name, refresh }: { name: string; refresh: () => Promise<void> }) {
+function MembershipLoadError({ error, retry }: { error: string; retry: () => Promise<void> }) {
+    return (
+        <main className="rn-auth-screen">
+            <section className="rn-auth-card rn-pending">
+                <span className="rn-pending-icon"><Icon name="shield" size={27} /></span>
+                <h1>회원 정보를 불러오지 못했습니다</h1>
+                <p className="rn-auth-sub">{error}</p>
+                <button className="rn-primary-btn rn-wide" onClick={() => void retry()}>다시 불러오기</button>
+            </section>
+        </main>
+    );
+}
+
+function RepairAccessScreen({
+    name, membership, refresh,
+}: { name: string; membership: RepairMembership | null; refresh: () => Promise<void> }) {
     const toast = useToast();
     const [busy, setBusy] = useState(false);
+    const isPending = membership?.status === 'pending';
     const check = async () => {
         setBusy(true);
         await refresh();
         setBusy(false);
-        toast('승인 상태를 확인했습니다.', 'ok');
+        if (isPending) toast('승인 상태를 확인했습니다.', 'ok');
+    };
+    const apply = async () => {
+        setBusy(true);
+        try {
+            await requestRepairMembership(name);
+            await refresh();
+            toast('수리노트 가입 신청이 완료됐습니다.', 'ok');
+        } catch (error) {
+            toast(messageOf(error), 'error');
+        } finally {
+            setBusy(false);
+        }
     };
     return (
         <main className="rn-auth-screen">
             <section className="rn-auth-card rn-pending">
                 <span className="rn-pending-icon"><Icon name="shield" size={27} /></span>
                 <div className="rn-eyebrow">MEMBERSHIP REVIEW</div>
-                <h1>승인 대기 중입니다</h1>
+                <h1>{isPending ? '승인 대기 중입니다' : '수리노트 가입 신청'}</h1>
                 <p className="rn-auth-sub">
-                    {name ? name + '님, ' : ''}회원 확인이 끝나면 제품별 수리 자료를 볼 수 있습니다.
+                    {name ? name + '님, ' : ''}{isPending
+                        ? '회원 확인이 끝나면 제품별 수리 자료를 볼 수 있습니다.'
+                        : '가입 신청 후 운영자 승인이 완료되면 이용할 수 있습니다.'}
                 </p>
                 <div className="rn-pending-info">
-                    <strong>승인 후 이용 가능</strong>
-                    <span>모델별 점검 방법 · 테스트 모드 · 히든 키 · 수리 노하우</span>
+                    <strong>{isPending ? '승인 후 이용 가능' : '가입 신청 대상'}</strong>
+                    <span>수리 및 점검방법 · 테스트 모드 · 에러 코드 · 부품·회로</span>
                 </div>
-                <button className="rn-primary-btn rn-wide" onClick={() => void check()} disabled={busy}>
-                    {busy ? <span className="rn-spinner" /> : '승인 상태 확인'}
+                <button className="rn-primary-btn rn-wide" onClick={() => void (isPending ? check() : apply())} disabled={busy}>
+                    {busy ? <span className="rn-spinner" /> : isPending ? '승인 상태 확인' : '가입 신청하기'}
                 </button>
                 <button className="rn-text-btn" onClick={() => void supabase.auth.signOut()}>
                     로그아웃
@@ -154,9 +226,10 @@ function PendingScreen({ name, refresh }: { name: string; refresh: () => Promise
 }
 
 function RepairWorkspace({ userId, name, isAdmin }: { userId: string; name: string; isAdmin: boolean }) {
+    const [displayName, setDisplayName] = useState(name);
     return (
         <div className="rn-app">
-            <Header userId={userId} name={name} isAdmin={isAdmin} />
+            <Header userId={userId} name={displayName} isAdmin={isAdmin} onNameChange={setDisplayName} />
             <div className="rn-layout">
                 <aside className="rn-sidebar">
                     <SidebarNav isAdmin={isAdmin} />
@@ -171,7 +244,7 @@ function RepairWorkspace({ userId, name, isAdmin }: { userId: string; name: stri
                         <Route path="/new" element={<EntryForm userId={userId} />} />
                         <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
                         <Route path="/alerts" element={<NotificationCenter userId={userId} />} />
-                        <Route path="/members" element={isAdmin ? <MemberApprovals /> : <Navigate to="/" replace />} />
+                        <Route path="/members" element={<MemberApprovals isAdmin={isAdmin} />} />
                         <Route path="/guide" element={<GuidePage />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
@@ -182,9 +255,14 @@ function RepairWorkspace({ userId, name, isAdmin }: { userId: string; name: stri
     );
 }
 
-function Header({ userId, name, isAdmin }: { userId: string; name: string; isAdmin: boolean }) {
+function Header({ userId, name, isAdmin, onNameChange }: {
+    userId: string; name: string; isAdmin: boolean; onNameChange: (name: string) => void;
+}) {
     const [count, setCount] = useState(0);
     const [menuOpen, setMenuOpen] = useState(false);
+    const [nameEditOpen, setNameEditOpen] = useState(false);
+    const [nameDraft, setNameDraft] = useState(name);
+    const [savingName, setSavingName] = useState(false);
     const toast = useToast();
     const navigate = useNavigate();
 
@@ -224,6 +302,26 @@ function Header({ userId, name, isAdmin }: { userId: string; name: string; isAdm
         }
     };
 
+    const saveName = async () => {
+        const nextName = nameDraft.trim();
+        if (!nextName || nextName.length > 40) {
+            toast('이름은 1~40자로 입력해 주세요.', 'error');
+            return;
+        }
+        setSavingName(true);
+        try {
+            await updateRepairMemberName(userId, nextName);
+            onNameChange(nextName);
+            setNameEditOpen(false);
+            setMenuOpen(false);
+            toast('수리노트 프로필 이름을 변경했습니다.', 'ok');
+        } catch (error) {
+            toast(messageOf(error), 'error');
+        } finally {
+            setSavingName(false);
+        }
+    };
+
     const pushLabel = push === 'standalone-required'
         ? '홈 화면에 추가 후 알림을 켤 수 있어요'
         : push === 'denied' ? '브라우저 설정에서 알림 권한을 허용해 주세요'
@@ -231,43 +329,71 @@ function Header({ userId, name, isAdmin }: { userId: string; name: string; isAdm
         : '앱을 닫아도 새 수리 정보를 받아보세요';
 
     return (
-        <header className="rn-header">
-            <Link className="rn-brand" to="/">
-                <Mark />
-                <span className="rn-brand-copy">
-                    <strong>수리노트</strong>
-                    <small>현장 기술 지식 공유</small>
-                </span>
-            </Link>
-            <div className="rn-header-actions">
-                {push !== 'on' && push !== 'unsupported' && (
-                    <button className="rn-push-setup" onClick={() => void turnOnPush()} title={pushLabel}>
-                        <Icon name="bell" size={17} />
-                        <span>{push === 'off' || push === null ? '알림 켜기' : '알림 안내'}</span>
+        <>
+            <header className="rn-header">
+                <Link className="rn-brand" to="/">
+                    <Mark />
+                    <span className="rn-brand-copy">
+                        <strong>수리노트</strong>
+                        <small>현장 기술 지식 공유</small>
+                    </span>
+                </Link>
+                <div className="rn-header-actions">
+                    {push !== 'on' && push !== 'unsupported' && (
+                        <button className="rn-push-setup" onClick={() => void turnOnPush()} title={pushLabel}>
+                            <Icon name="bell" size={17} />
+                            <span>{push === 'off' || push === null ? '알림 켜기' : '알림 안내'}</span>
+                        </button>
+                    )}
+                    <button className="rn-bell-btn" aria-label="알림함" onClick={() => navigate('/alerts')}>
+                        <Icon name="bell" size={20} />
+                        {count > 0 && <span className="rn-badge">{count > 99 ? '99+' : count}</span>}
                     </button>
-                )}
-                <button className="rn-bell-btn" aria-label="알림함" onClick={() => navigate('/alerts')}>
-                    <Icon name="bell" size={20} />
-                    {count > 0 && <span className="rn-badge">{count > 99 ? '99+' : count}</span>}
-                </button>
-                <div className="rn-user-wrap">
-                    <button className="rn-user-btn" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
-                        <span className="rn-avatar">{name.slice(0, 1)}</span>
-                        <span className="rn-user-name">{name}</span>
-                        <span className="rn-chevron">⌄</span>
-                    </button>
-                    {menuOpen && (
-                        <div className="rn-user-menu">
-                            <span className="rn-menu-label">{name}님</span>
-                            {isAdmin && <Link to="/members" onClick={() => setMenuOpen(false)}>회원 승인 관리</Link>}
-                            <button onClick={() => void supabase.auth.signOut()}>
-                                <Icon name="logout" size={16} /> 로그아웃
+                    <div className="rn-user-wrap">
+                        <button className="rn-user-btn" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
+                            <span className="rn-avatar">{name.slice(0, 1)}</span>
+                            <span className="rn-user-name">{name}</span>
+                            <span className="rn-chevron">⌄</span>
+                        </button>
+                        {menuOpen && (
+                            <div className="rn-user-menu">
+                                <span className="rn-menu-label">{name}님</span>
+                                <button onClick={() => { setNameDraft(name); setNameEditOpen(true); }}>
+                                    <Icon name="user" size={16} /> 이름 변경
+                                </button>
+                                <Link to="/members" onClick={() => setMenuOpen(false)}>
+                                    <Icon name="user" size={16} /> {isAdmin ? '회원·가입 신청 관리' : '회원 명단'}
+                                </Link>
+                                <button onClick={() => void supabase.auth.signOut()}>
+                                    <Icon name="logout" size={16} /> 로그아웃
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </header>
+            {nameEditOpen && (
+                <div className="rn-dialog-backdrop" onClick={() => setNameEditOpen(false)}>
+                    <section className="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="rn-name-title"
+                             onClick={event => event.stopPropagation()}>
+                        <span className="rn-eyebrow">PROFILE</span>
+                        <h2 id="rn-name-title">수리노트 이름 변경</h2>
+                        <p>이 이름은 수리노트에서만 표시됩니다.</p>
+                        <label className="rn-field">
+                            <span>표시 이름</span>
+                            <input value={nameDraft} onChange={event => setNameDraft(event.target.value)}
+                                   maxLength={40} autoFocus />
+                        </label>
+                        <div className="rn-dialog-actions">
+                            <button className="rn-secondary-btn" onClick={() => setNameEditOpen(false)}>취소</button>
+                            <button className="rn-primary-btn" onClick={() => void saveName()} disabled={savingName}>
+                                {savingName ? '저장 중…' : '저장'}
                             </button>
                         </div>
-                    )}
+                    </section>
                 </div>
-            </div>
-        </header>
+            )}
+        </>
     );
 }
 
@@ -288,11 +414,9 @@ function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
                     <span>{link.label}</span>
                 </Link>
             ))}
-            {isAdmin && (
-                <Link to="/members" className={'rn-side-link' + (location.pathname === '/members' ? ' active' : '')}>
-                    <Icon name="user" size={18} /><span>회원 승인</span>
-                </Link>
-            )}
+        <Link to="/members" className={'rn-side-link' + (location.pathname === '/members' ? ' active' : '')}>
+            <Icon name="user" size={18} /><span>{isAdmin ? '회원 관리' : '회원 명단'}</span>
+        </Link>
             <Link to="/new" className="rn-side-create"><Icon name="plus" size={18} />수리 정보 등록</Link>
             <div className="rn-side-tip">
                 <span className="rn-side-tip-icon"><Icon name="wrench" size={17} /></span>
@@ -389,8 +513,8 @@ function KnowledgeHome({ userId }: { userId: string }) {
             <section className="rn-hero">
                 <div className="rn-hero-copy">
                     <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
-                    <h1>고장 증상부터 수리 노하우까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
-                    <p>현장의 점검 방법과 테스트 정보를 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
+                    <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
+                    <p>현장의 수리 및 점검 정보와 테스트 내용을 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
                     <Link to="/new" className="rn-hero-action">지식 등록하기 <Icon name="arrow" size={17} /></Link>
                 </div>
                 <div className="rn-hero-art" aria-hidden="true">
@@ -486,7 +610,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                     <div className="rn-empty">
                         <span><Icon name="search" size={26} /></span>
                         <strong>{filters.query || filters.family || activeCategory || model ? '검색 결과가 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
-                        <p>{filters.query || filters.family || activeCategory || model ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : '첫 점검 방법이나 현장 노하우를 등록해 주세요.'}</p>
+                        <p>{filters.query || filters.family || activeCategory || model ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
                         {!(filters.query || filters.family || activeCategory || model) && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
                     </div>
                 )}
@@ -548,7 +672,6 @@ function EntryForm({ userId }: { userId: string }) {
         title: '',
         symptoms: '',
         inspection_steps: '',
-        result_notes: '',
         cautions: '',
     });
 
@@ -569,7 +692,7 @@ function EntryForm({ userId }: { userId: string }) {
     const submit = async (event: FormEvent) => {
         event.preventDefault();
         if (!form.product_family || !form.model_code.trim() || !form.title.trim() || !form.inspection_steps.trim()) {
-            toast('제품군, 모델명, 제목, 점검 방법을 입력해 주세요.', 'error');
+            toast('제품군, 모델명, 제목, 수리 및 점검방법을 입력해 주세요.', 'error');
             return;
         }
         setSaving(true);
@@ -580,7 +703,7 @@ function EntryForm({ userId }: { userId: string }) {
                 title: form.title.trim(),
                 symptoms: form.symptoms.trim(),
                 inspection_steps: form.inspection_steps.trim(),
-                result_notes: form.result_notes.trim(),
+                result_notes: '',
                 cautions: form.cautions.trim(),
                 tags: tagsText.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(Boolean).slice(0, 10),
             }, files, userId);
@@ -638,7 +761,7 @@ function EntryForm({ userId }: { userId: string }) {
                 <div className="rn-form-section">
                     <div className="rn-form-section-title">
                         <span className="rn-step-number">02</span>
-                        <div><strong>점검 내용</strong><small>확인한 증상, 절차, 결과를 나누어 적어 주세요.</small></div>
+                        <div><strong>수리 및 점검 내용</strong><small>증상과 점검 순서, 주의사항을 구체적으로 적어 주세요.</small></div>
                     </div>
                     <label className="rn-field">
                         <span>고객 증상·발생 조건</span>
@@ -646,21 +769,16 @@ function EntryForm({ userId }: { userId: string }) {
                                   placeholder="언제, 어떤 조건에서 증상이 나타나는지 적어 주세요." rows={3} maxLength={1200} />
                     </label>
                     <label className="rn-field">
-                        <span>점검 방법·테스트 절차 <b>*</b></span>
+                        <span>수리 및 점검방법 <b>*</b></span>
                         <textarea value={form.inspection_steps} onChange={e => field('inspection_steps', e.target.value)}
                                   placeholder={'1. 먼저 확인할 항목\n2. 측정 또는 테스트 조건\n3. 결과에 따른 다음 점검'} rows={7} maxLength={8000} required />
-                    </label>
-                    <label className="rn-field">
-                        <span>확인 결과·수리 노하우</span>
-                        <textarea value={form.result_notes} onChange={e => field('result_notes', e.target.value)}
-                                  placeholder="점검 결과, 원인, 조치 후 확인 내용을 기록해 주세요." rows={4} maxLength={3000} />
                     </label>
                     <label className="rn-field">
                         <span>주의 사항</span>
                         <textarea value={form.cautions} onChange={e => field('cautions', e.target.value)}
                                   placeholder="전원 차단, 잔류 압력, 고온부 등 현장에서 놓치기 쉬운 주의점을 적어 주세요." rows={3} maxLength={1800} />
                     </label>
-                    {form.category === 'hidden_key' || form.category === 'test_mode' ? (
+                    {form.category === 'test_mode' ? (
                         <div className="rn-safety-note"><Icon name="shield" size={17} />
                             모델과 절차를 다시 확인하고, 현장 안전 기준에 따라 사용해 주세요.
                         </div>
@@ -802,10 +920,10 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                 )}
 
                 {entry.symptoms && <DetailSection title="고객 증상·발생 조건"><p>{entry.symptoms}</p></DetailSection>}
-                <DetailSection title="점검 방법·테스트 절차">
+                <DetailSection title="수리 및 점검방법·테스트 절차">
                     <div className="rn-detail-text">{entry.inspection_steps}</div>
                 </DetailSection>
-                {entry.result_notes && <DetailSection title="확인 결과·수리 노하우"><div className="rn-detail-text">{entry.result_notes}</div></DetailSection>}
+                {entry.result_notes && <DetailSection title="추가 기록"><div className="rn-detail-text">{entry.result_notes}</div></DetailSection>}
                 {entry.cautions && <DetailSection title="주의 사항" warning><div className="rn-detail-text">{entry.cautions}</div></DetailSection>}
 
                 {!!entry.tags?.length && (
@@ -901,7 +1019,7 @@ function NotificationCenter({ userId }: { userId: string }) {
             {!loading && !items.length && (
                 <div className="rn-empty">
                     <span><Icon name="bell" size={25} /></span><strong>아직 도착한 알림이 없습니다.</strong>
-                    <p>새 점검 방법이나 수리 노하우가 등록되면 여기에 표시됩니다.</p>
+                    <p>새 수리 및 점검 정보가 등록되면 여기에 표시됩니다.</p>
                 </div>
             )}
             <div className="rn-alert-list">
@@ -923,32 +1041,65 @@ function NotificationCenter({ userId }: { userId: string }) {
     );
 }
 
-function MemberApprovals() {
-    const { isAdmin } = useAuth();
+function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
     const toast = useToast();
-    const [members, setMembers] = useState<Array<{ id: string; name: string; created_at: string }>>([]);
+    const [members, setMembers] = useState<RepairMembership[]>([]);
+    const [requests, setRequests] = useState<RepairMembership[]>([]);
     const [loading, setLoading] = useState(true);
     const [busyId, setBusyId] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
-        const { data, error } = await repairDb.from('profiles')
-            .select('id, name, created_at').eq('role', 'pending').order('created_at');
-        if (error) toast(messageOf(error), 'error');
-        setMembers((data ?? []) as typeof members);
-        setLoading(false);
-    }, [toast]);
+        try {
+            const [approved, pending] = await Promise.all([
+                repairDb.from('repair_memberships')
+                    .select('user_id, display_name, status, requested_at, approved_at')
+                    .eq('status', 'member').order('display_name'),
+                isAdmin
+                    ? repairDb.from('repair_memberships')
+                        .select('user_id, display_name, status, requested_at, approved_at')
+                        .eq('status', 'pending').order('requested_at')
+                    : Promise.resolve({ data: [], error: null }),
+            ]);
+            if (approved.error) throw approved.error;
+            if (pending.error) throw pending.error;
+            setMembers((approved.data ?? []) as RepairMembership[]);
+            setRequests((pending.data ?? []) as RepairMembership[]);
+        } catch (error) {
+            toast(messageOf(error), 'error');
+        } finally {
+            setLoading(false);
+        }
+    }, [isAdmin, toast]);
 
-    useEffect(() => { if (isAdmin) void load(); }, [isAdmin, load]);
+    useEffect(() => { void load(); }, [load]);
 
     const approve = async (id: string) => {
         setBusyId(id);
-        const { error } = await repairDb.from('profiles').update({ role: 'member' }).eq('id', id).eq('role', 'pending');
-        setBusyId('');
-        if (error) toast(messageOf(error), 'error');
-        else {
+        try {
+            const { error } = await repairDb.rpc('approve_repair_membership', { p_user_id: id });
+            if (error) throw error;
             toast('회원 승인이 완료됐습니다.', 'ok');
             await load();
+        } catch (error) {
+            toast(messageOf(error), 'error');
+        } finally {
+            setBusyId('');
+        }
+    };
+
+    const deleteApplication = async (request: RepairMembership) => {
+        if (!window.confirm(`${request.display_name}님의 수리노트 가입 신청을 삭제할까요? 계정과 JTFAG 회원 정보는 삭제되지 않습니다.`)) return;
+        setBusyId(request.user_id);
+        try {
+            const { error } = await repairDb.rpc('delete_repair_application', { p_user_id: request.user_id });
+            if (error) throw error;
+            toast('가입 신청을 삭제했습니다.', 'ok');
+            await load();
+        } catch (error) {
+            toast(messageOf(error), 'error');
+        } finally {
+            setBusyId('');
         }
     };
 
@@ -956,23 +1107,42 @@ function MemberApprovals() {
         <div className="rn-page">
             <div className="rn-page-heading">
                 <span className="rn-eyebrow">MEMBER ACCESS</span>
-                <h1>회원 승인 관리</h1>
-                <p>승인된 회원만 수리 지식과 첨부 사진을 확인할 수 있습니다.</p>
+                <h1>수리노트 회원 명단</h1>
+                <p>여기에 표시되는 이름과 가입 관리는 수리노트에만 적용됩니다.</p>
             </div>
+            {isAdmin && (
+                <section className="rn-form-card rn-member-card">
+                    <div className="rn-section-heading">
+                        <div><span className="rn-eyebrow">PENDING REQUESTS</span><h2>가입 신청 <span className="rn-result-count">{requests.length}명</span></h2></div>
+                        <button className="rn-secondary-btn" onClick={() => void load()}>새로고침</button>
+                    </div>
+                    {loading && <div className="rn-loading-line"><span className="rn-spinner" /> 확인 중</div>}
+                    {!loading && !requests.length && <div className="rn-empty compact"><strong>가입 신청이 없습니다.</strong></div>}
+                    {requests.map(request => (
+                        <div className="rn-member-row" key={request.user_id}>
+                            <span className="rn-avatar">{(request.display_name || '회').slice(0, 1)}</span>
+                            <span><strong>{request.display_name || '이름 미등록'}</strong><small>가입 신청 · {dateLabel(request.requested_at)}</small></span>
+                            <div className="rn-member-actions">
+                                <button className="rn-secondary-btn rn-delete-request" onClick={() => void deleteApplication(request)} disabled={busyId === request.user_id}>삭제</button>
+                                <button className="rn-primary-btn" onClick={() => void approve(request.user_id)} disabled={busyId === request.user_id}>
+                                    {busyId === request.user_id ? '처리 중…' : '승인'}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </section>
+            )}
             <section className="rn-form-card rn-member-card">
                 <div className="rn-section-heading">
-                    <div><span className="rn-eyebrow">PENDING REQUESTS</span><h2>승인 대기 회원</h2></div>
-                    <button className="rn-secondary-btn" onClick={() => void load()}>새로고침</button>
+                    <div><span className="rn-eyebrow">APPROVED MEMBERS</span><h2>가입된 회원 <span className="rn-result-count">{members.length}명</span></h2></div>
+                    {!isAdmin && <button className="rn-secondary-btn" onClick={() => void load()}>새로고침</button>}
                 </div>
                 {loading && <div className="rn-loading-line"><span className="rn-spinner" /> 확인 중</div>}
-                {!loading && !members.length && <div className="rn-empty compact"><strong>승인 대기 회원이 없습니다.</strong></div>}
-                {!!members.length && members.map(member => (
-                    <div className="rn-member-row" key={member.id}>
-                        <span className="rn-avatar">{(member.name || '회').slice(0, 1)}</span>
-                        <span><strong>{member.name || '이름 미등록'}</strong><small>가입 신청 · {dateLabel(member.created_at)}</small></span>
-                        <button className="rn-primary-btn" onClick={() => void approve(member.id)} disabled={busyId === member.id}>
-                            {busyId === member.id ? '승인 중…' : '회원 승인'}
-                        </button>
+                {!loading && !members.length && <div className="rn-empty compact"><strong>등록된 회원이 없습니다.</strong></div>}
+                {members.map(member => (
+                    <div className="rn-member-row" key={member.user_id}>
+                        <span className="rn-avatar">{(member.display_name || '회').slice(0, 1)}</span>
+                        <span><strong>{member.display_name || '이름 미등록'}</strong><small>수리노트 회원</small></span>
                     </div>
                 ))}
             </section>
@@ -984,7 +1154,7 @@ function GuidePage() {
     const tips = [
         ['모델명을 정확히 입력', '제품 라벨의 모델명 전체를 적어 주세요. 일부 모델에만 해당하면 설명에도 적용 모델 범위를 적습니다.'],
         ['점검 순서를 단계별로 기록', '증상과 발생 조건, 측정 조건, 조치 후 결과를 나누어 적으면 다른 엔지니어가 재현하기 쉽습니다.'],
-        ['히든 키·테스트 모드 표기', '어떤 제품군과 모델에서 동작하는지, 진입 순서와 복귀 방법을 함께 기록합니다.'],
+        ['테스트 모드 표기', '어떤 제품군과 모델에서 동작하는지, 진입 순서와 복귀 방법을 함께 기록합니다.'],
         ['사진 속 고객 정보를 가리기', '이름, 주소, 전화번호, 주문 정보 등이 보이지 않는지 확인한 뒤 첨부해 주세요.'],
         ['안전 주의 사항을 함께 남기기', '전원, 고온부, 냉매·압력 등 작업 전 확인할 조건과 주의점을 빠뜨리지 않습니다.'],
         ['검증 상태 확인', '관리자가 현장 검증 여부를 표시합니다. 검증 전 정보는 작업 전 모델·조건을 다시 확인해 주세요.'],
@@ -1014,9 +1184,9 @@ function GuidePage() {
 function DemoPreview() {
     const [query, setQuery] = useState('');
     const demo = [
-        { family: '에어컨', model: '모델별 등록 예정', type: '점검 방법', title: '현장 점검 기록을 모델별로 모아보세요.', text: '실제 점검 내용은 승인된 회원이 Supabase 연결 후 등록합니다.' },
+        { family: '에어컨', model: '모델별 등록 예정', type: '수리 및 점검방법', title: '현장 점검 기록을 모델별로 모아보세요.', text: '실제 점검 내용은 승인된 회원이 Supabase 연결 후 등록합니다.' },
         { family: '세탁기', model: '모델별 등록 예정', type: '테스트 모드', title: '테스트 모드 진입 방법과 결과를 기록합니다.', text: '제품군과 모델명, 진입 절차, 주의사항을 함께 저장합니다.' },
-        { family: 'TV·모니터', model: '모델별 등록 예정', type: '수리 노하우', title: '사진과 수리 노하우를 함께 공유합니다.', text: '사진은 비공개 저장소에 보관되어 승인된 회원만 볼 수 있습니다.' },
+        { family: 'TV·모니터', model: '모델별 등록 예정', type: '부품·회로', title: '사진과 부품 정보를 함께 공유합니다.', text: '사진은 비공개 저장소에 보관되어 승인된 회원만 볼 수 있습니다.' },
     ];
     const shown = demo.filter(item => (item.family + item.model + item.type + item.title).toLowerCase().includes(query.toLowerCase()));
     return (
@@ -1029,8 +1199,8 @@ function DemoPreview() {
                 <section className="rn-hero">
                     <div className="rn-hero-copy">
                         <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
-                        <h1>고장 증상부터 수리 노하우까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
-                        <p>현장의 점검 방법과 테스트 정보를 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
+                        <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
+                        <p>현장의 수리 및 점검 정보와 테스트 내용을 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
                         <span className="rn-hero-action">승인된 회원 전용 앱</span>
                     </div>
                     <div className="rn-hero-art" aria-hidden="true"><div className="rn-hero-tool"><Icon name="wrench" size={60} /></div></div>

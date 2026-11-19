@@ -13,16 +13,22 @@ export const PRODUCT_FAMILIES = [
 ] as const;
 
 export const ENTRY_CATEGORIES = [
-    { id: 'inspection', label: '점검 방법', icon: '⌕' },
+    { id: 'inspection', label: '수리 및 점검방법', icon: '⌕' },
     { id: 'test_mode', label: '테스트 모드', icon: '▦' },
-    { id: 'hidden_key', label: '히든 키', icon: '⌘' },
-    { id: 'know_how', label: '수리 노하우', icon: '✦' },
     { id: 'error_code', label: '에러 코드', icon: '!' },
     { id: 'parts', label: '부품·회로', icon: '⌁' },
 ] as const;
 
 export type EntryCategory = typeof ENTRY_CATEGORIES[number]['id'];
 export type VerificationStatus = 'unverified' | 'verified' | 'needs_review';
+
+export interface RepairMembership {
+    user_id: string;
+    display_name: string;
+    status: 'pending' | 'member';
+    requested_at: string;
+    approved_at: string | null;
+}
 
 export interface RepairEntry {
     id: string;

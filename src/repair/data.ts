@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { shrinkImage } from '../lib/image';
 import type {
-    EntryFilters, RepairEntry, RepairNotification, VerificationStatus,
+    EntryFilters, RepairEntry, RepairMembership, RepairNotification, VerificationStatus,
 } from './types';
 
 // 새 수리 지식 테이블은 기존 골프 테이블과 분리되어 있다.
@@ -24,9 +24,31 @@ async function authorNames(entries: RepairEntry[]): Promise<RepairEntry[]> {
     const ids = [...new Set(entries.map(entry => entry.created_by).filter(Boolean))];
     if (!ids.length) return entries;
 
-    const { data } = await db.from('profiles').select('id, name').in('id', ids);
-    const names = new Map((data ?? []).map((row: { id: string; name: string }) => [row.id, row.name]));
+    const { data } = await db.from('repair_memberships')
+        .select('user_id, display_name').in('user_id', ids);
+    const names = new Map((data ?? []).map((row: { user_id: string; display_name: string }) => [row.user_id, row.display_name]));
     return entries.map(entry => ({ ...entry, author_name: names.get(entry.created_by) ?? '회원' }));
+}
+
+export async function getRepairMembership(userId: string): Promise<RepairMembership | null> {
+    const { data, error } = await db.from('repair_memberships')
+        .select('user_id, display_name, status, requested_at, approved_at')
+        .eq('user_id', userId).maybeSingle();
+    if (error) throw error;
+    return data as RepairMembership | null;
+}
+
+export async function requestRepairMembership(displayName: string): Promise<void> {
+    const { error } = await db.rpc('request_repair_membership', {
+        p_display_name: displayName.trim(),
+    });
+    if (error) throw error;
+}
+
+export async function updateRepairMemberName(userId: string, displayName: string): Promise<void> {
+    const { error } = await db.from('repair_memberships')
+        .update({ display_name: displayName.trim() }).eq('user_id', userId);
+    if (error) throw error;
 }
 
 export async function searchEntries(filters: EntryFilters = {}): Promise<RepairEntry[]> {
