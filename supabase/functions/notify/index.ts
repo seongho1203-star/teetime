@@ -10,6 +10,7 @@
  *   profiles           새 가입 → 운영진 모두 ('pending'으로 들어온 행)
  *   rounds             새 모집 → 연 사람 빼고 회원 모두
  *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
+ *   repair_entries    새 수리 정보 → 승인 회원 모두 (앱 알림 + 선택 푸시)
  *   rounds · polls (UPDATE)  다시 열림 → 회원 모두
  *   signups (INSERT)   대기 신청 → **그 모집을 연 사람에게만**
  *   signups (UPDATE)   대기 → 확정 → **올라간 그 사람에게만**
