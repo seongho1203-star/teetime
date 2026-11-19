@@ -13,7 +13,7 @@ export const PRODUCT_FAMILIES = [
 ] as const;
 
 export const ENTRY_CATEGORIES = [
-    { id: 'inspection', label: '수리 및 점검방법', icon: '⌕' },
+    { id: 'inspection', label: '수리 및 점검 노하우', icon: '⌕' },
     { id: 'test_mode', label: '테스트 모드', icon: '▦' },
     { id: 'error_code', label: '에러 코드', icon: '!' },
     { id: 'parts', label: '부품·회로', icon: '⌁' },
