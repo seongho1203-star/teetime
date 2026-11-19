@@ -316,7 +316,7 @@ declare
     v_body text;
 begin
     v_category := case new.category
-        when 'inspection' then '수리 및 점검방법'
+        when 'inspection' then '수리 및 점검 노하우'
         when 'test_mode' then '테스트 모드'
         when 'error_code' then '에러 코드'
         when 'parts' then '부품·회로'
@@ -326,7 +326,7 @@ begin
     v_body := left(new.product_family || ' · ' || new.model_code || ' · ' || new.title, 160);
 
     insert into public.notifications (user_id, kind, title, body, url)
-    select p.id, 'repair_entries', v_title, v_body, '#/entry/' || new.id::text
+    select p.user_id, 'repair_entries', v_title, v_body, '#/entry/' || new.id::text
       from public.repair_memberships p
      where p.status = 'member';
     return new;
