@@ -1,48 +1,23 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
     HashRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams,
 } from 'react-router-dom';
-import type { ChangeEvent } from 'react';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { enablePush, pushState, type PushState } from '../lib/push';
 import { isConfigured, signInWithApple, signInWithKakao, supabase } from '../lib/supabase';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
-    createEntry, getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry, updateEntry,
-    repairDb, requestRepairMembership, searchEntries, signedPhotoUrls,
-    updateRepairMemberName,
+    getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry,
+    repairDb, requestRepairMembership, signedPhotoUrls, unreadNotificationCount, updateRepairMemberName,
 } from './data';
 import {
-    ENTRY_CATEGORIES, PRODUCT_FAMILIES, type EntryCategory, type EntryFilters,
-    type RepairEntry, type RepairMembership, type RepairNotification,
+    ENTRY_CATEGORIES, type RepairEntry, type RepairMembership, type RepairNotification,
 } from './types';
+import { AnswerThread, ApplicationPanel } from './EntryCollaboration';
+import { EntryForm } from './EntryForm';
+import { KnowledgeHome } from './KnowledgeHome';
+import { dateLabel, Icon, messageOf } from './ui';
 import './repair.css';
-
-type IconName = 'home' | 'search' | 'book' | 'bell' | 'plus' | 'user' | 'wrench' | 'image' | 'check' | 'arrow' | 'logout' | 'shield';
-
-function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
-    const shapes: Record<IconName, ReactNode> = {
-        home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>,
-        search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></>,
-        book: <><path d="M4 4.8A2.8 2.8 0 0 1 6.8 2H20v17H6.8A2.8 2.8 0 0 0 4 21.8z" /><path d="M4 5v16" /><path d="M8 6h8" /><path d="M8 10h8" /></>,
-        bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
-        plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
-        user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
-        wrench: <><path d="M14.5 6.5a5 5 0 0 0-6.7 6.7L3 18l3 3 4.8-4.8a5 5 0 0 0 6.7-6.7L14 13l-3-3z" /><path d="m14 6 4-4 4 4-4 4" /></>,
-        image: <><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></>,
-        check: <><path d="m5 12 4 4L19 6" /></>,
-        arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
-        logout: <><path d="M10 17l5-5-5-5" /><path d="M15 12H3" /><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7" /></>,
-        shield: <><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11" /><path d="m9 12 2 2 4-4" /></>,
-    };
-    return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
-             strokeLinejoin="round" aria-hidden="true">
-            {shapes[name]}
-        </svg>
-    );
-}
 
 function Mark() {
     return (
@@ -227,6 +202,10 @@ function RepairAccessScreen({
 
 function RepairWorkspace({ userId, name, isAdmin }: { userId: string; name: string; isAdmin: boolean }) {
     const [displayName, setDisplayName] = useState(name);
+    const { pathname } = useLocation();
+
+    useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+
     return (
         <div className="rn-app">
             <Header userId={userId} name={displayName} isAdmin={isAdmin} onNameChange={setDisplayName} />
@@ -240,7 +219,7 @@ function RepairWorkspace({ userId, name, isAdmin }: { userId: string; name: stri
                 </aside>
                 <main className="rn-main">
                     <Routes>
-                        <Route path="/" element={<KnowledgeHome userId={userId} />} />
+                        <Route path="/" element={<KnowledgeHome />} />
                         <Route path="/new" element={<EntryForm userId={userId} />} />
                         <Route path="/entry/:id/edit" element={<EntryForm userId={userId} isAdmin={isAdmin} />} />
                         <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
@@ -269,10 +248,7 @@ function Header({ userId, name, isAdmin, onNameChange }: {
 
     const refreshCount = useCallback(async () => {
         try {
-            const { count: total } = await repairDb.from('notifications')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId).eq('kind', 'repair_entries').is('read_at', null);
-            setCount(total ?? 0);
+            setCount(await unreadNotificationCount(userId));
         } catch { /* 알림함을 열면 다시 읽는다 */ }
     }, [userId]);
 
@@ -447,450 +423,11 @@ function MobileNav() {
     );
 }
 
-function KnowledgeHome({ userId }: { userId: string }) {
-    const [entries, setEntries] = useState<RepairEntry[] | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [visibleCount, setVisibleCount] = useState(5);
-    const [error, setError] = useState('');
-    const [filters, setFilters] = useState<EntryFilters>({});
-    const [model, setModel] = useState('');
-    const [push, setPush] = useState<PushState | null>(null);
-    const [pushBusy, setPushBusy] = useState(false);
-    const toast = useToast();
-
-    const load = useCallback(async () => {
-        setLoading(true);
-        setError('');
-        try {
-            setEntries(await searchEntries(filters));
-        } catch (reason) {
-            setError(messageOf(reason));
-            setEntries([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [filters]);
-
-    useEffect(() => {
-        const timer = window.setTimeout(() => void load(), 220);
-        return () => window.clearTimeout(timer);
-    }, [load]);
-
-    useEffect(() => { setVisibleCount(5); }, [filters]);
-
-    useEffect(() => {
-        void pushState().then(setPush);
-        const channel = repairDb.channel('repair-entries-list')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_entries' },
-                () => void load())
-            .subscribe();
-        return () => { void repairDb.removeChannel(channel); };
-    }, [load]);
-
-    const change = (key: keyof EntryFilters, value: string) =>
-        setFilters(current => ({ ...current, [key]: value }));
-
-    const enableNotifications = async () => {
-        setPushBusy(true);
-        try {
-            const state = await enablePush(userId);
-            setPush(state);
-            if (state === 'on') toast('새 수리 정보 알림이 켜졌습니다.', 'ok');
-            else if (state === 'standalone-required') toast('홈 화면에 추가한 앱에서 알림을 켤 수 있습니다.', 'error');
-            else if (state === 'denied') toast('브라우저 설정에서 알림 권한을 허용해 주세요.', 'error');
-            else toast('이 기기에서 푸시 알림을 사용할 수 없습니다.', 'error');
-        } catch (error) {
-            toast(messageOf(error), 'error');
-        } finally {
-            setPushBusy(false);
-        }
-    };
-
-    const clearFilters = () => {
-        setFilters({});
-        setModel('');
-    };
-    const activeCategory = filters.category ?? '';
-
-    return (
-        <div className="rn-page">
-            <section className="rn-hero">
-                <div className="rn-hero-copy">
-                    <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
-                    <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
-                    <p>현장의 수리 및 점검 정보와 테스트 내용을 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
-                    <Link to="/new" className="rn-hero-action">등록하기 <Icon name="arrow" size={17} /></Link>
-                </div>
-                <div className="rn-hero-art" aria-hidden="true">
-                    <div className="rn-orbit rn-orbit-a" />
-                    <div className="rn-orbit rn-orbit-b" />
-                    <div className="rn-hero-tool"><Icon name="wrench" size={60} /></div>
-                    <span className="rn-art-chip rn-chip-one">MODEL</span>
-                    <span className="rn-art-chip rn-chip-two">CHECK</span>
-                    <span className="rn-art-dot" />
-                </div>
-            </section>
-
-            {push !== 'on' && push !== 'unsupported' && (
-                <section className="rn-notice-bar">
-                    <span className="rn-notice-icon"><Icon name="bell" size={17} /></span>
-                    <span className="rn-notice-text">
-                        <strong>새로 등록된 점검 정보, 놓치지 마세요.</strong>
-                        <small>{push === 'standalone-required' ? '홈 화면에 추가한 앱에서 푸시 알림을 켤 수 있습니다.' : push === 'denied' ? '브라우저 설정에서 알림 권한을 변경할 수 있습니다.' : '푸시 알림을 켜면 앱을 닫아도 소식을 받을 수 있습니다.'}</small>
-                    </span>
-                    {push === 'off' && (
-                        <button onClick={() => void enableNotifications()} disabled={pushBusy}>
-                            {pushBusy ? '확인 중…' : '알림 켜기'}
-                        </button>
-                    )}
-                </section>
-            )}
-
-            <section className="rn-search-panel">
-                <div className="rn-search-title">
-                    <div>
-                        <span className="rn-eyebrow">KNOWLEDGE LIBRARY</span>
-                        <h2>수리 정보 찾기</h2>
-                    </div>
-                    <span className="rn-result-count">{loading ? '검색 중…' : (entries?.length ?? 0) + '건'}</span>
-                </div>
-                <label className="rn-search-box">
-                    <Icon name="search" size={21} />
-                    <input
-                        value={filters.query ?? ''}
-                        onChange={event => change('query', event.target.value)}
-                        placeholder="모델명, 증상, 에러 코드, 점검 내용을 검색"
-                        aria-label="수리 정보 검색"
-                    />
-                    {(filters.query || model) && <button onClick={clearFilters} type="button">초기화</button>}
-                </label>
-                <div className="rn-filter-row">
-                    <label className="rn-filter-select">
-                        <span>제품군</span>
-                        <select value={filters.family ?? ''} onChange={event => change('family', event.target.value)}>
-                            <option value="">전체 제품군</option>
-                            {PRODUCT_FAMILIES.map(family => <option key={family} value={family}>{family}</option>)}
-                        </select>
-                    </label>
-                    <label className="rn-filter-select rn-model-filter">
-                        <span>모델 검색</span>
-                        <input value={model} onChange={event => {
-                            setModel(event.target.value);
-                            change('model', event.target.value);
-                        }} placeholder="예: FQ18…" />
-                    </label>
-                </div>
-                <div className="rn-category-filter" role="group" aria-label="정보 유형">
-                    <button className={!activeCategory ? 'active' : ''} onClick={() => change('category', '')}>전체 유형</button>
-                    {ENTRY_CATEGORIES.map(category => (
-                        <button key={category.id}
-                                className={activeCategory === category.id ? 'active' : ''}
-                                onClick={() => change('category', category.id)}>
-                            {category.label}
-                        </button>
-                    ))}
-                </div>
-            </section>
-
-            <section className="rn-results">
-                <div className="rn-section-heading">
-                    <div>
-                        <span className="rn-eyebrow">{filters.query || filters.family || filters.category || model ? 'SEARCH RESULTS' : 'LATEST KNOWLEDGE'}</span>
-                        <h2>{filters.query || filters.family || filters.category || model ? '검색 결과' : '최근 등록된 정보'}</h2>
-                    </div>
-                    <Link to="/new" className="rn-inline-link">수리 정보 등록 <Icon name="arrow" size={15} /></Link>
-                </div>
-                {error && (
-                    <div className="rn-error-panel">
-                        <strong>정보를 불러오지 못했습니다.</strong>
-                        <span>{/search_repair_entries|schema cache|does not exist/i.test(error)
-                            ? '데이터베이스 설정을 확인해 주세요. 관리자에게 앱 설치 안내를 전달할 수 있습니다.'
-                            : '네트워크 연결을 확인하고 다시 시도해 주세요.'}</span>
-                        <button onClick={() => void load()}>다시 시도</button>
-                    </div>
-                )}
-                {loading && !entries && <div className="rn-loading-line"><span className="rn-spinner" /> 정보 불러오는 중</div>}
-                {!loading && !error && entries?.length === 0 && (
-                    <div className="rn-empty">
-                        <span><Icon name="search" size={26} /></span>
-                        <strong>{filters.query || filters.family || activeCategory || model ? '검색 결과가 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
-                        <p>{filters.query || filters.family || activeCategory || model ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
-                        {!(filters.query || filters.family || activeCategory || model) && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
-                    </div>
-                )}
-                {!!entries?.length && (
-                    <>
-                        <div className="rn-entry-grid">
-                            {entries.slice(0, visibleCount).map(entry => <EntryCard key={entry.id} entry={entry} />)}
-                        </div>
-                        {visibleCount < entries.length && (
-                            <div className="rn-load-more-wrap">
-                                <button className="rn-secondary-btn rn-load-more" onClick={() => setVisibleCount(count => count + 5)}>
-                                    더 보기 <span>{Math.min(5, entries.length - visibleCount)}건</span>
-                                </button>
-                            </div>
-                        )}
-                    </>
-                )}
-            </section>
-        </div>
-    );
-}
-
-function EntryCard({ entry }: { entry: RepairEntry }) {
-    const category = ENTRY_CATEGORIES.find(item => item.id === entry.category);
-    return (
-        <Link to={'/entry/' + entry.id} className="rn-entry-card">
-            <div className="rn-entry-card-top">
-                <span className={'rn-category-tag cat-' + entry.category}>
-                    <span>{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}
-                </span>
-            </div>
-            <div className="rn-model-line">
-                <span className="rn-family">{entry.product_family}</span>
-                <strong>{entry.model_code || '제품군 공통'}</strong>
-            </div>
-            <h3>{entry.title}</h3>
-            {entry.symptoms && <p className="rn-card-symptom">{entry.symptoms}</p>}
-            <div className="rn-card-footer">
-                <span className="rn-author-dot">{(entry.author_name ?? '회').slice(0, 1)}</span>
-                <span>{entry.author_name ?? '회원'}</span>
-                <span className="rn-separator">·</span>
-                <time>{dateLabel(entry.created_at)}</time>
-                {entry.photo_paths.length > 0 && <span className="rn-card-photo"><Icon name="image" size={15} /> {entry.photo_paths.length}</span>}
-            </div>
-            {entry.tags?.length > 0 && (
-                <div className="rn-tag-row">
-                    {entry.tags.slice(0, 3).map(tag => <span key={tag}>#{tag}</span>)}
-                </div>
-            )}
-        </Link>
-    );
-}
-
-function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: boolean }) {
-    const toast = useToast();
-    const navigate = useNavigate();
-    const { id: editId } = useParams();
-    const [saving, setSaving] = useState(false);
-    const [loading, setLoading] = useState(!!editId);
-    const [existingEntry, setExistingEntry] = useState<RepairEntry | null>(null);
-    const [existingPhotos, setExistingPhotos] = useState<{ path: string; url: string }[]>([]);
-    const [files, setFiles] = useState<File[]>([]);
-    const [tagsText, setTagsText] = useState('');
-    const [form, setForm] = useState({
-        product_family: '',
-        model_code: '',
-        category: 'inspection' as EntryCategory,
-        title: '',
-        symptoms: '',
-        inspection_steps: '',
-        cautions: '',
-    });
-
-    const previews = useMemo(() => files.map(file => URL.createObjectURL(file)), [files]);
-    useEffect(() => () => previews.forEach(url => URL.revokeObjectURL(url)), [previews]);
-
-    useEffect(() => {
-        if (!editId) return;
-        let active = true;
-        void getEntry(editId).then(async entry => {
-            if (!active) return;
-            if (entry.created_by !== userId && !isAdmin) {
-                toast('본인이 작성한 글만 수정할 수 있습니다.', 'error');
-                navigate('/entry/' + editId, { replace: true });
-                return;
-            }
-            setExistingEntry(entry);
-            setForm({
-                product_family: entry.product_family,
-                model_code: entry.model_code,
-                category: entry.category as EntryCategory,
-                title: entry.title,
-                symptoms: entry.symptoms ?? '',
-                inspection_steps: entry.inspection_steps,
-                cautions: entry.cautions ?? '',
-            });
-            setTagsText((entry.tags ?? []).join(', '));
-            const urls = await signedPhotoUrls(entry.photo_paths);
-            if (active) setExistingPhotos(entry.photo_paths.map((path, index) => ({ path, url: urls[index] ?? '' })));
-        }).catch(error => {
-            if (active) toast(messageOf(error), 'error');
-        }).finally(() => { if (active) setLoading(false); });
-        return () => { active = false; };
-    }, [editId, isAdmin, navigate, toast, userId]);
-
-    const field = (name: keyof typeof form, value: string) =>
-        setForm(current => ({ ...current, [name]: value }));
-
-    const addFiles = (event: ChangeEvent<HTMLInputElement>) => {
-        const incoming = Array.from(event.target.files ?? []);
-        const maxNew = 6 - existingPhotos.length;
-        const next = [...files, ...incoming].slice(0, maxNew);
-        if (files.length + incoming.length > maxNew) toast('사진은 최대 6장까지 첨부할 수 있습니다.', 'error');
-        setFiles(next);
-        event.target.value = '';
-    };
-
-    const submit = async (event: FormEvent) => {
-        event.preventDefault();
-        if (!form.product_family || !form.title.trim() || !form.inspection_steps.trim()) {
-            toast('제품군, 제목, 수리 및 점검방법을 입력해 주세요.', 'error');
-            return;
-        }
-        setSaving(true);
-        try {
-            const input = {
-                ...form,
-                model_code: form.model_code.trim().toUpperCase(),
-                title: form.title.trim(),
-                symptoms: form.symptoms.trim(),
-                inspection_steps: form.inspection_steps.trim(),
-                result_notes: '',
-                cautions: form.cautions.trim(),
-                tags: tagsText.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(Boolean).slice(0, 10),
-            };
-            if (editId && existingEntry) {
-                await updateEntry(editId, input, files, userId, existingPhotos.map(photo => photo.path));
-                toast('수리 정보가 수정됐습니다.', 'ok');
-                navigate('/entry/' + editId);
-            } else {
-                const newId = await createEntry(input, files, userId);
-                toast('수리 정보가 등록되었습니다. 회원 알림함에 공유됐습니다.', 'ok');
-                navigate('/entry/' + newId);
-            }
-        } catch (error) {
-            toast(messageOf(error), 'error');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    if (loading) return <div className="rn-page"><div className="rn-loading-line"><span className="rn-spinner" /> 작성한 정보 불러오는 중</div></div>;
-    if (editId && !existingEntry) return <div className="rn-page"><div className="rn-error-panel"><strong>수리 정보를 불러오지 못했습니다.</strong><span>다시 시도해 주세요.</span><Link to="/">지식 홈으로</Link></div></div>;
-
-    return (
-        <div className="rn-page rn-form-page">
-            <div className="rn-page-heading">
-                <Link className="rn-back-link" to="/"><span>‹</span> 지식 홈으로</Link>
-                <span className="rn-eyebrow">SHARE FIELD KNOWLEDGE</span>
-                <h1>{editId ? '수리 정보 수정' : '수리 정보 등록'}</h1>
-                <p>모델과 증상을 구체적으로 기록하면 동료가 더 빠르게 찾을 수 있습니다.</p>
-            </div>
-            <form className="rn-form-card" onSubmit={submit}>
-                <div className="rn-form-section">
-                    <div className="rn-form-section-title">
-                        <span className="rn-step-number">01</span>
-                        <div><strong>제품과 정보 유형</strong><small>찾기 쉬운 분류를 선택해 주세요.</small></div>
-                    </div>
-                    <div className="rn-form-grid">
-                        <label className="rn-field">
-                            <span>제품군 <b>*</b></span>
-                            <select value={form.product_family} onChange={e => field('product_family', e.target.value)} required>
-                                <option value="">제품군 선택</option>
-                                {PRODUCT_FAMILIES.map(family => <option key={family}>{family}</option>)}
-                            </select>
-                        </label>
-                        <label className="rn-field">
-                            <span>정보 유형 <b>*</b></span>
-                            <select value={form.category} onChange={e => field('category', e.target.value)}>
-                                {ENTRY_CATEGORIES.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}
-                            </select>
-                        </label>
-                        <label className="rn-field rn-span-2">
-                            <span>모델명 <small>(선택)</small></span>
-                            <input value={form.model_code} onChange={e => field('model_code', e.target.value)}
-                                   placeholder="특정 모델에 해당할 때 입력하세요" maxLength={50} />
-                            <small>제품군 공통 내용이면 비워두세요. 특정 모델에만 해당하면 모델명을 적어 주세요.</small>
-                        </label>
-                        <label className="rn-field rn-span-2">
-                            <span>제목 <b>*</b></span>
-                            <input value={form.title} onChange={e => field('title', e.target.value)}
-                                   placeholder="예: 특정 조건에서 발생하는 증상과 점검 요령" maxLength={120} required />
-                        </label>
-                    </div>
-                </div>
-
-                <div className="rn-form-section">
-                    <div className="rn-form-section-title">
-                        <span className="rn-step-number">02</span>
-                        <div><strong>수리 및 점검 내용</strong><small>증상과 점검 순서, 주의사항을 구체적으로 적어 주세요.</small></div>
-                    </div>
-                    <label className="rn-field">
-                        <span>고객 증상·발생 조건</span>
-                        <textarea value={form.symptoms} onChange={e => field('symptoms', e.target.value)}
-                                  placeholder="언제, 어떤 조건에서 증상이 나타나는지 적어 주세요." rows={3} maxLength={1200} />
-                    </label>
-                    <label className="rn-field">
-                        <span>수리 및 점검방법 <b>*</b></span>
-                        <textarea value={form.inspection_steps} onChange={e => field('inspection_steps', e.target.value)}
-                                  placeholder={'1. 먼저 확인할 항목\n2. 측정 또는 테스트 조건\n3. 결과에 따른 다음 점검'} rows={7} maxLength={8000} required />
-                    </label>
-                    <label className="rn-field">
-                        <span>주의 사항</span>
-                        <textarea value={form.cautions} onChange={e => field('cautions', e.target.value)}
-                                  placeholder="전원 차단, 잔류 압력, 고온부 등 현장에서 놓치기 쉬운 주의점을 적어 주세요." rows={3} maxLength={1800} />
-                    </label>
-                    {form.category === 'test_mode' ? (
-                        <div className="rn-safety-note"><Icon name="shield" size={17} />
-                            모델과 절차를 다시 확인하고, 현장 안전 기준에 따라 사용해 주세요.
-                        </div>
-                    ) : null}
-                </div>
-
-                <div className="rn-form-section">
-                    <div className="rn-form-section-title">
-                        <span className="rn-step-number">03</span>
-                        <div><strong>사진과 검색 태그</strong><small>사진은 승인된 회원만 볼 수 있습니다.</small></div>
-                    </div>
-                    <div className="rn-upload-area">
-                        <label className="rn-upload-button">
-                            <Icon name="image" size={19} />
-                            <span>사진 추가</span>
-                            <small>{files.length}/6</small>
-                            <input type="file" accept="image/*" multiple onChange={addFiles} />
-                        </label>
-                        <p>JPG, PNG, WebP · 최대 6장 · 사진의 고객 정보는 가려 주세요.</p>
-                    </div>
-                    {!!files.length && (
-                        <div className="rn-photo-preview-grid">
-                            {files.map((file, index) => (
-                                <div className="rn-photo-preview" key={file.name + index}>
-                                    <img src={previews[index]} alt={'첨부 사진 ' + (index + 1)} />
-                                    <button type="button" onClick={() => setFiles(current => current.filter((_, i) => i !== index))}
-                                            aria-label="사진 삭제">×</button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {!!existingPhotos.length && (
-                        <div className="rn-photo-preview-grid">
-                            {existingPhotos.map((photo, index) => <div className="rn-photo-preview" key={photo.path}>
-                                {photo.url && <img src={photo.url} alt={'기존 사진 ' + (index + 1)} />}
-                                <span className="rn-existing-photo-label">기존</span>
-                            </div>)}
-                        </div>
-                    )}
-                    <label className="rn-field">
-                        <span>검색 태그 <small>(쉼표로 구분)</small></span>
-                        <input value={tagsText} onChange={e => setTagsText(e.target.value)}
-                               placeholder="예: 냉방불량, 센서, EEV" maxLength={200} />
-                    </label>
-                </div>
-                <div className="rn-form-actions">
-                    <Link to={editId ? '/entry/' + editId : '/'} className="rn-secondary-btn">취소</Link>
-                    <button type="submit" className="rn-primary-btn" disabled={saving}>
-                        {saving ? <><span className="rn-spinner" /> 저장 중…</> : editId ? '수정 내용 저장' : '등록하기'}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
-}
-
 function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) {
     const { id: entryId = '' } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
+    const homeTo: string = location.state?.homeTo ?? '/';
     const toast = useToast();
     const [entry, setEntry] = useState<RepairEntry | null>(null);
     const [photos, setPhotos] = useState<string[]>([]);
@@ -919,30 +456,33 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
         try {
             await removeEntry(entry);
             toast('수리 정보가 삭제됐습니다.', 'ok');
-            navigate('/');
+            navigate(homeTo);
         } catch (reason) {
             toast(messageOf(reason), 'error');
             setBusy(false);
         }
     };
 
-    if (loading) return <div className="rn-page"><div className="rn-loading-line"><span className="rn-spinner" /> 정보 불러오는 중</div></div>;
+    if (loading || (!error && entry?.id !== entryId)) return <div className="rn-page"><div className="rn-loading-line"><span className="rn-spinner" /> 정보 불러오는 중</div></div>;
     if (error || !entry) return (
         <div className="rn-page">
-            <Link className="rn-back-link" to="/"><span>‹</span> 지식 홈으로</Link>
+            <Link className="rn-back-link" to={homeTo}><span>‹</span> 목록으로</Link>
             <div className="rn-error-panel"><strong>수리 정보를 열 수 없습니다.</strong><span>{error}</span></div>
         </div>
     );
 
     const category = ENTRY_CATEGORIES.find(item => item.id === entry.category);
     const canDelete = isAdmin || entry.created_by === userId;
-    const canEdit = canDelete;
+    const isQuestion = entry.entry_kind === 'question';
     return (
         <div className="rn-page rn-detail-page">
-            <Link className="rn-back-link" to="/"><span>‹</span> 검색 결과로 돌아가기</Link>
+            <Link className="rn-back-link" to={homeTo}><span>‹</span> 목록으로</Link>
             <article className="rn-detail-card">
                 <div className="rn-detail-topline">
                     <span className={'rn-category-tag cat-' + entry.category}><span>{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}</span>
+                    {(isQuestion || entry.accepted_answer_id) && (
+                        <span className={isQuestion ? 'rn-entry-status' : 'rn-entry-status resolved'}>{isQuestion ? '미해결 질문' : '질문에서 해결'}</span>
+                    )}
                 </div>
                 <div className="rn-detail-model">
                     <span>{entry.product_family}</span><b>{entry.model_code || '제품군 공통'}</b>
@@ -956,9 +496,11 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                 </div>
 
                 {entry.symptoms && <DetailSection title="고객 증상·발생 조건"><p>{entry.symptoms}</p></DetailSection>}
-                <DetailSection title="수리 및 점검방법·테스트 절차">
-                    <div className="rn-detail-text">{entry.inspection_steps}</div>
-                </DetailSection>
+                {!isQuestion && (
+                    <DetailSection title={entry.accepted_answer_id ? '채택한 해결 방법' : '수리 및 점검방법·테스트 절차'}>
+                        <div className="rn-detail-text">{entry.inspection_steps}</div>
+                    </DetailSection>
+                )}
                 {entry.result_notes && <DetailSection title="추가 기록"><div className="rn-detail-text">{entry.result_notes}</div></DetailSection>}
                 {entry.cautions && <DetailSection title="주의 사항" warning><div className="rn-detail-text">{entry.cautions}</div></DetailSection>}
 
@@ -976,9 +518,15 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     </section>
                 )}
 
+                {(isQuestion || entry.accepted_answer_id) && (
+                    <AnswerThread key={entry.id} entry={entry} userId={userId}
+                                  onAccepted={updated => setEntry({ ...updated, author_name: entry.author_name })} />
+                )}
+                {!isQuestion && <ApplicationPanel key={entry.id} entry={entry} userId={userId} />}
+
                 {canDelete && (
                     <div className="rn-detail-actions">
-                        {canEdit && <Link className="rn-secondary-btn" to={'/entry/' + entry.id + '/edit'}>수정</Link>}
+                        <Link className="rn-secondary-btn" to={'/entry/' + entry.id + '/edit'} state={{ homeTo }}>수정</Link>
                         <button className="rn-delete-btn" onClick={() => void destroy()} disabled={busy}>이 정보 삭제</button>
                     </div>
                 )}
@@ -1038,7 +586,7 @@ function NotificationCenter({ userId }: { userId: string }) {
             <div className="rn-page-heading">
                 <span className="rn-eyebrow">YOUR UPDATES</span>
                 <h1>알림함</h1>
-                <p>새 수리 정보가 등록되면 회원 알림함에 공유됩니다.</p>
+                <p>새 수리 사례, 미해결 질문과 내 질문에 달린 답변을 볼 수 있습니다.</p>
             </div>
             {loading && <div className="rn-loading-line"><span className="rn-spinner" /> 알림 불러오는 중</div>}
             {!loading && !items.length && (
@@ -1051,7 +599,7 @@ function NotificationCenter({ userId }: { userId: string }) {
                 {items.map(item => (
                     <button key={item.id} className={'rn-alert-row' + (fresh.has(item.id) ? ' fresh' : '')}
                             onClick={() => open(item)} disabled={!item.url}>
-                        <span className="rn-alert-icon"><Icon name={item.kind === 'repair_entries' || item.kind === 'repair_entry' ? 'wrench' : 'bell'} size={18} /></span>
+                        <span className="rn-alert-icon"><Icon name={item.kind === 'repair_answers' ? 'book' : 'wrench'} size={18} /></span>
                         <span className="rn-alert-copy">
                             <strong>{item.title}</strong>
                             {item.body && <span>{item.body}</span>}
@@ -1177,11 +725,13 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
 
 function GuidePage() {
     const tips = [
+        ['증상과 조치를 짧게 기록', '등록 화면에서 제품군을 고르고 증상과 해결한 조치를 적습니다. 증상 첫 줄이 제목으로 들어갑니다.'],
         ['모델 적용 범위를 기록', '제품군 공통 내용이면 모델명을 비워두고, 특정 모델에만 해당하면 모델명과 적용 범위를 함께 적어 주세요.'],
         ['점검 순서를 단계별로 기록', '증상과 발생 조건, 측정 조건, 조치 후 결과를 나누어 적으면 다른 엔지니어가 재현하기 쉽습니다.'],
         ['테스트 모드 표기', '어떤 제품군과 모델에서 동작하는지, 진입 순서와 복귀 방법을 함께 기록합니다.'],
         ['사진 속 고객 정보를 가리기', '이름, 주소, 전화번호, 주문 정보 등이 보이지 않는지 확인한 뒤 첨부해 주세요.'],
         ['안전 주의 사항을 함께 남기기', '전원, 고온부, 냉매·압력 등 작업 전 확인할 조건과 주의점을 빠뜨리지 않습니다.'],
+        ['막힌 증상은 팀에 질문', '검색 화면에서 팀에 질문을 누르면 검색어가 옮겨집니다. 답변으로 해결했다면 그 답변을 채택해 사례로 남길 수 있습니다.'],
     ];
     return (
         <div className="rn-page">
@@ -1255,20 +805,10 @@ function DemoPreview() {
     );
 }
 
-function dateLabel(value: string) {
-    return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(new Date(value));
-}
-
 function dateTimeLabel(value: string) {
     return new Intl.DateTimeFormat('ko-KR', {
         month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date(value));
-}
-
-function messageOf(error: unknown) {
-    if (error instanceof Error && error.message) return error.message;
-    const maybe = error as { message?: string } | null;
-    return maybe?.message || '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
 export default function RepairApp() {

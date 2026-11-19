@@ -20,7 +20,7 @@ export const ENTRY_CATEGORIES = [
 ] as const;
 
 export type EntryCategory = typeof ENTRY_CATEGORIES[number]['id'];
-export type VerificationStatus = 'unverified' | 'verified' | 'needs_review';
+export type EntryKind = 'case' | 'question';
 
 export interface RepairMembership {
     user_id: string;
@@ -35,6 +35,8 @@ export interface RepairEntry {
     product_family: string;
     model_code: string;
     category: EntryCategory;
+    entry_kind: EntryKind;
+    accepted_answer_id: string | null;
     title: string;
     symptoms: string;
     inspection_steps: string;
@@ -42,13 +44,24 @@ export interface RepairEntry {
     cautions: string;
     tags: string[];
     photo_paths: string[];
-    created_by: string;
+    created_by: string | null;
     created_at: string;
     updated_at: string;
-    verification_status: VerificationStatus;
-    verified_by: string | null;
-    verified_at: string | null;
     author_name?: string;
+}
+
+export interface RepairAnswer {
+    id: string;
+    author_id: string | null;
+    author_name?: string;
+    body: string;
+    created_at: string;
+}
+
+export interface RepairApplication {
+    user_id: string;
+    model_code: string;
+    note: string;
 }
 
 export interface RepairNotification {
@@ -66,4 +79,5 @@ export interface EntryFilters {
     family?: string;
     category?: EntryCategory | '';
     model?: string;
+    kind?: EntryKind;
 }

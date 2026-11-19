@@ -170,13 +170,13 @@ create policy repair_entries_add on public.repair_entries
 drop policy if exists repair_entries_edit on public.repair_entries;
 create policy repair_entries_edit on public.repair_entries
     for update to authenticated
-    using (is_admin() or created_by = auth.uid())
-    with check (is_admin() or created_by = auth.uid());
+    using ((select public.is_repair_member()) and (is_admin() or created_by = (select auth.uid())))
+    with check ((select public.is_repair_member()) and (is_admin() or created_by = (select auth.uid())));
 
 drop policy if exists repair_entries_delete on public.repair_entries;
 create policy repair_entries_delete on public.repair_entries
     for delete to authenticated
-    using (is_admin() or created_by = auth.uid());
+    using ((select public.is_repair_member()) and (is_admin() or created_by = (select auth.uid())));
 
 create or replace function public.repair_entries_touch_updated_at()
 returns trigger
@@ -232,8 +232,252 @@ create trigger repair_entries_protect_verification
     before update on public.repair_entries
     for each row execute function public.repair_entries_protect_verification();
 
--- 검색어·제품군·유형·모델 필터를 한 번에 적용한다. SECURITY INVOKER라
--- 호출한 회원의 RLS 정책을 그대로 적용한다.
+-- 기존 글은 수리 사례로 남긴다. 질문은 답변을 채택할 때 같은 글에서
+-- 수리 사례로 전환되므로 사진, 알림 링크, 작성자와 답변이 모두 남는다.
+alter table public.repair_entries
+    add column if not exists entry_kind text not null default 'case',
+    add column if not exists accepted_answer_id uuid;
+
+alter table public.repair_entries
+    drop constraint if exists repair_entries_inspection_steps_check,
+    drop constraint if exists repair_entries_entry_kind_check;
+alter table public.repair_entries
+    add constraint repair_entries_entry_kind_check check (entry_kind in ('case', 'question')),
+    add constraint repair_entries_inspection_steps_check check (
+        (entry_kind = 'case' and char_length(inspection_steps) between 2 and 8000)
+        or (entry_kind = 'question' and inspection_steps = ''
+            and char_length(btrim(symptoms)) >= 2 and accepted_answer_id is null)
+    );
+
+create index if not exists repair_entries_kind_created_idx
+    on public.repair_entries (entry_kind, created_at desc, id desc);
+
+create table if not exists public.repair_entry_answers (
+    id          uuid primary key default gen_random_uuid(),
+    entry_id    uuid not null references public.repair_entries(id) on delete cascade,
+    author_id   uuid references public.profiles(id) on delete set null,
+    body        text not null check (char_length(btrim(body)) between 2 and 8000),
+    created_at  timestamptz not null default now(),
+    unique (entry_id, id)
+);
+
+alter table public.repair_entries drop constraint if exists repair_entries_accepted_answer_fk;
+alter table public.repair_entries add constraint repair_entries_accepted_answer_fk
+    foreign key (id, accepted_answer_id) references public.repair_entry_answers(entry_id, id);
+
+alter table public.repair_entry_answers enable row level security;
+revoke all on public.repair_entry_answers from public, anon, authenticated;
+grant select, delete on public.repair_entry_answers to authenticated;
+grant insert (entry_id, author_id, body) on public.repair_entry_answers to authenticated;
+
+drop policy if exists repair_answers_read on public.repair_entry_answers;
+create policy repair_answers_read on public.repair_entry_answers
+    for select to authenticated using ((select public.is_repair_member()));
+
+drop policy if exists repair_answers_add on public.repair_entry_answers;
+create policy repair_answers_add on public.repair_entry_answers
+    for insert to authenticated with check (
+        author_id = (select auth.uid())
+        and exists (select 1 from public.repair_entries e
+                    where e.id = repair_entry_answers.entry_id and e.entry_kind = 'question')
+    );
+
+drop policy if exists repair_answers_delete on public.repair_entry_answers;
+create policy repair_answers_delete on public.repair_entry_answers
+    for delete to authenticated using (
+        author_id = (select auth.uid())
+        and exists (select 1 from public.repair_entries e
+                    where e.id = repair_entry_answers.entry_id and e.entry_kind = 'question')
+    );
+
+create or replace function public.repair_entries_question_state()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+    v_answer text;
+begin
+    if tg_op = 'INSERT' then
+        if new.accepted_answer_id is not null then
+            raise exception '질문을 먼저 등록해 주세요.';
+        end if;
+    elsif new.entry_kind is distinct from old.entry_kind
+       or new.accepted_answer_id is distinct from old.accepted_answer_id then
+        if old.entry_kind <> 'question' or new.entry_kind <> 'case'
+           or auth.uid() is null or old.created_by is distinct from auth.uid() then
+            raise exception '질문 작성자만 답변을 채택할 수 있습니다.';
+        end if;
+
+        select a.body into v_answer
+          from public.repair_entry_answers a
+         where a.entry_id = old.id and a.id = new.accepted_answer_id;
+        if not found then
+            raise exception '이 질문의 답변을 선택해 주세요.';
+        end if;
+        new.inspection_steps := v_answer;
+    end if;
+    return new;
+end;
+$$;
+
+drop trigger if exists repair_entries_question_state on public.repair_entries;
+create trigger repair_entries_question_state
+    before insert or update of entry_kind, accepted_answer_id on public.repair_entries
+    for each row execute function public.repair_entries_question_state();
+
+create or replace function public.accept_repair_answer(p_entry_id uuid, p_answer_id uuid)
+returns public.repair_entries
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+    v_entry public.repair_entries;
+begin
+    update public.repair_entries e
+       set entry_kind = 'case', accepted_answer_id = p_answer_id
+     where e.id = p_entry_id and e.entry_kind = 'question'
+       and e.created_by = (select auth.uid())
+    returning e.* into v_entry;
+    if not found then
+        raise exception '이미 해결된 질문이거나 답변을 채택할 수 없습니다.';
+    end if;
+    return v_entry;
+end;
+$$;
+
+revoke all on function public.accept_repair_answer(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.accept_repair_answer(uuid, uuid) to authenticated;
+
+create table if not exists public.repair_entry_applications (
+    entry_id    uuid not null references public.repair_entries(id) on delete cascade,
+    user_id     uuid not null references auth.users(id) on delete cascade,
+    model_code  text not null default '' check (char_length(model_code) <= 50),
+    note        text not null default '' check (char_length(note) <= 300),
+    created_at  timestamptz not null default now(),
+    primary key (entry_id, user_id)
+);
+
+alter table public.repair_entry_applications enable row level security;
+revoke all on public.repair_entry_applications from public, anon, authenticated;
+grant select, delete on public.repair_entry_applications to authenticated;
+grant insert (entry_id, user_id) on public.repair_entry_applications to authenticated;
+grant update (model_code, note) on public.repair_entry_applications to authenticated;
+
+drop policy if exists repair_applications_read on public.repair_entry_applications;
+create policy repair_applications_read on public.repair_entry_applications
+    for select to authenticated using ((select public.is_repair_member()));
+
+drop policy if exists repair_applications_add on public.repair_entry_applications;
+create policy repair_applications_add on public.repair_entry_applications
+    for insert to authenticated with check (
+        user_id = (select auth.uid())
+        and exists (select 1 from public.repair_entries e
+                    where e.id = repair_entry_applications.entry_id and e.entry_kind = 'case'
+                      and e.created_by is distinct from (select auth.uid()))
+    );
+
+drop policy if exists repair_applications_edit on public.repair_entry_applications;
+create policy repair_applications_edit on public.repair_entry_applications
+    for update to authenticated
+    using ((select public.is_repair_member()) and user_id = (select auth.uid()))
+    with check ((select public.is_repair_member()) and user_id = (select auth.uid()));
+
+drop policy if exists repair_applications_delete on public.repair_entry_applications;
+create policy repair_applications_delete on public.repair_entry_applications
+    for delete to authenticated
+    using ((select public.is_repair_member()) and user_id = (select auth.uid()));
+
+-- 자주 쓰는 말과 서비스 용어를 같은 단어로 찾는다. 통일한 단어 양쪽에
+-- 공백을 두어 "물이 안 빠져요 OE"처럼 에러 코드를 함께 검색할 수 있다.
+create or replace function public.repair_search_key(p_text text)
+returns text
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+    v_text text := regexp_replace(lower(coalesce(p_text, '')), '[[:space:][:punct:]]+', '', 'g');
+begin
+    v_text := regexp_replace(v_text, '(배수불량|배수(가)?(안되(는|요)?|안돼(요)?|안됨|안댐)|물(이)?(안빠(짐|져(요)?)|빠지지않(아요|음)))', ' 배수불량 ', 'g');
+    v_text := regexp_replace(v_text, '(급수불량|급수(가)?(안됨|안돼(요)?|안되(요)?)|물(이)?안들어(옴|와(요)?))', ' 급수불량 ', 'g');
+    v_text := regexp_replace(v_text, '(냉방불량|냉방(이)?(약함|약해(요)?|안됨|안돼(요)?)|찬바람(이)?안나(옴|와(요)?))', ' 냉방불량 ', 'g');
+    v_text := regexp_replace(v_text, '(전원불량|전원(이)?(안켜(짐|져(요)?)|안들어(옴|와(요)?)))', ' 전원불량 ', 'g');
+    v_text := regexp_replace(v_text, '(무화면|화면무|화면(이)?안나(옴|와(요)?))', ' 무화면 ', 'g');
+    v_text := regexp_replace(v_text, '(온수불량|온수(가)?안나(옴|와(요)?))', ' 온수불량 ', 'g');
+    v_text := regexp_replace(v_text, '(누수(가나(요)?)?|물(이)?(샘|새(요)?))', ' 누수 ', 'g');
+    return btrim(regexp_replace(v_text, ' +', ' ', 'g'));
+end;
+$$;
+
+revoke all on function public.repair_search_key(text) from public, anon, authenticated;
+grant execute on function public.repair_search_key(text) to authenticated;
+
+-- SECURITY INVOKER로 호출한 회원의 글 열람 권한을 그대로 적용한다.
+create or replace function public.search_repair_library(
+    p_query text default null,
+    p_family text default null,
+    p_category text default null,
+    p_model text default null,
+    p_kind text default 'case',
+    p_offset integer default 0,
+    p_limit integer default 6
+)
+returns setof public.repair_entries
+language plpgsql
+stable
+security invoker
+set search_path = ''
+as $$
+declare
+    v_query text := nullif(btrim(left(coalesce(p_query, ''), 120)), '');
+    v_model text := nullif(regexp_replace(lower(left(coalesce(p_model, ''), 50)), '[[:space:][:punct:]]+', '', 'g'), '');
+    v_query_model text := regexp_replace(lower(v_query), '[[:space:][:punct:]]+', '', 'g');
+    v_terms text[] := string_to_array(nullif(public.repair_search_key(v_query), ''), ' ');
+begin
+    return query
+    select e.*
+      from public.repair_entries e
+      cross join lateral (
+          select regexp_replace(lower(e.model_code), '[[:space:][:punct:]]+', '', 'g') as model_key,
+                 public.repair_search_key(concat_ws(' ', e.title, e.symptoms, e.product_family,
+                     e.model_code, e.inspection_steps, e.result_notes, e.cautions,
+                     array_to_string(e.tags, ' '))) as content_key
+      ) keys
+     where e.entry_kind = case when p_kind = 'question' then 'question' else 'case' end
+       and (nullif(btrim(coalesce(p_family, '')), '') is null
+            or e.product_family = btrim(p_family))
+       and (nullif(btrim(coalesce(p_category, '')), '') is null
+            or e.category = btrim(p_category))
+       and (v_model is null or strpos(keys.model_key, v_model) > 0)
+       and (
+            v_query is null
+            or e.search_vector @@ plainto_tsquery('pg_catalog.simple'::regconfig, v_query)
+            or (v_terms is not null and not exists (
+                select 1 from unnest(v_terms) as term(value)
+                 where strpos(replace(keys.content_key, ' ', ''), term.value) = 0
+            ))
+       )
+     order by case
+                when v_query is null then 0
+                when keys.model_key <> '' and keys.model_key = v_query_model then 0
+                when strpos(lower(e.title), lower(v_query)) > 0 then 1
+                when strpos(lower(e.symptoms), lower(v_query)) > 0 then 2
+                else 3
+              end,
+              e.created_at desc, e.id desc
+     offset greatest(coalesce(p_offset, 0), 0)
+     limit least(greatest(coalesce(p_limit, 6), 1), 100);
+end;
+$$;
+
+revoke all on function public.search_repair_library(text, text, text, text, text, integer, integer)
+    from public, anon, authenticated;
+grant execute on function public.search_repair_library(text, text, text, text, text, integer, integer)
+    to authenticated;
+
+-- 배포 전에 열어 둔 앱에서도 기존 검색 호출은 계속 수리 사례를 반환한다.
 create or replace function public.search_repair_entries(
     p_query text default null,
     p_family text default null,
@@ -242,32 +486,13 @@ create or replace function public.search_repair_entries(
     p_limit integer default 80
 )
 returns setof public.repair_entries
-language plpgsql
+language sql
 stable
-set search_path = public, pg_catalog
+security invoker
+set search_path = ''
 as $$
-declare
-    v_query text := nullif(btrim(coalesce(p_query, '')), '');
-    v_model text := nullif(btrim(coalesce(p_model, '')), '');
-begin
-    return query
-    select e.*
-      from public.repair_entries e
-     where (nullif(btrim(coalesce(p_family, '')), '') is null
-            or e.product_family = btrim(p_family))
-       and (nullif(btrim(coalesce(p_category, '')), '') is null
-            or e.category = btrim(p_category))
-       and (v_model is null or e.model_code ilike '%' || v_model || '%')
-       and (
-            v_query is null
-            or e.search_vector @@ plainto_tsquery('pg_catalog.simple'::regconfig, v_query)
-            or e.title ilike '%' || v_query || '%'
-            or e.model_code ilike '%' || v_query || '%'
-            or e.symptoms ilike '%' || v_query || '%'
-       )
-     order by e.created_at desc
-     limit least(greatest(coalesce(p_limit, 80), 1), 100);
-end;
+    select * from public.search_repair_library(p_query, p_family, p_category, p_model,
+        'case', 0, coalesce(p_limit, 80));
 $$;
 
 revoke all on function public.search_repair_entries(text, text, text, text, integer) from public, anon;
@@ -328,7 +553,11 @@ begin
         when 'parts' then '부품·회로'
         else '수리 정보'
     end;
-    v_title := '새 수리 정보 · ' || v_category;
+    v_title := case
+        when new.entry_kind = 'question' then '미해결 질문'
+        when new.accepted_answer_id is not null then '해결된 수리 사례'
+        else '새 수리 정보 · ' || v_category
+    end;
     v_body := left(concat_ws(' · ', nullif(btrim(new.product_family), ''),
         nullif(btrim(new.model_code), ''), nullif(btrim(new.title), '')), 160);
 
@@ -337,7 +566,14 @@ begin
            set title = v_title,
                body = v_body
          where kind = 'repair_entries'
-           and url = '#/entry/' || new.id::text;
+           and url = '#/entry/' || new.id::text
+           and (title, body) is distinct from (v_title, v_body);
+        if new.title is distinct from old.title then
+            update public.notifications
+               set body = new.title
+             where kind = 'repair_answers'
+               and starts_with(url, '#/entry/' || new.id::text || '?answer=');
+        end if;
         return new;
     end if;
 
@@ -354,6 +590,37 @@ create trigger repair_entries_in_app_notice
     after insert or update on public.repair_entries
     for each row execute function public.repair_entry_in_app_notice();
 
+create or replace function public.repair_answer_in_app_notice()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+    if tg_op = 'DELETE' then
+        delete from public.notifications
+         where kind = 'repair_answers'
+           and url = '#/entry/' || old.entry_id::text || '?answer=' || old.id::text;
+        return old;
+    end if;
+
+    insert into public.notifications (user_id, kind, title, body, url)
+    select e.created_by, 'repair_answers', '내 질문에 답변이 달렸어요', e.title,
+           '#/entry/' || e.id::text || '?answer=' || new.id::text
+      from public.repair_entries e
+      join public.repair_memberships m on m.user_id = e.created_by and m.status = 'member'
+     where e.id = new.entry_id and e.created_by <> new.author_id and e.entry_kind = 'question';
+    return new;
+end;
+$$;
+
+revoke all on function public.repair_answer_in_app_notice() from public, anon, authenticated;
+
+drop trigger if exists repair_answers_in_app_notice on public.repair_entry_answers;
+create trigger repair_answers_in_app_notice
+    after insert or delete on public.repair_entry_answers
+    for each row execute function public.repair_answer_in_app_notice();
+
 -- 알림 푸시는 기존 발송기에 연결한다. 발송기가 아직 없더라도 저장·검색·
 -- 알림함 기능은 계속 동작한다.
 do $$
@@ -362,7 +629,7 @@ begin
         execute 'drop trigger if exists repair_entries_push_notice on public.repair_entries';
         execute $t$
             create trigger repair_entries_push_notice after insert on public.repair_entries
-                for each row execute function public.notify_push()
+                for each row when (new.entry_kind = 'case') execute function public.notify_push()
         $t$;
     end if;
 end;
@@ -389,6 +656,14 @@ begin
            and tablename = 'repair_memberships'
     ) then
         alter publication supabase_realtime add table public.repair_memberships;
+    end if;
+    if not exists (
+        select 1 from pg_publication_tables
+         where pubname = 'supabase_realtime'
+           and schemaname = 'public'
+           and tablename = 'repair_entry_answers'
+    ) then
+        alter publication supabase_realtime add table public.repair_entry_answers;
     end if;
 end;
 $$;

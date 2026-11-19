@@ -2,15 +2,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { shrinkImage } from '../lib/image';
 import type {
-    EntryFilters, RepairEntry, RepairMembership, RepairNotification, VerificationStatus,
+    EntryCategory, EntryFilters, EntryKind, RepairAnswer, RepairApplication, RepairEntry,
+    RepairMembership, RepairNotification,
 } from './types';
 
 // 새 수리 지식 테이블은 기존 골프 테이블과 분리되어 있다.
 export const repairDb = supabase as unknown as SupabaseClient;
 const db = repairDb;
 const PHOTO_BUCKET = 'repair-photos';
-const PHOTO_LIMIT = 6;
+export const PHOTO_LIMIT = 6;
 const PHOTO_MAX_BYTES = 8 * 1024 * 1024;
+export const ENTRY_PAGE_SIZE = 5;
+const REPAIR_NOTICE_KINDS = ['repair_entries', 'repair_answers'];
 
 function id() {
     return globalThis.crypto?.randomUUID?.()
@@ -20,14 +23,14 @@ function id() {
         });
 }
 
-async function authorNames(entries: RepairEntry[]): Promise<RepairEntry[]> {
-    const ids = [...new Set(entries.map(entry => entry.created_by).filter(Boolean))];
-    if (!ids.length) return entries;
+async function memberNames(userIds: (string | null)[], signal?: AbortSignal): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter(id => id !== null))];
+    if (!ids.length) return new Map();
 
-    const { data } = await db.from('repair_memberships')
+    const query = db.from('repair_memberships')
         .select('user_id, display_name').in('user_id', ids);
-    const names = new Map((data ?? []).map((row: { user_id: string; display_name: string }) => [row.user_id, row.display_name]));
-    return entries.map(entry => ({ ...entry, author_name: names.get(entry.created_by) ?? '회원' }));
+    const { data } = await (signal ? query.abortSignal(signal) : query);
+    return new Map((data ?? []).map(row => [row.user_id, row.display_name]));
 }
 
 export async function getRepairMembership(userId: string): Promise<RepairMembership | null> {
@@ -51,24 +54,35 @@ export async function updateRepairMemberName(userId: string, displayName: string
     if (error) throw error;
 }
 
-export async function searchEntries(filters: EntryFilters = {}): Promise<RepairEntry[]> {
-    const { data, error } = await db.rpc('search_repair_entries', {
+export async function searchEntries(filters: EntryFilters, offset: number, signal: AbortSignal) {
+    const { data, error } = await db.rpc('search_repair_library', {
         p_query: filters.query?.trim() || null,
         p_family: filters.family || null,
         p_category: filters.category || null,
         p_model: filters.model?.trim() || null,
-        p_limit: 80,
-    });
+        p_kind: filters.kind ?? 'case',
+        p_offset: offset,
+        p_limit: ENTRY_PAGE_SIZE + 1,
+    }).abortSignal(signal);
     if (error) throw error;
-    return authorNames((data ?? []) as RepairEntry[]);
+
+    const rows = (data ?? []) as RepairEntry[];
+    const visible = rows.slice(0, ENTRY_PAGE_SIZE);
+    const names = await memberNames(visible.map(entry => entry.created_by), signal);
+    return {
+        entries: visible.map(entry => ({ ...entry, author_name: names.get(entry.created_by ?? '') ?? '회원' })),
+        hasMore: rows.length > ENTRY_PAGE_SIZE,
+        nextOffset: offset + visible.length,
+    };
 }
 
 export async function getEntry(entryId: string): Promise<RepairEntry> {
     const { data, error } = await db.from('repair_entries')
         .select('*').eq('id', entryId).single();
     if (error) throw error;
-    const [withName] = await authorNames([data as RepairEntry]);
-    return withName;
+    const entry = data as RepairEntry;
+    const names = await memberNames([entry.created_by]);
+    return { ...entry, author_name: names.get(entry.created_by ?? '') ?? '회원' };
 }
 
 export async function signedPhotoUrls(paths: string[]): Promise<string[]> {
@@ -114,22 +128,22 @@ async function preparePhoto(file: File): Promise<{ blob: Blob; mime: string; ext
     return { blob: normalized, mime, ext };
 }
 
-export interface NewEntryInput {
+export interface EntryInput {
     product_family: string;
     model_code: string;
-    category: string;
+    category: EntryCategory;
     title: string;
     symptoms: string;
     inspection_steps: string;
-    result_notes: string;
     cautions: string;
     tags: string[];
 }
 
 export async function createEntry(
-    input: NewEntryInput,
+    input: EntryInput,
     files: File[],
     userId: string,
+    kind: EntryKind,
 ): Promise<string> {
     if (files.length > PHOTO_LIMIT) throw new Error('사진은 최대 6장까지 첨부할 수 있습니다.');
 
@@ -150,6 +164,7 @@ export async function createEntry(
         const { error } = await db.from('repair_entries').insert({
             id: entryId,
             ...input,
+            entry_kind: kind,
             photo_paths: uploaded,
             created_by: userId,
         });
@@ -164,20 +179,19 @@ export async function createEntry(
 }
 
 export async function updateEntry(
-    entryId: string,
-    input: NewEntryInput,
+    entry: RepairEntry,
+    input: EntryInput,
     files: File[],
     userId: string,
-    existingPhotoPaths: string[],
 ): Promise<void> {
-    if (existingPhotoPaths.length + files.length > PHOTO_LIMIT) {
+    if (entry.photo_paths.length + files.length > PHOTO_LIMIT) {
         throw new Error('사진은 최대 6장까지 첨부할 수 있습니다.');
     }
     const uploaded: string[] = [];
     try {
         for (const file of files) {
             const prepared = await preparePhoto(file);
-            const path = userId + '/' + entryId + '/' + id() + '.' + prepared.ext;
+            const path = userId + '/' + entry.id + '/' + id() + '.' + prepared.ext;
             const { error } = await db.storage.from(PHOTO_BUCKET).upload(path, prepared.blob, {
                 contentType: prepared.mime,
                 upsert: false,
@@ -186,19 +200,12 @@ export async function updateEntry(
             uploaded.push(path);
         }
 
-        // result_notes와 검증 필드는 수정 폼에 노출하지 않으며, 기존 값을 보존한다.
-        const { error } = await db.from('repair_entries').update({
-            product_family: input.product_family,
-            model_code: input.model_code,
-            category: input.category,
-            title: input.title,
-            symptoms: input.symptoms,
-            inspection_steps: input.inspection_steps,
-            cautions: input.cautions,
-            tags: input.tags,
-            photo_paths: [...existingPhotoPaths, ...uploaded],
-        }).eq('id', entryId);
+        const { data, error } = await db.from('repair_entries').update({
+            ...input,
+            photo_paths: [...entry.photo_paths, ...uploaded],
+        }).eq('id', entry.id).eq('updated_at', entry.updated_at).select('id').maybeSingle();
         if (error) throw error;
+        if (!data) throw new Error('글이 이미 변경됐거나 수정할 수 없습니다. 최신 내용을 확인해 주세요.');
     } catch (error) {
         if (uploaded.length) await db.storage.from(PHOTO_BUCKET).remove(uploaded).catch(() => {});
         throw error;
@@ -214,23 +221,71 @@ export async function removeEntry(entry: RepairEntry): Promise<void> {
     }
 }
 
-export async function setVerification(
-    entryId: string,
-    status: VerificationStatus,
-    userId: string,
-): Promise<void> {
-    const { error } = await db.from('repair_entries').update({
-        verification_status: status,
-        verified_by: status === 'verified' ? userId : null,
-        verified_at: status === 'verified' ? new Date().toISOString() : null,
-    }).eq('id', entryId);
+export async function listAnswers(entryId: string): Promise<RepairAnswer[]> {
+    const { data, error } = await db.from('repair_entry_answers')
+        .select('id, author_id, body, created_at')
+        .eq('entry_id', entryId).order('created_at');
+    if (error) throw error;
+    const rows = (data ?? []) as RepairAnswer[];
+    const names = await memberNames(rows.map(answer => answer.author_id));
+    return rows.map(answer => ({ ...answer, author_name: names.get(answer.author_id ?? '') ?? '회원' }));
+}
+
+export async function addAnswer(entryId: string, userId: string, body: string) {
+    const { error } = await db.from('repair_entry_answers')
+        .insert({ entry_id: entryId, author_id: userId, body });
+    if (error) throw error;
+}
+
+export async function removeAnswer(answerId: string) {
+    const { error } = await db.from('repair_entry_answers')
+        .delete().eq('id', answerId).select('id').single();
+    if (error) throw error;
+}
+
+export async function acceptAnswer(entryId: string, answerId: string): Promise<RepairEntry> {
+    const { data, error } = await db.rpc('accept_repair_answer', {
+        p_entry_id: entryId,
+        p_answer_id: answerId,
+    }).single();
+    if (error) throw error;
+    return data as RepairEntry;
+}
+
+export async function listApplications(entryId: string): Promise<RepairApplication[]> {
+    const { data, error } = await db.from('repair_entry_applications')
+        .select('user_id, model_code, note').eq('entry_id', entryId).order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as RepairApplication[];
+}
+
+export async function addApplication(entryId: string, userId: string): Promise<RepairApplication> {
+    const { data, error } = await db.from('repair_entry_applications')
+        .insert({ entry_id: entryId, user_id: userId })
+        .select('user_id, model_code, note').single();
+    if (error) throw error;
+    return data as RepairApplication;
+}
+
+export async function editApplication(entryId: string, application: RepairApplication): Promise<RepairApplication> {
+    const { user_id, model_code, note } = application;
+    const { data, error } = await db.from('repair_entry_applications')
+        .update({ model_code, note }).eq('entry_id', entryId).eq('user_id', user_id)
+        .select('user_id, model_code, note').single();
+    if (error) throw error;
+    return data as RepairApplication;
+}
+
+export async function removeApplication(entryId: string, userId: string) {
+    const { error } = await db.from('repair_entry_applications')
+        .delete().eq('entry_id', entryId).eq('user_id', userId);
     if (error) throw error;
 }
 
 export async function listNotifications(userId: string): Promise<RepairNotification[]> {
     const { data, error } = await db.from('notifications')
         .select('id, kind, title, body, url, created_at, read_at')
-        .eq('user_id', userId).eq('kind', 'repair_entries')
+        .eq('user_id', userId).in('kind', REPAIR_NOTICE_KINDS)
         .order('created_at', { ascending: false })
         .limit(80);
     if (error) throw error;
@@ -240,7 +295,7 @@ export async function listNotifications(userId: string): Promise<RepairNotificat
 export async function unreadNotificationCount(userId: string): Promise<number> {
     const { count, error } = await db.from('notifications')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId).eq('kind', 'repair_entries')
+        .eq('user_id', userId).in('kind', REPAIR_NOTICE_KINDS)
         .is('read_at', null);
     if (error) throw error;
     return count ?? 0;
@@ -248,7 +303,7 @@ export async function unreadNotificationCount(userId: string): Promise<number> {
 
 export async function markNotificationsRead(userId: string, ids?: string[]): Promise<void> {
     let query = db.from('notifications').update({ read_at: new Date().toISOString() })
-        .eq('user_id', userId).eq('kind', 'repair_entries').is('read_at', null);
+        .eq('user_id', userId).in('kind', REPAIR_NOTICE_KINDS).is('read_at', null);
     if (ids?.length) query = query.in('id', ids);
     const { error } = await query;
     if (error) throw error;
