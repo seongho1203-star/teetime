@@ -500,6 +500,15 @@
     resize: vertical;
 }
 .rn-field input::placeholder, .rn-field textarea::placeholder { color: #a3adb5; }
+.rn-field select {
+    appearance: none;
+    padding-right: 35px;
+    background-image: linear-gradient(45deg, transparent 50%, #82909c 50%),
+                      linear-gradient(135deg, #82909c 50%, transparent 50%);
+    background-position: calc(100% - 19px) 50%, calc(100% - 14px) 50%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+}
 .rn-field input:focus, .rn-field select:focus, .rn-field textarea:focus { border-color: #ca849a; box-shadow: 0 0 0 3px rgba(165,0,52,.06); }
 .rn-field textarea { min-height: 78px; line-height: 1.65; }
 .rn-field small { color: #949fa8; font-size: 10px; }
@@ -710,11 +719,15 @@
     .rn-search-title h2, .rn-section-heading h2 { font-size: 17px; }
     .rn-eyebrow { font-size: 8px; }
     .rn-search-box { min-height: 46px; gap: 8px; margin-top: 14px; padding: 0 10px; }
-    .rn-search-box input { font-size: 11px; }
+    .rn-search-box input { font-size: 16px; font-weight: 400; letter-spacing: -.055em; }
     .rn-filter-row { gap: 7px; }
-    .rn-filter-select { min-width: 0; flex: 1; gap: 6px; padding: 0 8px; }
-    .rn-filter-select span { font-size: 9px; }
-    .rn-filter-select select, .rn-filter-select input { height: 35px; font-size: 10px; }
+    .rn-filter-select { min-width: 0; flex: 1; display: grid; align-content: center; gap: 0; padding: 5px 10px 4px; }
+    .rn-filter-select span { font-size: 11px; font-weight: 650; }
+    .rn-filter-select select, .rn-filter-select input {
+        min-width: 0; height: 29px; padding: 0; font-size: 16px;
+        font-weight: 450; letter-spacing: -.06em;
+    }
+    .rn-filter-select select { padding-right: 15px; background-position: calc(100% - 8px) 13px, calc(100% - 4px) 13px; }
     .rn-model-filter { max-width: none; }
     .rn-category-filter { flex-wrap: nowrap; overflow-x: auto; margin: 12px -3px 0; padding: 2px 3px 4px; scrollbar-width: none; }
     .rn-category-filter::-webkit-scrollbar { display: none; }
@@ -751,8 +764,13 @@
     .rn-span-2 { grid-column: auto; }
     .rn-form-section-title { margin-bottom: 14px; }
     .rn-field { gap: 6px; margin-bottom: 12px; }
-    .rn-field input, .rn-field select, .rn-field textarea { min-height: 41px; padding: 9px 10px; font-size: 11px; }
-    .rn-field textarea { min-height: 74px; }
+    .rn-field > span { font-size: 13px; font-weight: 700; }
+    .rn-field > span small { font-size: 11px; }
+    .rn-field input, .rn-field select, .rn-field textarea {
+        min-height: 41px; padding: 9px 11px; font-size: 16px;
+        font-weight: 400; letter-spacing: -.045em;
+    }
+    .rn-field textarea { min-height: 74px; line-height: 1.5; }
     .rn-upload-area { align-items: flex-start; flex-direction: column; gap: 7px; }
     .rn-photo-preview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .rn-form-actions { gap: 7px; padding-top: 14px; }

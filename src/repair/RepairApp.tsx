@@ -635,7 +635,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                     <input
                         value={filters.query ?? ''}
                         onChange={event => change('query', event.target.value)}
-                        placeholder="모델명, 증상, 에러 코드, 점검 내용을 검색"
+                        placeholder="모델명·증상·에러 코드 검색"
                         aria-label="수리 정보 검색"
                     />
                     {(filters.query || model) && <button onClick={clearFilters} type="button">초기화</button>}
@@ -882,7 +882,7 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
                         <label className="rn-field rn-span-2">
                             <span>제목 <b>*</b></span>
                             <input value={form.title} onChange={e => field('title', e.target.value)}
-                                   placeholder="예: 특정 조건에서 발생하는 증상과 점검 요령" maxLength={120} required />
+                                   placeholder="예: 얼음 생성 불가 점검" maxLength={120} required />
                         </label>
                     </div>
                 </div>
