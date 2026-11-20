@@ -529,7 +529,6 @@ function KnowledgeHome({ userId }: { userId: string }) {
     const [visibleCount, setVisibleCount] = useState(5);
     const [error, setError] = useState('');
     const [filters, setFilters] = useState<EntryFilters>({});
-    const [model, setModel] = useState('');
     const [push, setPush] = useState<PushState | null>(null);
     const [pushBusy, setPushBusy] = useState(false);
     const toast = useToast();
@@ -582,10 +581,8 @@ function KnowledgeHome({ userId }: { userId: string }) {
         }
     };
 
-    const clearFilters = () => {
-        setFilters({});
-        setModel('');
-    };
+    const clearFilters = () => setFilters({});
+    const hasFilters = Boolean(filters.query || filters.family || filters.category);
     const activeCategory = filters.category ?? '';
 
     return (
@@ -638,7 +635,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                         placeholder="모델명·증상·에러 코드 검색"
                         aria-label="수리 정보 검색"
                     />
-                    {(filters.query || model) && <button onClick={clearFilters} type="button">초기화</button>}
+                    {hasFilters && <button onClick={clearFilters} type="button">초기화</button>}
                 </label>
                 <div className="rn-filter-row">
                     <label className="rn-filter-select">
@@ -647,13 +644,6 @@ function KnowledgeHome({ userId }: { userId: string }) {
                             <option value="">전체 제품군</option>
                             {PRODUCT_FAMILIES.map(family => <option key={family} value={family}>{family}</option>)}
                         </select>
-                    </label>
-                    <label className="rn-filter-select rn-model-filter">
-                        <span>모델 검색</span>
-                        <input value={model} onChange={event => {
-                            setModel(event.target.value);
-                            change('model', event.target.value);
-                        }} placeholder="예: FQ18…" />
                     </label>
                 </div>
                 <div className="rn-category-filter" role="group" aria-label="정보 유형">
@@ -671,8 +661,8 @@ function KnowledgeHome({ userId }: { userId: string }) {
             <section className="rn-results">
                 <div className="rn-section-heading">
                     <div>
-                        <span className="rn-eyebrow">{filters.query || filters.family || filters.category || model ? 'SEARCH RESULTS' : 'LATEST KNOWLEDGE'}</span>
-                        <h2>{filters.query || filters.family || filters.category || model ? '검색 결과' : '최근 등록된 정보'}</h2>
+                        <span className="rn-eyebrow">{hasFilters ? 'SEARCH RESULTS' : 'LATEST KNOWLEDGE'}</span>
+                        <h2>{hasFilters ? '검색 결과' : '최근 등록된 정보'}</h2>
                     </div>
                     <Link to="/new" className="rn-inline-link">수리 정보 등록 <Icon name="arrow" size={15} /></Link>
                 </div>
@@ -689,9 +679,9 @@ function KnowledgeHome({ userId }: { userId: string }) {
                 {!loading && !error && entries?.length === 0 && (
                     <div className="rn-empty">
                         <span><Icon name="search" size={26} /></span>
-                        <strong>{filters.query || filters.family || activeCategory || model ? '검색 결과가 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
-                        <p>{filters.query || filters.family || activeCategory || model ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
-                        {!(filters.query || filters.family || activeCategory || model) && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
+                        <strong>{hasFilters ? '검색 결과가 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
+                        <p>{hasFilters ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
+                        {!hasFilters && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
                     </div>
                 )}
                 {!!entries?.length && (
