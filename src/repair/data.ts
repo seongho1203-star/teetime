@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { shrinkImage } from '../lib/image';
 import type {
-    EntryFilters, RepairEntry, RepairMembership, RepairNotification, VerificationStatus,
+    EntryFilters, RepairEntry, RepairJobTitle, RepairMembership, RepairNotification, VerificationStatus,
 } from './types';
 
 // 새 수리 지식 테이블은 기존 골프 테이블과 분리되어 있다.
@@ -32,7 +32,7 @@ async function authorNames(entries: RepairEntry[]): Promise<RepairEntry[]> {
 
 export async function getRepairMembership(userId: string): Promise<RepairMembership | null> {
     const { data, error } = await db.from('repair_memberships')
-        .select('user_id, display_name, status, requested_at, approved_at')
+        .select('user_id, display_name, job_title, profile_completed_at, status, requested_at, approved_at')
         .eq('user_id', userId).maybeSingle();
     if (error) throw error;
     return data as RepairMembership | null;
@@ -45,10 +45,20 @@ export async function requestRepairMembership(displayName: string): Promise<void
     if (error) throw error;
 }
 
-export async function updateRepairMemberName(userId: string, displayName: string): Promise<void> {
-    const { error } = await db.from('repair_memberships')
-        .update({ display_name: displayName.trim() }).eq('user_id', userId);
+export async function updateRepairMemberProfile(
+    userId: string, displayName: string, jobTitle: RepairJobTitle,
+    completedAt: string | null,
+): Promise<void> {
+    const { data, error } = await db.from('repair_memberships')
+        .update({
+            display_name: displayName.trim(),
+            job_title: jobTitle,
+            profile_completed_at: completedAt ?? new Date().toISOString(),
+        })
+        .eq('user_id', userId).eq('status', 'member')
+        .select('user_id').maybeSingle();
     if (error) throw error;
+    if (!data) throw new Error('승인된 회원 정보를 찾지 못했습니다. 다시 로그인해 주세요.');
 }
 
 export async function searchEntries(filters: EntryFilters = {}): Promise<RepairEntry[]> {

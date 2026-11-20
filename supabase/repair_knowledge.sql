@@ -14,6 +14,23 @@ create table if not exists public.repair_memberships (
     approved_by   uuid references public.profiles(id) on delete set null
 );
 
+-- 승인 후 첫 접속에서 카카오 이름을 그대로 확정하지 않고, 수리노트에서
+-- 사용할 이름과 직급을 본인이 직접 입력한다. 기존 회원도 다음 접속에 한 번 확인한다.
+alter table public.repair_memberships
+    add column if not exists job_title text,
+    add column if not exists profile_completed_at timestamptz;
+alter table public.repair_memberships
+    drop constraint if exists repair_memberships_job_title_check,
+    drop constraint if exists repair_memberships_profile_check;
+alter table public.repair_memberships
+    add constraint repair_memberships_job_title_check check (
+        job_title in ('센터장', '실장', '반장', '조장', '기성', '기정', '기장', '주임', '사원')
+    ),
+    add constraint repair_memberships_profile_check check (
+        profile_completed_at is null
+        or (job_title is not null and nullif(btrim(display_name), '') is not null)
+    );
+
 create index if not exists repair_memberships_status_name_idx
     on public.repair_memberships (status, display_name);
 
@@ -87,7 +104,7 @@ grant execute on function public.delete_repair_application(uuid) to authenticate
 alter table public.repair_memberships enable row level security;
 revoke all on public.repair_memberships from public, anon;
 grant select, insert on public.repair_memberships to authenticated;
-grant update (display_name) on public.repair_memberships to authenticated;
+grant update (display_name, job_title, profile_completed_at) on public.repair_memberships to authenticated;
 
 drop policy if exists repair_memberships_read on public.repair_memberships;
 create policy repair_memberships_read on public.repair_memberships

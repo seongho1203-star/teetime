@@ -22,9 +22,16 @@ export const ENTRY_CATEGORIES = [
 export type EntryCategory = typeof ENTRY_CATEGORIES[number]['id'];
 export type VerificationStatus = 'unverified' | 'verified' | 'needs_review';
 
+export const REPAIR_JOB_TITLES = [
+    '센터장', '실장', '반장', '조장', '기성', '기정', '기장', '주임', '사원',
+] as const;
+export type RepairJobTitle = typeof REPAIR_JOB_TITLES[number];
+
 export interface RepairMembership {
     user_id: string;
     display_name: string;
+    job_title: RepairJobTitle | null;
+    profile_completed_at: string | null;
     status: 'pending' | 'member';
     requested_at: string;
     approved_at: string | null;

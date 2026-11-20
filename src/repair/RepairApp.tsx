@@ -10,11 +10,11 @@ import { ToastProvider, useToast } from '../components/Toast';
 import {
     createEntry, getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry, updateEntry,
     repairDb, requestRepairMembership, searchEntries, signedPhotoUrls,
-    updateRepairMemberName,
+    updateRepairMemberProfile,
 } from './data';
 import {
-    ENTRY_CATEGORIES, PRODUCT_FAMILIES, type EntryCategory, type EntryFilters,
-    type RepairEntry, type RepairMembership, type RepairNotification,
+    ENTRY_CATEGORIES, PRODUCT_FAMILIES, REPAIR_JOB_TITLES, type EntryCategory, type EntryFilters,
+    type RepairEntry, type RepairJobTitle, type RepairMembership, type RepairNotification,
 } from './types';
 import './repair.css';
 
@@ -113,7 +113,7 @@ function RepairGate() {
 
     if (loading) return <LoadingScreen />;
     if (!session) return <LoginScreen />;
-    if (membershipLoading) return <LoadingScreen />;
+    if (membershipLoading || (membership && membership.user_id !== userId)) return <LoadingScreen />;
     const initialName = profile?.name || String(session.user.user_metadata?.name ?? '');
     if (membershipError) return <MembershipLoadError error={membershipError} retry={refreshMembership} />;
     if (!membership || membership.status === 'pending') {
@@ -121,7 +121,7 @@ function RepairGate() {
             membership={membership} refresh={refreshMembership} />;
     }
 
-    return <RepairWorkspace userId={session.user.id} name={membership.display_name || '회원'} isAdmin={isAdmin} />;
+    return <RepairWorkspace membership={membership} isAdmin={isAdmin} onProfileChange={refreshMembership} />;
 }
 
 function LoginScreen() {
@@ -225,44 +225,112 @@ function RepairAccessScreen({
     );
 }
 
-function RepairWorkspace({ userId, name, isAdmin }: { userId: string; name: string; isAdmin: boolean }) {
-    const [displayName, setDisplayName] = useState(name);
+function ProfileSetupDialog({ userId, onComplete }: { userId: string; onComplete: () => Promise<void> }) {
+    const [name, setName] = useState('');
+    const [jobTitle, setJobTitle] = useState<RepairJobTitle | ''>('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+    const toast = useToast();
+
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+        if (saving) return;
+        const displayName = name.trim();
+        const selectedTitle = REPAIR_JOB_TITLES.find(title => title === jobTitle);
+        if (!displayName || displayName.length > 40 || !selectedTitle) {
+            setError('직급을 선택하고 이름을 1~40자로 입력해 주세요.');
+            return;
+        }
+        setSaving(true);
+        setError('');
+        try {
+            await updateRepairMemberProfile(userId, displayName, selectedTitle, null);
+            await onComplete();
+            toast('수리노트 프로필이 등록됐습니다.', 'ok');
+        } catch (reason) {
+            setError(messageOf(reason));
+            setSaving(false);
+        }
+    };
+
     return (
-        <div className="rn-app">
-            <Header userId={userId} name={displayName} isAdmin={isAdmin} onNameChange={setDisplayName} />
-            <div className="rn-layout">
-                <aside className="rn-sidebar">
-                    <SidebarNav isAdmin={isAdmin} />
-                    <div className="rn-sidebar-foot">
-                        <span className="rn-sidebar-dot" />
-                        <span>승인된 회원 전용 공간</span>
-                    </div>
-                </aside>
-                <main className="rn-main">
-                    <Routes>
-                        <Route path="/" element={<KnowledgeHome userId={userId} />} />
-                        <Route path="/new" element={<EntryForm userId={userId} />} />
-                        <Route path="/entry/:id/edit" element={<EntryForm userId={userId} isAdmin={isAdmin} />} />
-                        <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
-                        <Route path="/alerts" element={<NotificationCenter userId={userId} />} />
-                        <Route path="/members" element={<MemberApprovals isAdmin={isAdmin} />} />
-                        <Route path="/guide" element={<GuidePage />} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                </main>
-            </div>
-            <MobileNav />
+        <div className="rn-dialog-backdrop rn-setup-backdrop">
+            <form className="rn-dialog rn-setup-dialog" role="dialog" aria-modal="true"
+                  aria-labelledby="rn-setup-title" aria-describedby="rn-setup-description"
+                  onSubmit={event => void submit(event)}>
+                <span className="rn-eyebrow">WELCOME TO REPAIR NOTE</span>
+                <h2 id="rn-setup-title">직급을 선택하고 이름을 입력해 주세요</h2>
+                <p id="rn-setup-description">동료에게 표시할 수리노트 회원 정보를 등록합니다.</p>
+                <label className="rn-field">
+                    <span>직급 <b>*</b></span>
+                    <select value={jobTitle} onChange={event => setJobTitle(event.target.value as RepairJobTitle | '')} required>
+                        <option value="">직급 선택</option>
+                        {REPAIR_JOB_TITLES.map(title => <option key={title} value={title}>{title}</option>)}
+                    </select>
+                </label>
+                <label className="rn-field">
+                    <span>이름 <b>*</b></span>
+                    <input value={name} onChange={event => setName(event.target.value)}
+                           placeholder="실제로 사용할 이름을 입력하세요" maxLength={40} required />
+                </label>
+                {error && <p className="rn-setup-error" role="alert">{error}</p>}
+                <button className="rn-primary-btn rn-wide" type="submit" disabled={saving}>
+                    {saving ? '저장 중…' : '저장하고 시작하기'}
+                </button>
+                <button className="rn-text-btn rn-setup-logout" type="button"
+                        onClick={() => void supabase.auth.signOut()} disabled={saving}>다른 계정으로 로그인</button>
+            </form>
         </div>
     );
 }
 
-function Header({ userId, name, isAdmin, onNameChange }: {
-    userId: string; name: string; isAdmin: boolean; onNameChange: (name: string) => void;
+function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
+    membership: RepairMembership; isAdmin: boolean; onProfileChange: () => Promise<void>;
 }) {
+    const userId = membership.user_id;
+    const needsProfile = !membership.profile_completed_at || !membership.job_title;
+    return (
+        <>
+            <div className="rn-app" inert={needsProfile}>
+                <Header membership={membership} isAdmin={isAdmin} onProfileChange={onProfileChange} />
+                <div className="rn-layout">
+                    <aside className="rn-sidebar">
+                        <SidebarNav isAdmin={isAdmin} />
+                        <div className="rn-sidebar-foot">
+                            <span className="rn-sidebar-dot" />
+                            <span>승인된 회원 전용 공간</span>
+                        </div>
+                    </aside>
+                    <main className="rn-main">
+                        <Routes>
+                            <Route path="/" element={<KnowledgeHome userId={userId} />} />
+                            <Route path="/new" element={<EntryForm userId={userId} />} />
+                            <Route path="/entry/:id/edit" element={<EntryForm userId={userId} isAdmin={isAdmin} />} />
+                            <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
+                            <Route path="/alerts" element={<NotificationCenter userId={userId} />} />
+                            <Route path="/members" element={<MemberApprovals isAdmin={isAdmin} />} />
+                            <Route path="/guide" element={<GuidePage />} />
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                    </main>
+                </div>
+                <MobileNav />
+            </div>
+            {needsProfile && <ProfileSetupDialog userId={userId} onComplete={onProfileChange} />}
+        </>
+    );
+}
+
+function Header({ membership, isAdmin, onProfileChange }: {
+    membership: RepairMembership; isAdmin: boolean; onProfileChange: () => Promise<void>;
+}) {
+    const userId = membership.user_id;
+    const name = membership.display_name || '회원';
     const [count, setCount] = useState(0);
     const [menuOpen, setMenuOpen] = useState(false);
     const [nameEditOpen, setNameEditOpen] = useState(false);
     const [nameDraft, setNameDraft] = useState(name);
+    const [jobTitleDraft, setJobTitleDraft] = useState<RepairJobTitle | ''>(membership.job_title ?? '');
     const [savingName, setSavingName] = useState(false);
     const toast = useToast();
     const navigate = useNavigate();
@@ -303,19 +371,20 @@ function Header({ userId, name, isAdmin, onNameChange }: {
         }
     };
 
-    const saveName = async () => {
+    const saveProfile = async () => {
         const nextName = nameDraft.trim();
-        if (!nextName || nextName.length > 40) {
-            toast('이름은 1~40자로 입력해 주세요.', 'error');
+        const nextTitle = REPAIR_JOB_TITLES.find(title => title === jobTitleDraft);
+        if (!nextName || nextName.length > 40 || !nextTitle) {
+            toast('직급을 선택하고 이름을 1~40자로 입력해 주세요.', 'error');
             return;
         }
         setSavingName(true);
         try {
-            await updateRepairMemberName(userId, nextName);
-            onNameChange(nextName);
+            await updateRepairMemberProfile(userId, nextName, nextTitle, membership.profile_completed_at);
+            await onProfileChange();
             setNameEditOpen(false);
             setMenuOpen(false);
-            toast('수리노트 프로필 이름을 변경했습니다.', 'ok');
+            toast('수리노트 프로필을 변경했습니다.', 'ok');
         } catch (error) {
             toast(messageOf(error), 'error');
         } finally {
@@ -358,9 +427,9 @@ function Header({ userId, name, isAdmin, onNameChange }: {
                         </button>
                         {menuOpen && (
                             <div className="rn-user-menu">
-                                <span className="rn-menu-label">{name}님</span>
-                                <button onClick={() => { setNameDraft(name); setNameEditOpen(true); }}>
-                                    <Icon name="user" size={16} /> 이름 변경
+                                <span className="rn-menu-label">{name}님 · {membership.job_title}</span>
+                                <button onClick={() => { setNameDraft(name); setJobTitleDraft(membership.job_title ?? ''); setNameEditOpen(true); }}>
+                                    <Icon name="user" size={16} /> 이름·직급 변경
                                 </button>
                                 <Link to="/members" onClick={() => setMenuOpen(false)}>
                                     <Icon name="user" size={16} /> {isAdmin ? '회원·가입 신청 관리' : '회원 명단'}
@@ -378,8 +447,15 @@ function Header({ userId, name, isAdmin, onNameChange }: {
                     <section className="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="rn-name-title"
                              onClick={event => event.stopPropagation()}>
                         <span className="rn-eyebrow">PROFILE</span>
-                        <h2 id="rn-name-title">수리노트 이름 변경</h2>
-                        <p>이 이름은 수리노트에서만 표시됩니다.</p>
+                        <h2 id="rn-name-title">내 정보 변경</h2>
+                        <p>직급과 이름은 수리노트 회원 명단에 표시됩니다.</p>
+                        <label className="rn-field">
+                            <span>직급</span>
+                            <select value={jobTitleDraft} onChange={event => setJobTitleDraft(event.target.value as RepairJobTitle | '')}>
+                                <option value="">직급 선택</option>
+                                {REPAIR_JOB_TITLES.map(title => <option key={title} value={title}>{title}</option>)}
+                            </select>
+                        </label>
                         <label className="rn-field">
                             <span>표시 이름</span>
                             <input value={nameDraft} onChange={event => setNameDraft(event.target.value)}
@@ -387,7 +463,7 @@ function Header({ userId, name, isAdmin, onNameChange }: {
                         </label>
                         <div className="rn-dialog-actions">
                             <button className="rn-secondary-btn" onClick={() => setNameEditOpen(false)}>취소</button>
-                            <button className="rn-primary-btn" onClick={() => void saveName()} disabled={savingName}>
+                            <button className="rn-primary-btn" onClick={() => void saveProfile()} disabled={savingName}>
                                 {savingName ? '저장 중…' : '저장'}
                             </button>
                         </div>
@@ -1078,11 +1154,11 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
         try {
             const [approved, pending] = await Promise.all([
                 repairDb.from('repair_memberships')
-                    .select('user_id, display_name, status, requested_at, approved_at')
+                    .select('user_id, display_name, job_title, profile_completed_at, status, requested_at, approved_at')
                     .eq('status', 'member').order('display_name'),
                 isAdmin
                     ? repairDb.from('repair_memberships')
-                        .select('user_id, display_name, status, requested_at, approved_at')
+                        .select('user_id, display_name, job_title, profile_completed_at, status, requested_at, approved_at')
                         .eq('status', 'pending').order('requested_at')
                     : Promise.resolve({ data: [], error: null }),
             ]);
@@ -1167,7 +1243,8 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
                 {members.map(member => (
                     <div className="rn-member-row" key={member.user_id}>
                         <span className="rn-avatar">{(member.display_name || '회').slice(0, 1)}</span>
-                        <span><strong>{member.display_name || '이름 미등록'}</strong><small>수리노트 회원</small></span>
+                        <span><strong>{member.display_name || '이름 미등록'}</strong>
+                            <small>{member.job_title ?? '직급 입력 전'}</small></span>
                     </div>
                 ))}
             </section>
