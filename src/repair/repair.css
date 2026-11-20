@@ -794,12 +794,6 @@
     .rn-config-notice { font-size: 9px; }
     .rn-desktop-only { display: none; }
 
-    @supports (-webkit-touch-callout: none) {
-        :is(.rn-app, .rn-demo-app, .rn-dialog) :is(input:not([type="file"]), select, textarea):focus {
-            font-size: 16px;
-        }
-    }
-
     .rn-dialog { width: min(100%, 320px); padding: 17px; border-radius: 15px; }
     .rn-dialog h2 { margin: 6px 0 4px; font-size: 17px; line-height: 1.4; letter-spacing: -.03em; }
     .rn-dialog > p { margin-bottom: 12px; font-size: 11px; line-height: 1.5; }

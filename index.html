@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <script>
+      // Prevent iPhone Safari from zooming into compact form fields.
+      if (/iPhone|iPod/.test(navigator.userAgent)) {
+        document.querySelector('meta[name="viewport"]').content += ', maximum-scale=1';
+      }
+    </script>
     <meta name="theme-color" content="#a50034" />
     <meta name="description" content="LG전자 가전수리 엔지니어를 위한 모델별 점검 방법과 현장 노하우 공유 앱" />
     <meta name="robots" content="noindex, nofollow" />
