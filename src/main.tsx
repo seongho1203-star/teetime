@@ -11,6 +11,7 @@ import './lib/install';
 // 귀를 대 두어야 한다 — 위 설치 신호와 같은 이유다. 웹에서는 바로 돌아선다.
 import { watchNativeAuth } from './lib/native';
 
+document.body.classList.add('surinote');
 registerServiceWorker();
 watchNativeAuth();
 

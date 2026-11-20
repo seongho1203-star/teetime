@@ -774,6 +774,19 @@
     .rn-demo-main { padding: 15px 13px 30px; }
     .rn-config-notice { font-size: 9px; }
     .rn-desktop-only { display: none; }
+
+    /* Safari는 작은 입력 글씨에 초점을 맞출 때 화면을 자동 확대한다. */
+    .rn-app input:not([type="file"]), .rn-app select, .rn-app textarea,
+    .rn-demo-app input:not([type="file"]),
+    .rn-dialog input, .rn-dialog select, .rn-dialog textarea { font-size: 16px; }
+
+    .rn-dialog { width: min(100%, 320px); padding: 17px; border-radius: 15px; }
+    .rn-dialog h2 { margin: 6px 0 4px; font-size: 17px; line-height: 1.4; letter-spacing: -.03em; }
+    .rn-dialog > p { margin-bottom: 12px; font-size: 11px; line-height: 1.5; }
+    .rn-setup-dialog .rn-field { gap: 5px; margin-bottom: 10px; }
+    .rn-setup-dialog .rn-field input, .rn-setup-dialog .rn-field select { min-height: 42px; padding: 8px 10px; }
+    .rn-setup-dialog .rn-primary-btn { min-height: 42px; }
+    .rn-setup-logout { min-height: 32px; margin-top: 4px; }
 }
 
 @media (max-width: 380px) {

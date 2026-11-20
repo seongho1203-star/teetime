@@ -58,16 +58,28 @@ body.nc-typing .toast-stack {
 
 /* 수리노트의 짧은 안내는 좁은 휴대폰에서도 문장 단위로 고르게 나눈다. */
 body.surinote .toast {
-    max-width: min(320px, 100%);
-    padding: 9px 14px;
-    border-radius: 14px;
+    max-width: min(290px, 100%);
+    padding: 8px 12px;
+    border-radius: 12px;
+    border-color: #e7ebef;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(24, 33, 43, .13);
+    color: #3e4954;
     font-size: 12px;
     font-weight: 600;
-    line-height: 1.5;
+    line-height: 1.45;
     white-space: normal;
     word-break: keep-all;
     overflow-wrap: anywhere;
     text-wrap: balance;
+}
+body.surinote .toast.ok { border-color: #d9e9e1; color: #187a56; }
+body.surinote .toast.error { border-color: #ecd1d7; color: #9e2145; }
+@media (max-width: 760px) {
+    body.surinote .toast-stack {
+        bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px);
+        width: min(320px, calc(100% - 32px));
+    }
 }
 
 @keyframes toast-in {
