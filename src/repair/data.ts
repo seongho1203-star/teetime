@@ -61,8 +61,9 @@ export async function updateRepairMemberProfile(
     if (!data) throw new Error('승인된 회원 정보를 찾지 못했습니다. 다시 로그인해 주세요.');
 }
 
-export async function searchEntries(filters: EntryFilters = {}): Promise<RepairEntry[]> {
-    const { data, error } = await db.rpc('search_repair_entries', {
+export async function searchEntries(filters: EntryFilters = {}, savedOnly = false): Promise<RepairEntry[]> {
+    const { data, error } = await db.rpc('search_repair_library', {
+        p_kind: savedOnly ? 'saved' : 'case',
         p_query: filters.query?.trim() || null,
         p_family: filters.family || null,
         p_category: filters.category || null,

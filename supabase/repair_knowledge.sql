@@ -432,6 +432,19 @@ revoke all on function public.repair_search_key(text) from public, anon, authent
 grant execute on function public.repair_search_key(text) to authenticated;
 
 -- SECURITY INVOKER로 호출한 회원의 글 열람 권한을 그대로 적용한다.
+create table if not exists public.repair_bookmarks (
+    user_id uuid not null references auth.users(id) on delete cascade,
+    entry_id uuid not null references public.repair_entries(id) on delete cascade,
+    primary key (user_id, entry_id)
+);
+alter table public.repair_bookmarks enable row level security;
+revoke all on public.repair_bookmarks from public, anon, authenticated;
+grant select, insert, delete on public.repair_bookmarks to authenticated;
+drop policy if exists own_bookmarks on public.repair_bookmarks;
+create policy own_bookmarks on public.repair_bookmarks for all to authenticated
+    using (user_id = (select auth.uid()) and (select public.is_repair_member()))
+    with check (user_id = (select auth.uid()) and (select public.is_repair_member()));
+
 create or replace function public.search_repair_library(
     p_query text default null,
     p_family text default null,
@@ -467,6 +480,10 @@ begin
             or e.product_family = btrim(p_family))
        and (nullif(btrim(coalesce(p_category, '')), '') is null
             or e.category = btrim(p_category))
+       and (p_kind is distinct from 'saved' or exists (
+           select 1 from public.repair_bookmarks b
+           where b.user_id = (select auth.uid()) and b.entry_id = e.id
+       ))
        and (v_model is null or strpos(keys.model_key, v_model) > 0)
        and (
             v_query is null
