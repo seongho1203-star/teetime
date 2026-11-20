@@ -592,7 +592,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                 <div className="rn-hero-copy">
                     <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
                     <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
-                    <p>현장의 수리 및 점검 정보와 테스트 내용을 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
+                    <p>현장의 수리 및 점검 방법과 수리 노하우를 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
                     <Link to="/new" className="rn-hero-action">등록하기 <Icon name="arrow" size={17} /></Link>
                 </div>
                 <div className="rn-hero-art" aria-hidden="true">
@@ -1321,7 +1321,7 @@ function DemoPreview() {
                     <div className="rn-hero-copy">
                         <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
                         <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
-                        <p>현장의 수리 및 점검 정보와 테스트 내용을 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
+                        <p>현장의 수리 및 점검 방법과 수리 노하우를 함께 모아<br className="rn-desktop-only" /> 더 빠르고 정확한 수리를 돕습니다.</p>
                         <span className="rn-hero-action">승인된 회원 전용 앱</span>
                     </div>
                     <div className="rn-hero-art" aria-hidden="true"><div className="rn-hero-tool"><Icon name="wrench" size={60} /></div></div>
