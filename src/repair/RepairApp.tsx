@@ -18,10 +18,11 @@ import {
 } from './types';
 import './repair.css';
 
-type IconName = 'home' | 'search' | 'book' | 'bell' | 'plus' | 'user' | 'wrench' | 'image' | 'check' | 'arrow' | 'logout' | 'shield';
+type IconName = 'star' | 'home' | 'search' | 'book' | 'bell' | 'plus' | 'user' | 'wrench' | 'image' | 'check' | 'arrow' | 'logout' | 'shield';
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     const shapes: Record<IconName, ReactNode> = {
+        star: <path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9Z" />,
         home: <><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></>,
         search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></>,
         book: <><path d="M4 4.8A2.8 2.8 0 0 1 6.8 2H20v17H6.8A2.8 2.8 0 0 0 4 21.8z" /><path d="M4 5v16" /><path d="M8 6h8" /><path d="M8 10h8" /></>,
@@ -303,7 +304,9 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
                     </aside>
                     <main className="rn-main">
                         <Routes>
-                            <Route path="/" element={<KnowledgeHome userId={userId} />} />
+                            <Route path="/" element={<KnowledgeHome key="case" userId={userId} scope="case" />} />
+                            <Route path="/saved" element={<KnowledgeHome key="saved" userId={userId} scope="saved" />} />
+                            <Route path="/mine" element={<KnowledgeHome key="mine" userId={userId} scope="mine" />} />
                             <Route path="/new" element={<EntryForm userId={userId} />} />
                             <Route path="/entry/:id/edit" element={<EntryForm userId={userId} isAdmin={isAdmin} />} />
                             <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
@@ -478,6 +481,8 @@ function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
     const location = useLocation();
     const links = [
         { to: '/', label: '지식 홈', icon: 'home' as const },
+        { to: '/saved', label: '저장한 글', icon: 'star' as const },
+        { to: '/mine', label: '내 글', icon: 'book' as const },
         { to: '/alerts', label: '알림함', icon: 'bell' as const },
         { to: '/guide', label: '등록 안내', icon: 'book' as const },
     ];
@@ -508,8 +513,8 @@ function MobileNav() {
     const location = useLocation();
     const links = [
         { to: '/', label: '홈', icon: 'home' as const },
-        { to: '/alerts', label: '알림', icon: 'bell' as const },
-        { to: '/new', label: '등록', icon: 'plus' as const },
+        { to: '/saved', label: '저장한 글', icon: 'star' as const },
+        { to: '/mine', label: '내 글', icon: 'book' as const },
     ];
     return (
         <nav className="rn-mobile-nav" aria-label="모바일 메뉴">
@@ -523,10 +528,10 @@ function MobileNav() {
     );
 }
 
-function KnowledgeHome({ userId }: { userId: string }) {
+function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'saved' | 'mine' }) {
     const [entries, setEntries] = useState<RepairEntry[] | null>(null);
     const [loading, setLoading] = useState(true);
-    const [savedOnly, setSavedOnly] = useState(false);
+    const personalTitle = scope === 'saved' ? '저장한 글' : '내 글';
     const [visibleCount, setVisibleCount] = useState(5);
     const [error, setError] = useState('');
     const [filters, setFilters] = useState<EntryFilters>({});
@@ -538,21 +543,21 @@ function KnowledgeHome({ userId }: { userId: string }) {
         setLoading(true);
         setError('');
         try {
-            setEntries(await searchEntries(filters, savedOnly));
+            setEntries(await searchEntries(filters, scope));
         } catch (reason) {
             setError(messageOf(reason));
             setEntries([]);
         } finally {
             setLoading(false);
         }
-    }, [filters, savedOnly]);
+    }, [filters, scope]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => void load(), 220);
         return () => window.clearTimeout(timer);
     }, [load]);
 
-    useEffect(() => { setVisibleCount(5); }, [filters, savedOnly]);
+    useEffect(() => { setVisibleCount(5); }, [filters, scope]);
 
     useEffect(() => {
         void pushState().then(setPush);
@@ -588,7 +593,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
 
     return (
         <div className="rn-page">
-            <section className="rn-hero">
+            {scope === 'case' && <section className="rn-hero">
                 <div className="rn-hero-copy">
                     <span className="rn-hero-kicker">FIELD KNOWLEDGE BASE</span>
                     <h1>고장 증상부터 점검 절차까지<br /><em>모델별로 빠르게 찾으세요.</em></h1>
@@ -603,9 +608,9 @@ function KnowledgeHome({ userId }: { userId: string }) {
                     <span className="rn-art-chip rn-chip-two">CHECK</span>
                     <span className="rn-art-dot" />
                 </div>
-            </section>
+            </section>}
 
-            {push !== 'on' && push !== 'unsupported' && (
+            {scope === 'case' && push !== 'on' && push !== 'unsupported' && (
                 <section className="rn-notice-bar">
                     <span className="rn-notice-icon"><Icon name="bell" size={17} /></span>
                     <span className="rn-notice-text">
@@ -624,7 +629,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                 <div className="rn-search-title">
                     <div>
                         <span className="rn-eyebrow">KNOWLEDGE LIBRARY</span>
-                        <h2>수리 정보 찾기</h2>
+                        <h2>{scope === 'case' ? '수리 정보 찾기' : personalTitle}</h2>
                     </div>
                     <span className="rn-result-count">{loading ? '검색 중…' : (entries?.length ?? 0) + '건'}</span>
                 </div>
@@ -646,10 +651,6 @@ function KnowledgeHome({ userId }: { userId: string }) {
                             {PRODUCT_FAMILIES.map(family => <option key={family} value={family}>{family}</option>)}
                         </select>
                     </label>
-                    <button type="button" className="rn-secondary-btn" aria-pressed={savedOnly}
-                            onClick={() => setSavedOnly(value => !value)}>
-                        {savedOnly ? '★' : '☆'} 저장한 글
-                    </button>
                 </div>
                 <div className="rn-category-filter" role="group" aria-label="정보 유형">
                     <button className={!activeCategory ? 'active' : ''} onClick={() => change('category', '')}>전체 유형</button>
@@ -667,7 +668,7 @@ function KnowledgeHome({ userId }: { userId: string }) {
                 <div className="rn-section-heading">
                     <div>
                         <span className="rn-eyebrow">{hasFilters ? 'SEARCH RESULTS' : 'LATEST KNOWLEDGE'}</span>
-                        <h2>{savedOnly ? '내가 저장한 글' : hasFilters ? '검색 결과' : '최근 등록된 정보'}</h2>
+                        <h2>{hasFilters ? '검색 결과' : scope === 'case' ? '최근 등록된 정보' : '글 목록'}</h2>
                     </div>
                     <Link to="/new" className="rn-inline-link">수리 정보 등록 <Icon name="arrow" size={15} /></Link>
                 </div>
@@ -684,9 +685,9 @@ function KnowledgeHome({ userId }: { userId: string }) {
                 {!loading && !error && entries?.length === 0 && (
                     <div className="rn-empty">
                         <span><Icon name="search" size={26} /></span>
-                        <strong>{hasFilters ? '검색 결과가 없습니다.' : savedOnly ? '아직 저장한 글이 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
-                        <p>{hasFilters ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : savedOnly ? '글 상세에서 ☆ 저장을 눌러 주세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
-                        {!savedOnly && !hasFilters && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
+                        <strong>{hasFilters ? '검색 결과가 없습니다.' : scope === 'saved' ? '아직 저장한 글이 없습니다.' : scope === 'mine' ? '아직 작성한 글이 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
+                        <p>{hasFilters ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : scope === 'saved' ? '글 상세에서 ☆ 저장을 눌러 주세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
+                        {scope !== 'saved' && !hasFilters && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
                     </div>
                 )}
                 {!!entries?.length && (

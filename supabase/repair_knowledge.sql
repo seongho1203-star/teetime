@@ -480,6 +480,7 @@ begin
             or e.product_family = btrim(p_family))
        and (nullif(btrim(coalesce(p_category, '')), '') is null
             or e.category = btrim(p_category))
+       and (p_kind is distinct from 'mine' or e.created_by = (select auth.uid()))
        and (p_kind is distinct from 'saved' or exists (
            select 1 from public.repair_bookmarks b
            where b.user_id = (select auth.uid()) and b.entry_id = e.id
