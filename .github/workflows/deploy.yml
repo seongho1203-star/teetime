@@ -67,7 +67,8 @@ jobs:
           echo "$FILES" | grep -q '^supabase/schema.sql$'  && echo "schema=yes"    >> "$GITHUB_OUTPUT" || true
           echo "$FILES" | grep -q '^supabase/repair_knowledge.sql$' && echo "repair_schema=yes" >> "$GITHUB_OUTPUT" || true
           # 수리 스키마가 푸시 트리거를 잠시 끊으므로 새 함수 배포도 함께 확인한다.
-          echo "$FILES" | grep -Eq '^supabase/(functions/|repair_knowledge\.sql$)' && echo "functions=yes" >> "$GITHUB_OUTPUT" || true
+          # 배포 설정을 고쳤을 때도 함수 배포를 재시도한다 (토큰 교체 후 재연결).
+          echo "$FILES" | grep -Eq '^(\.github/workflows/deploy\.yml$|supabase/functions/|supabase/repair_knowledge\.sql$)' && echo "functions=yes" >> "$GITHUB_OUTPUT" || true
 
       # ── schema.sql ────────────────────────────────────────────
       # **SQL 편집기에 붙여넣던 것과 똑같이 돈다** — 위에서부터 한 줄씩,
