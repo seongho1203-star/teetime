@@ -133,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // 처음 생길 때만 돈다. 운영진이 명단에서 지운 사람은 계정이
             // 남아 있어 트리거가 안 돌고, 프로필도 없어 어느 화면에도 못
             // 들어가는 상태가 됐다. 여기서 대기 상태로 되살려 가입 신청부터
-            // 다시 하게 한다 (운영진에게 신청 알림도 그때 간다).
+            // 다시 하게 한다 (실제 까꿍 가입 정보를 저장하면 운영진에게 알린다).
             const row = data ?? await createPending(session!);
             setProfile(row);
             setProfileReady(true);

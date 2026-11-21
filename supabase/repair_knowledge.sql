@@ -621,6 +621,80 @@ create policy repair_push_subs_own on public.repair_push_subscriptions for all t
     using (user_id = auth.uid() and is_repair_member())
     with check (user_id = auth.uid() and is_repair_member());
 
+-- 가입 신청은 수리노트의 승인된 관리자에게만 알린다. 푸시를 꺼 둔
+-- 관리자도 알림함에서 볼 수 있고, 승인/삭제하면 미확인 숫자가 내려간다.
+create or replace function public.repair_membership_in_app_notice()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_resolved uuid;
+begin
+    if tg_op = 'INSERT' then
+        if new.status = 'pending' then
+            insert into public.repair_notifications (user_id, kind, title, body, url)
+            select m.user_id, 'repair_memberships', '가입 신청',
+                   new.display_name || '님이 승인을 기다립니다',
+                   '#/members?request=' || new.user_id::text
+              from public.repair_memberships m
+              join public.profiles p on p.id = m.user_id
+             where m.status = 'member' and p.role in ('staff', 'admin', 'superadmin')
+               and m.user_id <> new.user_id;
+        end if;
+    elsif tg_op = 'UPDATE' then
+        if old.status = 'pending' and new.status = 'member' then
+            v_resolved := old.user_id;
+        end if;
+    elsif tg_op = 'DELETE' then
+        if old.status = 'pending' then v_resolved := old.user_id; end if;
+    end if;
+    if v_resolved is not null then
+        update public.repair_notifications
+           set read_at = coalesce(read_at, now())
+         where kind = 'repair_memberships'
+           and url = '#/members?request=' || v_resolved::text
+           and read_at is null;
+    end if;
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+end;
+$$;
+revoke all on function public.repair_membership_in_app_notice() from public, anon, authenticated;
+drop trigger if exists repair_memberships_in_app_notice on public.repair_memberships;
+create trigger repair_memberships_in_app_notice
+    after insert or update of status or delete on public.repair_memberships
+    for each row execute function public.repair_membership_in_app_notice();
+
+-- 이미 대기 중인 신청도 관리자의 수리노트 알림함에 한 번만 채운다.
+insert into public.repair_notifications (user_id, kind, title, body, url, created_at)
+select admin.user_id, 'repair_memberships', '가입 신청',
+       pending.display_name || '님이 승인을 기다립니다',
+       '#/members?request=' || pending.user_id::text, pending.requested_at
+  from public.repair_memberships pending
+ cross join public.repair_memberships admin
+  join public.profiles p on p.id = admin.user_id
+ where pending.status = 'pending' and admin.status = 'member'
+   and p.role in ('staff', 'admin', 'superadmin')
+   and pending.user_id <> admin.user_id
+   and not exists (
+       select 1 from public.repair_notifications n
+        where n.user_id = admin.user_id and n.kind = 'repair_memberships'
+          and n.url = '#/members?request=' || pending.user_id::text
+   );
+
+-- 공통 로그인만으로 생겼던 까꿍 가입 알림 중, 실제 까꿍 가입 정보를
+-- 제출하지 않은 수리노트 대기 신청의 알림은 읽음 처리한다.
+update public.notifications n
+   set read_at = now()
+  from public.repair_memberships m
+  join public.profiles p on p.id = m.user_id
+  left join public.profile_private v on v.id = p.id
+ where m.status = 'pending' and p.role = 'pending'
+   and (nullif(btrim(v.phone), '') is null or nullif(btrim(v.car), '') is null)
+   and n.kind = 'profiles' and n.title = '🙋 가입 신청'
+   and n.body = coalesce(nullif(btrim(p.name), ''), '새 회원') || '님이 승인을 기다립니다'
+   and n.created_at between p.created_at - interval '2 minutes'
+                        and p.created_at + interval '2 minutes'
+   and n.read_at is null;
+
 -- 알림함은 푸시 설정 여부와 관계없이 모든 승인 회원에게 남긴다.
 create or replace function public.repair_entry_in_app_notice()
 returns trigger
@@ -730,6 +804,7 @@ commit;
 -- 배포 작업이 새 함수를 성공적으로 올린 뒤에만 이 푸시 트리거를 만든다.
 -- 실패 중에도 수리노트 전용 알림함은 위 트리거로 계속 동작한다.
 drop trigger if exists repair_entries_push_notice on public.repair_entries;
+drop trigger if exists repair_memberships_push_notice on public.repair_memberships;
 
 -- 앱이 검색 목록과 알림함을 실시간으로 갱신한다.
 do $$

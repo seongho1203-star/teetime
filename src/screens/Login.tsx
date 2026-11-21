@@ -74,7 +74,7 @@ function SocialLogin() {
                 </button>
 
                 <p className="xs faint" style={{ textAlign: 'center', lineHeight: 1.7 }}>
-                    로그인하면 운영진에게 가입 신청이 갑니다.<br />
+                    가입 정보를 저장하면 운영진에게 가입 신청이 갑니다.<br />
                     승인된 뒤부터 라운드 신청을 할 수 있습니다.
                 </p>
 

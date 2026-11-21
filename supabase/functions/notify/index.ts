@@ -7,10 +7,11 @@
  *   messages           새 글  → 쓴 사람 빼고 회원 모두
  *                      (앱이 저절로 남긴 `system` 줄은 안 울린다 —
  *                       사람이 누른 `📣 대화방에 공유`만 예외다)
- *   profiles           새 가입 → 운영진 모두 ('pending'으로 들어온 행)
+ *   golf_signup_alerts 까꿍 가입 정보 제출 → 까꿍 운영진 모두
  *   rounds             새 모집 → 연 사람 빼고 회원 모두
  *   polls · posts      새 투표·공지 → 올린 사람 빼고 회원 모두
  *   repair_entries    새 수리 정보 → 승인 회원 모두 (앱 알림 + 선택 푸시)
+ *   repair_memberships 수리노트 가입 신청 → 수리노트 관리자만
  *   rounds · polls (UPDATE)  다시 열림 → 회원 모두
  *   signups (INSERT)   대기 신청 → **그 모집을 연 사람에게만**
  *   signups (UPDATE)   대기 → 확정 → **올라간 그 사람에게만**
@@ -952,19 +953,34 @@ async function planFor(hook: Hook): Promise<Note | null> {
         };
     }
 
-    // 가입 신청은 **운영진에게만**(부운영자·운영자·앱관리자).
-    // 트리거가 만든 pending 행이 들어온다.
-    if (hook.table === 'profiles' && hook.type === 'INSERT' && r.role === 'pending') {
+    // 공통 로그인 시점의 profiles 행은 까꿍 가입 신청이 아니다.
+    // 까꿍 필수 가입 정보를 제출한 뒤 생성된 별도 이벤트만 운영진에게 알린다.
+    if (hook.table === 'golf_signup_alerts' && hook.type === 'INSERT') {
         const { data: admins } = await db.from('profiles')
             .select('id').in('role', STAFF_UP);
         const only = (admins ?? []).map(a => a.id as string);
         if (!only.length) return null;
         return {
             title: '🙋 가입 신청',
-            body: `${String(r.name ?? '') || '새 회원'}님이 승인을 기다립니다`,
-            tag: 'pending',
+            body: `${String(r.display_name ?? '') || '새 회원'}님이 승인을 기다립니다`,
+            tag: `pending-${r.user_id}`,
             url: '#/members',
             only,
+        };
+    }
+
+    if (hook.table === 'repair_memberships' && hook.type === 'INSERT' && r.status === 'pending') {
+        const { data: admins } = await db.from('profiles')
+            .select('id').in('role', STAFF_UP);
+        const only = (admins ?? []).map(a => a.id as string);
+        if (!only.length) return null;
+        return {
+            title: '🙋 수리노트 가입 신청',
+            body: `${String(r.display_name ?? '') || '새 회원'}님이 승인을 기다립니다`,
+            tag: `repair-application-${r.user_id}`,
+            url: `#/members?request=${r.user_id}`,
+            only,
+            persistInbox: false, // DB 트리거가 수리노트 관리자 알림함에 이미 저장했다.
         };
     }
 
@@ -989,7 +1005,7 @@ Deno.serve(async req => {
     const note = await planFor(hook);
     if (!note) return new Response(JSON.stringify({ sent: 0, skipped: true }));
 
-    const isRepair = hook.table === 'repair_entries';
+    const isRepair = hook.table === 'repair_entries' || hook.table === 'repair_memberships';
     const pushTable = isRepair ? 'repair_push_subscriptions' : 'push_subscriptions';
     let q = db.from(pushTable).select('endpoint, p256dh, auth, user_id');
     // 받을 사람이 아무도 없으면 조회할 것도 없다.

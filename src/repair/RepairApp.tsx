@@ -5,7 +5,7 @@ import {
 import type { ChangeEvent } from 'react';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { enablePush, pushState, syncRepairPushSubscription, type PushState } from '../lib/push';
-import { clearBadge } from '../lib/badge';
+import { clearBadge, watchBadge } from '../lib/badge';
 import { isConfigured, signInWithApple, signInWithKakao, supabase } from '../lib/supabase';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
@@ -296,6 +296,9 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
         void syncRepairPushSubscription(userId).catch(error =>
             console.warn('[repair] 알림 구독 이전 실패', error));
     }, [userId]);
+    // 홈 화면 아이콘의 뱃지는 수리노트를 열거나 다시 돌아오면 비운다.
+    // 아직 안 읽은 알림함 숫자는 Header가 별도로 표시한다.
+    useEffect(() => watchBadge(), []);
     return (
         <>
             <div className="rn-app" inert={needsProfile}>

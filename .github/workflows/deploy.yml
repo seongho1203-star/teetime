@@ -176,6 +176,9 @@ jobs:
           drop trigger if exists repair_entries_push_notice on public.repair_entries;
           create trigger repair_entries_push_notice after insert on public.repair_entries
             for each row when (new.entry_kind = 'case') execute function public.notify_push();
+          drop trigger if exists repair_memberships_push_notice on public.repair_memberships;
+          create trigger repair_memberships_push_notice after insert on public.repair_memberships
+            for each row when (new.status = 'pending') execute function public.notify_push();
           commit;
           SQL
 

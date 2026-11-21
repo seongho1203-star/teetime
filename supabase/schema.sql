@@ -345,6 +345,64 @@ create trigger claim_superadmin_ins after insert on profile_private
 create trigger claim_superadmin_upd after update on profile_private
     for each row execute function claim_superadmin();
 
+-- 공통 카카오 로그인은 profiles의 pending 행을 자동으로 만든다. 수리노트에만
+-- 신청한 사람도 이 행을 갖기 때문에, 이를 까꿍 가입 신청으로 알리면 안 된다.
+-- 까꿍의 필수 가입 정보(전화번호·차량번호)를 제출한 시점에만 별도 이벤트를 남긴다.
+-- 웹훅에는 연락처를 싣지 않고 사용자 id와 공개 표시 이름만 보낸다.
+create table if not exists public.golf_signup_alerts (
+    user_id      uuid primary key references public.profiles(id) on delete cascade,
+    display_name text not null,
+    created_at   timestamptz not null default now()
+);
+alter table public.golf_signup_alerts enable row level security;
+revoke all on public.golf_signup_alerts from public, anon, authenticated;
+grant select on public.golf_signup_alerts to service_role;
+
+create or replace function public.record_golf_signup()
+returns trigger language plpgsql security definer
+set search_path = public, pg_catalog as $$
+declare v_new_application boolean := true;
+begin
+    if tg_op = 'UPDATE' then
+        v_new_application := nullif(btrim(old.phone), '') is null
+                          or nullif(btrim(old.car), '') is null;
+    end if;
+    if nullif(btrim(new.phone), '') is not null
+       and nullif(btrim(new.car), '') is not null
+       and v_new_application then
+        insert into public.golf_signup_alerts (user_id, display_name)
+        select p.id, coalesce(nullif(btrim(p.name), ''), '새 회원')
+          from public.profiles p
+         where p.id = new.id and p.role = 'pending'
+        on conflict (user_id) do nothing;
+    end if;
+    return new;
+end $$;
+revoke all on function public.record_golf_signup() from public, anon, authenticated;
+drop trigger if exists record_golf_signup on public.profile_private;
+create trigger record_golf_signup after insert or update of phone, car on public.profile_private
+    for each row execute function public.record_golf_signup();
+
+-- 이전 설치에서 profiles INSERT에 걸어 둔 알림 트리거를 걷는다. 이름을
+-- 달리 붙였더라도 notify_push()를 호출하는 트리거라면 같은 오류이므로 제거한다.
+do $$
+declare v_trigger record;
+begin
+    if to_regprocedure('public.notify_push()') is not null then
+        for v_trigger in
+            select t.tgname from pg_trigger t
+             where t.tgrelid = 'public.profiles'::regclass
+               and t.tgfoid = to_regprocedure('public.notify_push()')
+               and not t.tgisinternal
+        loop
+            execute format('drop trigger %I on public.profiles', v_trigger.tgname);
+        end loop;
+        execute 'drop trigger if exists notify_golf_signup on public.golf_signup_alerts';
+        execute 'create trigger notify_golf_signup after insert on public.golf_signup_alerts
+                 for each row execute function public.notify_push()';
+    end if;
+end $$;
+
 -- 예전에 쓰던 이름. 남아 있으면 같은 일을 두 번 하므로 걷어낸다.
 drop trigger if exists claim_owner_ins on profiles;
 drop trigger if exists claim_owner_upd on profiles;
@@ -558,7 +616,7 @@ $$;
 -- 늘릴지 정할 사람**에게 필요한 소식인데, 지금까지는 라운드에 직접 들어가
 -- 봐야 알 수 있어 대기자가 며칠씩 그냥 기다렸다.
 --
--- **알림 트리거 가운데 이것 하나만 이 파일에 있다.** 나머지는
+-- **일반 라운드 알림 트리거 가운데 이것은 이 파일에 있다.** 나머지는
 -- `docs/설치.md` 7번에 있는데, 그것들은 **함수 주소와 비밀값이 든
 -- `notify_push()`를 함께 만드는** 자리라 공개 저장소에 둘 수 없다.
 -- 이 트리거는 이미 만들어져 있는 그 함수를 부르기만 하므로 비밀값이 없다 —
