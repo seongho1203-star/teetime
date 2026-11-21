@@ -158,6 +158,11 @@ update public.repair_entries
    set category = 'inspection'
  where category in ('hidden_key', 'know_how');
 
+-- 제품군 명칭 변경 전 등록된 글도 새 제품군 필터에서 찾을 수 있게 옮긴다.
+update public.repair_entries
+   set product_family = '로봇 청소기'
+ where product_family = '청소기';
+
 alter table public.repair_entries drop constraint if exists repair_entries_category_check;
 alter table public.repair_entries add constraint repair_entries_category_check
     check (category in ('inspection', 'test_mode', 'error_code', 'parts'));
@@ -632,7 +637,7 @@ begin
         when 'inspection' then '수리 및 점검 노하우'
         when 'test_mode' then '테스트 모드'
         when 'error_code' then '에러 코드'
-        when 'parts' then '부품·회로'
+        when 'parts' then '부품교체 노하우'
         else '수리 정보'
     end;
     v_title := case
@@ -671,6 +676,12 @@ drop trigger if exists repair_entries_in_app_notice on public.repair_entries;
 create trigger repair_entries_in_app_notice
     after insert or update on public.repair_entries
     for each row execute function public.repair_entry_in_app_notice();
+
+-- 이미 받은 알림도 유형의 새 이름을 표시한다. 읽음 여부는 유지한다.
+update public.repair_notifications
+   set title = replace(title, '부품·회로', '부품교체 노하우')
+ where kind = 'repair_entries'
+   and title like '%부품·회로%';
 
 create or replace function public.repair_answer_in_app_notice()
 returns trigger

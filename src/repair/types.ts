@@ -1,22 +1,23 @@
 export const PRODUCT_FAMILIES = [
-    '에어컨',
-    '냉장고',
-    '김치냉장고',
-    '세탁기',
     '건조기',
+    '기타 가전',
+    '김치냉장고',
+    '냉장고',
+    '로봇 청소기',
+    '세탁기',
+    '스타일러',
     '식기세척기',
+    '에어컨',
+    '전자레인지·오븐',
     '정수기',
     'TV·모니터',
-    '청소기',
-    '전자레인지·오븐',
-    '기타 가전',
 ] as const;
 
 export const ENTRY_CATEGORIES = [
     { id: 'inspection', label: '수리 및 점검 노하우', icon: '⌕' },
     { id: 'test_mode', label: '테스트 모드', icon: '▦' },
     { id: 'error_code', label: '에러 코드', icon: '!' },
-    { id: 'parts', label: '부품·회로', icon: '⌁' },
+    { id: 'parts', label: '부품교체 노하우', icon: '⌁' },
 ] as const;
 
 export type EntryCategory = typeof ENTRY_CATEGORIES[number]['id'];

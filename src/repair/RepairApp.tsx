@@ -214,7 +214,7 @@ function RepairAccessScreen({
                 </p>
                 <div className="rn-pending-info">
                     <strong>{isPending ? '승인 후 이용 가능' : '가입 신청 대상'}</strong>
-                    <span>수리 및 점검방법 · 테스트 모드 · 에러 코드 · 부품·회로</span>
+                    <span>수리 및 점검방법 · 테스트 모드 · 에러 코드 · 부품교체 노하우</span>
                 </div>
                 <button className="rn-primary-btn rn-wide" onClick={() => void (isPending ? check() : apply())} disabled={busy}>
                     {busy ? <span className="rn-spinner" /> : isPending ? '승인 상태 확인' : '가입 신청하기'}
@@ -1313,7 +1313,7 @@ function DemoPreview() {
     const demo = [
         { family: '에어컨', model: '제품군 공통', type: '수리 및 점검 노하우', title: '냉방이 약할 때 기본 점검 순서', text: '제품군 공통으로 참고할 점검 내용을 기록하는 예시입니다.' },
         { family: '세탁기', model: '제품군 공통', type: '테스트 모드', title: '배수 불량 기본 확인 항목', text: '제품군 공통으로 적용되는 확인 항목과 주의사항을 적는 예시입니다.' },
-        { family: 'TV·모니터', model: '제품군 공통', type: '부품·회로', title: '화면 이상 점검 기록 예시', text: '특정 모델 자료가 아니면 모델명 없이 제품군 기준으로 등록할 수 있습니다.' },
+        { family: 'TV·모니터', model: '제품군 공통', type: '부품교체 노하우', title: '부품 교체 시 분리 순서', text: '특정 모델 자료가 아니면 모델명 없이 제품군 기준으로 등록할 수 있습니다.' },
     ];
     const shown = demo.filter(item => (item.family + item.model + item.type + item.title).toLowerCase().includes(query.toLowerCase()));
     return (

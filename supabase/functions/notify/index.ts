@@ -842,7 +842,7 @@ async function planFor(hook: Hook): Promise<Note | null> {
             inspection: '수리 및 점검방법',
             test_mode: '테스트 모드',
             error_code: '에러 코드',
-            parts: '부품·회로',
+            parts: '부품교체 노하우',
         };
         const family = typeof r.product_family === 'string' ? r.product_family : '가전';
         const model = typeof r.model_code === 'string' ? r.model_code : '';
