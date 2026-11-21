@@ -1269,8 +1269,8 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
                 {members.map(member => (
                     <div className="rn-member-row" key={member.user_id}>
                         <span className="rn-avatar">{(member.display_name || '회').slice(0, 1)}</span>
-                        <span><strong>{member.display_name || '이름 미등록'}</strong>
-                            <small>{member.job_title ?? '직급 입력 전'}</small></span>
+                        <span><strong>{member.display_name || '이름 미등록'}{member.job_title ? ` ${member.job_title}` : ''}</strong>
+                            {!member.job_title && <small>직급 입력 전</small>}</span>
                     </div>
                 ))}
             </section>
