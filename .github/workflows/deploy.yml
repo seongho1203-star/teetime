@@ -66,7 +66,8 @@ jobs:
           echo "바뀐 파일:"; echo "$FILES"
           echo "$FILES" | grep -q '^supabase/schema.sql$'  && echo "schema=yes"    >> "$GITHUB_OUTPUT" || true
           echo "$FILES" | grep -q '^supabase/repair_knowledge.sql$' && echo "repair_schema=yes" >> "$GITHUB_OUTPUT" || true
-          echo "$FILES" | grep -q '^supabase/functions/'   && echo "functions=yes" >> "$GITHUB_OUTPUT" || true
+          # 수리 스키마가 푸시 트리거를 잠시 끊으므로 새 함수 배포도 함께 확인한다.
+          echo "$FILES" | grep -Eq '^supabase/(functions/|repair_knowledge\.sql$)' && echo "functions=yes" >> "$GITHUB_OUTPUT" || true
 
       # ── schema.sql ────────────────────────────────────────────
       # **SQL 편집기에 붙여넣던 것과 똑같이 돈다** — 위에서부터 한 줄씩,
@@ -135,6 +136,7 @@ jobs:
           version: latest
 
       - name: 알림 함수 올리기
+        id: notify
         if: steps.what.outputs.functions == 'yes'
         # 푸시 경로는 선택 기능이다. DB 앱 알림과 Pages 배포는 계속 진행한다.
         continue-on-error: true
@@ -143,8 +145,8 @@ jobs:
           PROJECT_URL: ${{ secrets.VITE_SUPABASE_URL }}
         run: |
           if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
-            echo "::notice::SUPABASE_ACCESS_TOKEN 이 없어 알림 함수는 건너뜁니다."
-            exit 0
+            echo "::warning::SUPABASE_ACCESS_TOKEN 이 없어 수리노트 기기 푸시를 중단합니다."
+            exit 1
           fi
           # 프로젝트 id는 이미 있는 주소에서 뽑는다 — 비밀값을 하나 덜 넣게.
           REF=$(echo "$PROJECT_URL" | sed -E 's#https?://([^.]+)\..*#\1#')
@@ -155,6 +157,26 @@ jobs:
           # 관문이 401로 막아 **알림만 조용히 안 온다.** 문은 함수 안의
           # `x-notify-secret`이 지킨다 (CLAUDE.md의 알림 꼭지 참고).
           supabase functions deploy notify --project-ref "$REF" --no-verify-jwt --yes
+
+      # 배포 실패 시 옛 함수가 까꿍 기기에 수리 알림을 보내지 못하게 둔다.
+      # 토큰을 갱신한 뒤 workflow_dispatch로 다시 실행하면 자동으로 연결된다.
+      - name: 수리노트 푸시 연결
+        if: steps.what.outputs.functions == 'yes' && steps.notify.outcome == 'success'
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL 이 없어 수리노트 푸시를 연결할 수 없습니다."
+            exit 1
+          fi
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          begin;
+          drop trigger if exists repair_entries_push_notice on public.repair_entries;
+          create trigger repair_entries_push_notice after insert on public.repair_entries
+            for each row when (new.entry_kind = 'case') execute function public.notify_push();
+          commit;
+          SQL
 
   build:
     needs: db     # DB가 먼저 — 앱이 옛 DB에 붙는 틈을 없앤다

@@ -715,19 +715,10 @@ delete from public.notifications
  where kind in ('repair_entries', 'repair_answers');
 commit;
 
--- 알림 푸시는 기존 발송기에 연결한다. 발송기가 아직 없더라도 저장·검색·
--- 알림함 기능은 계속 동작한다.
-do $$
-begin
-    if to_regprocedure('public.notify_push()') is not null then
-        execute 'drop trigger if exists repair_entries_push_notice on public.repair_entries';
-        execute $t$
-            create trigger repair_entries_push_notice after insert on public.repair_entries
-                for each row when (new.entry_kind = 'case') execute function public.notify_push()
-        $t$;
-    end if;
-end;
-$$;
+-- 예전 Edge Function은 까꿍 구독 목록으로도 수리 알림을 보낸다.
+-- 배포 작업이 새 함수를 성공적으로 올린 뒤에만 이 푸시 트리거를 만든다.
+-- 실패 중에도 수리노트 전용 알림함은 위 트리거로 계속 동작한다.
+drop trigger if exists repair_entries_push_notice on public.repair_entries;
 
 -- 앱이 검색 목록과 알림함을 실시간으로 갱신한다.
 do $$
