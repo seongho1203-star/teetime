@@ -989,7 +989,9 @@ Deno.serve(async req => {
     const note = await planFor(hook);
     if (!note) return new Response(JSON.stringify({ sent: 0, skipped: true }));
 
-    let q = db.from('push_subscriptions').select('endpoint, p256dh, auth, user_id');
+    const isRepair = hook.table === 'repair_entries';
+    const pushTable = isRepair ? 'repair_push_subscriptions' : 'push_subscriptions';
+    let q = db.from(pushTable).select('endpoint, p256dh, auth, user_id');
     // 받을 사람이 아무도 없으면 조회할 것도 없다.
     if (note.only && !note.only.length) return new Response(JSON.stringify({ sent: 0 }));
     if (note.only) q = q.in('user_id', note.only);
@@ -1017,8 +1019,11 @@ Deno.serve(async req => {
      * **받는 사람을 고르는 곳마다 거르지 않고 여기 한 곳에서 거른다** —
      * 갈래가 열 가지가 넘어 하나씩 챙기면 반드시 빠뜨린다. 대기·추방은
      * 받을 알림이 하나도 없다(가입 신청 알림은 운영진에게 간다). */
-    const members = new Set(((await db.from('profiles')
-        .select('id').in('role', MEMBERS)).data ?? []).map(p => p.id as string));
+    const members = isRepair
+        ? new Set(((await db.from('repair_memberships')
+            .select('user_id').eq('status', 'member')).data ?? []).map(p => p.user_id as string))
+        : new Set(((await db.from('profiles')
+            .select('id').in('role', MEMBERS)).data ?? []).map(p => p.id as string));
     const subs = (found ?? []).filter(s => members.has(s.user_id as string));
 
     /* ── 아이콘 위 빨간 숫자 ─────────────────────────────────────
@@ -1079,7 +1084,7 @@ Deno.serve(async req => {
     const badges = new Map<string, number>();
     const uids = [...new Set((subs ?? [])
         .map(s => s.user_id).filter((u): u is string => typeof u === 'string'))];
-    if (uids.length) {
+    if (uids.length && !isRepair) {
         const { data: counts, error: countErr } = await db
             .rpc('badge_counts', { p_users: uids });
         if (countErr) console.error('badge', countErr.message);
@@ -1183,7 +1188,7 @@ Deno.serve(async req => {
         }
     }));
 
-    if (dead.length) await db.from('push_subscriptions').delete().in('endpoint', dead);
+    if (dead.length) await db.from(pushTable).delete().in('endpoint', dead);
 
     return new Response(JSON.stringify({ sent, dropped: dead.length }), {
         headers: { 'content-type': 'application/json' },

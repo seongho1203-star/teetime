@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { IS_NATIVE } from './native';
 import { nativeDeepLink } from './native-app';
 import {
@@ -33,6 +34,33 @@ const VAPID_PUBLIC_KEY = 'BCLvmt_hHbn4X6THwjrH-7ItuowKfhcLrUMLS8ajGzoAO1qKFVP46w
 
 /** 서비스워커는 앱과 같은 경로에 있어야 한다(`/teetime/sw.js`). */
 const SW_URL = new URL('sw.js', document.baseURI).href;
+const repairPushDb = supabase as unknown as SupabaseClient;
+
+async function saveRepairSubscription(sub: PushSubscription, userId: string): Promise<void> {
+    const json = sub.toJSON();
+    const { error } = await repairPushDb.from('repair_push_subscriptions').upsert({
+        endpoint: sub.endpoint,
+        user_id: userId,
+        p256dh: json.keys?.p256dh ?? '',
+        auth: json.keys?.auth ?? '',
+        ua: navigator.userAgent.slice(0, 200),
+    });
+    if (error) throw new Error(error.message);
+
+    // 수리노트 구독이 확실히 등록된 다음에만 옛 까꿍 목록에서 걷는다.
+    const { error: oldError } = await supabase.from('push_subscriptions')
+        .delete().eq('endpoint', sub.endpoint).eq('user_id', userId);
+    if (oldError) throw new Error(oldError.message);
+}
+
+/** 기존 수리노트 설치 기기는 권한을 다시 묻지 않고 구독 주소만 옮긴다. */
+export async function syncRepairPushSubscription(userId: string): Promise<void> {
+    if (IS_NATIVE || !('serviceWorker' in navigator) ||
+        !('Notification' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.register(SW_URL);
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await saveRepairSubscription(sub, userId);
+}
 
 export type PushState = 'unsupported' | 'standalone-required' | 'denied' | 'off' | 'on';
 
@@ -232,8 +260,9 @@ export async function setChatPush(on: boolean): Promise<void> {
  * 권한 요청은 **누른 직후**에 해야 한다 — 시간이 지나면 브라우저가
  * "사용자가 부른 게 아니다"라며 무시한다.
  */
-export async function enablePush(userId: string): Promise<PushState> {
-    if (IS_NATIVE) return enableNativePush(userId);
+export async function enablePush(userId: string, app: 'golf' | 'repair' = 'golf'): Promise<PushState> {
+    // 기존 네이티브 앱의 APNs/FCM 토큰은 까꿍 전용이다.
+    if (IS_NATIVE) return app === 'repair' ? 'unsupported' : enableNativePush(userId);
     const state = await pushState();
     if (state === 'unsupported' || state === 'standalone-required' || state === 'denied') {
         return state;
@@ -261,14 +290,18 @@ export async function enablePush(userId: string): Promise<PushState> {
     // 행이면 대화 알림을 꺼 둔 것이 그대로 살아남는다. 새 행이면 DB 기본값
     // (켜짐)이 된다.
     pushStep('4 서버에 남기는 중');
-    const { error } = await supabase.from('push_subscriptions').upsert({
-        endpoint: sub.endpoint,
-        user_id: userId,
-        p256dh: json.keys?.p256dh ?? '',
-        auth: json.keys?.auth ?? '',
-        ua: navigator.userAgent.slice(0, 200),
-    });
-    if (error) throw new Error(error.message);
+    if (app === 'repair') {
+        await saveRepairSubscription(sub, userId);
+    } else {
+        const { error } = await supabase.from('push_subscriptions').upsert({
+            endpoint: sub.endpoint,
+            user_id: userId,
+            p256dh: json.keys?.p256dh ?? '',
+            auth: json.keys?.auth ?? '',
+            ua: navigator.userAgent.slice(0, 200),
+        });
+        if (error) throw new Error(error.message);
+    }
 
     return 'on';
 }

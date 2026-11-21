@@ -4,13 +4,14 @@ import {
 } from 'react-router-dom';
 import type { ChangeEvent } from 'react';
 import { AuthProvider, useAuth } from '../lib/auth';
-import { enablePush, pushState, type PushState } from '../lib/push';
+import { enablePush, pushState, syncRepairPushSubscription, type PushState } from '../lib/push';
+import { clearBadge } from '../lib/badge';
 import { isConfigured, signInWithApple, signInWithKakao, supabase } from '../lib/supabase';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
     createEntry, getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry, updateEntry,
     repairDb, requestRepairMembership, searchEntries, signedPhotoUrls,
-    updateRepairMemberProfile,
+    unreadNotificationCount, updateRepairMemberProfile,
 } from './data';
 import {
     ENTRY_CATEGORIES, PRODUCT_FAMILIES, REPAIR_JOB_TITLES, type EntryCategory, type EntryFilters,
@@ -290,6 +291,11 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
 }) {
     const userId = membership.user_id;
     const needsProfile = !membership.profile_completed_at || !membership.job_title;
+    useEffect(() => {
+        // 이전 판의 수리노트 웹 구독을 까꿍 발송 목록에서 안전하게 옮긴다.
+        void syncRepairPushSubscription(userId).catch(error =>
+            console.warn('[repair] 알림 구독 이전 실패', error));
+    }, [userId]);
     return (
         <>
             <div className="rn-app" inert={needsProfile}>
@@ -340,10 +346,7 @@ function Header({ membership, isAdmin, onProfileChange }: {
 
     const refreshCount = useCallback(async () => {
         try {
-            const { count: total } = await repairDb.from('notifications')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId).eq('kind', 'repair_entries').is('read_at', null);
-            setCount(total ?? 0);
+            setCount(await unreadNotificationCount(userId));
         } catch { /* 알림함을 열면 다시 읽는다 */ }
     }, [userId]);
 
@@ -351,7 +354,7 @@ function Header({ membership, isAdmin, onProfileChange }: {
         void refreshCount();
         const channel = repairDb.channel('repair-badge-' + userId)
             .on('postgres_changes', {
-                event: '*', schema: 'public', table: 'notifications',
+                event: '*', schema: 'public', table: 'repair_notifications',
                 filter: 'user_id=eq.' + userId,
             }, () => void refreshCount())
             .subscribe();
@@ -363,7 +366,7 @@ function Header({ membership, isAdmin, onProfileChange }: {
 
     const turnOnPush = async () => {
         try {
-            const state = await enablePush(userId);
+            const state = await enablePush(userId, 'repair');
             setPush(state);
             if (state === 'on') toast('이 기기에서 새 수리 정보 알림을 받습니다.', 'ok');
             else if (state === 'standalone-required') toast('홈 화면에 추가한 앱에서 알림을 켤 수 있습니다.', 'error');
@@ -1106,7 +1109,9 @@ function NotificationCenter({ userId }: { userId: string }) {
             const unread = rows.filter(row => !row.read_at).map(row => row.id);
             if (unread.length) setFresh(current => new Set([...current, ...unread]));
             setItems(rows);
-            if (unread.length) await markNotificationsRead(userId, unread);
+            // 알림함을 열면 화면에 보이지 않는 이전 알림까지 읽은 것으로 본다.
+            await markNotificationsRead(userId);
+            clearBadge();
         } catch (error) {
             toast(messageOf(error), 'error');
         } finally {
@@ -1118,7 +1123,7 @@ function NotificationCenter({ userId }: { userId: string }) {
         void refresh();
         const channel = repairDb.channel('repair-notifications-' + userId)
             .on('postgres_changes', {
-                event: '*', schema: 'public', table: 'notifications',
+                event: '*', schema: 'public', table: 'repair_notifications',
                 filter: 'user_id=eq.' + userId,
             }, () => void refresh())
             .subscribe();

@@ -42,7 +42,10 @@ export function clearBadge() {
     try {
         navigator.clearAppBadge?.().catch(() => {});
         // 세어 둔 값을 지우는 것은 서비스워커 몫이다.
-        navigator.serviceWorker?.controller?.postMessage({ type: 'badge-clear' });
+        const worker = navigator.serviceWorker?.controller;
+        if (worker) worker.postMessage({ type: 'badge-clear' });
+        else void navigator.serviceWorker?.ready.then(reg =>
+            reg.active?.postMessage({ type: 'badge-clear' })).catch(() => {});
     } catch { /* 뱃지를 모르는 기기에서도 화면은 그대로 돌아야 한다 */ }
 }
 

@@ -569,6 +569,53 @@ create policy repair_photos_owner_delete on storage.objects
         and (owner = auth.uid() or is_admin())
     );
 
+-- 수리노트 알림과 웹 푸시 구독은 까꿍의 알림함/기기 목록과 분리한다.
+-- 기존 설치 기기의 웹 구독은 수리노트에 접속할 때 옮긴다. 까꿍의
+-- APNs/FCM 토큰이나 웹 구독을 DB에서 일괄 옮기면 안 된다.
+begin;
+
+create table if not exists public.repair_notifications (
+    id         uuid primary key default gen_random_uuid(),
+    user_id    uuid not null references auth.users(id) on delete cascade,
+    kind       text not null,
+    title      text not null,
+    body       text not null default '',
+    url        text not null default '',
+    created_at timestamptz not null default now(),
+    read_at    timestamptz
+);
+create index if not exists repair_notifications_user_idx
+    on public.repair_notifications (user_id, created_at desc);
+alter table public.repair_notifications enable row level security;
+revoke all on public.repair_notifications from anon;
+grant select, update on public.repair_notifications to authenticated;
+drop policy if exists repair_notifications_read on public.repair_notifications;
+create policy repair_notifications_read on public.repair_notifications
+    for select to authenticated using (user_id = auth.uid() and is_repair_member());
+drop policy if exists repair_notifications_mark_read on public.repair_notifications;
+create policy repair_notifications_mark_read on public.repair_notifications
+    for update to authenticated
+    using (user_id = auth.uid() and is_repair_member())
+    with check (user_id = auth.uid() and is_repair_member());
+
+create table if not exists public.repair_push_subscriptions (
+    endpoint   text primary key,
+    user_id    uuid not null references auth.users(id) on delete cascade,
+    p256dh     text not null,
+    auth       text not null,
+    ua         text not null default '',
+    created_at timestamptz not null default now()
+);
+create index if not exists repair_push_subs_user_idx
+    on public.repair_push_subscriptions (user_id);
+alter table public.repair_push_subscriptions enable row level security;
+revoke all on public.repair_push_subscriptions from anon;
+grant select, insert, update, delete on public.repair_push_subscriptions to authenticated;
+drop policy if exists repair_push_subs_own on public.repair_push_subscriptions;
+create policy repair_push_subs_own on public.repair_push_subscriptions for all to authenticated
+    using (user_id = auth.uid() and is_repair_member())
+    with check (user_id = auth.uid() and is_repair_member());
+
 -- 알림함은 푸시 설정 여부와 관계없이 모든 승인 회원에게 남긴다.
 create or replace function public.repair_entry_in_app_notice()
 returns trigger
@@ -597,14 +644,14 @@ begin
         nullif(btrim(new.model_code), ''), nullif(btrim(new.title), '')), 160);
 
     if tg_op = 'UPDATE' then
-        update public.notifications
+        update public.repair_notifications
            set title = v_title,
                body = v_body
          where kind = 'repair_entries'
            and url = '#/entry/' || new.id::text
            and (title, body) is distinct from (v_title, v_body);
         if new.title is distinct from old.title then
-            update public.notifications
+            update public.repair_notifications
                set body = new.title
              where kind = 'repair_answers'
                and starts_with(url, '#/entry/' || new.id::text || '?answer=');
@@ -612,7 +659,7 @@ begin
         return new;
     end if;
 
-    insert into public.notifications (user_id, kind, title, body, url)
+    insert into public.repair_notifications (user_id, kind, title, body, url)
     select p.user_id, 'repair_entries', v_title, v_body, '#/entry/' || new.id::text
       from public.repair_memberships p
      where p.status = 'member';
@@ -633,13 +680,13 @@ set search_path = ''
 as $$
 begin
     if tg_op = 'DELETE' then
-        delete from public.notifications
+        delete from public.repair_notifications
          where kind = 'repair_answers'
            and url = '#/entry/' || old.entry_id::text || '?answer=' || old.id::text;
         return old;
     end if;
 
-    insert into public.notifications (user_id, kind, title, body, url)
+    insert into public.repair_notifications (user_id, kind, title, body, url)
     select e.created_by, 'repair_answers', '내 질문에 답변이 달렸어요', e.title,
            '#/entry/' || e.id::text || '?answer=' || new.id::text
       from public.repair_entries e
@@ -655,6 +702,18 @@ drop trigger if exists repair_answers_in_app_notice on public.repair_entry_answe
 create trigger repair_answers_in_app_notice
     after insert or delete on public.repair_entry_answers
     for each row execute function public.repair_answer_in_app_notice();
+
+-- 기존 수리 알림을 읽음 상태와 시각까지 보존해 옮긴다. 같은 트랜잭션에서
+-- 트리거도 교체했으므로 까꿍 알림함에 새 수리 알림이 끼어들 틈이 없다.
+insert into public.repair_notifications
+    (id, user_id, kind, title, body, url, created_at, read_at)
+select id, user_id, kind, title, body, url, created_at, read_at
+  from public.notifications
+ where kind in ('repair_entries', 'repair_answers')
+on conflict (id) do nothing;
+delete from public.notifications
+ where kind in ('repair_entries', 'repair_answers');
+commit;
 
 -- 알림 푸시는 기존 발송기에 연결한다. 발송기가 아직 없더라도 저장·검색·
 -- 알림함 기능은 계속 동작한다.
@@ -699,6 +758,14 @@ begin
            and tablename = 'repair_entry_answers'
     ) then
         alter publication supabase_realtime add table public.repair_entry_answers;
+    end if;
+    if not exists (
+        select 1 from pg_publication_tables
+         where pubname = 'supabase_realtime'
+           and schemaname = 'public'
+           and tablename = 'repair_notifications'
+    ) then
+        alter publication supabase_realtime add table public.repair_notifications;
     end if;
 end;
 $$;

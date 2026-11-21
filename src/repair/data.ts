@@ -239,9 +239,9 @@ export async function setVerification(
 }
 
 export async function listNotifications(userId: string): Promise<RepairNotification[]> {
-    const { data, error } = await db.from('notifications')
+    const { data, error } = await db.from('repair_notifications')
         .select('id, kind, title, body, url, created_at, read_at')
-        .eq('user_id', userId).eq('kind', 'repair_entries')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(80);
     if (error) throw error;
@@ -249,18 +249,18 @@ export async function listNotifications(userId: string): Promise<RepairNotificat
 }
 
 export async function unreadNotificationCount(userId: string): Promise<number> {
-    const { count, error } = await db.from('notifications')
+    const { count, error } = await db.from('repair_notifications')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId).eq('kind', 'repair_entries')
+        .eq('user_id', userId)
         .is('read_at', null);
     if (error) throw error;
     return count ?? 0;
 }
 
-export async function markNotificationsRead(userId: string, ids?: string[]): Promise<void> {
-    let query = db.from('notifications').update({ read_at: new Date().toISOString() })
-        .eq('user_id', userId).eq('kind', 'repair_entries').is('read_at', null);
-    if (ids?.length) query = query.in('id', ids);
-    const { error } = await query;
+export async function markNotificationsRead(userId: string): Promise<void> {
+    // 목록은 최근 80개만 보이지만, 이전 알림도 함께 읽음 처리해야 뱃지가 0이 된다.
+    const { error } = await db.from('repair_notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('user_id', userId).is('read_at', null);
     if (error) throw error;
 }
