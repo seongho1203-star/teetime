@@ -411,7 +411,7 @@ function Header({ membership, isAdmin, onProfileChange }: {
                     <Mark />
                     <span className="rn-brand-copy">
                         <strong>수리노트</strong>
-                        <small>현장 기술 지식 공유</small>
+                        <small>광산센터 기술 지식 공유 플랫폼</small>
                     </span>
                 </Link>
                 <div className="rn-header-actions">
@@ -1319,7 +1319,7 @@ function DemoPreview() {
     return (
         <div className="rn-app rn-demo-app">
             <header className="rn-header">
-                <Link className="rn-brand" to="/"><Mark /><span className="rn-brand-copy"><strong>수리노트</strong><small>현장 기술 지식 공유</small></span></Link>
+                <Link className="rn-brand" to="/"><Mark /><span className="rn-brand-copy"><strong>수리노트</strong><small>광산센터 기술 지식 공유 플랫폼</small></span></Link>
                 <span className="rn-demo-pill">미리보기</span>
             </header>
             <main className="rn-demo-main">
