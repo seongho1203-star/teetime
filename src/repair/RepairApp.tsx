@@ -294,7 +294,8 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
     useEffect(() => {
         // 이전 판의 수리노트 웹 구독을 까꿍 발송 목록에서 안전하게 옮긴다.
         void syncRepairPushSubscription(userId).catch(error =>
-            console.warn('[repair] 알림 구독 이전 실패', error));
+            console.warn('[repair] 알림 구독 이전 실패', error))
+            .finally(() => window.dispatchEvent(new Event('repair-push-changed')));
     }, [userId]);
     // 홈 화면 아이콘의 뱃지는 수리노트를 열거나 다시 돌아오면 비운다.
     // 아직 안 읽은 알림함 숫자는 Header가 별도로 표시한다.
@@ -365,12 +366,19 @@ function Header({ membership, isAdmin, onProfileChange }: {
     }, [refreshCount, userId]);
 
     const [push, setPush] = useState<PushState | null>(null);
-    useEffect(() => { void pushState().then(setPush); }, []);
+    useEffect(() => {
+        const refresh = () => { void pushState('repair', userId).then(setPush); };
+        refresh();
+        window.addEventListener('repair-push-changed', refresh);
+        return () => window.removeEventListener('repair-push-changed', refresh);
+    }, [userId]);
 
     const turnOnPush = async () => {
+        if (push === 'on') { toast('수리노트 알림이 이미 켜져 있습니다.', 'ok'); return; }
         try {
             const state = await enablePush(userId, 'repair');
             setPush(state);
+            window.dispatchEvent(new Event('repair-push-changed'));
             if (state === 'on') toast('이 기기에서 새 수리 정보 알림을 받습니다.', 'ok');
             else if (state === 'standalone-required') toast('홈 화면에 추가한 앱에서 알림을 켤 수 있습니다.', 'error');
             else if (state === 'denied') toast('브라우저 설정에서 알림 권한을 허용해 주세요.', 'error');
@@ -401,12 +409,6 @@ function Header({ membership, isAdmin, onProfileChange }: {
         }
     };
 
-    const pushLabel = push === 'standalone-required'
-        ? '홈 화면에 추가 후 알림을 켤 수 있어요'
-        : push === 'denied' ? '브라우저 설정에서 알림 권한을 허용해 주세요'
-        : push === 'unsupported' ? '이 기기는 푸시 알림을 지원하지 않습니다'
-        : '앱을 닫아도 새 수리 정보를 받아보세요';
-
     return (
         <>
             <header className="rn-header">
@@ -418,12 +420,6 @@ function Header({ membership, isAdmin, onProfileChange }: {
                     </span>
                 </Link>
                 <div className="rn-header-actions">
-                    {push !== 'on' && push !== 'unsupported' && (
-                        <button className="rn-push-setup" onClick={() => void turnOnPush()} title={pushLabel}>
-                            <Icon name="bell" size={17} />
-                            <span>{push === 'off' || push === null ? '알림 켜기' : '알림 안내'}</span>
-                        </button>
-                    )}
                     <button className="rn-bell-btn" aria-label="알림함" onClick={() => navigate('/alerts')}>
                         <Icon name="bell" size={20} />
                         {count > 0 && <span className="rn-badge">{count > 99 ? '99+' : count}</span>}
@@ -439,6 +435,9 @@ function Header({ membership, isAdmin, onProfileChange }: {
                                 <span className="rn-menu-label">{name}님 · {membership.job_title}</span>
                                 <button onClick={() => { setNameDraft(name); setJobTitleDraft(membership.job_title ?? ''); setNameEditOpen(true); }}>
                                     <Icon name="user" size={16} /> 이름·직급 변경
+                                </button>
+                                <button onClick={() => { setMenuOpen(false); void turnOnPush(); }}>
+                                    <Icon name="bell" size={16} /> {push === 'on' ? '알림 켜짐' : push === 'off' || push === null ? '알림 켜기' : '알림 설정 안내'}
                                 </button>
                                 <Link to="/members" onClick={() => setMenuOpen(false)}>
                                     <Icon name="user" size={16} /> {isAdmin ? '회원·가입 신청 관리' : '회원 명단'}
@@ -566,13 +565,18 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
     useEffect(() => { setVisibleCount(5); }, [filters, scope]);
 
     useEffect(() => {
-        void pushState().then(setPush);
+        const refresh = () => { void pushState('repair', userId).then(setPush); };
+        refresh();
+        window.addEventListener('repair-push-changed', refresh);
         const channel = repairDb.channel('repair-entries-list')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_entries' },
                 () => void load())
             .subscribe();
-        return () => { void repairDb.removeChannel(channel); };
-    }, [load]);
+        return () => {
+            window.removeEventListener('repair-push-changed', refresh);
+            void repairDb.removeChannel(channel);
+        };
+    }, [load, userId]);
 
     const change = (key: keyof EntryFilters, value: string) =>
         setFilters(current => ({ ...current, [key]: value }));
@@ -580,8 +584,9 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
     const enableNotifications = async () => {
         setPushBusy(true);
         try {
-            const state = await enablePush(userId);
+            const state = await enablePush(userId, 'repair');
             setPush(state);
+            window.dispatchEvent(new Event('repair-push-changed'));
             if (state === 'on') toast('새 수리 정보 알림이 켜졌습니다.', 'ok');
             else if (state === 'standalone-required') toast('홈 화면에 추가한 앱에서 알림을 켤 수 있습니다.', 'error');
             else if (state === 'denied') toast('브라우저 설정에서 알림 권한을 허용해 주세요.', 'error');
@@ -623,9 +628,9 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
                         <strong>새로 등록된 점검 정보, 놓치지 마세요.</strong>
                         <small>{push === 'standalone-required' ? '홈 화면에 추가한 앱에서 푸시 알림을 켤 수 있습니다.' : push === 'denied' ? '브라우저 설정에서 알림 권한을 변경할 수 있습니다.' : '푸시 알림을 켜면 앱을 닫아도 소식을 받을 수 있습니다.'}</small>
                     </span>
-                    {push === 'off' && (
+                    {(push === 'off' || push === null || push === 'denied' || push === 'standalone-required') && (
                         <button onClick={() => void enableNotifications()} disabled={pushBusy}>
-                            {pushBusy ? '확인 중…' : '알림 켜기'}
+                            {pushBusy ? '확인 중…' : push === 'off' || push === null ? '알림 켜기' : '설정 안내'}
                         </button>
                     )}
                 </section>

@@ -88,20 +88,6 @@
     font-size: 10px;
     font-weight: 800;
 }
-.rn-push-setup {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    min-height: 38px;
-    padding: 0 12px;
-    border: 1px solid #f0d7df;
-    border-radius: 11px;
-    color: var(--rn-red);
-    background: #fff9fb;
-    font-size: 12px;
-    font-weight: 750;
-}
-.rn-push-setup:hover { background: var(--rn-red-soft); }
 .rn-user-wrap { position: relative; }
 .rn-user-btn {
     display: flex;
@@ -697,8 +683,6 @@
     .rn-brand-copy strong { font-size: 15px; }
     .rn-brand-copy small { font-size: 9px; }
     .rn-header-actions { gap: 8px; }
-    .rn-push-setup { width: 38px; min-height: 38px; justify-content: center; padding: 0; }
-    .rn-push-setup span { display: none; }
     .rn-bell-btn { width: 38px; height: 38px; border-radius: 12px; }
     .rn-user-btn { min-height: 38px; padding-right: 2px; }
     .rn-user-name, .rn-chevron { display: none; }

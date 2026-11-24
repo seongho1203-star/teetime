@@ -191,9 +191,9 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
  * 눌러 볼 수 있고, 그러면 `enablePush()`가 **진짜 까닭을 토스트로** 보여
  * 준다. 알 수 없다고 길을 막아 버리면 고칠 실마리까지 함께 없어진다.
  */
-export async function pushState(): Promise<PushState> {
+export async function pushState(app: 'golf' | 'repair' = 'golf', userId?: string): Promise<PushState> {
     try {
-        return await withTimeout(readPushState(), 6000);
+        return await withTimeout(readPushState(app, userId), 6000);
     } catch {
         return 'off';
     }
@@ -207,8 +207,8 @@ function withTimeout<T>(job: Promise<T>, ms: number): Promise<T> {
     ]);
 }
 
-async function readPushState(): Promise<PushState> {
-    if (IS_NATIVE) return nativePushState();
+async function readPushState(app: 'golf' | 'repair', userId?: string): Promise<PushState> {
+    if (IS_NATIVE) return app === 'repair' ? 'unsupported' : nativePushState();
     if (!('serviceWorker' in navigator) || !('PushManager' in window)
         || !('Notification' in window)) {
         return isIOS && !isStandalone() ? 'standalone-required' : 'unsupported';
@@ -216,7 +216,16 @@ async function readPushState(): Promise<PushState> {
     if (isIOS && !isStandalone()) return 'standalone-required';
     if (Notification.permission === 'denied') return 'denied';
 
-    return await currentEndpoint() ? 'on' : 'off';
+    const endpoint = await currentEndpoint();
+    if (!endpoint) return 'off';
+    if (app === 'golf') return 'on';
+    if (!userId) return 'off';
+    // 브라우저 구독 주소만으로는 까꿍과 수리노트를 구분할 수 없다.
+    // 수리노트 전용 발송 목록에 이 계정의 기기가 있어야 켜짐으로 표시한다.
+    const { data, error } = await repairPushDb.from('repair_push_subscriptions')
+        .select('endpoint').eq('endpoint', endpoint).eq('user_id', userId).maybeSingle();
+    if (error) throw error;
+    return data ? 'on' : 'off';
 }
 
 /** 이 기기의 구독 주소. 알림이 꺼져 있으면 null. */
@@ -263,7 +272,7 @@ export async function setChatPush(on: boolean): Promise<void> {
 export async function enablePush(userId: string, app: 'golf' | 'repair' = 'golf'): Promise<PushState> {
     // 기존 네이티브 앱의 APNs/FCM 토큰은 까꿍 전용이다.
     if (IS_NATIVE) return app === 'repair' ? 'unsupported' : enableNativePush(userId);
-    const state = await pushState();
+    const state = await pushState(app, userId);
     if (state === 'unsupported' || state === 'standalone-required' || state === 'denied') {
         return state;
     }
