@@ -829,7 +829,9 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
                 tags: tagsText.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(Boolean).slice(0, 10),
             };
             if (editId && existingEntry) {
-                await updateEntry(editId, input, files, userId, existingPhotos.map(photo => photo.path));
+                const keptPaths = existingPhotos.map(photo => photo.path);
+                const removedPaths = existingEntry.photo_paths.filter(path => !keptPaths.includes(path));
+                await updateEntry(editId, input, files, userId, keptPaths, removedPaths);
                 toast('수리 정보가 수정됐습니다.', 'ok');
                 navigate('/entry/' + editId);
             } else {
@@ -925,7 +927,7 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
                         <label className="rn-upload-button">
                             <Icon name="image" size={19} />
                             <span>사진 추가</span>
-                            <small>{files.length}/6</small>
+                            <small>{existingPhotos.length + files.length}/6</small>
                             <input type="file" accept="image/*" multiple onChange={addFiles} />
                         </label>
                         <p>JPG, PNG, WebP · 최대 6장 · 사진의 고객 정보는 가려 주세요.</p>
@@ -946,9 +948,12 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
                             {existingPhotos.map((photo, index) => <div className="rn-photo-preview" key={photo.path}>
                                 {photo.url && <img src={photo.url} alt={'기존 사진 ' + (index + 1)} />}
                                 <span className="rn-existing-photo-label">기존</span>
+                                <button type="button" onClick={() => setExistingPhotos(current => current.filter(item => item.path !== photo.path))}
+                                        aria-label={'기존 사진 ' + (index + 1) + ' 삭제'}>×</button>
                             </div>)}
                         </div>
                     )}
+                    {editId && <p className="rn-photo-save-hint">사진 삭제는 ‘수정 내용 저장’을 누르면 반영됩니다.</p>}
                     <label className="rn-field">
                         <span>검색 태그 <small>(쉼표로 구분)</small></span>
                         <input value={tagsText} onChange={e => setTagsText(e.target.value)}

@@ -180,6 +180,7 @@ export async function updateEntry(
     files: File[],
     userId: string,
     existingPhotoPaths: string[],
+    removedPhotoPaths: string[],
 ): Promise<void> {
     if (existingPhotoPaths.length + files.length > PHOTO_LIMIT) {
         throw new Error('사진은 최대 6장까지 첨부할 수 있습니다.');
@@ -210,6 +211,10 @@ export async function updateEntry(
             photo_paths: [...existingPhotoPaths, ...uploaded],
         }).eq('id', entryId);
         if (error) throw error;
+        if (removedPhotoPaths.length) {
+            const { error: photoError } = await db.storage.from(PHOTO_BUCKET).remove(removedPhotoPaths);
+            if (photoError) console.warn('[repair] 삭제한 사진 정리 실패', photoError.message);
+        }
     } catch (error) {
         if (uploaded.length) await db.storage.from(PHOTO_BUCKET).remove(uploaded).catch(() => {});
         throw error;
