@@ -75,7 +75,9 @@ create or replace function public.approve_repair_membership(p_user_id uuid)
 returns void
 language plpgsql security definer set search_path = public, pg_catalog as $$
 begin
-    if not public.is_admin() then raise exception '회원 승인 권한이 없습니다.'; end if;
+    if not public.is_admin() or not public.is_repair_member() then
+        raise exception '회원 승인 권한이 없습니다.';
+    end if;
     update public.repair_memberships
        set status = 'member', approved_at = now(), approved_by = auth.uid()
      where user_id = p_user_id and status = 'pending';
@@ -87,19 +89,41 @@ create or replace function public.delete_repair_application(p_user_id uuid)
 returns void
 language plpgsql security definer set search_path = public, pg_catalog as $$
 begin
-    if not public.is_admin() then raise exception '가입 신청 삭제 권한이 없습니다.'; end if;
+    if not public.is_admin() or not public.is_repair_member() then
+        raise exception '가입 신청 삭제 권한이 없습니다.';
+    end if;
     delete from public.repair_memberships
      where user_id = p_user_id and status = 'pending';
     if not found then raise exception '대기 중인 가입 신청을 찾을 수 없습니다.'; end if;
 end;
 $$;
 
+-- 추방은 기존 가입 신청 상태로 되돌려 관리자의 재승인을 기다리게 한다.
+-- 회원 행은 유지해야 기존 회원 이관 SQL이 다음 배포 때 다시 승인하지 않는다.
+-- 계정, 까꿍 회원 정보, 작성 글도 그대로 유지한다.
+create or replace function public.expel_repair_member(p_user_id uuid)
+returns void
+language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+    if not public.is_admin() or not public.is_repair_member() then
+        raise exception '회원 추방 권한이 없습니다.';
+    end if;
+    if p_user_id = auth.uid() then raise exception '본인은 추방할 수 없습니다.'; end if;
+    update public.repair_memberships
+       set status = 'pending', requested_at = now(), approved_at = null, approved_by = null
+     where user_id = p_user_id and status = 'member';
+    if not found then raise exception '가입된 회원을 찾을 수 없습니다.'; end if;
+end;
+$$;
+
 revoke all on function public.request_repair_membership(text) from public, anon;
 revoke all on function public.approve_repair_membership(uuid) from public, anon;
 revoke all on function public.delete_repair_application(uuid) from public, anon;
+revoke all on function public.expel_repair_member(uuid) from public, anon;
 grant execute on function public.request_repair_membership(text) to authenticated;
 grant execute on function public.approve_repair_membership(uuid) to authenticated;
 grant execute on function public.delete_repair_application(uuid) to authenticated;
+grant execute on function public.expel_repair_member(uuid) to authenticated;
 
 alter table public.repair_memberships enable row level security;
 revoke all on public.repair_memberships from public, anon;
@@ -109,7 +133,7 @@ grant update (display_name, job_title, profile_completed_at) on public.repair_me
 drop policy if exists repair_memberships_read on public.repair_memberships;
 create policy repair_memberships_read on public.repair_memberships
     for select to authenticated
-    using (user_id = auth.uid() or is_repair_member() or is_admin());
+    using (user_id = auth.uid() or is_repair_member());
 
 drop policy if exists repair_memberships_request on public.repair_memberships;
 create policy repair_memberships_request on public.repair_memberships
@@ -571,6 +595,7 @@ create policy repair_photos_owner_delete on storage.objects
     for delete to authenticated
     using (
         bucket_id = 'repair-photos'
+        and is_repair_member()
         and (owner = auth.uid() or is_admin())
     );
 
@@ -642,6 +667,15 @@ begin
     elsif tg_op = 'UPDATE' then
         if old.status = 'pending' and new.status = 'member' then
             v_resolved := old.user_id;
+        elsif old.status = 'member' and new.status = 'pending' then
+            insert into public.repair_notifications (user_id, kind, title, body, url)
+            select m.user_id, 'repair_memberships', '재승인 대기',
+                   new.display_name || '님이 재승인을 기다립니다',
+                   '#/members?request=' || new.user_id::text
+              from public.repair_memberships m
+              join public.profiles p on p.id = m.user_id
+             where m.status = 'member' and p.role in ('staff', 'admin', 'superadmin')
+               and m.user_id <> new.user_id;
         end if;
     elsif tg_op = 'DELETE' then
         if old.status = 'pending' then v_resolved := old.user_id; end if;

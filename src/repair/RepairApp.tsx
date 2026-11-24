@@ -118,7 +118,7 @@ function RepairGate() {
     if (membershipLoading || (membership && membership.user_id !== userId)) return <LoadingScreen />;
     const initialName = profile?.name || String(session.user.user_metadata?.name ?? '');
     if (membershipError) return <MembershipLoadError error={membershipError} retry={refreshMembership} />;
-    if (!membership || membership.status === 'pending') {
+    if (!membership || membership.status !== 'member') {
         return <RepairAccessScreen name={membership?.display_name || initialName}
             membership={membership} refresh={refreshMembership} />;
     }
@@ -321,7 +321,7 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
                             <Route path="/entry/:id/edit" element={<EntryForm userId={userId} isAdmin={isAdmin} />} />
                             <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
                             <Route path="/alerts" element={<NotificationCenter userId={userId} />} />
-                            <Route path="/members" element={<MemberApprovals isAdmin={isAdmin} />} />
+                            <Route path="/members" element={<MemberApprovals isAdmin={isAdmin} userId={userId} />} />
                             <Route path="/guide" element={<GuidePage />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
@@ -329,6 +329,9 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
                 </div>
                 <MobileNav />
             </div>
+            {!needsProfile && <div className="rn-screen-watermark" aria-hidden="true">
+                {Array.from({ length: 9 }, (_, index) => <span key={index}>{membership.display_name || '회원'}{membership.job_title ? ` ${membership.job_title}` : ''}</span>)}
+            </div>}
             {needsProfile && <ProfileSetupDialog userId={userId} onComplete={onProfileChange} />}
         </>
     );
@@ -983,6 +986,7 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     const [entry, setEntry] = useState<RepairEntry | null>(null);
     const [saved, setSaved] = useState(false);
     const [photos, setPhotos] = useState<string[]>([]);
+    const [openPhoto, setOpenPhoto] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -1082,9 +1086,9 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     <section className="rn-detail-section">
                         <h2><Icon name="image" size={17} /> 첨부 사진 <span>{photos.filter(Boolean).length}</span></h2>
                         <div className="rn-detail-photos">
-                            {photos.filter(Boolean).map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer">
+                            {photos.filter(Boolean).map((url, index) => <button type="button" key={url} onClick={() => setOpenPhoto(url)} aria-label={'참고 사진 ' + (index + 1) + ' 크게 보기'}>
                                 <img src={url} alt={entry.title + ' 참고 사진 ' + (index + 1)} />
-                            </a>)}
+                            </button>)}
                         </div>
                     </section>
                 )}
@@ -1096,6 +1100,10 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     </div>
                 )}
             </article>
+            {openPhoto && <div className="rn-photo-viewer" role="dialog" aria-modal="true" aria-label="참고 사진 크게 보기" onClick={() => setOpenPhoto(null)}>
+                <button type="button" className="rn-photo-viewer-close" onClick={() => setOpenPhoto(null)} aria-label="사진 닫기">×</button>
+                <img src={openPhoto} alt={entry.title + ' 참고 사진 크게 보기'} onClick={event => event.stopPropagation()} />
+            </div>}
         </div>
     );
 }
@@ -1181,7 +1189,7 @@ function NotificationCenter({ userId }: { userId: string }) {
     );
 }
 
-function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
+function MemberApprovals({ isAdmin, userId }: { isAdmin: boolean; userId: string }) {
     const toast = useToast();
     const [members, setMembers] = useState<RepairMembership[]>([]);
     const [requests, setRequests] = useState<RepairMembership[]>([]);
@@ -1243,6 +1251,21 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
         }
     };
 
+    const expel = async (member: RepairMembership) => {
+        if (!window.confirm(`${member.display_name}님을 수리노트 가입 신청 상태로 되돌릴까요? 수리노트 접근이 중단되고 재승인이 필요합니다. 기존 작성 글과 까꿍 회원 정보는 유지됩니다.`)) return;
+        setBusyId(member.user_id);
+        try {
+            const { error } = await repairDb.rpc('expel_repair_member', { p_user_id: member.user_id });
+            if (error) throw error;
+            toast('가입 신청 상태로 변경했습니다.', 'ok');
+            await load();
+        } catch (error) {
+            toast(messageOf(error), 'error');
+        } finally {
+            setBusyId('');
+        }
+    };
+
     return (
         <div className="rn-page">
             <div className="rn-page-heading">
@@ -1284,6 +1307,9 @@ function MemberApprovals({ isAdmin }: { isAdmin: boolean }) {
                         <span className="rn-avatar">{(member.display_name || '회').slice(0, 1)}</span>
                         <span><strong>{member.display_name || '이름 미등록'}{member.job_title ? ` ${member.job_title}` : ''}</strong>
                             {!member.job_title && <small>직급 입력 전</small>}</span>
+                        {isAdmin && member.user_id !== userId && <button type="button" className="rn-secondary-btn rn-expel-member" onClick={() => void expel(member)} disabled={!!busyId}>
+                            {busyId === member.user_id ? '처리 중…' : '추방'}
+                        </button>}
                     </div>
                 ))}
             </section>
