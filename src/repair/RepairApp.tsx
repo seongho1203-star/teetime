@@ -329,9 +329,6 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
                 </div>
                 <MobileNav />
             </div>
-            {!needsProfile && <div className="rn-screen-watermark" aria-hidden="true">
-                {Array.from({ length: 9 }, (_, index) => <span key={index}>{membership.display_name || '회원'}{membership.job_title ? ` ${membership.job_title}` : ''}</span>)}
-            </div>}
             {needsProfile && <ProfileSetupDialog userId={userId} onComplete={onProfileChange} />}
         </>
     );
@@ -986,7 +983,6 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     const [entry, setEntry] = useState<RepairEntry | null>(null);
     const [saved, setSaved] = useState(false);
     const [photos, setPhotos] = useState<string[]>([]);
-    const [openPhoto, setOpenPhoto] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -1086,9 +1082,9 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     <section className="rn-detail-section">
                         <h2><Icon name="image" size={17} /> 첨부 사진 <span>{photos.filter(Boolean).length}</span></h2>
                         <div className="rn-detail-photos">
-                            {photos.filter(Boolean).map((url, index) => <button type="button" key={url} onClick={() => setOpenPhoto(url)} aria-label={'참고 사진 ' + (index + 1) + ' 크게 보기'}>
+                            {photos.filter(Boolean).map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer">
                                 <img src={url} alt={entry.title + ' 참고 사진 ' + (index + 1)} />
-                            </button>)}
+                            </a>)}
                         </div>
                     </section>
                 )}
@@ -1100,10 +1096,6 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     </div>
                 )}
             </article>
-            {openPhoto && <div className="rn-photo-viewer" role="dialog" aria-modal="true" aria-label="참고 사진 크게 보기" onClick={() => setOpenPhoto(null)}>
-                <button type="button" className="rn-photo-viewer-close" onClick={() => setOpenPhoto(null)} aria-label="사진 닫기">×</button>
-                <img src={openPhoto} alt={entry.title + ' 참고 사진 크게 보기'} onClick={event => event.stopPropagation()} />
-            </div>}
         </div>
     );
 }
