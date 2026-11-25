@@ -76,3 +76,10 @@ export interface EntryFilters {
     category?: EntryCategory | '';
     model?: string;
 }
+
+export interface MissingKnowledgeRequest {
+    id: string;
+    family: string;
+    query: string;
+    supporters: number;
+}

@@ -446,6 +446,17 @@
 .rn-empty strong { color: #374451; font-size: 14px; }
 .rn-empty p { margin: 0; color: #89949d; font-size: 11px; line-height: 1.6; }
 .rn-empty.compact { min-height: 100px; border: 0; }
+.rn-missing-form { width: min(100%, 460px); display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+.rn-missing-form select, .rn-missing-form input { min-height: 38px; min-width: 0; flex: 1 1 150px; padding: 7px 10px; border: 1px solid #dfe5e9; border-radius: 9px; background: white; color: #33404c; font-size: 13px; }
+.rn-missing-form button { flex: 1 1 100%; min-height: 38px; }
+.rn-missing-form small { width: 100%; color: #187a56; font-size: 11px; }
+.rn-missing-list { margin-top: 24px; padding: 18px; border: 1px solid #e7ebef; border-radius: 17px; background: white; }
+.rn-missing-list h2 { margin: 0 0 8px; font-size: 15px; color: #26323d; }
+.rn-missing-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #edf0f2; }
+.rn-missing-row > span { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.rn-missing-row strong { overflow-wrap: anywhere; font-size: 12px; }
+.rn-missing-row small { color: #89949d; font-size: 10px; }
+.rn-missing-row .rn-secondary-btn { min-height: 32px; padding: 0 10px; font-size: 10px; white-space: nowrap; }
 .rn-loading-line { min-height: 120px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #788590; font-size: 12px; }
 .rn-spinner { width: 18px; height: 18px; display: inline-block; flex: none; border: 2px solid #f0d6df; border-top-color: var(--rn-red); border-radius: 50%; animation: rn-spin .7s linear infinite; }
 @keyframes rn-spin { to { transform: rotate(360deg); } }

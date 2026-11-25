@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
     HashRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams,
 } from 'react-router-dom';
@@ -9,13 +9,13 @@ import { clearBadge, watchBadge } from '../lib/badge';
 import { isConfigured, signInWithApple, signInWithKakao, supabase } from '../lib/supabase';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
-    createEntry, getEntry, getRepairMembership, listNotifications, markNotificationsRead, removeEntry, updateEntry,
-    repairDb, requestRepairMembership, searchEntries, signedPhotoUrls,
+    createEntry, getEntry, getRepairMembership, listMissingKnowledge, listNotifications, markNotificationsRead, removeEntry, updateEntry,
+    repairDb, requestMissingKnowledge, requestRepairMembership, resolveMissingKnowledge, searchEntries, signedPhotoUrls,
     unreadNotificationCount, updateRepairMemberProfile,
 } from './data';
 import {
     ENTRY_CATEGORIES, PRODUCT_FAMILIES, REPAIR_JOB_TITLES, type EntryCategory, type EntryFilters,
-    type RepairEntry, type RepairJobTitle, type RepairMembership, type RepairNotification,
+    type MissingKnowledgeRequest, type RepairEntry, type RepairJobTitle, type RepairMembership, type RepairNotification,
 } from './types';
 import './repair.css';
 
@@ -533,13 +533,33 @@ function MobileNav() {
     );
 }
 
+function readSearchState(scope: string): { filters: EntryFilters; visibleCount: number; scrollY: number } {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem('repair-search-' + scope) || '{}');
+        return {
+            filters: saved.filters ?? {},
+            visibleCount: Math.max(5, Number(saved.visibleCount) || 5),
+            scrollY: Math.max(0, Number(saved.scrollY) || 0),
+        };
+    } catch {
+        return { filters: {}, visibleCount: 5, scrollY: 0 };
+    }
+}
+
 function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'saved' | 'mine' }) {
+    const initial = useMemo(() => readSearchState(scope), [scope]);
     const [entries, setEntries] = useState<RepairEntry[] | null>(null);
     const [loading, setLoading] = useState(true);
     const personalTitle = scope === 'saved' ? '저장한 글' : '내 글';
-    const [visibleCount, setVisibleCount] = useState(5);
+    const [visibleCount, setVisibleCount] = useState(initial.visibleCount);
     const [error, setError] = useState('');
-    const [filters, setFilters] = useState<EntryFilters>({});
+    const [filters, setFilters] = useState<EntryFilters>(initial.filters);
+    const [missing, setMissing] = useState<MissingKnowledgeRequest[]>([]);
+    const [requestFamily, setRequestFamily] = useState(initial.filters.family ?? '');
+    const [requestQuery, setRequestQuery] = useState(initial.filters.query ?? '');
+    const [requestCount, setRequestCount] = useState<number | null>(null);
+    const [requestBusy, setRequestBusy] = useState(false);
+    const restoredScroll = useRef(false);
     const [push, setPush] = useState<PushState | null>(null);
     const [pushBusy, setPushBusy] = useState(false);
     const toast = useToast();
@@ -562,7 +582,21 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
         return () => window.clearTimeout(timer);
     }, [load]);
 
-    useEffect(() => { setVisibleCount(5); }, [filters, scope]);
+    useEffect(() => {
+        sessionStorage.setItem('repair-search-' + scope, JSON.stringify({ filters, visibleCount, scrollY: initial.scrollY }));
+    }, [filters, visibleCount, scope, initial.scrollY]);
+
+    useEffect(() => {
+        if (loading || restoredScroll.current) return;
+        restoredScroll.current = true;
+        const frame = requestAnimationFrame(() => window.scrollTo(0, initial.scrollY));
+        return () => cancelAnimationFrame(frame);
+    }, [loading, initial.scrollY]);
+
+    useEffect(() => {
+        if (scope !== 'case') return;
+        void listMissingKnowledge().then(setMissing).catch(() => {});
+    }, [scope]);
 
     useEffect(() => {
         const refresh = () => { void pushState('repair', userId).then(setPush); };
@@ -578,8 +612,36 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
         };
     }, [load, userId]);
 
-    const change = (key: keyof EntryFilters, value: string) =>
+    const change = (key: keyof EntryFilters, value: string) => {
+        setVisibleCount(5);
+        setRequestCount(null);
+        if (key === 'query') setRequestQuery(value);
+        if (key === 'family') setRequestFamily(value);
         setFilters(current => ({ ...current, [key]: value }));
+    };
+
+    const rememberScroll = () => {
+        sessionStorage.setItem('repair-search-' + scope,
+            JSON.stringify({ filters, visibleCount, scrollY: window.scrollY }));
+    };
+
+    const submitMissing = async (event: FormEvent) => {
+        event.preventDefault();
+        if (!requestFamily || requestQuery.trim().length < 2) {
+            toast('제품군과 증상·검색어를 입력해 주세요.', 'error');
+            return;
+        }
+        setRequestBusy(true);
+        try {
+            setRequestCount(await requestMissingKnowledge(requestFamily, requestQuery.trim()));
+            setMissing(await listMissingKnowledge());
+            toast('자료 요청이 등록됐습니다.', 'ok');
+        } catch (reason) {
+            toast(messageOf(reason), 'error');
+        } finally {
+            setRequestBusy(false);
+        }
+    };
 
     const enableNotifications = async () => {
         setPushBusy(true);
@@ -598,7 +660,13 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
         }
     };
 
-    const clearFilters = () => setFilters({});
+    const clearFilters = () => {
+        setVisibleCount(5);
+        setRequestCount(null);
+        setRequestFamily('');
+        setRequestQuery('');
+        setFilters({});
+    };
     const hasFilters = Boolean(filters.query || filters.family || filters.category);
     const activeCategory = filters.category ?? '';
 
@@ -698,13 +766,22 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
                         <span><Icon name="search" size={26} /></span>
                         <strong>{hasFilters ? '검색 결과가 없습니다.' : scope === 'saved' ? '아직 저장한 글이 없습니다.' : scope === 'mine' ? '아직 작성한 글이 없습니다.' : '아직 등록된 수리 정보가 없습니다.'}</strong>
                         <p>{hasFilters ? '모델명이나 검색어를 바꾸어 다시 찾아보세요.' : scope === 'saved' ? '글 상세에서 ☆ 저장을 눌러 주세요.' : '첫 수리 및 점검 정보를 등록해 주세요.'}</p>
+                        {scope === 'case' && hasFilters && <form className="rn-missing-form" onSubmit={event => void submitMissing(event)}>
+                            <select aria-label="자료 요청 제품군" value={requestFamily} onChange={event => setRequestFamily(event.target.value)} required>
+                                <option value="">제품군 선택</option>
+                                {PRODUCT_FAMILIES.map(family => <option key={family} value={family}>{family}</option>)}
+                            </select>
+                            <input aria-label="필요한 증상 또는 자료" value={requestQuery} onChange={event => setRequestQuery(event.target.value)} placeholder="필요한 증상 또는 자료" minLength={2} maxLength={120} required />
+                            <button className="rn-primary-btn" type="submit" disabled={requestBusy}>{requestBusy ? '등록 중…' : '이 자료 요청'}</button>
+                            {requestCount !== null && <small>{requestCount}명이 요청한 자료입니다.</small>}
+                        </form>}
                         {scope !== 'saved' && !hasFilters && <Link to="/new" className="rn-primary-btn">첫 정보 등록하기</Link>}
                     </div>
                 )}
                 {!!entries?.length && (
                     <>
                         <div className="rn-entry-grid">
-                            {entries.slice(0, visibleCount).map(entry => <EntryCard key={entry.id} entry={entry} />)}
+                            {entries.slice(0, visibleCount).map(entry => <EntryCard key={entry.id} entry={entry} returnTo={scope === 'case' ? '/' : '/' + scope} onOpen={rememberScroll} />)}
                         </div>
                         {visibleCount < entries.length && (
                             <div className="rn-load-more-wrap">
@@ -716,14 +793,21 @@ function KnowledgeHome({ userId, scope }: { userId: string; scope: 'case' | 'sav
                     </>
                 )}
             </section>
+            {scope === 'case' && missing.length > 0 && <section className="rn-missing-list" aria-label="요청된 자료">
+                <h2>동료들이 찾는 자료</h2>
+                {missing.map(item => <div className="rn-missing-row" key={item.id}>
+                    <span><strong>{item.query}</strong><small>{item.family} · {item.supporters}명 요청</small></span>
+                    <Link to={'/new?' + new URLSearchParams({ request: item.id, family: item.family, title: item.query })} className="rn-secondary-btn">자료 등록</Link>
+                </div>)}
+            </section>}
         </div>
     );
 }
 
-function EntryCard({ entry }: { entry: RepairEntry }) {
+function EntryCard({ entry, returnTo, onOpen }: { entry: RepairEntry; returnTo: string; onOpen: () => void }) {
     const category = ENTRY_CATEGORIES.find(item => item.id === entry.category);
     return (
-        <Link to={'/entry/' + entry.id} className="rn-entry-card">
+        <Link to={'/entry/' + entry.id} state={{ returnTo }} onClick={onOpen} className="rn-entry-card">
             <div className="rn-entry-card-top">
                 <span className={'rn-category-tag cat-' + entry.category}>
                     <span>{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}
@@ -754,22 +838,35 @@ function EntryCard({ entry }: { entry: RepairEntry }) {
 function EntryForm({ userId }: { userId: string }) {
     const toast = useToast();
     const navigate = useNavigate();
+    const location = useLocation();
     const { id: editId } = useParams();
+    const request = new URLSearchParams(location.search);
+    const draftKey = 'repair-entry-draft-' + userId + (request.get('request') ? '-request-' + request.get('request') : '');
+    const savedDraft = useMemo(() => {
+        if (editId) return null;
+        try { return JSON.parse(localStorage.getItem(draftKey) || 'null') as { form?: Record<string, string>; tagsText?: string } | null; }
+        catch { return null; }
+    }, [draftKey, editId]);
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(!!editId);
     const [existingEntry, setExistingEntry] = useState<RepairEntry | null>(null);
     const [existingPhotos, setExistingPhotos] = useState<{ path: string; url: string }[]>([]);
     const [files, setFiles] = useState<File[]>([]);
-    const [tagsText, setTagsText] = useState('');
-    const [form, setForm] = useState({
-        product_family: '',
+    const [tagsText, setTagsText] = useState(savedDraft?.tagsText ?? '');
+    const [form, setForm] = useState(() => ({
         model_code: '',
         category: 'inspection' as EntryCategory,
-        title: '',
+        title: request.get('title') || '',
         symptoms: '',
         inspection_steps: '',
         cautions: '',
-    });
+        ...savedDraft?.form,
+        product_family: savedDraft?.form?.product_family || request.get('family') || '',
+    }));
+
+    useEffect(() => {
+        if (!editId) localStorage.setItem(draftKey, JSON.stringify({ form, tagsText }));
+    }, [draftKey, editId, form, tagsText]);
 
     const previews = useMemo(() => files.map(file => URL.createObjectURL(file)), [files]);
     useEffect(() => () => previews.forEach(url => URL.revokeObjectURL(url)), [previews]);
@@ -841,6 +938,11 @@ function EntryForm({ userId }: { userId: string }) {
                 navigate('/entry/' + editId);
             } else {
                 const newId = await createEntry(input, files, userId);
+                localStorage.removeItem(draftKey);
+                if (request.get('request') && input.product_family === request.get('family')) {
+                    try { await resolveMissingKnowledge(request.get('request')!, newId); }
+                    catch (reason) { toast('글은 등록됐지만 자료 요청 연결에 실패했습니다. ' + messageOf(reason), 'error'); }
+                }
                 toast('수리 정보가 등록되었습니다. 회원 알림함에 공유됐습니다.', 'ok');
                 navigate('/entry/' + newId);
             }
@@ -861,6 +963,7 @@ function EntryForm({ userId }: { userId: string }) {
                 <span className="rn-eyebrow">SHARE FIELD KNOWLEDGE</span>
                 <h1>{editId ? '수리 정보 수정' : '수리 정보 등록'}</h1>
                 <p>모델과 증상을 구체적으로 기록하면 동료가 더 빠르게 찾을 수 있습니다.</p>
+                {!editId && <p>입력 중인 내용은 이 기기에 자동 저장됩니다. 사진은 등록할 때 다시 선택해 주세요.</p>}
             </div>
             <form className="rn-form-card" onSubmit={submit}>
                 <div className="rn-form-section">
@@ -899,7 +1002,7 @@ function EntryForm({ userId }: { userId: string }) {
                 <div className="rn-form-section">
                     <div className="rn-form-section-title">
                         <span className="rn-step-number">02</span>
-                        <div><strong>수리 및 점검 내용</strong><small>증상과 점검 순서, 주의사항을 구체적으로 적어 주세요.</small></div>
+                        <div><strong>수리 및 점검 내용</strong><small>{form.category === 'parts' ? '걸리는 부분과 쉽게 교체하는 요령을 간단히 적어 주세요.' : '증상과 점검 순서, 주의사항을 구체적으로 적어 주세요.'}</small></div>
                     </div>
                     <label className="rn-field">
                         <span>고객 증상·발생 조건</span>
@@ -907,9 +1010,9 @@ function EntryForm({ userId }: { userId: string }) {
                                   placeholder="언제, 어떤 조건에서 증상이 나타나는지 적어 주세요." rows={3} maxLength={1200} />
                     </label>
                     <label className="rn-field">
-                        <span>수리 및 점검방법 <b>*</b></span>
+                        <span>{form.category === 'parts' ? '부품교체 요령' : '수리 및 점검방법'} <b>*</b></span>
                         <textarea value={form.inspection_steps} onChange={e => field('inspection_steps', e.target.value)}
-                                  placeholder={'1. 먼저 확인할 항목\n2. 측정 또는 테스트 조건\n3. 결과에 따른 다음 점검'} rows={7} maxLength={8000} required />
+                                  placeholder={form.category === 'parts' ? '걸리는 부분 → 공구를 넣는 방향 → 쉽게 분리·조립하는 요령' : '1. 먼저 확인할 항목\n2. 측정 또는 테스트 조건\n3. 결과에 따른 다음 점검'} rows={form.category === 'parts' ? 4 : 7} maxLength={8000} required />
                     </label>
                     <label className="rn-field">
                         <span>주의 사항</span>
@@ -979,6 +1082,8 @@ function EntryForm({ userId }: { userId: string }) {
 function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) {
     const { id: entryId = '' } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
+    const returnTo = (location.state as { returnTo?: string } | null)?.returnTo || '/';
     const toast = useToast();
     const [entry, setEntry] = useState<RepairEntry | null>(null);
     const [saved, setSaved] = useState(false);
@@ -1038,7 +1143,7 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     if (loading) return <div className="rn-page"><div className="rn-loading-line"><span className="rn-spinner" /> 정보 불러오는 중</div></div>;
     if (error || !entry) return (
         <div className="rn-page">
-            <Link className="rn-back-link" to="/"><span>‹</span> 지식 홈으로</Link>
+            <Link className="rn-back-link" to={returnTo}><span>‹</span> 검색 결과로 돌아가기</Link>
             <div className="rn-error-panel"><strong>수리 정보를 열 수 없습니다.</strong><span>{error}</span></div>
         </div>
     );
@@ -1048,7 +1153,7 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     const canEdit = entry.created_by === userId;
     return (
         <div className="rn-page rn-detail-page">
-            <Link className="rn-back-link" to="/"><span>‹</span> 검색 결과로 돌아가기</Link>
+            <Link className="rn-back-link" to={returnTo}><span>‹</span> 검색 결과로 돌아가기</Link>
             <article className="rn-detail-card">
                 <div className="rn-detail-topline">
                     <span className={'rn-category-tag cat-' + entry.category}><span>{category?.icon ?? '•'}</span>{category?.label ?? '수리 정보'}</span>

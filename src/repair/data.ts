@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { shrinkImage } from '../lib/image';
 import type {
-    EntryFilters, RepairEntry, RepairJobTitle, RepairMembership, RepairNotification, VerificationStatus,
+    EntryFilters, MissingKnowledgeRequest, RepairEntry, RepairJobTitle, RepairMembership, RepairNotification, VerificationStatus,
 } from './types';
 
 // 새 수리 지식 테이블은 기존 골프 테이블과 분리되어 있다.
@@ -72,6 +72,27 @@ export async function searchEntries(filters: EntryFilters = {}, scope: 'case' | 
     });
     if (error) throw error;
     return authorNames((data ?? []) as RepairEntry[]);
+}
+
+export async function listMissingKnowledge(): Promise<MissingKnowledgeRequest[]> {
+    const { data, error } = await db.rpc('list_repair_missing_knowledge');
+    if (error) throw error;
+    return (data ?? []) as MissingKnowledgeRequest[];
+}
+
+export async function requestMissingKnowledge(family: string, query: string): Promise<number> {
+    const { data, error } = await db.rpc('request_repair_missing_knowledge', {
+        p_family: family, p_query: query,
+    });
+    if (error) throw error;
+    return Number(data) || 1;
+}
+
+export async function resolveMissingKnowledge(requestId: string, entryId: string): Promise<void> {
+    const { error } = await db.rpc('resolve_repair_missing_knowledge', {
+        p_request_id: requestId, p_entry_id: entryId,
+    });
+    if (error) throw error;
 }
 
 export async function getEntry(entryId: string): Promise<RepairEntry> {

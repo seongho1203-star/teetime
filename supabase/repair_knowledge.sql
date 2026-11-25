@@ -71,6 +71,8 @@ begin
 end;
 $$;
 
+
+
 create or replace function public.approve_repair_membership(p_user_id uuid)
 returns void
 language plpgsql security definer set search_path = public, pg_catalog as $$
@@ -880,3 +882,92 @@ begin
     end if;
 end;
 $$;
+
+-- 검색 결과가 없는 증상은 같은 제품군과 검색어별로 하나로 모은다.
+create table if not exists public.repair_missing_knowledge (
+    id uuid primary key default gen_random_uuid(),
+    family text not null check (char_length(btrim(family)) between 1 and 40),
+    query text not null check (char_length(btrim(query)) between 2 and 120),
+    query_key text not null,
+    created_at timestamptz not null default now(),
+    resolved_entry_id uuid references public.repair_entries(id) on delete cascade
+);
+create unique index if not exists repair_missing_knowledge_open_key
+    on public.repair_missing_knowledge (family, query_key)
+    where resolved_entry_id is null;
+
+create table if not exists public.repair_missing_supporters (
+    request_id uuid not null references public.repair_missing_knowledge(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    primary key (request_id, user_id)
+);
+
+alter table public.repair_missing_knowledge enable row level security;
+alter table public.repair_missing_supporters enable row level security;
+revoke all on public.repair_missing_knowledge, public.repair_missing_supporters from public, anon, authenticated;
+
+create or replace function public.request_repair_missing_knowledge(p_family text, p_query text)
+returns integer
+language plpgsql security definer set search_path = public, pg_catalog as $$
+declare
+    v_family text := btrim(coalesce(p_family, ''));
+    v_query text := btrim(coalesce(p_query, ''));
+    v_key text := regexp_replace(lower(v_query), '[[:space:][:punct:]]+', '', 'g');
+    v_id uuid;
+    v_count integer;
+begin
+    if not public.is_repair_member() then raise exception '승인된 회원만 요청할 수 있습니다.'; end if;
+    if char_length(v_family) not between 1 and 40 or char_length(v_query) not between 2 and 120
+       or char_length(v_key) < 2 then
+        raise exception '제품군과 증상·검색어를 입력해 주세요.';
+    end if;
+
+    insert into public.repair_missing_knowledge (family, query, query_key)
+    values (v_family, v_query, v_key)
+    on conflict (family, query_key) where resolved_entry_id is null do nothing;
+    select id into v_id from public.repair_missing_knowledge
+     where family = v_family and query_key = v_key and resolved_entry_id is null;
+    insert into public.repair_missing_supporters (request_id, user_id)
+    values (v_id, auth.uid()) on conflict do nothing;
+    select count(*)::integer into v_count from public.repair_missing_supporters where request_id = v_id;
+    return v_count;
+end;
+$$;
+
+create or replace function public.list_repair_missing_knowledge()
+returns table (id uuid, family text, query text, supporters bigint)
+language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+    if not public.is_repair_member() then raise exception '승인된 회원만 조회할 수 있습니다.'; end if;
+    return query
+    select r.id, r.family, r.query, count(s.user_id)
+      from public.repair_missing_knowledge r
+      join public.repair_missing_supporters s on s.request_id = r.id
+     where r.resolved_entry_id is null
+     group by r.id, r.family, r.query, r.created_at
+     order by count(s.user_id) desc, r.created_at desc
+     limit 5;
+end;
+$$;
+
+create or replace function public.resolve_repair_missing_knowledge(p_request_id uuid, p_entry_id uuid)
+returns void
+language plpgsql security definer set search_path = public, pg_catalog as $$
+begin
+    if not public.is_repair_member() then raise exception '승인된 회원만 처리할 수 있습니다.'; end if;
+    update public.repair_missing_knowledge r
+       set resolved_entry_id = p_entry_id
+     where r.id = p_request_id and r.resolved_entry_id is null
+       and exists (select 1 from public.repair_entries e
+                    where e.id = p_entry_id and e.created_by = auth.uid()
+                      and e.product_family = r.family);
+    if not found then raise exception '등록한 수리 정보와 자료 요청을 연결하지 못했습니다.'; end if;
+end;
+$$;
+
+revoke all on function public.request_repair_missing_knowledge(text, text) from public, anon;
+revoke all on function public.list_repair_missing_knowledge() from public, anon;
+revoke all on function public.resolve_repair_missing_knowledge(uuid, uuid) from public, anon;
+grant execute on function public.request_repair_missing_knowledge(text, text) to authenticated;
+grant execute on function public.list_repair_missing_knowledge() to authenticated;
+grant execute on function public.resolve_repair_missing_knowledge(uuid, uuid) to authenticated;
