@@ -216,8 +216,8 @@ create policy repair_entries_add on public.repair_entries
 drop policy if exists repair_entries_edit on public.repair_entries;
 create policy repair_entries_edit on public.repair_entries
     for update to authenticated
-    using ((select public.is_repair_member()) and (is_admin() or created_by = (select auth.uid())))
-    with check ((select public.is_repair_member()) and (is_admin() or created_by = (select auth.uid())));
+    using ((select public.is_repair_member()) and created_by = (select auth.uid()))
+    with check ((select public.is_repair_member()) and created_by = (select auth.uid()));
 
 drop policy if exists repair_entries_delete on public.repair_entries;
 create policy repair_entries_delete on public.repair_entries

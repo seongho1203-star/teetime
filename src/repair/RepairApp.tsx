@@ -318,7 +318,7 @@ function RepairWorkspace({ membership, isAdmin, onProfileChange }: {
                             <Route path="/saved" element={<KnowledgeHome key="saved" userId={userId} scope="saved" />} />
                             <Route path="/mine" element={<KnowledgeHome key="mine" userId={userId} scope="mine" />} />
                             <Route path="/new" element={<EntryForm userId={userId} />} />
-                            <Route path="/entry/:id/edit" element={<EntryForm userId={userId} isAdmin={isAdmin} />} />
+                            <Route path="/entry/:id/edit" element={<EntryForm userId={userId} />} />
                             <Route path="/entry/:id" element={<EntryDetail userId={userId} isAdmin={isAdmin} />} />
                             <Route path="/alerts" element={<NotificationCenter userId={userId} />} />
                             <Route path="/members" element={<MemberApprovals isAdmin={isAdmin} userId={userId} />} />
@@ -751,7 +751,7 @@ function EntryCard({ entry }: { entry: RepairEntry }) {
     );
 }
 
-function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: boolean }) {
+function EntryForm({ userId }: { userId: string }) {
     const toast = useToast();
     const navigate = useNavigate();
     const { id: editId } = useParams();
@@ -779,7 +779,7 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
         let active = true;
         void getEntry(editId).then(async entry => {
             if (!active) return;
-            if (entry.created_by !== userId && !isAdmin) {
+            if (entry.created_by !== userId) {
                 toast('본인이 작성한 글만 수정할 수 있습니다.', 'error');
                 navigate('/entry/' + editId, { replace: true });
                 return;
@@ -801,7 +801,7 @@ function EntryForm({ userId, isAdmin = false }: { userId: string; isAdmin?: bool
             if (active) toast(messageOf(error), 'error');
         }).finally(() => { if (active) setLoading(false); });
         return () => { active = false; };
-    }, [editId, isAdmin, navigate, toast, userId]);
+    }, [editId, navigate, toast, userId]);
 
     const field = (name: keyof typeof form, value: string) =>
         setForm(current => ({ ...current, [name]: value }));
@@ -1045,7 +1045,7 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
 
     const category = ENTRY_CATEGORIES.find(item => item.id === entry.category);
     const canDelete = isAdmin || entry.created_by === userId;
-    const canEdit = canDelete;
+    const canEdit = entry.created_by === userId;
     return (
         <div className="rn-page rn-detail-page">
             <Link className="rn-back-link" to="/"><span>‹</span> 검색 결과로 돌아가기</Link>
@@ -1089,7 +1089,7 @@ function EntryDetail({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
                     </section>
                 )}
 
-                {canDelete && (
+                {(canEdit || canDelete) && (
                     <div className="rn-detail-actions">
                         {canEdit && <Link className="rn-secondary-btn" to={'/entry/' + entry.id + '/edit'}>수정</Link>}
                         <button className="rn-delete-btn" onClick={() => void destroy()} disabled={busy}>이 정보 삭제</button>
